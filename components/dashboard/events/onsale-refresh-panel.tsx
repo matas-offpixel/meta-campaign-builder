@@ -3,7 +3,9 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 
+import { RetargetingPanelView } from "@/components/dashboard/events/retargeting-panel";
 import { TestPlanPanel } from "@/components/dashboard/events/test-plan-panel";
+import type { RetargetingView } from "@/lib/retargeting/plan";
 import { Button } from "@/components/ui/button";
 import { LOW_TRACK_RECORD } from "@/lib/onsale-refresh/track-labels";
 import { REJECT_REASONS, acceptable, appliesNow, displayState, heldText, panelText, panelTextDeep, rejectReasonsFor, retriesNow, stateText, type RejectReason } from "@/lib/onsale-refresh/line-states";
@@ -33,6 +35,7 @@ const KIND_LABEL: Record<PanelLine["kind"], string> = {
   purchase_campaign: "Purchase campaign",
   scale_purchase: "Scale",
   copy_audience: "Copy into Purchase",
+  retargeting_campaign: "Create",
 };
 
 const CREATIVE_KINDS = new Set<PanelLine["kind"]>(["add_creative", "claim_ready", "pause_creative"]);
@@ -131,7 +134,7 @@ function CopyBlock({ copy }: { copy: NonNullable<PanelLine["copy"]> }) {
 
 export type PanelActions = {
   onArm?: (mode: "shadow" | "live") => void;
-  onDecide?: (lineId: string, decision: "accept" | "reject", reason?: RejectReason, note?: string, choice?: { dailyGbp?: number }) => void;
+  onDecide?: (lineId: string, decision: "accept" | "reject", reason?: RejectReason, note?: string, choice?: { dailyGbp?: number; share?: number }) => void;
   onApply?: (opts: { retry: boolean; lineIds?: string[] }) => void;
   /** P5: Propose again under a stop notice — restarts the rule for this client. */
   onProposeAgain?: (ruleId: string) => void;
@@ -655,7 +658,10 @@ export type OnSaleRefreshPanelViewProps = {
 export function OnSaleRefreshPanelView({ eventId, proposals: given, showWeek = false, apply, actions = {}, objectiveOnly = false }: OnSaleRefreshPanelViewProps) {
   // One formatter for everything the panel draws, P1 and P2 alike: figures grouped (£2,505.85 · 3,105), dates kept together.
   const kd = panelText;
-  const proposals = panelTextDeep(given);
+  // RT1: the show's `{code} · Retargeting` proposal is its own panel (RetargetingPanel), never a campaign of the refresh.
+  const proposals = panelTextDeep(given.filter((proposal) => proposal.runKind !== "retargeting"));
+  // RT9: one note in place of the per-campaign Retargeting default, on the first campaign.
+  const retargetingNote = proposals.map((proposal) => proposal.notes.retargeting).find(Boolean) ?? null;
   if (!proposals.length) {
     return (
       <section id="onsale-refresh" className="rounded-md border border-border bg-card p-4">
@@ -783,6 +789,11 @@ export function OnSaleRefreshPanelView({ eventId, proposals: given, showWeek = f
                 {audiences.map((line) => (apply ? <LiveLineRow key={line.id} line={line} apply={apply} actions={actions} frozen={showWeek} /> : <LineRow key={line.id} line={line} shadow={shadow} />))}
               </ul>
             ) : null}
+            {retargetingNote && proposal.id === head.id ? (
+              <p className="mt-1 text-xs text-muted-foreground" data-retargeting-note>
+                {kd(retargetingNote)}
+              </p>
+            ) : null}
             <div className="mt-2">
               <Watch label="Watch" items={proposal.watch.audiences} note={proposal.notes.drops} />
             </div>
@@ -834,15 +845,15 @@ export function OnSaleRefreshPanelView({ eventId, proposals: given, showWeek = f
 /** The live panel: fetches the event's proposals and gates through the session route, and wires P2's clicks. Mounted by G2's on-sale predicate. */
 export function OnSaleRefreshPanel({ eventId, eventDate }: { eventId: string; eventDate: string | null }) {
   const showWeek = isShowWeek(eventDate, todayLondon(new Date()));
-  const [panel, setPanel] = useState<{ proposals: PanelProposal[]; apply: PanelApply | null } | null>(null);
+  const [panel, setPanel] = useState<{ proposals: PanelProposal[]; apply: PanelApply | null; retargeting: RetargetingView | null; clientId: string | null } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const load = useCallback(async () => {
     const res = await fetch(`/api/events/${eventId}/onsale-refresh`, { cache: "no-store" });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const body = (await res.json()) as { proposals: PanelProposal[]; apply?: PanelApply };
-    setPanel({ proposals: body.proposals ?? [], apply: body.apply ?? null });
+    const body = (await res.json()) as { proposals: PanelProposal[]; apply?: PanelApply; retargeting?: RetargetingView | null; clientId?: string | null };
+    setPanel({ proposals: body.proposals ?? [], apply: body.apply ?? null, retargeting: body.retargeting ?? null, clientId: body.clientId ?? null });
   }, [eventId]);
   useEffect(() => {
     let cancelled = false;
@@ -888,13 +899,20 @@ export function OnSaleRefreshPanel({ eventId, eventDate }: { eventId: string; ev
     busy,
     error: actionError,
     onArm: (mode) => void act("arm", { mode }),
-    onDecide: (lineId, decision, reason, note, choice) => void act(`lines/${lineId}`, { decision, reason, note, ...(choice?.dailyGbp ? { dailyGbp: choice.dailyGbp } : {}) }),
+    onDecide: (lineId, decision, reason, note, choice) => void act(`lines/${lineId}`, { decision, reason, note, ...(choice?.dailyGbp ? { dailyGbp: choice.dailyGbp } : {}), ...(choice?.share ? { share: choice.share } : {}) }),
     onApply: (opts) => void act("apply", opts),
     onProposeAgain: (ruleId) => void act("restart", { ruleId }),
   };
   return (
     <>
       <OnSaleRefreshPanelView eventId={eventId} proposals={panel.proposals} showWeek={showWeek} apply={panel.apply ?? undefined} actions={actions} />
+      {/* RT1: the show's Retargeting panel. It carries on through show week (RT7). */}
+      {(() => {
+        const proposal = panel.proposals.find((row) => row.runKind === "retargeting");
+        const line = proposal?.lines.find((row) => row.kind === "retargeting_campaign") ?? null;
+        const view = line?.retargeting ?? proposal?.notes.retargetingView ?? panel.retargeting;
+        return view ? <RetargetingPanelView key={line?.id ?? view.state} view={view} line={line} clientId={panel.clientId} eventId={eventId} apply={panel.apply ?? undefined} actions={actions} /> : null;
+      })()}
       {/* CT9: the Test plan panel sits under the Refresh panel. It draws nothing for an event with no plan. */}
       <TestPlanPanel eventId={eventId} />
     </>

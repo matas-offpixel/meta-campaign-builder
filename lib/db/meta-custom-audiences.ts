@@ -61,6 +61,8 @@ export async function listAudiencesForClient(
     .from(TABLE)
     .select("*")
     .eq("client_id", clientId)
+    // Migration 256: role lists (customer_list) are the customer-audience wizard's, read by the Retargeting campaign; the builder never lists them.
+    .neq("audience_subtype", "customer_list")
     .order("updated_at", { ascending: false });
 
   if (opts.eventId) query = query.eq("event_id", opts.eventId);
