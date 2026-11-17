@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { join } from "node:path";
 import { describe, it } from "node:test";
 
-import { checkFaceDetectBundle, FACE_API_FILES, FACE_DETECT_MARKER, RENDER_TICK_ROUTE, type Io } from "../face-detect-bundle.ts";
+import { checkFaceBenchBundle, checkFaceDetectBundle, FACE_API_FILES, FACE_BENCH_FILES, FACE_DETECT_MARKER, RENDER_TICK_ROUTE, type Io } from "../face-detect-bundle.ts";
 
 const ROOT = "/repo";
 const ENTRY = join(ROOT, ".next/server/app/api/cron/creative-lab-render-tick/route.js");
@@ -59,5 +59,21 @@ describe("face-detect bundle check (after next build)", () => {
   it("asks for a build when there is no trace", () => {
     const result = checkFaceDetectBundle(ROOT, RENDER_TICK_ROUTE, { exists: () => false, read: () => "" });
     assert.match(result.problems[0]!, /Run npm run build first/);
+  });
+});
+
+describe("timing-sample bundle check (after next build)", () => {
+  it("passes when the wasm child and every file it loads are traced, and lists the traced files", () => {
+    const result = checkFaceBenchBundle(ROOT, RENDER_TICK_ROUTE, fakeBuild("", [...FACE_API_FILES, ...FACE_BENCH_FILES]));
+    assert.deepEqual(result.problems, []);
+    for (const want of FACE_BENCH_FILES) assert.ok(result.traced.includes(want), want);
+  });
+
+  it("names each file the trace left out (the SIMD .wasm, the child script)", () => {
+    const traced = FACE_BENCH_FILES.filter((f) => !f.endsWith("-simd.wasm") && !f.endsWith(".cjs"));
+    const result = checkFaceBenchBundle(ROOT, RENDER_TICK_ROUTE, fakeBuild("", traced));
+    assert.equal(result.problems.length, 2);
+    assert.ok(result.problems.some((p) => p.includes("tfjs-backend-wasm-simd.wasm")));
+    assert.ok(result.problems.some((p) => p.includes("face-bench-child.cjs")));
   });
 });

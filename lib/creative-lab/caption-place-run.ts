@@ -42,6 +42,7 @@ import {
 } from "./caption-placement.ts";
 import { finishFaceCheck, parkFaceCheck } from "./face-check-lock.ts";
 import { finishedSamples, newProgress, runFaceCheckSlice, type SliceStats } from "./face-check-slice.ts";
+import { benchFrame, benchLine, FACE_BENCH_CANDIDATES } from "./face-detect-bench.ts";
 import { extractFaceFrames, scanFrameTimes } from "./face-frames.ts";
 import { FACE_MAX_GAP_S, faceSampleSeed, planFrames, sampleTimes } from "./face-sampling.ts";
 
@@ -100,13 +101,14 @@ export async function ensureClipFaces(db: ServiceRoleDb, clipId: string, claim: 
   const timing = () => {
     const per = stats.frames ? `, ${(stats.detectS / stats.frames).toFixed(2)} s per frame` : "";
     const total = progress ? `, ${progress.done} of ${progress.frames.length} frames done (${progress.planned} planned), slice ${progress.slices}` : "";
+    const bench = stats.benchS != null ? `, timing samples ${stats.benchS.toFixed(1)} s` : "";
     return `this slice ${stats.frames} frames in ${((Date.now() - started) / 1000).toFixed(1)} s: extract ${stats.extractS.toFixed(1)} s (${stats.extracts} runs), ` +
-      `scan ${stats.scanS.toFixed(1)} s, detect ${stats.detectS.toFixed(1)} s${per}${total}`;
+      `scan ${stats.scanS.toFixed(1)} s, detect ${stats.detectS.toFixed(1)} s${per}${bench}${total}`;
   };
   const write = (body: StoredFaceSamples): Promise<boolean> => finishFaceCheck(db, clipId, claim, body, new Date());
   const dir = await mkdtemp(join(tmpdir(), "caption-place-"));
   try {
-    const { detectFaces } = await import("./face-detect.ts");
+    const { detectFaces, faceApiModelDir } = await import("./face-detect.ts");
     const assetRes = await db.from("creative_assets").select("*").eq("id", renderAssetId(clip)).maybeSingle();
     if (assetRes.error) throw new Error(`creative_assets: ${assetRes.error.message}`);
     const asset = assetRes.data as Row | null;
@@ -150,6 +152,22 @@ export async function ensureClipFaces(db: ServiceRoleDb, clipId: string, claim: 
         }));
       },
       done: (file) => rm(join(dir, file), { force: true }),
+      // One frame a slice on every candidate backend and size (face-detect-bench.ts): logs only, the real
+      // detection above is unchanged. About 3 cpu runs at the clip's seconds a frame, plus the child's.
+      bench: {
+        frames: FACE_BENCH_CANDIDATES.filter((c) => c.backend === "cpu").length,
+        overheadS: 30,
+        run: async (file, t) => {
+          const results = await benchFrame({
+            frame: await readFile(join(dir, file)),
+            dir,
+            modelDir: faceApiModelDir(),
+            deadline: started + FACE_CHECK_SLICE_MS,
+            detectCpu: (frame, longSide) => detectFaces(frame, { minConfidence: 0.3, longSide }),
+          });
+          console.log(`${prefix}: ${benchLine(results, { slice: (progress?.slices ?? 0) + 1, t })}`);
+        },
+      },
     });
     progress = slice.progress;
     if (slice.status === "parked") {

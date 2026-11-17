@@ -8,6 +8,10 @@
  * than a step in creative-lab-drive-tick: it downloads clips, and it keeps
  * HS14's 15-minute cadence. No Meta calls. Auth is the cron bearer.
  *
+ * After the pickup it checks the drops (VW1, lib/creative-lab/clip-drops-run.ts)
+ * of up to six clips imported in the last 48 h without them: the Instagram
+ * add and the upload routes don't carry ffmpeg.
+ *
  * Unset GOOGLE_DRIVE_EXPORT_DRIVE_ID → 200 with skippedReason. A cron_runs
  * row only when something came in or failed.
  */
@@ -16,11 +20,14 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { isCronAuthorized } from "@/lib/attribution/cron-auth";
 import { driveFromEnv } from "@/lib/drive/client";
+import { sweepClipDrops } from "@/lib/creative-lab/clip-drops-run";
 import { pickupShouldRecord, runDrivePickup, type PickupResult } from "@/lib/drive/pickup";
 import { withCronRunLog } from "@/lib/reporting/with-cron-run-log";
 import { createServiceRoleClient } from "@/lib/supabase/server";
 
 export const maxDuration = 800;
+/** Clips whose drops the run checks after the pickup (VW1). Each decodes one clip's sound. */
+const DROPS_SWEEP_LIMIT = 6;
 export const dynamic = "force-dynamic";
 
 async function handleGET(req: NextRequest) {
@@ -36,7 +43,10 @@ async function handleGET(req: NextRequest) {
     return NextResponse.json({ ok: false, error: err instanceof Error ? err.message : "Service-role client unavailable" }, { status: 500 });
   }
   try {
-    return NextResponse.json(await runDrivePickup(supabase, drive));
+    const result = await runDrivePickup(supabase, drive);
+    // VW1: this route carries ffmpeg, so it checks the drops of clips imported where ffmpeg isn't.
+    const drops = await sweepClipDrops(supabase, { limit: DROPS_SWEEP_LIMIT }).catch((err: unknown) => ({ error: err instanceof Error ? err.message.replace(/https?:\/\/\S+/g, "").slice(0, 160) : "sweep failed" }));
+    return NextResponse.json({ ...result, drops });
   } catch (err) {
     const message = err instanceof Error ? err.message.replace(/https?:\/\/\S+/g, "").trim() : "Unknown error";
     console.error(`[creative-lab-drive-pickup] ${message}`);

@@ -9,6 +9,7 @@ import { labLaunchesEnabled } from "../creative-lab/killswitch.ts";
 import type { ServiceRoleDb } from "../creative-lab/load.ts";
 import { artistKey, playedBefore, spotifyCandidatesOf } from "../creative-lab/lineup.ts";
 import { clipWindow, currentRenderError, renderRoundOpen } from "../creative-lab/surface.ts";
+import { windowChip, windowStateOfRow, type StoredDrops, type WindowChoice } from "../creative-lab/edit-window.ts";
 import { daysUntilEvent, nextPayday } from "../creative-lab/payday.ts";
 import { failedCheckSentence, whatsWorking, type WorkingAd } from "../creative-lab/surface.ts";
 import { quoteLines, validateQuote } from "../creative-lab/quote.ts";
@@ -237,6 +238,12 @@ export type CreativeLabCardData = {
     faceByCaption?: Record<string, string | null>;
     tripleFitSourceId?: string | null;
     tripleFitSourceNo?: number | null;
+    /** VW1: the stored drops (the source's, for a made triple-fit). Null or absent: not checked yet. */
+    drops?: StoredDrops | null;
+    /** VW4: the operator's choice beside the drops. */
+    windowChoice?: WindowChoice;
+    /** VW3's chip when the clip can't make an edit. */
+    windowChip?: string | null;
   }[];
   renders: {
     id: string;
@@ -639,6 +646,21 @@ export async function loadCreativeLabCard(
         ...(() => {
           const face = clipFace(row);
           return { faceCheck: face.state, faceByCaption: face.lines };
+        })(),
+        // VW1–VW5: a made triple-fit cuts its source's window, so it reads the source's drops.
+        ...(() => {
+          const sourceRow = text(row, "triple_fit_source_id") ? clipRows.find((item) => text(item, "id") === text(row, "triple_fit_source_id")) ?? row : row;
+          const state = windowStateOfRow(sourceRow);
+          return {
+            drops: state.kind === "pending" ? null : state.drops,
+            windowChoice: {
+              dropS: sourceRow.window_drop_s == null ? null : Number(sourceRow.window_drop_s),
+              byHand: sourceRow.window_by_hand === true,
+              inS: sourceRow.in_s == null || sourceRow.in_s === "" ? null : Number(sourceRow.in_s),
+              outS: sourceRow.out_s == null || sourceRow.out_s === "" ? null : Number(sourceRow.out_s),
+            },
+            windowChip: windowChip(state),
+          };
         })(),
         tripleFitSourceId: text(row, "triple_fit_source_id") || null,
         tripleFitSourceNo: text(row, "triple_fit_source_id")

@@ -13,6 +13,7 @@ import sharp from "sharp";
 import type { TripleFitOnClipProps } from "../../src/remotion/compositions/TripleFitOnClip.tsx";
 import { KIT_SHADOW, textOverlay, trimToInk, type Piece, type Placement } from "./artist-card.ts";
 import { approvedClaim, type WarningRow } from "./claim-approval.ts";
+import { windowStateOfRow } from "./edit-window.ts";
 import { KIT_RED, KIT_WHITE, renderCardLine } from "./claim-slot.ts";
 import { indexFonts, requireFont, type FontEntry } from "./kit-font.ts";
 import { providedFace } from "./kit-faces.ts";
@@ -303,9 +304,13 @@ export async function renderTripleFitClip(input: {
   const window = partWindow(size, cropX, cropY);
   const upscale = tripleFitUpscale(size, cropX, cropY);
   if (!upscale.ok) throw new Error(upscale.line);
-  const inS = source.in_s == null || source.in_s === "" ? 0 : Number(source.in_s);
-  const outS = source.out_s == null || source.out_s === "" ? inS + meta.durationInSeconds : Number(source.out_s);
-  const length = tripleFitLength(inS, outS);
+  // VW2 replaces O109's 6 s rule: the three parts share the source's 15–20 s window.
+  // A source not checked yet (before migration 258's backfill) keeps its stored window and O109.
+  const vw = windowStateOfRow(source);
+  if (vw.kind === "refused") throw new Error(vw.sentence);
+  const inS = vw.kind === "ok" ? vw.window.inS : source.in_s == null || source.in_s === "" ? 0 : Number(source.in_s);
+  const outS = vw.kind === "ok" ? vw.window.outS : source.out_s == null || source.out_s === "" ? inS + meta.durationInSeconds : Number(source.out_s);
+  const length = vw.kind === "ok" ? { ok: true as const, seconds: vw.window.lengthS } : tripleFitLength(inS, outS);
   if (!length.ok) throw new Error(length.line);
   const status = text(source, "audio_status") || "original";
   const sound = tripleFitSound({

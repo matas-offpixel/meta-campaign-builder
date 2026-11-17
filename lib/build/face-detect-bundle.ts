@@ -64,3 +64,61 @@ export function checkFaceDetectBundle(root: string, route: string = RENDER_TICK_
   }
   return { problems, chunk: chunk ? relative(root, chunk) : null, files: found.files.length };
 }
+
+/**
+ * The face check's timing samples (lib/creative-lab/face-detect-bench.ts) run the wasm backend in a child
+ * process that no import reaches, so next.config.ts includes its files by hand. These must be in the
+ * function; loadBenchFromTrace then loads the backend from the traced files alone.
+ */
+export const FACE_BENCH_FILES = [
+  "lib/creative-lab/face-bench-child.cjs",
+  "node_modules/@vladmandic/face-api/dist/face-api.node-wasm.js",
+  "node_modules/@tensorflow/tfjs/dist/tf.node.js",
+  "node_modules/@tensorflow/tfjs-core/dist/tf-core.node.js",
+  "node_modules/@tensorflow/tfjs-backend-wasm/dist/tf-backend-wasm.node.js",
+  "node_modules/@tensorflow/tfjs-backend-wasm/dist/tfjs-backend-wasm-simd.wasm",
+  "node_modules/@tensorflow/tfjs-backend-wasm/dist/tfjs-backend-wasm.wasm",
+] as const;
+
+/** The route's traced files, relative to the root, and which of FACE_BENCH_FILES are missing. */
+export function checkFaceBenchBundle(root: string, route: string = RENDER_TICK_ROUTE, io: Io = fsIo): { problems: string[]; traced: string[] } {
+  const found = routeFiles(root, route, io);
+  if (!found) return { problems: [`${route}: no route.js.nft.json. Run npm run build first.`], traced: [] };
+  const traced = [...new Set(found.files.map((path) => relative(root, path).split("\\").join("/")))];
+  const problems = FACE_BENCH_FILES.filter((want) => !traced.includes(want)).map(
+    (want) => `${route}: ${want} is not in the function (next.config.ts outputFileTracingIncludes).`,
+  );
+  return { problems, traced };
+}
+
+export type BenchLoad = { loaded?: boolean; backend?: string; simd?: boolean; threads?: boolean; detectS?: number; error?: string };
+
+/**
+ * Copy only the route's traced files from node_modules and lib into an empty directory, as the function holds
+ * them, and run the timing child there on a blank 64 × 64 frame. Anything the child needs that the trace left
+ * out fails here as it would on Vercel.
+ */
+export async function loadBenchFromTrace(root: string, traced: readonly string[], candidate: "wasm" | "tfjs-node"): Promise<BenchLoad> {
+  const { cpSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { execFileSync } = await import("node:child_process");
+  const dir = mkdtempSync(join(tmpdir(), "face-bench-trace-"));
+  try {
+    for (const rel of traced) {
+      if (!(rel.startsWith("node_modules/") || rel.startsWith("lib/"))) continue;
+      const from = join(root, rel);
+      if (!existsSync(from)) continue;
+      mkdirSync(dirname(join(dir, rel)), { recursive: true });
+      cpSync(from, join(dir, rel), { dereference: true });
+    }
+    const raw = join(dir, "blank.rgb");
+    writeFileSync(raw, Buffer.alloc(64 * 64 * 3, 128));
+    const child = join(dir, "lib", "creative-lab", "face-bench-child.cjs");
+    if (!existsSync(child)) return { loaded: false, error: "face-bench-child.cjs is not in the function" };
+    const model = join(dir, "node_modules", "@vladmandic", "face-api", "model");
+    const out = execFileSync(process.execPath, [child, candidate, raw, "64", "64", model], { cwd: dir, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 120_000 });
+    return JSON.parse(out.trim().split("\n").at(-1) ?? "{}") as BenchLoad;
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
