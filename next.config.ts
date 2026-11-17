@@ -46,6 +46,8 @@ const nextConfig: NextConfig = {
     // because package.json allowScripts approves ffmpeg-static@5.3.0.
     "/api/cron/creative-lab-drive-pickup": ["./node_modules/ffmpeg-static/ffmpeg", "./node_modules/ffmpeg-static/package.json"],
     "/api/creative-lab/artists/[id]/import-clips": ["./node_modules/ffmpeg-static/ffmpeg", "./node_modules/ffmpeg-static/package.json"],
+    // The Snippet tab reads audio files and cuts snippets with ffmpeg (CT2, CT4, CT5).
+    "/api/creative-lab/events/[eventId]/snippet": ["./node_modules/ffmpeg-static/ffmpeg", "./node_modules/ffmpeg-static/package.json"],
     "/api/cron/creative-lab-render-tick": [
       "./node_modules/ffmpeg-static/ffmpeg",
       "./node_modules/ffmpeg-static/package.json",

@@ -241,6 +241,45 @@ export function artistClipsKey(libraryArtistId: string): FolderKey {
   return `${ARTIST_CLIPS_KEY}/${libraryArtistId}`;
 }
 
+/** 02 Source / Audio (CT2): not in EVENT_TREE, so a tree never makes it ahead of need. */
+export const AUDIO_KEY = "02/audio";
+
+/** 02 Source / Audio / {artist}, keyed by the library artist id, named exactly as the Lab lineup (CT2). */
+export function audioKey(libraryArtistId: string): FolderKey {
+  return `${AUDIO_KEY}/${libraryArtistId}`;
+}
+
+/**
+ * The act's 02 Source / Audio / {artist} folder, made on first need (CT2,
+ * D5): map first, then found by exact name, then created. Returns null for a
+ * cancelled event, an archived client, or an event with no tree yet.
+ */
+export async function ensureAudioFolder(
+  db: DriveDb,
+  drive: DriveApi,
+  event: EventRow,
+  client: ClientRow,
+  artist: { libraryArtistId: string; name: string },
+  log: TreeLog = emptyLog(),
+): Promise<string | null> {
+  if (isArchivedClientStatus(client.status) || isCancelled(event.status) || !event.drive_folder_id || !artist.name.trim()) return null;
+  const sourceId = await ensureEventKey(db, drive, event, client, "02", log);
+  const map = await loadMap(db, client.id, event.id);
+  const name = eventFolderName({ ...event, status: null });
+  const scope: Scope = {
+    db,
+    drive,
+    clientId: client.id,
+    eventId: event.id,
+    map,
+    log,
+    rootParentId: sourceId,
+    label: (spec) => labelFor([client.name, name], spec),
+  };
+  const audioId = await ensureSpec(scope, { key: AUDIO_KEY, parent: "02", name: "Audio", level: "event" }, sourceId);
+  return ensureSpec(scope, { key: audioKey(artist.libraryArtistId), parent: AUDIO_KEY, name: artist.name, level: "event" }, audioId);
+}
+
 /**
  * One Artist clips/{artist} folder per lineup artist, named as the lineup
  * writes the name (S22 matches folder names exactly). Map-first: a folder the
