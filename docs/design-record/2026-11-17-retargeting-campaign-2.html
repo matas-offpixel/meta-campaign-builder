@@ -121,6 +121,7 @@ table.tier td:nth-last-child(-n+3){white-space:nowrap}
 <li><b>Amended:</b> RT8's signup and buyers lines (RT12, RT15), and its not-proposed sentences, which gain two (RT13).</li>
 <li><b>Stands:</b> everything else in RT1–RT10, and R1–R6, C2–C9, E1–E4 and T1–T6.</li>
 <li><b>Added before merge:</b> RT17, Matas's test of both layouts, with frame RG.</li>
+<li><b>Revised before merge:</b> RT13's visit line, because Meta's pixel stats give origins only. Each link now shows its own audience's size, each third-party platform shows "Pixel on {platform}: yes / no", and links take a fixed set of platform names.</li>
 <li><b>Frames:</b> RA, RB and RC are redrawn under the same ids. RD-393 gains two sentences. RF and RG are new.</li>
 </ul>
 <p class="lead">The example figures, the XMPL shows and their clients are <span class="inv">invented</span>.</p>
@@ -207,22 +208,27 @@ Only Matas can switch it on. The fields are kept with who entered them and when.
 <li><b>Landing pages</b> feed page visitors and registrations (RT15).</li>
 </ul></li>
 <li><b>Daily read:</b> the links are read again at every 08:00 read and compared exactly with the rules. Any difference rewrites that audience's rules (the audience-write gate), so an outlet switched off on CIRQLIN drops out at the next rebuild and a new one comes in. If the read fails on a running campaign, the rules stay as they were and the read tries again the next day.</li>
-<li><b>Has it sent visits?</b> A third-party ticket page counts visitors only when the promoter's pixel is on that platform. So for each link the panel checks whether the resolved pixel recorded a visit matching its rule in the last 28 days, read by URL.</li>
-<li><b>Names in the tier row</b> (Matas):
+<li><b>What the row can say</b> (revised before merge, from the build): Meta's pixel stats give origins only (<code>https://host/</code>), never paths, so visits can't be read link by link. The row says two other things instead.
 <ul>
-<li>A ticket link is named by its <code>platform</code>, as CIRQLIN returns it (Skiddle, RA, Fatsoma, Fixr, DICE).</li>
+<li><b>Per link, its audience's size.</b> Each link is its own audience at its source's longest window: a ticket link's visitors at 30 days, a landing page's at 60. They're named "{code} · Ticket-link visitors · {name} · 30 days" and "{code} · Page visitors · {name} · 60 days". The tier takes these per-link audiences in place of one combined audience at that window, so who is in the tier doesn't change. The shorter windows (RT14) stay one audience across the links. The row shows Meta's size band for each link. Before Apply it reads "Known after create".</li>
+<li><b>Per third-party platform, whether the pixel is on it:</b> yes when the resolved pixel recorded any event from that platform's host in the last 28 days. This says whether the promoter's pixel is on that platform at all, not whether this show's link was visited.</li>
+<li><b>No pixel line for crqln.com,</b> or for any other host that other shows' pages share, because a yes there says nothing about this show. A show's own domain gets the line, because its host is its own.</li>
+</ul></li>
+<li><b>Names in the tier row:</b>
+<ul>
+<li>A ticket link is named by its host: Skiddle, RA, Fatsoma, Fixr, DICE, Eventbrite, Ticketmaster, See Tickets. Any other host is "Other ({host})".</li>
 <li>Two links on one platform are told apart by their <code>shop_name</code>, else their <code>label</code>, in brackets: "Skiddle (Early bird)".</li>
 <li>A landing page is named by its host and path: "xmpl-whse.com", "crqln.com/xmpl-whse-crowd".</li>
 <li>The link shown first goes first, then the page's order.</li>
 </ul></li>
-<li><b>The line</b>, under the tier's audiences, in ink-3:
+<li><b>The lines</b>, under the tier's audiences, in ink-3:
 <ul>
-<li>"Visits from {links}", with " · none from {links} in 28 days" when some have none.</li>
-<li>When any ticket link has none, a second line: "A ticket site sends visits only when your pixel is on it there."</li>
-<li>When no link of the tier has any: "No visits from {links} in 28 days".</li>
-<li>Phone: "Visits: {links} · none from {links}".</li>
+<li>Sizes: "{name} {band} · {name} {band} · …", for example "Skiddle 2,100–2,500 · RA 1,000–1,200 · Fixr below 1,000". Before Apply: "By link: known after create".</li>
+<li>Pixel: "Pixel on {names}: yes", then " · {names}: no" when some are no. When all are no: "Pixel on {names}: no".</li>
+<li>When any platform is no, a third line: "A ticket site counts visitors only when your pixel is on it there."</li>
+<li>Phone: the same lines, joined as at 1280.</li>
 </ul>
-Bottom names its ticket links. Mid Bottom names its landing pages.</li>
+Bottom shows its ticket links. Mid Bottom shows its landing pages, with a pixel line only for a show's own domain.</li>
 <li><b>Empty Bottom:</b> with no ticket-link visits, no checkout starters, no registrations and no signup list, Bottom can't be built: "Bottom has no audience yet: no visits, checkout starters, registrations or signup list." Its 50 % then goes to Mid Bottom and Mid, 1 to 1.</li>
 <li><b>Not proposed</b>, replacing the Create line (RD-393 adds both):
 <ul>
@@ -328,6 +334,7 @@ Rejecting leaves both arms running, and the line comes back at the next read.</l
 </table>
 
 <h2>Frames</h2>
+<p class="lead">Each build PR is judged only on the lines it builds. PR B's RB shot shows PR B's own lines, and the rest arrive with later PRs.</p>
 
 <div class="frame">
 <figure><figcaption>RA · 1280 · event page · read Tue 17 Nov · windows, links and buyers from ticketing</figcaption>
@@ -337,8 +344,8 @@ Rejecting leaves both arms running, and the line comes back at the next read.</l
 <div class="fs">Attributed purchases on the Warehouse Skiddle pixel, shared with its other shows' sales</div>
 <table class="tier">
 <tr><th style="width:84px">Tier</th><th>Audiences</th><th style="width:120px">Pool</th><th class="r" style="width:62px">Frequency</th><th style="width:116px">Leaves out</th><th class="r" style="width:96px">Budget</th><th class="r" style="width:84px">Cost per attributed purchase</th><th class="r" style="width:66px">Purchases</th></tr>
-<tr><td><b>Bottom</b></td><td class="src">Ticket-link visitors · checkout starters · 7, 14 and 30 days<br>Registrations · 30, 90 and 180 days<br>Signup list<div class="links">Visits from Skiddle and RA · none from Fixr in 28 days<br>A ticket site sends visits only when your pixel is on it there.</div></td><td>3,900–4,600</td><td class="r" style="color:var(--brick)">4.3</td><td>Buyers</td><td class="r">£12.00 a day</td><td class="r">£5.15</td><td class="r">16</td></tr>
-<tr><td><b>Mid Bottom</b></td><td class="src">Page visitors · 14, 30 and 60 days<br>Checkout starters · 60 days<br>2 similar lists<div class="links">Visits from xmpl-whse.com</div></td><td>6,300–7,400</td><td class="r">2.2</td><td>Bottom · buyers</td><td class="r">£6.00 a day</td><td class="r">£8.32</td><td class="r">5</td></tr>
+<tr><td><b>Bottom</b></td><td class="src">Ticket-link visitors · checkout starters · 7, 14 and 30 days<br>Registrations · 30, 90 and 180 days<br>Signup list<div class="links">Skiddle 2,100–2,500 · RA 1,000–1,200 · Fixr below 1,000<br>Pixel on Skiddle and RA: yes · Fixr: no<br>A ticket site counts visitors only when your pixel is on it there.</div></td><td>3,900–4,600</td><td class="r" style="color:var(--brick)">4.3</td><td>Buyers</td><td class="r">£12.00 a day</td><td class="r">£5.15</td><td class="r">16</td></tr>
+<tr><td><b>Mid Bottom</b></td><td class="src">Page visitors · 14, 30 and 60 days<br>Checkout starters · 60 days<br>2 similar lists<div class="links">xmpl-whse.com 7,000–8,200<br>Pixel on xmpl-whse.com: yes</div></td><td>6,300–7,400</td><td class="r">2.2</td><td>Bottom · buyers</td><td class="r">£6.00 a day</td><td class="r">£8.32</td><td class="r">5</td></tr>
 <tr><td><b>Mid</b></td><td class="src">Video viewers 75 % · 90, 180 and 365 days<br>Page and Instagram engagers · 30, 90 and 180 days · 4 pages</td><td>180,000–212,000</td><td class="r">1.6</td><td>Mid Bottom · Bottom · buyers</td><td class="r">£6.00 a day</td><td class="r">£20.95</td><td class="r">2</td></tr>
 <tr class="tot"><td>Last 7 days</td><td class="src" style="font-weight:400">£165.90 spent</td><td></td><td></td><td></td><td class="r">£24.00 a day</td><td class="r">£7.21</td><td class="r">23</td></tr>
 </table>
@@ -360,14 +367,14 @@ Rejecting leaves both arms running, and the line comes back at the next read.</l
 <div class="fs">Pool 3,900–4,600 · <span style="color:var(--brick)">frequency 4.3</span></div>
 <div class="fs">Leaves out buyers</div>
 <div class="src">Ticket-link visitors · checkout starters · 7, 14 and 30 days · registrations · 30, 90 and 180 days · signup list</div>
-<div class="links">Visits: Skiddle, RA · none from Fixr</div></div>
+<div class="links">Skiddle 2,100–2,500 · RA 1,000–1,200 · Fixr below 1,000<br>Pixel on Skiddle and RA: yes · Fixr: no<br>A ticket site counts visitors only when your pixel is on it there.</div></div>
 <div class="card">
 <div class="top"><span>Mid Bottom</span><span>£6.00 a day</span></div>
 <div class="fs">£8.32 per attributed purchase · 5</div>
 <div class="fs">Pool 6,300–7,400 · frequency 2.2</div>
 <div class="fs">Leaves out Bottom · buyers</div>
 <div class="src">Page visitors · 14, 30 and 60 days · checkout starters · 60 days · 2 similar lists</div>
-<div class="links">Visits: xmpl-whse.com</div></div>
+<div class="links">xmpl-whse.com 7,000–8,200<br>Pixel on xmpl-whse.com: yes</div></div>
 <div class="card">
 <div class="top"><span>Mid</span><span>£6.00 a day</span></div>
 <div class="fs">£20.95 per attributed purchase · 2</div>
@@ -397,9 +404,9 @@ Rejecting leaves both arms running, and the line comes back at the next read.</l
 <div class="w">New campaign, audiences and ad sets through the Purchase create path · goes in live</div></div>
 <table class="tier">
 <tr><th style="width:84px">Tier</th><th>Audiences</th><th style="width:120px">Pool</th><th class="r" style="width:62px">Frequency</th><th style="width:116px">Leaves out</th><th class="r" style="width:96px">Budget</th><th class="r" style="width:84px">Cost per attributed purchase</th><th class="r" style="width:66px">Purchases</th></tr>
-<tr><td><b>Bottom</b></td><td class="src">Ticket-link visitors · checkout starters · 7, 14 and 30 days<br>Registrations · 30, 90 and 180 days<div class="links">Visits from Skiddle · none from Fatsoma or DICE in 28 days<br>A ticket site sends visits only when your pixel is on it there.</div>
+<tr><td><b>Bottom</b></td><td class="src">Ticket-link visitors · checkout starters · 7, 14 and 30 days<br>Registrations · 30, 90 and 180 days<div class="links">By link: known after create<br>Pixel on Skiddle: yes · Fatsoma and DICE: no<br>A ticket site counts visitors only when your pixel is on it there.</div>
 <div class="miss">No signup list yet, so Bottom runs on ticket-link visitors, checkout starters and registrations only. <a href="#">Upload the signup list</a></div></td><td>Known after create</td><td class="r">—</td><td>—</td><td class="r">£2.90 a day</td><td class="r">—</td><td class="r">—</td></tr>
-<tr><td><b>Mid Bottom</b></td><td class="src">Page visitors · 14, 30 and 60 days<br>Checkout starters · 60 days<div class="links">Visits from xmpl-roof.com</div></td><td>Known after create</td><td class="r">—</td><td>Bottom</td><td class="r">£1.45 a day</td><td class="r">—</td><td class="r">—</td></tr>
+<tr><td><b>Mid Bottom</b></td><td class="src">Page visitors · 14, 30 and 60 days<br>Checkout starters · 60 days<div class="links">By link: known after create<br>Pixel on xmpl-roof.com: yes</div></td><td>Known after create</td><td class="r">—</td><td>Bottom</td><td class="r">£1.45 a day</td><td class="r">—</td><td class="r">—</td></tr>
 <tr><td><b>Mid</b></td><td class="src">Video viewers 75 % · 90, 180 and 365 days<br>Page and Instagram engagers · 30, 90 and 180 days · 3 of 4 pages<div class="miss">Mira Vale isn't in Mid: your Facebook user has no role on the page. Granting ADVERTISE on it adds it at the next read.</div></td><td>Known after create</td><td class="r">—</td><td>Mid Bottom · Bottom</td><td class="r">£1.45 a day</td><td class="r">—</td><td class="r">—</td></tr>
 </table>
 <div class="miss" style="font-size:12px">No buyers list yet, so buyers aren't left out and will keep seeing these ads. <a href="#">Upload a buyers list</a></div>
@@ -421,13 +428,13 @@ Rejecting leaves both arms running, and the line comes back at the next read.</l
 <div class="top"><span>Bottom</span><span>£2.90 a day</span></div>
 <div class="fs">Pool known after create</div>
 <div class="src">Ticket-link visitors · checkout starters · 7, 14 and 30 days · registrations · 30, 90 and 180 days</div>
-<div class="links">Visits: Skiddle · none from Fatsoma, DICE</div>
+<div class="links">By link: known after create<br>Pixel on Skiddle: yes · Fatsoma and DICE: no<br>A ticket site counts visitors only when your pixel is on it there.</div>
 <div class="miss">No signup list yet, so Bottom runs on ticket-link visitors, checkout starters and registrations only. <a href="#">Upload the signup list</a></div></div>
 <div class="card">
 <div class="top"><span>Mid Bottom</span><span>£1.45 a day</span></div>
 <div class="fs">Pool known after create · leaves out Bottom</div>
 <div class="src">Page visitors · 14, 30 and 60 days · checkout starters · 60 days</div>
-<div class="links">Visits: xmpl-roof.com</div></div>
+<div class="links">By link: known after create<br>Pixel on xmpl-roof.com: yes</div></div>
 <div class="card">
 <div class="top"><span>Mid</span><span>£1.45 a day</span></div>
 <div class="fs">Pool known after create · leaves out Mid Bottom · Bottom</div>
@@ -598,7 +605,7 @@ Rejecting leaves both arms running, and the line comes back at the next read.</l
 <li><b>Shares:</b> the share follows RT11's table, with the higher share in an overlap. Create starts at today's share, with no 10 / 15 / 20 % choice. A step line is proposed the day before, split as RT11 says. Holds and cuts apply during steps. A test asserts RC's split to the penny.</li>
 <li><b>Buyers from ticketing:</b> runs only for a client whose setting is on, with all four fields, switched on by Matas. Off deletes the ticketing list at the next read. The buyers strings are exact.</li>
 <li><b>Links:</b> come from <code>page-links</code> by the show's tag. Every <code>landing_url</code> and ticket link is one URL rule, written exactly as returned (host to end of path). Checkout starters count only on ticket links. A change on the daily read rewrites the rules. A failed read keeps the last rules.</li>
-<li><b>Tier rows:</b> name each link by <code>platform</code> and say whether it sent visits in 28 days. 404 <code>no_page</code> and a failed read give RT13's sentences.</li>
+<li><b>Tier rows:</b> each link named as RT13 says, with its own audience's size ("By link: known after create" before Apply). "Pixel on {platform}: yes / no" for each third-party platform and a show's own domain, from the pixel's origins over 28 days, never for crqln.com. 404 <code>no_page</code> and a failed read give RT13's sentences.</li>
 <li><b>Windows:</b> RT14's windows, each its own audience named as RT14 says. The longest windows equal RT2's, and leave-outs take every window.</li>
 <li><b>Registrations:</b> Bottom includes CompleteRegistration on the landing pages, and RT15's strings are exact.</li>
 <li><b>Rollout:</b> every active show gets its Create line at the first read after the gates are on, without per-event arming.</li>
@@ -611,7 +618,7 @@ Rejecting leaves both arms running, and the line comes back at the next read.</l
 <tr><th style="width:190px">Piece</th><th>Build</th></tr>
 <tr><td>HR8 · Shares and steps</td><td>RT11's shares in config. The day's share from the payday window and <code>daysUntilEvent</code>. Create at today's share. Step lines the day before, split by budget up to room, written as Meta budget schedules. The read-only probe of the budget-schedule endpoint (HR5) still comes first.</td></tr>
 <tr><td>HR9 · Buyers from ticketing</td><td>The client setting and its four fields, Matas-only. The daily upload to <code>{code} · Buyers · ticketing</code> from connections that can list buyers. The leave-outs. Deletion when switched off. The buyers lines.</td></tr>
-<tr><td>HR10 · Links</td><td>The <code>page-links</code> read per show tag at each read. One URL rule per link. Initiate Checkout scoped to ticket links. The per-link 28-day visit check by URL, with a read-only probe of the pixel's URL breakdown first: if Meta gives only domains, report back before shipping rather than guessing. The two not-proposed states. RT2's fallback for shows with no tag.</td></tr>
+<tr><td>HR10 · Links</td><td>The <code>page-links</code> read per show tag at each read. One URL rule per link. Initiate Checkout scoped to ticket links. Per-link audiences at each source's longest window, with their size bands. The pixel line from the resolved pixel's origins over 28 days, matched by platform host. The two not-proposed states. RT2's fallback for shows with no tag.</td></tr>
 <tr><td>HR11 · Windows</td><td>The audiences at RT14's windows, named "{code} · {source} · {n} days". Leave-outs over every window.</td></tr>
 <tr><td>HR12 · Registrations</td><td>CompleteRegistration on the landing pages at 30, 90 and 180 days in Bottom. The no-registrations line. RT8's signup line with its source list.</td></tr>
 <tr><td>HR13 · Rollout</td><td>The Retargeting panel Live on every active show, with no per-event arm.</td></tr>
@@ -624,7 +631,7 @@ Rejecting leaves both arms running, and the line comes back at the next read.</l
 <li>Proposing a step the day before. Splitting the rise by budget among the tiers that can rise, then again up to room. The step's dates running to the day before the next higher share.</li>
 <li>Withdrawing the 10 / 15 / 20 % choice. The header "{stretch}: {share} % of daily spend on {Ddd d Mon}".</li>
 <li>The four confirmation fields, Matas-only, email and phone only, and deleting the ticketing list when switched off.</li>
-<li>The URL rule as host to end of path. Checkout starters scoped to ticket links. The 28-day visit check by URL. Telling same-platform links apart by <code>shop_name</code>, else <code>label</code>. Keeping the last rules when a read fails. RT2's links for shows with no tag.</li>
+<li>The URL rule as host to end of path. Checkout starters scoped to ticket links. The per-link audiences, the "Pixel on {platform}: yes / no" line read from origins over 28 days, the platform names and "Other ({host})", and no line for shared hosts. Telling same-platform links apart by <code>shop_name</code>, else <code>label</code>. Keeping the last rules when a read fails. RT2's links for shows with no tag.</li>
 <li>Every window in RT14 except the longest of each source. The Ads Manager names.</li>
 <li>Bottom's 50 % going 1 to 1 to Mid Bottom and Mid when Bottom can't be built. Registrations at 30, 90 and 180 days.</li>
 <li>RT17's campaign names with " · A" and " · B", video at 75 % in every B tier, the £6.00 entry floor, 3 shows and CT7's 15 % for the call, the 28-day "no clear winner" keeping A, and money never moving between arms. RG's six shows and their figures.</li>
