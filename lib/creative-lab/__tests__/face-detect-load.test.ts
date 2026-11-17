@@ -1,14 +1,12 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
+import { readFileSync } from "node:fs";
 
 import sharp from "sharp";
 
 import { faceSampleState, isDetectorLoadError } from "../caption-placement.ts";
-import { detectFaces, FACE_API_MAIN, faceApiEsmPath, faceApiMain } from "../face-detect.ts";
+import { detectFaces, FACE_API_MAIN, faceApiMain, faceApiTf, faceBackend } from "../face-detect.ts";
 
 const SOURCE = readFileSync(new URL("../face-detect.ts", import.meta.url), "utf8")
   .replace(/\/\*(?!\s*webpackIgnore)[\s\S]*?\*\//g, "")
@@ -27,36 +25,25 @@ describe("face-detect.ts loads face-api the way the production bundle can", () =
     assert.equal(faceApiMain(cwd, (path) => path === join(cwd, "node_modules", FACE_API_MAIN)), join(cwd, "node_modules", FACE_API_MAIN));
   });
 
-  it("falls back to resolving from the module when the working directory has no copy", () => {
+  it("falls back to resolving face-api's Node wasm build from the module when the working directory has no copy", () => {
     const main = faceApiMain("/nowhere", () => false);
-    assert.ok(main.endsWith(join("@vladmandic", "face-api", "dist", "face-api.esm.js")), main);
-  });
-
-  it("imports face-api from an .mjs copy, so no loader reads it as CommonJS", () => {
-    const dir = mkdtempSync(join(tmpdir(), "face-api-esm-"));
-    const main = faceApiMain();
-    const esm = faceApiEsmPath(main, dir);
-    assert.ok(esm.startsWith(dir) && esm.endsWith(".mjs"), esm);
-    assert.ok(readFileSync(esm).equals(readFileSync(main)));
-    assert.equal(faceApiEsmPath(main, dir), esm);
-    // With syntax detection off, the package's .js is read as CommonJS and fails
-    // (production: "Unexpected token 'export'"); the .mjs copy loads.
-    const probe = join(dir, "probe.cjs");
-    writeFileSync(probe, [
-      'const { pathToFileURL } = require("node:url");',
-      "const versions = process.versions;",
-      'Object.defineProperty(process, "versions", { value: { ...versions, node: undefined }, configurable: true, writable: true });',
-      'import(pathToFileURL(process.argv[2]).href).then(() => console.log("loaded"), (e) => console.log("failed: " + e.message.split("\\n")[0]));',
-    ].join("\n"));
-    const run = (target: string) => execFileSync(process.execPath, ["--no-experimental-detect-module", probe, target], { encoding: "utf8" }).trim();
-    assert.equal(run(esm), "loaded");
-    assert.match(run(main), /^failed: /);
+    assert.ok(main.endsWith(join("@vladmandic", "face-api", "dist", "face-api.node-wasm.js")), main);
   });
 
   it("loads face-api and its models through that path and runs a detection", async () => {
     const blank = await sharp({ create: { width: 64, height: 64, channels: 3, background: "#808080" } }).png().toBuffer();
     const faces = await detectFaces(blank);
     assert.deepEqual(faces, []);
+  });
+
+  it("detects on the wasm backend with SIMD, set once for the process: it is still active after more detections", async () => {
+    const blank = await sharp({ create: { width: 64, height: 64, channels: 3, background: "#808080" } }).png().toBuffer();
+    assert.deepEqual(await faceBackend(), { backend: "wasm", simd: true, threads: false, fallback: null });
+    await detectFaces(blank);
+    await detectFaces(blank);
+    const tf = (await faceApiTf()) as { getBackend(): string };
+    assert.equal(tf.getBackend(), "wasm");
+    assert.equal(await faceApiTf(), tf, "one tfjs instance for the process");
   });
 });
 

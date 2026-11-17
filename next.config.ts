@@ -51,14 +51,13 @@ const nextConfig: NextConfig = {
     "/api/cron/creative-lab-render-tick": [
       "./node_modules/ffmpeg-static/ffmpeg",
       "./node_modules/ffmpeg-static/package.json",
-      "./node_modules/@vladmandic/face-api/dist/face-api.esm.js",
-      "./node_modules/@vladmandic/face-api/model/**/*",
-      // The face check's timing samples (lib/creative-lab/face-detect-bench.ts) run the wasm backend in a
-      // child process, lib/creative-lab/face-bench-child.cjs, which no import reaches: its script and every
-      // file it loads (about 9 MB). scripts/check-face-detect-bundle.mts loads it from the traced files alone.
-      "./lib/creative-lab/face-bench-child.cjs",
+      // Face detection (lib/creative-lab/face-detect.ts) loads face-api's Node wasm build with a runtime
+      // import() the bundler leaves alone, so nothing traces it: the build, the tfjs packages it requires, the
+      // wasm binaries and their own dependencies (about 9 MB), and the models.
+      // scripts/check-face-detect-bundle.mts loads the detector from these traced files alone.
       "./node_modules/@vladmandic/face-api/package.json",
       "./node_modules/@vladmandic/face-api/dist/face-api.node-wasm.js",
+      "./node_modules/@vladmandic/face-api/model/**/*",
       "./node_modules/@tensorflow/tfjs*/package.json",
       "./node_modules/@tensorflow/tfjs*/dist/*.node.js",
       "./node_modules/@tensorflow/tfjs-backend-wasm/dist/*.wasm",
