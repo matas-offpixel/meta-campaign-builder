@@ -18,6 +18,7 @@
  */
 
 import type { PurchaseRead } from "./purchases.ts";
+import { isRetargetingCampaignName } from "../retargeting/words.ts";
 import { addDaysIso, dayMonth, shortDay } from "./schedule.ts";
 
 export const PC = {
@@ -551,8 +552,9 @@ export function purchaseCampaignInput(args: {
   const from = args.onSaleDay && args.onSaleDay > from14 && args.onSaleDay <= end ? args.onSaleDay : from14;
   const lastTwo = new Set([end, addDaysIso(end, -1)]);
   const pixelId = args.read?.pixel?.id ?? null;
-  const inSpan = args.rows.filter((row) => row.date >= from14 && row.date <= end);
   const keyOf = (row: PcRow) => (row.campaign_name ?? row.meta_campaign_id ?? "—").trim();
+  // RT9: the show's `{code} · Retargeting` campaign optimises on Purchase but is never "the Purchase campaign", a main campaign or a pick's source.
+  const inSpan = args.rows.filter((row) => row.date >= from14 && row.date <= end && !isRetargetingCampaignName(keyOf(row), args.eventCode));
   // Step 2: a campaign that delivered on Purchase in the 14 days.
   const existing = [...new Set(inSpan.filter((row) => num(row.spend) > 0 && goalOf(row) === "purchase").map(keyOf))].sort()[0] ?? null;
   // The main campaign: the delivering IC or LPV campaign with the most spend over the 14 days.
@@ -635,6 +637,11 @@ export function purchaseCampaignInput(args: {
     spendToDateGbp: args.spendToDateGbp,
     committedGbp: committedOf(args, lastTwo),
   };
+}
+
+/** PC3's headroom input for another caller (the Retargeting campaign's RT4 money): the live campaigns' commitments from the window's last two days. */
+export function committedGbpOf(args: { rows: readonly PcRow[]; runDay: string; eventDate: string | null; windowEnd: string; budgets: PcBudgets | null }): number | null {
+  return committedOf(args, new Set([args.windowEnd, addDaysIso(args.windowEnd, -1)]));
 }
 
 /**

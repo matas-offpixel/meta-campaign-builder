@@ -72,6 +72,8 @@ export interface AudienceVideoSource {
   title?: string;
   thumbnailUrl?: string;
   length?: number;
+  /** The page the video was published from (`from.id`), when the walk read it. The Retargeting campaign groups by it (RT2). */
+  pageId?: string;
 }
 
 interface RawPage {
@@ -537,6 +539,7 @@ export async function fetchAudienceCampaignVideos(
         title: video.title,
         thumbnailUrl,
         length: video.length,
+        pageId: video.from.id,
       };
     }),
   );

@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Creative testing 5 — 17 Nov 2026</title>
+<style>
+:root{
+  --sand:#F0C9A8; --card:#e8d4c0; --edit:#f6ebe0; --paper:#fff8f0; --ink:#1e1810; --ink-2:#4a3d30; --ink-3:#6f6052;
+  --border:rgba(30,24,16,.10); --border-strong:rgba(30,24,16,.18); --muted:rgba(30,24,16,.06);
+  --olive:#4f5a1f; --ochre:#8a560c; --brick:#8f3424;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--sand);color:var(--ink);font:14px/1.5 var(--sans);font-feature-settings:"calt" 0}
+.wrap{max-width:1360px;margin:0 auto;padding:40px 24px 120px}
+h1{font-size:24px;font-weight:600;margin:0 0 6px}
+h2{font-size:20px;font-weight:600;margin:56px 0 8px}
+h3{font-size:13px;font-weight:600;margin:20px 0 6px}
+p{margin:0 0 10px;max-width:86ch}
+.lead{font-size:13px;color:var(--ink-2)}
+.k{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+code{font:12px var(--mono);background:var(--muted);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+figure{margin:0;min-width:0;max-width:100%}
+figcaption{font:700 9px/1.5 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+table.t{border-collapse:collapse;width:100%;font-size:12.5px;margin:10px 0 22px;background:var(--card);border-radius:8px;overflow:hidden;table-layout:fixed}
+table.t th,table.t td{text-align:left;vertical-align:top;padding:8px 12px;border-bottom:1px solid var(--border);overflow-wrap:anywhere}
+table.t th{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.t td:first-child{font-weight:600;width:190px}
+table.t ul{margin:4px 0 0 16px;padding:0}table.t li{margin:0 0 4px}
+.open{background:#f3e3c8;border:1px dashed var(--ochre);border-radius:8px;padding:10px 14px;font-size:12.5px;margin:10px 0 16px}
+.notes{font-size:12.5px;color:var(--ink-2)}.notes li{margin:0 0 6px;max-width:96ch}
+.frame{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start;margin:12px 0 24px}
+.vp{background:var(--paper);border:1px solid var(--border-strong);border-radius:8px;overflow:hidden;max-width:100%;padding:16px;font-size:13px}
+.vp.wide{width:760px}.vp.w393{width:393px}
+.ph{font:700 9px/1.4 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+.h{font-weight:600;font-size:14px;margin:0 0 4px}
+.sub{font-size:12px;color:var(--ink-2);margin:0 0 10px}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 10px}
+.chip{border:1px solid var(--border-strong);border-radius:999px;padding:3px 10px;font-size:12px;background:#fff}
+.chip.on{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.mono{font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase}
+.row{display:grid;grid-template-columns:22px 26px 1fr auto;gap:8px;align-items:center;padding:7px 0;border-top:1px solid var(--border)}
+.row .n{color:var(--ink-3);font:12px var(--mono)}
+.box{width:16px;height:16px;border:1.5px solid var(--ink);border-radius:3px;display:inline-block}
+.box.on{background:var(--ink)}
+.box.off{border-color:var(--ink-3);opacity:.45}
+.fs{font-size:11.5px;color:var(--ink-2)}
+.fs.warn{color:var(--brick)}
+.ok{color:var(--olive)}
+.btn{display:inline-block;border:1px solid var(--ink);border-radius:4px;padding:5px 10px;font:700 10px var(--mono);letter-spacing:.1em;text-transform:uppercase;background:var(--ink);color:var(--paper)}
+.btn.ghost{background:transparent;color:var(--ink)}
+.btn.dis{opacity:.4}
+.wave{position:relative;height:64px;background:repeating-linear-gradient(90deg,var(--ink-3) 0 2px,transparent 2px 5px);border-radius:4px;margin:26px 0 4px;opacity:.9}
+.wave .win{position:absolute;top:-4px;bottom:-4px;border:2px solid var(--ink);background:rgba(232,212,192,.55);border-radius:4px}
+.wave .drop{position:absolute;top:-10px;bottom:-10px;width:2px;background:var(--brick)}
+.wave .drop span{position:absolute;top:-16px;left:-20px;font:700 9px var(--mono);letter-spacing:.1em;color:var(--brick);white-space:nowrap}
+.tl{display:flex;justify-content:space-between;font:11px var(--mono);color:var(--ink-3)}
+.pv{width:150px;height:267px;background:#222;border-radius:6px;position:relative;flex:none;display:flex;align-items:center;justify-content:center;color:#fff;font:700 9px var(--mono);letter-spacing:.12em}
+.pv .play{position:absolute;bottom:10px;left:10px;width:28px;height:28px;border-radius:50%;background:#fff}
+.split{display:flex;gap:16px;align-items:flex-start}
+table.v{border-collapse:collapse;width:100%;font-size:12px;margin:6px 0}
+table.v th{font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);text-align:left;padding:4px 6px;border-bottom:1px solid var(--border-strong)}
+table.v td{padding:6px;border-bottom:1px solid var(--border)}
+table.v td.r,table.v th.r{text-align:right}
+.st{display:inline-block;border:1px solid var(--border-strong);border-radius:10px;padding:2px 8px;font:700 9px/1.5 var(--mono);letter-spacing:.1em;text-transform:uppercase}
+.st.run{border-style:dashed}
+.st.win{background:var(--olive);color:#fff;border-color:var(--olive)}
+.test{border:1px solid var(--border);border-radius:6px;padding:10px 12px;margin:8px 0;background:#fff}
+.test.dim{opacity:.55}
+.line{background:var(--card);border-radius:6px;padding:8px 10px;margin:6px 0;font-size:12px}
+.inv{text-decoration:underline dotted var(--brick);text-decoration-thickness:1.5px;text-underline-offset:3px}
+table.t table.t td:first-child{width:auto;font-weight:400}
+@media (max-width:560px){table.t th[style]{width:100px!important}table.t td:first-child{width:100px}}
+.st.fail{border-color:var(--brick);color:var(--brick)}
+.line .acts{float:right;font:700 9px var(--mono);letter-spacing:.1em;text-transform:uppercase}
+.line.wait{opacity:.6}
+.line.failed{border:1px solid var(--brick);background:#f6e3dc}
+.tick{display:inline-block;width:11px;height:11px;border:1.5px solid var(--ink);border-radius:2px;margin-right:6px;vertical-align:-1px}
+.tick.on{background:var(--ink)}
+.bar{display:inline-block;height:8px;background:var(--ink-3);border-radius:2px;vertical-align:middle;margin-right:6px}
+.sbar{position:relative;display:inline-block;width:100px;height:8px;background:var(--muted);border-radius:2px;vertical-align:middle;margin-right:8px}
+.sbar i{position:absolute;left:0;top:0;bottom:0;background:var(--ink-3);border-radius:2px}
+.sbar i.lead{background:var(--olive)}
+.sbar b{position:absolute;left:60px;top:-3px;bottom:-3px;width:1px;background:var(--ink)}
+.sbar s{position:absolute;left:10px;top:-3px;bottom:-3px;width:1px;background:var(--ink-3);opacity:.6}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<p class="k">Off/Pixel · design record · creative testing · issue 5 · 17 November 2026</p>
+<h1>One Tests campaign per show, every test its own ad set</h1>
+<p class="lead">This record carries Matas's rules of 17 Nov for test campaigns, and the ad set names ruled on #1297.</p>
+<ul class="notes">
+<li><b>One campaign:</b> one <code>{code} · Tests</code> campaign per show.</li>
+<li><b>One ad set per test:</b> every test is its own ad set, with its own budget.</li>
+<li><b>Created live.</b></li>
+</ul>
+<p class="lead">It replaces TT1's "one Advantage+ ad set per format (Video and Statics)" and the "created paused" of CT6 and PR D's first build. Everything else in TT1 stands: the Advantage+ ad set, one creative test at a time, and Test 3 against the current best ad. TF1–TF4, TT4–TT7, AU1–AU4 and the rest of CT1–CT12 stand. The example dates are <span class="inv">invented</span>.</p>
+
+<h2>Rulings</h2>
+<table class="t">
+<tr><th style="width:190px">#</th><th>Ruling</th></tr>
+
+<tr><td>TT8 · One Tests campaign per show</td><td>
+<ul>
+<li><b>One per show:</b> <code>{code} · Tests</code>, objective Sales, on the show's ad account. Every test the show runs goes into it as an ad set: the creative tests (Video, Statics), A/B copy tests and artist-card tests.</li>
+<li><b>Found, never made twice.</b> A test finds the campaign by its exact name on the show's ad account and reuses it. Only when there's none, or the one there is deleted or archived, does it make a new one.</li>
+<li><b>No campaign budget, ever.</b> Each ad set carries its own budget, so Meta can't move money from one test to another. A campaign that has a budget is refused (TT11).</li>
+<li><b>The 17 Nov round stays as built</b> (Matas). <code>{code} · AB copy test</code> and <code>{code} · Artist cards test</code> are left as they are: not renamed, not moved, not reused. New A/B copy and artist-card tests go into <code>{code} · Tests</code>.</li>
+<li><b>Never main spend.</b> The spend of <code>{code} · Tests</code> and of the two round campaigns never counts as a main campaign's. That covers TF1's current daily spend, the best ad CT copies from, and the refresh's moves.</li>
+</ul></td></tr>
+
+<tr><td>TT9 · Every test its own ad set, made live</td><td>
+<ul>
+<li><b>One ad set per test,</b> with its own daily budget:
+<ul>
+<li>creative tests are sized by TF1;</li>
+<li>A/B copy and artist-card tests keep the budget their own flows set today. This record doesn't change it.</li>
+</ul></li>
+<li><b>Four days.</b> Each ad set ends at 23:59 London on the fourth day after the London day it starts. TF2's read at day 4 is the last one.</li>
+<li><b>Created live</b> (Matas, 17 Nov): the campaign, the ad set and its ads go in ACTIVE.
+<ul>
+<li>Approving the test is the approval, as an add goes in live on the refresh panel.</li>
+<li>The create gate (<code>CREATIVE_TESTS_CREATE_ENABLED</code>) and "Only Matas can approve a test's variants." stand.</li>
+<li>The plan still holds TF1's four days against R5's 20 % cap before anything is made.</li>
+</ul></li>
+<li><b>One creative test at a time</b> stands ("Waiting for Test {n}"). A/B copy and artist-card tests don't wait on it, and it doesn't wait on them.</li>
+<li><b>The app follows its own ad sets by their stored ids</b> (<code>launched_ad_sets</code>), never by name. The names in TT10 are for people reading Ads Manager.</li>
+</ul></td></tr>
+
+<tr><td>TT10 · Ad set names</td><td>
+<p><b>"{code} · Tests · {kind} · {d Mon}"</b></p>
+<ul>
+<li><b>{kind}:</b> <b>Video</b> or <b>Statics</b> for a creative test, by its format. <b>AB copy</b> for an A/B copy test. <b>Artist cards</b> for an artist-card test.</li>
+<li><b>{d Mon}</b> is the London day the ad set is made: the day without a leading zero and the three-letter month, as everywhere else ("17 Nov", "4 Dec").</li>
+<li><b>A same-day repeat</b> of the same kind adds " · 2", then " · 3". The first one has no number.</li>
+<li><b>Ads inside</b> keep their names: the render's file name, or "{ad set name} · {variant}".</li>
+</ul>
+<table class="t" style="margin:6px 0 10px">
+<tr><th style="width:190px">Test</th><th>Ad set</th></tr>
+<tr><td>Test 1 · Tracks, made 17 Nov</td><td>P26-BDAY · Tests · Video · 17 Nov</td></tr>
+<tr><td>Test 2 · Statics, made 24 Nov</td><td>P26-BDAY · Tests · Statics · 24 Nov</td></tr>
+<tr><td>A second statics test made 24 Nov</td><td>P26-BDAY · Tests · Statics · 24 Nov · 2</td></tr>
+<tr><td>An A/B copy test, made 17 Nov</td><td>P26-BDAY · Tests · AB copy · 17 Nov</td></tr>
+<tr><td>An artist-card test, made 17 Nov</td><td>P26-BDAY · Tests · Artist cards · 17 Nov</td></tr>
+</table>
+<ul>
+<li><b>On the event page,</b> TF-A's line names the ad set in full, because that's what Matas searches for in Ads Manager: "In P26-BDAY · Tests · Video · 17 Nov · £10 a day · 6 % of current daily spend (cap £10) · read at 48 h, £20.00 spent". The 393 line doesn't name the ad set, as now.</li>
+<li><b>TT1's names are withdrawn:</b> "{code} · Tests · Video" and "· Statics" with no date.</li>
+</ul></td></tr>
+
+<tr><td>TT11 · The refusals</td><td>
+<p>From #1297's review. They're for Matas, so each one says what to do and ends with a full stop.</p>
+<ul>
+<li><b>"{code} · Tests has a campaign budget, and tests need budgets on their ad sets. Remove the campaign budget in Ads Manager. Nothing was made."</b></li>
+<li><b>"{code} · Tests is in Ads Manager {n} times ({ids}). Keep one and archive the rest. Nothing was made."</b> The ids stay here, because they tell the copies apart.</li>
+<li><b>"{code} · Tests was deleted again after it was remade, so nothing more was made."</b></li>
+<li>"Launch a main campaign from the app first." stands, from the #1297 string review.</li>
+</ul></td></tr>
+</table>
+
+<h2>Frames</h2>
+<p class="lead">No new frames. TT10 changes the text of TF-A's line at 1280. TF-A-1280 and TF-B are re-shot with the dated name and judged against TT10. Their 393 lines don't change.</p>
+
+<h2>Acceptance</h2>
+<ul class="notes">
+<li>One <code>{code} · Tests</code> per show, found by its exact name. It's never made while one that isn't deleted or archived exists, and it never carries a budget.</li>
+<li>Every test makes its own ad set, with its own budget and a 23:59 London end on the fourth day, all in ACTIVE.</li>
+<li>Ad set names follow TT10 exactly, including the " · 2" repeat. A test asserts the five example names above from fixture days.</li>
+<li>The three TT11 strings are exact.</li>
+<li>The two 17 Nov round campaigns are untouched, and none of the test campaigns' spend counts as main spend.</li>
+<li>TF-A-1280 and TF-B are re-shot with the dated ad set name.</li>
+</ul>
+
+<h2>Invented here</h2>
+<ul class="notes">
+<li>The ad set name's order, "Tests · {kind} · {d Mon}" (Matas and ops gave the shape), the " · 2" repeat, and the kind words "AB copy" and "Artist cards".</li>
+<li>The three TT11 sentences.</li>
+</ul>
+
+</div>
+</body>
+</html>

@@ -311,7 +311,7 @@ export type PurchaseRead = {
   /** T1: the ticket platform the show's ticket link is on, from the config's list; null when it is on none. */
   platform: string | null;
   /** T2's guard, over the breakdown's history: the platform's purchases, the pixel's, the share, and the host most of the rest are on. Null off the platform path. */
-  platformShare: { purchases: number; pixelPurchases: number; share: number | null; elsewhereHost: string | null } | null;
+  platformShare: { purchases: number; pixelPurchases: number; share: number | null; elsewhereHost: string | null; /** The elsewhere host's own purchases (the Retargeting campaign's RT8 sentence). Absent on reads stored before it. */ elsewherePurchases?: number } | null;
   /** T2's trigger on the platform path, and the totals since the on-sale date. Null when no pixel resolved. */
   attributedOnPixel: AttributedOnPixel | null;
   /** C2: the ads' attributed purchases are any show's, never this show's. */
@@ -374,8 +374,9 @@ function platformShareOf(rows: readonly HostDay[], platform: string, platforms: 
     if (hosts.some((site) => onHost(host, site))) purchases += row.count;
     else others.set(host, (others.get(host) ?? 0) + row.count);
   }
-  const elsewhereHost = [...others].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]?.[0] ?? null;
-  return { purchases, pixelPurchases, share: pixelPurchases > 0 ? purchases / pixelPurchases : null, elsewhereHost };
+  const top = [...others].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0];
+  const elsewhereHost = top?.[0] ?? null;
+  return { purchases, pixelPurchases, share: pixelPurchases > 0 ? purchases / pixelPurchases : null, elsewhereHost, elsewherePurchases: top?.[1] ?? 0 };
 }
 
 /**
