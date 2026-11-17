@@ -8,6 +8,7 @@ import { buildLabDraft, buildLabLaunchBody } from "../lab-draft.ts";
 import { launchApprovedRound, postLabLaunch, type LabUploadRequest } from "../launch.ts";
 import type { ServiceRoleDb } from "../load.ts";
 import { fakeDb, type FakeDb } from "./fake-db.ts";
+import { LUKE_DEAN_INSTAGRAM_ID, LUKE_DEAN_LAB_ARTIST_ID, LUKE_DEAN_PAGE_ID, PUZZLE_PAGE_ID, pageRefusal } from "../page-guard.ts";
 
 const ROUND = "round-1";
 const USER = "op";
@@ -387,5 +388,76 @@ describe("paused launch is pinned", () => {
     assert.match(route, /labLaunchesEnabled\(\)/);
     assert.ok(route.indexOf("labLaunchesEnabled()") < route.indexOf("handleUploadAsset("));
     assert.ok(route.indexOf("labLaunchesEnabled()") < route.indexOf("metaLaunchPost("));
+  });
+});
+
+describe("event page rules (page-guard.ts)", () => {
+  function p26(fake: FakeDb, pageId: string): FakeDb {
+    fake.tables.events[0].event_code = "P26-BDAY";
+    fake.tables.creative_lab_rounds[0].artist_id = LUKE_DEAN_LAB_ARTIST_ID;
+    fake.tables.creative_lab_rounds[0].page_id = pageId;
+    fake.tables.creative_lab_artists[0].id = LUKE_DEAN_LAB_ARTIST_ID;
+    return fake;
+  }
+
+  it("refuses a P26-BDAY Luke Dean ad on his own page before any upload or send", async () => {
+    const fake = p26(roundDb(), LUKE_DEAN_PAGE_ID);
+    const seen = calls();
+    const result = await launchApprovedRound(ROUND, { db: fake as unknown as ServiceRoleDb, userId: USER, upload: seen.upload, launch: seen.launch, tag: seen.tag });
+    assert.equal(seen.uploads.length, 0);
+    assert.equal(seen.launches.length, 0);
+    assert.equal(result.launched.length, 0);
+    assert.match(result.errors[0].error, /Puzzle page \(103824529223927\) only/);
+    assert.equal(fake.tables.creative_lab_round_ads[0].launch_state, "launch_failed");
+    assert.equal(fake.tables.creative_lab_rounds[0].status, "approved");
+  });
+
+  it("refuses a P26-BDAY Luke Dean ad on any page that is not Puzzle", async () => {
+    const fake = p26(roundDb(), "page_other");
+    const seen = calls();
+    const result = await launchApprovedRound(ROUND, { db: fake as unknown as ServiceRoleDb, userId: USER, upload: seen.upload, launch: seen.launch, tag: seen.tag });
+    assert.equal(seen.launches.length, 0);
+    assert.equal(result.errors.length, 1);
+  });
+
+  it("refuses an artist-first-person P26-BDAY ad that would post as luke.dean1 from the artist row", async () => {
+    const fake = p26(
+      roundDb({ ads: [{ id: "ad-2", round_id: ROUND, user_id: USER, ad_name: "LUKEDEAN-clip01_cap-artist_first_person1", caption_id: "cap-2", render_id: "render-2", launch_state: "ready" }] }),
+      PUZZLE_PAGE_ID,
+    );
+    fake.tables.creative_lab_artists[0].meta_page_id = LUKE_DEAN_PAGE_ID;
+    fake.tables.creative_lab_artists[0].instagram_actor_id = "ig_luke";
+    const seen = calls();
+    const result = await launchApprovedRound(ROUND, { db: fake as unknown as ServiceRoleDb, userId: USER, upload: seen.upload, launch: seen.launch, tag: seen.tag });
+    assert.equal(seen.uploads.length, 0);
+    assert.equal(seen.launches.length, 0);
+    assert.equal(result.errors.length, 1);
+  });
+
+  it("launches a P26-BDAY Luke Dean ad on the Puzzle page, paused", async () => {
+    const fake = p26(roundDb(), PUZZLE_PAGE_ID);
+    const seen = calls();
+    fake.tables.launched_ads.push({ launch_run_id: "run-1", ad_name: "LUKEDEAN-clip01_cap-lineup1", meta_ad_id: "meta-1", meta_adset_id: ADSET, meta_campaign_id: "camp_1", ad_account_id: "act_1" });
+    const result = await launchApprovedRound(ROUND, { db: fake as unknown as ServiceRoleDb, userId: USER, upload: seen.upload, launch: seen.launch, tag: seen.tag });
+    assert.deepEqual(seen.launches[0].pages, [PUZZLE_PAGE_ID]);
+    assert.equal(seen.launches[0].createPaused, true);
+    assert.equal(result.errors.length, 0);
+  });
+
+  it("leaves other events and other artists alone, and blocks luke.dean1 for every P26-BDAY ad", () => {
+    assert.equal(pageRefusal({ eventCode: "NX26-LOCKLEAD", labArtistId: LUKE_DEAN_LAB_ARTIST_ID, pageId: LUKE_DEAN_PAGE_ID }), null);
+    assert.equal(pageRefusal({ eventCode: "P26-BDAY", labArtistId: "enzo", pageId: "page_enzo" }), null);
+    assert.equal(pageRefusal({ eventCode: "P26-BDAY", labArtistId: LUKE_DEAN_LAB_ARTIST_ID, pageId: PUZZLE_PAGE_ID }), null);
+    assert.equal(pageRefusal({ eventCode: "P26-BDAY", labArtistId: LUKE_DEAN_LAB_ARTIST_ID, pageId: "" }), null);
+    assert.notEqual(pageRefusal({ eventCode: "P26-BDAY", labArtistId: "enzo", pageId: LUKE_DEAN_PAGE_ID }), null);
+  });
+
+  it("refuses the Puzzle page paired with Luke Dean's Instagram account", async () => {
+    const fake = p26(roundDb(), PUZZLE_PAGE_ID);
+    fake.tables.creative_lab_rounds[0].instagram_actor_id = LUKE_DEAN_INSTAGRAM_ID;
+    const seen = calls();
+    const result = await launchApprovedRound(ROUND, { db: fake as unknown as ServiceRoleDb, userId: USER, upload: seen.upload, launch: seen.launch, tag: seen.tag });
+    assert.equal(seen.launches.length, 0);
+    assert.match(result.errors[0].error, /Instagram account 17841400841265609/);
   });
 });
