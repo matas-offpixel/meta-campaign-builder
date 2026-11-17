@@ -117,7 +117,7 @@ table.tier td:nth-last-child(-n+3){white-space:nowrap}
 <h1>One Retargeting campaign per show, in three tiers</h1>
 <p class="lead">From the audit in #1298 (<code>docs/session-logs/retargeting-funnel-audit-2026-11-17.md</code>, §1–§4) and Matas's budget rule of 17 Nov. Each show on sale gets its own <code>{code} · Retargeting</code> campaign, separate from its on-sale campaigns, with budgets set on the ad sets. It has three tiers that never share a person: Bottom, Mid Bottom and Mid. Budget moves between them on cost per attributed purchase, each move a line to accept. The campaign runs to the end of the show day.</p>
 <p class="lead">This record replaces the on-sale refresh's per-campaign Retargeting standing default ("This campaign has no retargeting ad set.") for every show that can take this campaign (RT9). R1–R6, C2–C9, E1–E4 and T1–T6 stand. The example figures are <span class="inv">invented</span>.</p>
-<p class="lead">Revised 17 Nov, before merge, from #1300's review: buyers come only from a hand-uploaded Buyers list for now (RT2, RT8), the pool before create reads "Known after create" (RT3), and RB is redrawn.</p>
+<p class="lead">Revised 17 Nov, before merge, from #1300's review: buyers come only from a hand-uploaded Buyers list for now (RT2, RT8), the pool before create reads "Known after create" (RT3), and RB is redrawn. A second pass on #1300's points 3–7 adds the reused-ads cap and Apply's words (RT1), videos grouped by their own page and the wizard's fields (RT2), the money-held sentences (RT4), the several-pages line and three more not-proposed sentences (RT8, RT9), and redraws RD-393.</p>
 
 <div class="open"><b>Open, for Matas:</b>
 <ol style="margin:4px 0 0 18px;padding:0">
@@ -141,11 +141,18 @@ table.tier td:nth-last-child(-n+3){white-space:nowrap}
 <li><b>When it's proposed:</b> from the show's first on-sale date (presale when stored, else general sale), as a <b>Create</b> line at the top of the panel (frame RB). Accept, then Apply accepted, as with every refresh line.</li>
 <li><b>Apply</b> takes the Purchase campaign's create path (audit §4.3), with each step idempotent: the campaign paused, then the three audience sets (RT2), then the three ad sets paused, then the ads, then everything switched on.
 <ul>
-<li>The ads reuse the creatives live in the show's on-sale campaigns, with the same ads in every tier.</li>
+<li>The ads reuse the creatives live in the show's on-sale campaigns, with the same ads in every tier: up to 6, one per creative name, highest 7-day spend first (PC3's cap of 6).</li>
 <li>Every tier shares these settings (audit §3.1): 7-day click + 1-day view, Advantage+ audience off, audience expansion off, Facebook Feed plus Instagram Feed, Stories and Reels, and the location of the show's on-sale ad sets.</li>
 </ul></li>
 <li><b>Gates:</b> the Purchase create's gates (campaign create, apply, the event armed Live) plus the audience-write gate. In Shadow the lines show and Accept is disabled, as on the refresh panel.</li>
 <li><b>End:</b> 23:59 London on the show day. It keeps running through show week (RT7).</li>
+<li><b>Apply's words</b> follow the Purchase create's (PC5):
+<ul>
+<li>applied: "Applied · live · {n} tiers · {m} ads · £{total} a day to {d Mon}", the show day as its end;</li>
+<li>failed before anything went live: "Failed — {reason}. Created paused: {what was made}.";</li>
+<li>built but not switched on: "Failed — built and paused, not switched on: {reason}. Retry switches it on.";</li>
+<li>a gate off: "Making the Retargeting campaign is switched off on this deployment, so nothing was built.", with the same forms for making audiences, moving budget out of the main campaign and making the show's custom conversion.</li>
+</ul></li>
 </ul></td></tr>
 
 <tr><td>RT2 · The tiers and their audiences</td><td>
@@ -158,9 +165,10 @@ table.tier td:nth-last-child(-n+3){white-space:nowrap}
 </table>
 <ul>
 <li><b>Checkout starters</b> are the pixel's Initiate Checkout. <b>Ticket-link visitors</b> are pixel visits to the ticket link's URL. <b>Event page visitors</b> are pixel visits to the show's page. Because Mid Bottom leaves out Bottom, it holds page visitors who didn't reach the ticket link in 30 days and checkout starters from 31–60 days ago.</li>
-<li><b>Lists</b> are the show's customer lists with a role: <b>Signups</b>, <b>Similar</b> or <b>Buyers</b>. The customer-audience wizard on the client page gains a role and a show, and writes the list's row (today it writes none, audit §4.1). Lists have no window.</li>
+<li><b>Lists</b> are the show's customer lists with a role: <b>Signups</b>, <b>Similar</b> or <b>Buyers</b>. The customer-audience wizard on the client page gains a role and a show, and writes the list's row (today it writes none, audit §4.1). Lists have no window. The wizard's two fields are <b>"Role"</b> (None · Signups · Similar · Buyers) and <b>"Show"</b>, whose empty choice reads "Choose a show" and must be filled once a role is picked.</li>
 <li><b>Buyers</b> come only from a list uploaded by hand with the Buyers role, for this show. Nothing fetches or uploads buyers from a ticketing connection until Matas rules on it (open item 3); a later record adds that. Without a Buyers list, see RT8.</li>
 <li><b>Lineup pages</b> go in only where the operator's Facebook user holds a role on the page (at least ADVERTISE). Missing pages: RT8.</li>
+<li><b>Videos are grouped by the page each one ran from</b>, one video audience per page (chunked to the builder's limits). A video with no page is left out. One context page for every video isn't enough: J2 Melodic's videos ran from four pages (audit §2.1).</li>
 <li><b>Signup lists in Mid Bottom:</b> open for Matas. Until he rules, they're in Bottom only.</li>
 </ul></td></tr>
 
@@ -191,7 +199,12 @@ table.tier td:nth-last-child(-n+3){white-space:nowrap}
 <li><b>The split</b> is Bottom 50 %, Mid Bottom 25 %, Mid 25 %, to the penny, with any odd penny going to Bottom.</li>
 <li><b>The floor</b> is £1.00 a day per tier, or Meta's <code>min_daily_budget</code> when that's higher. A tier under the floor is lifted to it and the difference comes out of Bottom, so the smallest total is £3.00. At the floor, the line adds " · £1 a tier minimum".</li>
 <li><b>No spend in 7 days:</b> no budget can be set, and the line reads <b>"No spend in the last 7 days to size a budget from."</b></li>
-<li><b>Money:</b> the total × the days to the show (today and the show day included) is held against the plan, from headroom or a move out of the main campaign, inside R5's 20 % cap, as the Purchase create does.</li>
+<li><b>Money:</b> the total × the days to the show (today and the show day included) is held against the plan, from headroom or a move out of the main campaign, inside R5's 20 % cap, as the Purchase create does. When it can't be held, the Create line says why and Accept is held:
+<ul>
+<li>"No budget to start it: £{hold} to the show is over 20 % of the plan left (£{cap})." With no event budget, "… of what {campaign} has left (£{cap}).";</li>
+<li>"No budget to start it: {campaign} has no lifetime budget to move from.";</li>
+<li>"No budget to start it: this event has no budget and no campaign to move from."</li>
+</ul></li>
 <li><b>The Create line:</b> "£{total} a day · {pct} % of current daily spend · Bottom £{b} · Mid Bottom £{mb} · Mid £{m}", and under it "£{hold} to the show ({n} days) · {from}".</li>
 </ul></td></tr>
 
@@ -241,7 +254,7 @@ table.tier td:nth-last-child(-n+3){white-space:nowrap}
 <p>None of these blocks Create. Each one is a line under the tier it affects, in brick, with its action.</p>
 <ul>
 <li><b>No signup list yet:</b> "No signup list yet, so Bottom runs on ticket-link visitors and checkout starters only." Action: "Upload the signup list" (the client page's wizard, role Signups). No similar list adds no line.</li>
-<li><b>A lineup page with no role:</b> "{page} isn't in Mid: your Facebook user has no role on the page. Granting ADVERTISE on it adds it at the next read." On a phone: "{page}: no page role, not in Mid." Several pages give one line naming them all. With no usable page and no video views, Mid can't be built: "Mid has no audience yet: no page with a role and no video views." Its 25 % then goes to Bottom and Mid Bottom, 2 to 1.</li>
+<li><b>A lineup page with no role:</b> "{page} isn't in Mid: your Facebook user has no role on the page. Granting ADVERTISE on it adds it at the next read." On a phone: "{page}: no page role, not in Mid." Several pages give one line: "{A} and {B} aren't in Mid: your Facebook user has no role on these pages. Granting ADVERTISE on them adds them at the next read." Past three, the names read "{A}, {B}, {C} and {n} more", and the phone line "{A} and {B}: no page role, not in Mid." follows the same list. With no usable page and no video views, Mid can't be built: "Mid has no audience yet: no page with a role and no video views." Its 25 % then goes to Bottom and Mid Bottom, 2 to 1.</li>
 <li><b>No Buyers list:</b> "No buyers list yet, so buyers aren't left out and will keep seeing these ads." Action: "Upload a buyers list", which opens the client page's customer-audience wizard with the role Buyers and this show chosen. The line is the same whether or not the client has a ticketing connection, because a connection doesn't supply buyers yet. There's no "Connect ticketing" action until Matas rules on open item 3.
 <ul>
 <li>With a list uploaded by hand: "Buyers list uploaded {d Mon} · {n} days old".</li>
@@ -253,6 +266,9 @@ table.tier td:nth-last-child(-n+3){white-space:nowrap}
 <li>"No Retargeting campaign: these ads have no pixel to optimise on."</li>
 <li>"No Retargeting campaign: this pixel mostly sells on {host} ({pct} % of {n} purchases in 28 days), not on {platform}." (T2's guard)</li>
 <li>"Retargeting not proposed: purchases couldn't be read this run. The next run tries again." (T6)</li>
+<li>"No Retargeting campaign: no purchase has reached {domain} in 28 days, and the ticket link isn't on a ticket platform." (E2's "nothing reaches", with no platform path)</li>
+<li>"No Retargeting campaign: this pixel has had no purchases in 28 days."</li>
+<li>"No Retargeting campaign: this show has no page or ticket link to read purchases from."</li>
 </ul></li>
 </ul></td></tr>
 
@@ -266,7 +282,8 @@ table.tier td:nth-last-child(-n+3){white-space:nowrap}
 </ul></li>
 <li><b>The on-sale panel</b> shows one note in place of those lines: "Retargeting runs in its own campaign, {code} · Retargeting." (frame RD).</li>
 <li><b>When the campaign is off:</b> one line on the Retargeting panel, "{code} · Retargeting is off.", never a line per campaign.</li>
-<li><b>The standing default stays as today</b> only for shows that can't take this campaign: no pixel, or a pixel that mostly sells elsewhere. Before the on-sale date, nothing changes.</li>
+<li><b>The standing default stays as today</b> only for shows that can't take this campaign: no pixel, a pixel that mostly sells elsewhere, an own domain nothing reaches with no platform path, a pixel with no purchases, or no page or ticket link. Before the on-sale date, nothing changes.</li>
+<li><b>"{code} · Retargeting is off."</b> needs the campaign's status read, so it ships with the daily read (PR B). Until then an off campaign shows nothing extra.</li>
 <li><b>Legacy ad sets:</b> a delivering ad set with "retarget" in its name in any of the show's campaigns doesn't stop the Create line. The line says "{n} retargeting ad set(s) already run in {campaign}: pause them once this is live." Nothing pauses them automatically, because drops skip "retarget" (rules.ts:571).</li>
 <li><b>The Purchase campaign's retargeting pick</b> (purchase-campaign.ts:370) never copies from <code>{code} · Retargeting</code>, and P4's "Copy into Purchase" lines skip its ad sets. Its tiers stay in their own campaign.</li>
 </ul></td></tr>
@@ -425,13 +442,16 @@ Lines stack as on the refresh panel, with the kind above the target and Accept a
 <div class="w">New audience and ad set through the launch path</div></div>
 <div class="line note"><span class="t">Retargeting runs in its own campaign, XMPL-WHSE · Retargeting.</span></div>
 </div></figure>
-<figure><figcaption>RD · 393 · not-proposed states, one per show</figcaption>
+<figure><figcaption>RD · 393 · the eight not-proposed states, one per show</figcaption>
 <div class="vp w393">
 <div class="card">Retargeting starts when the show goes on sale (Fri 20 Nov).</div>
 <div class="card">No Retargeting campaign: these ads have no pixel to optimise on.</div>
 <div class="card">No Retargeting campaign: this pixel mostly sells on universe.com (74 % of 512 purchases in 28 days), not on Skiddle.</div>
 <div class="card">Retargeting not proposed: purchases couldn't be read this run. The next run tries again.</div>
 <div class="card">No spend in the last 7 days to size a budget from.</div>
+<div class="card">No Retargeting campaign: no purchase has reached xmpl-roof.com in 28 days, and the ticket link isn't on a ticket platform.</div>
+<div class="card">No Retargeting campaign: this pixel has had no purchases in 28 days.</div>
+<div class="card">No Retargeting campaign: this show has no page or ticket link to read purchases from.</div>
 </div></figure>
 </div>
 
@@ -467,6 +487,8 @@ Lines stack as on the refresh panel, with the kind above the target and Accept a
 <li>Steps follow RT6 and stay switched off until Matas sets the heights.</li>
 <li>RT8's strings are exact, and none of them blocks Create. No "Connect ticketing" action appears anywhere on the panel.</li>
 <li>Before Apply, every Pool cell reads "Known after create".</li>
+<li>The strings added in RT1 (Apply's words), RT2 (the wizard), RT4 (no budget) and RT8 (several pages, the three new not-proposed sentences) are exact. RD-393 shows all eight not-proposed sentences.</li>
+<li>Mid builds one video audience per page the videos ran from.</li>
 <li>RT9: no "This campaign has no retargeting ad set." on a show with the campaign, its Create line or "couldn't be read". The note shows instead.</li>
 <li>Frames RA, RB and RC at 1280 and 393, and RD at both, from fixtures with these figures.</li>
 </ul>
@@ -491,6 +513,7 @@ Lines stack as on the refresh panel, with the kind above the target and Accept a
 <li>The source windows: 30 and 60 days on the pixel, 180 on engagement, 365 on video (from audit §3.1, re-sliced to Matas's tiers).</li>
 <li>The run-in thresholds of 30, 14 and 7 days, the higher step winning in an overlap, splitting a step by room, and writing it as a Meta budget schedule.</li>
 <li>Mid's 25 % going 2 to 1 to Bottom and Mid Bottom when Mid can't be built, and the 7-day staleness on a hand-uploaded buyers list.</li>
+<li>The three new not-proposed sentences, "and {n} more" past three pages, "Choose a show", and the applied line's "to {d Mon}" in place of the share.</li>
 <li>"Known after create", "No buyers list yet, so buyers aren't left out and will keep seeing these ads." and every other string in RT3–RT10, the XMPL shows and Mira Vale.</li>
 </ul>
 
