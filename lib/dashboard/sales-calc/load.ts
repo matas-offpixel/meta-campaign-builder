@@ -8,6 +8,10 @@
  * `client_id`, and every read below is filtered to that client's events,
  * so a token reaches its own client's shows only (D11).
  *
+ * PH6: undated brand campaigns (events.kind = 'brand_campaign', no
+ * event_date) are read too, for their spend only: rollups, Meta campaigns
+ * and Google rows. Never their counts or signups. Shows are read as before.
+ *
  * Every SELECT pages in unique-key order and dedupes (lib/db/paged-read.ts).
  * Relative imports only: the `node --test` runner can't resolve `@/`.
  */
@@ -20,7 +24,7 @@ import { loadEventConfigs } from "../../event-config/read.ts";
 import { loadFinalCounts } from "../../internal-counts/final-count.ts";
 import { collapseCounts, type SnapshotRow } from "./counts.ts";
 import { londonDay } from "./days.ts";
-import type { LiftEntry, MetaCampaignDay, SalesCalcInput, ShowInput } from "./types.ts";
+import type { BrandCampaignInput, LiftEntry, MetaCampaignDay, SalesCalcInput, ShowInput } from "./types.ts";
 
 type Db = Pick<SupabaseClient, "from">;
 
@@ -46,6 +50,7 @@ interface EventRow {
   status: string | null;
   venue_key: string | null;
   venue_name: string | null;
+  kind: string | null;
 }
 
 interface InsightRow {
@@ -106,19 +111,27 @@ export async function loadSalesCalcInput(sb: Db, clientId: string, opts: LoadOpt
   if (!client) return null;
   const c = client as { id: string; name: string | null; meta_ad_account_id: string | null };
 
-  const events = (
+  const allEvents = (
     await loadAllPaged<EventRow>(
       sb,
       "events",
-      "id,user_id,client_id,event_code,name,event_date,presale_at,general_sale_at,meta_campaign_id,meta_ad_account_id,status,venue_key,venue_name",
+      "id,user_id,client_id,event_code,name,event_date,presale_at,general_sale_at,meta_campaign_id,meta_ad_account_id,status,venue_key,venue_name,kind",
       ["id"],
       (q) => q.eq("client_id", clientId),
     )
-  ).filter((e) => e.event_code && e.event_date && e.status !== "cancelled");
+  ).filter((e) => e.event_code && e.status !== "cancelled");
+  const events = allEvents.filter((e) => e.event_date);
+  // PH6: undated brand campaigns, client level only.
+  const brandEvents = allEvents.filter((e) => !e.event_date && e.kind === "brand_campaign");
   const eventIds = events.map((e) => e.id);
   const codes = events.map((e) => e.event_code!);
+  // Spend is read for the shows and the brand campaigns; counts, signups and config for the shows only.
+  const spendIds = [...eventIds, ...brandEvents.map((e) => e.id)];
+  const spendCodes = [...codes, ...brandEvents.map((e) => e.event_code!)];
 
-  const accounts = [...new Set([c.meta_ad_account_id, ...events.map((e) => e.meta_ad_account_id)].filter((a): a is string => !!a).map(actId))];
+  const accounts = [
+    ...new Set([c.meta_ad_account_id, ...[...events, ...brandEvents].map((e) => e.meta_ad_account_id)].filter((a): a is string => !!a).map(actId)),
+  ];
 
   const byEvent = (chunk: string[]) => (q: PagedQuery) => q.in("event_id", chunk);
   const [configs, finals, snapshots, rollups, signups, insights, google, library, metaOverrides, googleOverrides] = await Promise.all([
@@ -133,7 +146,7 @@ export async function loadSalesCalcInput(sb: Db, clientId: string, opts: LoadOpt
         byEvent(chunk),
       ),
     ),
-    inChunks(eventIds, (chunk) =>
+    inChunks(spendIds, (chunk) =>
       loadAllPaged<{
         id: string;
         event_id: string;
@@ -170,8 +183,8 @@ export async function loadSalesCalcInput(sb: Db, clientId: string, opts: LoadOpt
           (q) => q.in("ad_account_id", accounts),
         )
       : Promise.resolve([] as InsightRow[]),
-    codes.length
-      ? inChunks(codes, (chunk) =>
+    spendCodes.length
+      ? inChunks(spendCodes, (chunk) =>
           loadAllPaged<{ id: string; event_code: string; date: string; cost_micros: number | string | null; campaign_resource_name: string | null }>(
             sb,
             "google_ads_daily_snapshots",
@@ -186,7 +199,7 @@ export async function loadSalesCalcInput(sb: Db, clientId: string, opts: LoadOpt
     loadCampaignOverrides(sb, "google"),
   ]);
   // Only this client's events: the share reads with the service role (D11).
-  const own = new Set(eventIds);
+  const own = new Set(spendIds);
   const ownOverrides = (m: Map<string, string>) => Object.fromEntries([...m].filter(([, eventId]) => own.has(eventId)));
 
   const snapsByEvent = new Map<string, SnapshotRow[]>();
@@ -223,10 +236,18 @@ export async function loadSalesCalcInput(sb: Db, clientId: string, opts: LoadOpt
     };
   });
 
+  const brandCampaigns: BrandCampaignInput[] = brandEvents.map((e) => ({
+    eventId: e.id,
+    code: e.event_code!,
+    name: e.name ?? e.event_code!,
+    linkedCampaignIds: (e.meta_campaign_id ?? "").split(",").map((id) => id.trim()).filter(Boolean),
+  }));
+
   return {
     client: { id: c.id, name: c.name ?? "" },
     today,
     shows,
+    brandCampaigns,
     metaCampaignDays: campaignDays(insights),
     googleCampaignDays: google.map((g) => ({
       eventCode: g.event_code,

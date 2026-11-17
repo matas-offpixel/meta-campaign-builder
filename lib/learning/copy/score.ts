@@ -249,6 +249,15 @@ export function adsHash(ids: Iterable<string>): string {
 export type ScoreOptions = {
   /** Which keys to score. Default: every key that is not name-only. copy_features passes its own. */
   keep?: (key: string) => boolean;
+  /**
+   * The ads the event and client baselines come from. Default: `ads`. The
+   * genre shadow (lib/learning/genre/shadow.ts) scores a subset of the
+   * library against the whole library's baselines, so a genre row's index
+   * means what the same row would mean in the full run.
+   */
+  baselineAds?: readonly ScoreAd[];
+  /** Scopes to build. Default: all three. */
+  scopes?: readonly CopyScope[];
 };
 
 export function scoreTemplates(ads: readonly ScoreAd[], k = COPY_SHRINK_K, options: ScoreOptions = {}): CopyPerformanceRow[] {
@@ -261,14 +270,17 @@ export function scoreTemplates(ads: readonly ScoreAd[], k = COPY_SHRINK_K, optio
     row.results += ad.results;
     map.set(key, row);
   };
-  for (const ad of ads) {
+  for (const ad of options.baselineAds ?? ads) {
     add(eventBase, `${ad.showId}|${ad.stage}`, ad);
     add(clientBase, `${ad.clientId}|${ad.stage}`, ad);
   }
+  const wanted = options.scopes ? new Set<CopyScope>(options.scopes) : null;
 
   const groups = new Map<string, { key: string; field: CopyField; stage: CopyStage; voice: CopyVoice; scopes: Map<string, Bucket> }>();
   for (const ad of ads) {
-    const baseline = cpr(eventBase.get(`${ad.showId}|${ad.stage}`)!) ?? cpr(clientBase.get(`${ad.clientId}|${ad.stage}`)!);
+    const eventRow = eventBase.get(`${ad.showId}|${ad.stage}`);
+    const clientRow = clientBase.get(`${ad.clientId}|${ad.stage}`);
+    const baseline = (eventRow ? cpr(eventRow) : null) ?? (clientRow ? cpr(clientRow) : null);
     if (baseline == null || baseline <= 0) continue;
     const expected = ad.spend / baseline;
     const seen = new Set<string>();
@@ -285,7 +297,7 @@ export function scoreTemplates(ads: readonly ScoreAd[], k = COPY_SHRINK_K, optio
       const vertical = ad.vertical?.trim();
       if (vertical) scopes.splice(1, 0, ["vertical", vertical]);
       for (const [scope, scopeId] of scopes) {
-        if (!scopeId) continue;
+        if (!scopeId || (wanted && !wanted.has(scope))) continue;
         const bucketKey = `${scope}|${scopeId}`;
         const bucket = group.scopes.get(bucketKey) ?? { shows: new Map(), ads: new Set(), clients: new Set(), spend: 0, results: 0, expected: 0 };
         addLine(bucket, ad, line.text, expected);

@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Creative testing 4 — 16 Nov 2026</title>
+<style>
+:root{
+  --sand:#F0C9A8; --card:#e8d4c0; --edit:#f6ebe0; --paper:#fff8f0; --ink:#1e1810; --ink-2:#4a3d30; --ink-3:#6f6052;
+  --border:rgba(30,24,16,.10); --border-strong:rgba(30,24,16,.18); --muted:rgba(30,24,16,.06);
+  --olive:#4f5a1f; --ochre:#8a560c; --brick:#8f3424;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--sand);color:var(--ink);font:14px/1.5 var(--sans);font-feature-settings:"calt" 0}
+.wrap{max-width:1360px;margin:0 auto;padding:40px 24px 120px}
+h1{font-size:24px;font-weight:600;margin:0 0 6px}
+h2{font-size:20px;font-weight:600;margin:56px 0 8px}
+h3{font-size:13px;font-weight:600;margin:20px 0 6px}
+p{margin:0 0 10px;max-width:86ch}
+.lead{font-size:13px;color:var(--ink-2)}
+.k{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+code{font:12px var(--mono);background:var(--muted);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+figure{margin:0;min-width:0;max-width:100%}
+figcaption{font:700 9px/1.5 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+table.t{border-collapse:collapse;width:100%;font-size:12.5px;margin:10px 0 22px;background:var(--card);border-radius:8px;overflow:hidden;table-layout:fixed}
+table.t th,table.t td{text-align:left;vertical-align:top;padding:8px 12px;border-bottom:1px solid var(--border);overflow-wrap:anywhere}
+table.t th{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.t td:first-child{font-weight:600;width:190px}
+table.t ul{margin:4px 0 0 16px;padding:0}table.t li{margin:0 0 4px}
+.open{background:#f3e3c8;border:1px dashed var(--ochre);border-radius:8px;padding:10px 14px;font-size:12.5px;margin:10px 0 16px}
+.notes{font-size:12.5px;color:var(--ink-2)}.notes li{margin:0 0 6px;max-width:96ch}
+.frame{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start;margin:12px 0 24px}
+.vp{background:var(--paper);border:1px solid var(--border-strong);border-radius:8px;overflow:hidden;max-width:100%;padding:16px;font-size:13px}
+.vp.wide{width:760px}.vp.w393{width:393px}
+.ph{font:700 9px/1.4 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+.h{font-weight:600;font-size:14px;margin:0 0 4px}
+.sub{font-size:12px;color:var(--ink-2);margin:0 0 10px}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 10px}
+.chip{border:1px solid var(--border-strong);border-radius:999px;padding:3px 10px;font-size:12px;background:#fff}
+.chip.on{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.mono{font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase}
+.row{display:grid;grid-template-columns:22px 26px 1fr auto;gap:8px;align-items:center;padding:7px 0;border-top:1px solid var(--border)}
+.row .n{color:var(--ink-3);font:12px var(--mono)}
+.box{width:16px;height:16px;border:1.5px solid var(--ink);border-radius:3px;display:inline-block}
+.box.on{background:var(--ink)}
+.box.off{border-color:var(--ink-3);opacity:.45}
+.fs{font-size:11.5px;color:var(--ink-2)}
+.fs.warn{color:var(--brick)}
+.ok{color:var(--olive)}
+.btn{display:inline-block;border:1px solid var(--ink);border-radius:4px;padding:5px 10px;font:700 10px var(--mono);letter-spacing:.1em;text-transform:uppercase;background:var(--ink);color:var(--paper)}
+.btn.ghost{background:transparent;color:var(--ink)}
+.btn.dis{opacity:.4}
+.wave{position:relative;height:64px;background:repeating-linear-gradient(90deg,var(--ink-3) 0 2px,transparent 2px 5px);border-radius:4px;margin:26px 0 4px;opacity:.9}
+.wave .win{position:absolute;top:-4px;bottom:-4px;border:2px solid var(--ink);background:rgba(232,212,192,.55);border-radius:4px}
+.wave .drop{position:absolute;top:-10px;bottom:-10px;width:2px;background:var(--brick)}
+.wave .drop span{position:absolute;top:-16px;left:-20px;font:700 9px var(--mono);letter-spacing:.1em;color:var(--brick);white-space:nowrap}
+.tl{display:flex;justify-content:space-between;font:11px var(--mono);color:var(--ink-3)}
+.pv{width:150px;height:267px;background:#222;border-radius:6px;position:relative;flex:none;display:flex;align-items:center;justify-content:center;color:#fff;font:700 9px var(--mono);letter-spacing:.12em}
+.pv .play{position:absolute;bottom:10px;left:10px;width:28px;height:28px;border-radius:50%;background:#fff}
+.split{display:flex;gap:16px;align-items:flex-start}
+table.v{border-collapse:collapse;width:100%;font-size:12px;margin:6px 0}
+table.v th{font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);text-align:left;padding:4px 6px;border-bottom:1px solid var(--border-strong)}
+table.v td{padding:6px;border-bottom:1px solid var(--border)}
+table.v td.r,table.v th.r{text-align:right}
+.st{display:inline-block;border:1px solid var(--border-strong);border-radius:10px;padding:2px 8px;font:700 9px/1.5 var(--mono);letter-spacing:.1em;text-transform:uppercase}
+.st.run{border-style:dashed}
+.st.win{background:var(--olive);color:#fff;border-color:var(--olive)}
+.test{border:1px solid var(--border);border-radius:6px;padding:10px 12px;margin:8px 0;background:#fff}
+.test.dim{opacity:.55}
+.line{background:var(--card);border-radius:6px;padding:8px 10px;margin:6px 0;font-size:12px}
+.inv{text-decoration:underline dotted var(--brick);text-decoration-thickness:1.5px;text-underline-offset:3px}
+table.t table.t td:first-child{width:auto;font-weight:400}
+@media (max-width:560px){table.t th[style]{width:100px!important}table.t td:first-child{width:100px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<p class="k">Off/Pixel · design record · creative testing · issue 4 · 16 November 2026</p>
+<h1>Audio files: a lower quality bar, and no supplier step</h1>
+<p class="lead">From Matas, 16 Nov. This record re-rules CT2 of <code>2026-11-16-creative-testing.html</code>, and the parts of CT3, CT10 and CT11 that depend on it.</p>
+<ul class="notes">
+<li>MP3 at 128 kbps or more is now accepted.</li>
+<li>The supplier step is gone.</li>
+<li>Rights handling stays as TT5 in <code>2026-11-16-creative-testing-2.html</code>.</li>
+</ul>
+<p class="lead">Everything else in CT1–CT12, TT1 and TT4–TT6, and TF1–TF4 stands. That includes CT2's one source, <code>02 Source / Audio / {artist}</code>, and its rule that the Lab has no field for a link and never downloads audio itself. CT-A is redrawn here as AU-A. The example files are <span class="inv">invented</span>.</p>
+
+<h2>Rulings</h2>
+<table class="t">
+<tr><th style="width:190px">#</th><th>Ruling</th></tr>
+
+<tr><td>AU1 · The quality bar (re-rules CT2's accepted files)</td><td>
+<ul>
+<li><b>Accepted:</b> WAV, AIFF, FLAC, or MP3 at <b>128 kbps or more</b>. The file must be at least 30 seconds long, as before.</li>
+<li><b>"Can't use this file: {reason}"</b> fires only for these three reasons, worded exactly:
+<ul>
+<li><b>"Can't use this file: MP3 under 128 kbps"</b>;</li>
+<li><b>"Can't use this file: shorter than 30 seconds"</b>;</li>
+<li><b>"Can't use this file: it can't be read"</b>, for anything the Lab can't open or doesn't recognise as audio.</li>
+</ul></li>
+<li><b>CT1's output is unchanged:</b> AAC at 256 kbps, −14 LUFS, −1 dBTP. A 128 kbps source isn't raised in quality by this. Encoding at 256 just avoids losing more in the second encode.</li>
+</ul></td></tr>
+
+<tr><td>AU2 · No supplier (withdraws CT2's supplier step)</td><td>
+<ul>
+<li>A file in <code>02 Source / Audio / {artist}</code> is ready as soon as its format passes AU1. There's no supplier field, no hold and no supplier line anywhere.</li>
+<li><b>The rights note is replaced by a file line</b> under each track with a file and on each snippet's render row: <b>"{file name} · {format}"</b>. An MP3 adds its bitrate.
+<ul>
+<li>For example, "track two (club mix).aiff · AIFF".</li>
+<li>For example, "LD - Track Three.mp3 · MP3 128 kbps".</li>
+</ul>
+The line names the file a snippet was cut from, so a muted ad can be traced back to it.</li>
+<li><b>CT3's pick rule</b> becomes: only rows with a matched file that passes AU1 can be picked.</li>
+<li><b>CT10:</b> render rows carry the file line in place of the rights note.</li>
+<li><b>CT11:</b> the share link has no supplier step to leave out. It's otherwise unchanged.</li>
+</ul></td></tr>
+
+<tr><td>AU3 · Rights stay with TT5</td><td>
+<ul>
+<li>A Meta mute or rights rejection pauses that variant, takes it out of the test and flags its file. The line reads "Meta muted the audio (rights)".</li>
+<li>A flagged file can't be picked until Matas clears the flag. That's unchanged from TT5.</li>
+<li>In the picker, a flagged file's row shows the file line followed by <b>" · Meta muted the audio (rights)"</b>, with its tick off.</li>
+</ul></td></tr>
+
+<tr><td>AU4 · The Lab's strings</td><td>
+<p><b>Gone:</b></p>
+<ul>
+<li>"Who supplied this file?", its choices "{client}" and "{artist}'s team", and the "Who supplied it?" action;</li>
+<li>"Name who supplied this file before it can run.";</li>
+<li>the rights note, "Audio supplied by {supplier} · {file name} · {who}, {date}", on track rows and render rows.</li>
+</ul>
+<p><b>Changed:</b></p>
+<ul>
+<li>"Can't use this file: {reason}" now has only AU1's three reasons;</li>
+<li>CT3's "matched, supplied file" is now "matched file that passes AU1";</li>
+<li>CT-A's acceptance line "a confirmed match, a named supplier and a placed drop marker" is now "a confirmed match, a file that passes AU1 and a placed drop marker".</li>
+</ul>
+<p><b>New:</b></p>
+<ul>
+<li>the file line "{file name} · {format}", with the bitrate on an MP3;</li>
+<li>the three reason strings;</li>
+<li>the muted suffix on a flagged row.</li>
+</ul>
+<p><b>Unchanged:</b> "{n} of 5 picked", "Looks like {file name}", "Match", "No file in Drive yet", "{file name} · not in Spotify's top tracks", the Spotify no-answer line, the drop marker strings and the preview strings.</p></td></tr>
+</table>
+
+<h2>Frames</h2>
+<div class="frame">
+<figure><figcaption>AU-A · 1280 · Lab · Snippet · the track picker (redraws CT-A)</figcaption>
+<div class="vp wide">
+<div class="ph">P26-BDAY · Snippet</div>
+<div class="chips"><span class="chip on">Luke Dean</span><span class="chip">Enzo Siragusa</span></div>
+<div class="sub">Spotify's top tracks for Luke Dean · 3 of 5 picked</div>
+<div class="row"><span class="box on"></span><span class="n">1</span><span>Track one<br><span class="fs">LD_track-one_master.wav · WAV</span></span><span class="fs ok">DROP · 1:04</span></div>
+<div class="row"><span class="box on"></span><span class="n">2</span><span>Track two<br><span class="fs">track two (club mix).aiff · AIFF</span></span><span class="fs ok">DROP · 0:58</span></div>
+<div class="row"><span class="box on"></span><span class="n">3</span><span>Track three<br><span class="fs">LD - Track Three.mp3 · MP3 128 kbps</span></span><span class="fs ok">DROP · 1:12</span></div>
+<div class="row"><span class="box off"></span><span class="n">4</span><span>Track four<br><span class="fs warn">Can't use this file: MP3 under 128 kbps</span></span><span></span></div>
+<div class="row"><span class="box off"></span><span class="n">5</span><span>Track five<br><span class="fs">No file in Drive yet</span></span><span></span></div>
+<div class="row"><span class="box off"></span><span class="n">6</span><span>Track six<br><span class="fs warn">LD_track-six.mp3 · MP3 320 kbps · Meta muted the audio (rights)</span></span><span></span></div>
+<div style="margin-top:12px;display:flex;justify-content:space-between;align-items:center"><span class="fs">Static: P26-BDAY_puzzle_t2-roll-call-w23nov_9x16</span><span class="btn">Make Test 1 · 3 snippets</span></div>
+</div></figure>
+<figure><figcaption>AU-A · 393</figcaption>
+<div class="vp w393">
+<div class="sub">Luke Dean · 3 of 5 picked</div>
+<div class="row"><span class="box on"></span><span class="n">1</span><span>Track one<br><span class="fs">LD_track-one_master.wav · WAV</span></span><span></span></div>
+<div class="row"><span class="box on"></span><span class="n">2</span><span>Track two<br><span class="fs">track two (club mix).aiff · AIFF</span></span><span></span></div>
+<div class="row"><span class="box on"></span><span class="n">3</span><span>Track three<br><span class="fs">LD - Track Three.mp3 · MP3 128 kbps</span></span><span></span></div>
+<div class="row"><span class="box off"></span><span class="n">4</span><span>Track four<br><span class="fs warn">Can't use this file: MP3 under 128 kbps</span></span><span></span></div>
+</div></figure>
+</div>
+<p class="lead">In AU-A, track 3's 128 kbps MP3 passes and is picked. Track 4's file is an MP3 under 128 kbps. Track 6 was muted by Meta in an earlier test, so its file stays flagged until Matas clears it.</p>
+
+<h2>Acceptance</h2>
+<ul class="notes">
+<li>The format check accepts WAV, AIFF, FLAC and MP3 at 128 kbps or more, at least 30 seconds long. A test covers each of the three reasons.</li>
+<li>No supplier field, hold or line exists anywhere in the Lab, on render rows or in storage reads for the picker.</li>
+<li>Track rows and render rows show the file line.</li>
+<li>A snippet renders with a confirmed match, a file that passes AU1 and a placed drop marker.</li>
+<li>A flagged file shows the muted suffix and can't be ticked.</li>
+<li>Frame AU-A at 1280 and 393, from fixtures.</li>
+</ul>
+
+<h2>Invented here</h2>
+<ul class="notes">
+<li>The three reason strings' wording, the file line "{file name} · {format}" with the bitrate on an MP3, and the muted suffix on a flagged row.</li>
+</ul>
+
+</div>
+</body>
+</html>

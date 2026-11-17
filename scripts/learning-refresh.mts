@@ -26,6 +26,7 @@ import { createClient } from "@supabase/supabase-js";
 
 import { COPY_SHRINK_K, passesCopyMinimum, type CopyPerformanceRow } from "../lib/learning/copy/score.ts";
 import { STAGE_SOURCES, type LoadLearningOptions, type StageSource } from "../lib/learning/joins.ts";
+import { genreStatusLinesFromDetail } from "../lib/learning/genre/status-lines.ts";
 import { runLearningRefresh } from "../lib/learning/runner.ts";
 import type { TagPerformanceRow } from "../lib/learning/tag-performance.ts";
 
@@ -66,6 +67,12 @@ console.log(`accounts with no known currency (treated as GBP): ${result.currency
 console.log(`\n## Jobs\n`);
 for (const [name, j] of Object.entries(result.jobs)) {
   console.log(`- ${name}: ${j.ok ? "ok" : "FAILED"} · ${dryRun ? "would write" : "wrote"} ${j.rows}${j.detail ? ` · ${JSON.stringify(j.detail)}` : ""}${j.error ? ` · ${j.error}` : ""}`);
+}
+
+console.log(`\n## Genre pools (shadow, GK3; read by nothing)\n`);
+for (const line of genreStatusLinesFromDetail({ genre: result.genre })) console.log(`- ${line}`);
+for (const job of result.genre?.jobs ?? []) {
+  console.log(`  ${job.job}: pairs ${job.pairs}, separating ${job.separating}, shuffles ${job.shuffles}, families ${job.families.map((f) => `${f.family} ${f.shows}/${f.clients}`).join(", ") || "none"}`);
 }
 
 console.log(`\n## Tag join rate per client (tagged ad-days ÷ ad-days) and ad-days per stage\n`);

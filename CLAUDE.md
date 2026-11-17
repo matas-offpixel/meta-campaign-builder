@@ -564,6 +564,21 @@ REMOTION_LAMBDA_SERVE_URL=
 > are excluded. Readers: `lib/learning/read.ts`. Check before enabling:
 > `scripts/learning-refresh.mts --dry-run`.
 >
+> Genre pools run in shadow (`docs/design-record/2026-11-16-genre-key.html`,
+> GK1–GK8; `lib/learning/genre/`). `events.genre_family` (migration 253) is one
+> family per show from a fixed list, or null for "Not set". The operator sets
+> it on the event form, one event at a time, from a suggestion it is never
+> pre-filled with. After the seven jobs, `genre_shadow` builds genre rows for
+> `tag_performance`, `copy_performance` and `copy_features`, then runs the
+> audit's shuffle control (100 shuffles a job, 40 s cap). A family's pool is
+> on only at ≥ 5 shows across ≥ 2 clients and beating ≥ 90 % of shuffles. A
+> genre row needs 3 shows to count. Genre rows are never written and no
+> reader reads them. The status per job rides on `cron_runs.detail.genre`
+> and shows only as the operator status line on `/admin/cron-health`.
+> Separately, at every scope, a `tag_performance` row from fewer than 3 shows
+> never reads `strong` (`capByShows`, GK7). Copy rows already need 4 shows
+> for that.
+>
 > `artist_library` (`lib/learning/copy/artist-extraction.ts`, `artist-plan.ts`)
 > is the one job that calls out, and only to Spotify (`SPOTIFY_CLIENT_ID` /
 > `SPOTIFY_CLIENT_SECRET`; unset → every name that needed confirming stays

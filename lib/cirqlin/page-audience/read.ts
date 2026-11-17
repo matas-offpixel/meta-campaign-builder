@@ -12,6 +12,8 @@
  * shows'.
  *
  * Before migration 247 is applied, every read is empty, not an error.
+ * community_joined_reachable is migration 254's column: the select names it,
+ * so 254 is applied before this ships.
  *
  * Relative imports only: the `node --test` runner can't resolve `@/`.
  */
@@ -26,7 +28,7 @@ type Db = Pick<SupabaseClient, "from">;
 export const PAGE_AUDIENCE_TABLE = "cirqlin_page_audience";
 
 export const PAGE_AUDIENCE_COLUMNS =
-  "page_id,fetch_day,event_id,is_umbrella,signups,geo_cities,geo_everywhere_else,geo_couldnt_tell,consent_marketing,channels_offered,community_joined,community_link_clicks,community_code_shared,whatsapp_with_phone,partner_opt_in,partner_box_offered,daily_timezone,signups_check,signups_stored,signups_stored_at,fetched_at";
+  "page_id,fetch_day,event_id,is_umbrella,signups,geo_cities,geo_everywhere_else,geo_couldnt_tell,consent_marketing,channels_offered,community_joined,community_joined_reachable,community_link_clicks,community_code_shared,whatsapp_with_phone,partner_opt_in,partner_box_offered,daily_timezone,signups_check,signups_stored,signups_stored_at,fetched_at";
 
 export interface StoredPageAudienceRow {
   page_id: string;
@@ -40,6 +42,8 @@ export interface StoredPageAudienceRow {
   consent_marketing: number;
   channels_offered: string[];
   community_joined: number;
+  /** Absent on a read that didn't select it; null before cirqlin #647. */
+  community_joined_reachable?: number | null;
   community_link_clicks: number;
   community_code_shared: boolean;
   whatsapp_with_phone: number;
@@ -77,6 +81,17 @@ export interface PageAudienceFigures {
    */
   offersWhatsapp: boolean;
   communityJoined: number;
+  /**
+   * Joined the community and counted in whatsappWithPhone (cirqlin #647).
+   * null: a row fetched before CIRQLIN returned it.
+   */
+  communityJoinedReachable: number | null;
+  /**
+   * communityJoinedReachable ÷ whatsappWithPhone, 0..1, capped at 1. All
+   * time only (every stored row is all time). null when either is missing
+   * or whatsappWithPhone is 0.
+   */
+  joinRate: number | null;
   communityLinkClicks: number;
   /** The page's WhatsApp invite code also appears on another page. */
   communityCodeShared: boolean;
@@ -120,6 +135,18 @@ export function offersWhatsapp(channels: readonly string[] | null | undefined): 
   return Array.isArray(channels) && channels.includes("whatsapp");
 }
 
+/**
+ * Reachable joiners over signups with a WhatsApp number, capped at 1. Only
+ * for all-time figures: a windowed count is windowed by join date and its
+ * whatsapp_with_phone by signup date, so `windowed` gives null.
+ */
+export function joinRate(reachable: number | null | undefined, withPhone: number | null | undefined, opts: { windowed?: boolean } = {}): number | null {
+  if (opts.windowed) return null;
+  if (reachable == null || withPhone == null) return null;
+  if (!Number.isFinite(reachable) || !Number.isFinite(withPhone) || reachable < 0 || withPhone <= 0) return null;
+  return Math.min(1, reachable / withPhone);
+}
+
 /** PA5 once CIRQLIN says whether the box is there; PB3 until it does. */
 export function partnerOptInShown(count: number, boxOffered: boolean | null): number | null {
   if (boxOffered === false) return null;
@@ -129,6 +156,7 @@ export function partnerOptInShown(count: number, boxOffered: boolean | null): nu
 
 export function toFigures(eventId: string, isUmbrella: boolean, row: StoredPageAudienceRow): PageAudienceFigures {
   const cities = Array.isArray(row.geo_cities) ? row.geo_cities : [];
+  const reachable = row.community_joined_reachable == null ? null : num(row.community_joined_reachable);
   return {
     eventId,
     pageId: row.page_id,
@@ -145,6 +173,8 @@ export function toFigures(eventId: string, isUmbrella: boolean, row: StoredPageA
     channelsOffered: [...(row.channels_offered ?? [])],
     offersWhatsapp: offersWhatsapp(row.channels_offered),
     communityJoined: num(row.community_joined),
+    communityJoinedReachable: reachable,
+    joinRate: joinRate(reachable, num(row.whatsapp_with_phone)),
     communityLinkClicks: num(row.community_link_clicks),
     communityCodeShared: row.community_code_shared === true,
     whatsappWithPhone: num(row.whatsapp_with_phone),
