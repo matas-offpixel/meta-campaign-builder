@@ -15,8 +15,8 @@ function db(fake: FakeDb) {
 
 const CROP = { crop_focus_x: 0.5, crop_focus_y: 0.5, in_s: null, out_s: null };
 const SAMPLES = { detector: "ssd_mobilenet_v1", fps: 5, cropFocusX: 0.5, cropFocusY: 0.5, inS: null, outS: null };
-/** The row production stored for P26-BDAY clips 27, 29, 30, 33 and 34. */
-const FAILED_CHECK = { ...SAMPLES, error: "Cannot find module as expression is too dynamic" };
+/** A check that ran and failed on the clip (a detector that failed to load is retried as checking, #1302). */
+const FAILED_CHECK = { ...SAMPLES, error: "no frames" };
 const READY = { ...SAMPLES, samples: [{ t: 0, faces: [] }] };
 
 describe("runRenderTick", () => {

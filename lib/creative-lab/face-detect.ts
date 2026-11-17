@@ -11,9 +11,9 @@
  */
 
 import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { TextDecoder, TextEncoder, types } from "node:util";
 
 export type FaceBox = { x: number; y: number; width: number; height: number; score: number };
 
@@ -63,27 +63,11 @@ type FaceApi = {
 const DETECT_LONG_SIDE = 640;
 let loaded: Promise<FaceApi> | null = null;
 
-/**
- * face-api's ESM bundle, read from node_modules under the working directory
- * (/var/task on Vercel, the repo root for scripts and tests). next.config.ts
- * traces the file and its model/ into the render tick. It is never resolved
- * through the bundler: Turbopack compiles a computed import() to a stub that
- * throws "Cannot find module as expression is too dynamic", and that stub was
- * all production ever ran (every stored face_samples row held that error).
- */
-export function faceApiEntry(cwd = process.cwd()): string {
-  return join(cwd, "node_modules", "@vladmandic", "face-api", "dist", "face-api.esm.js");
-}
-
-/** Loads a module by absolute path at run time, outside the bundle. */
-export function importAtRunTime(path: string): Promise<unknown> {
-  return import(/* webpackIgnore: true */ /* turbopackIgnore: true */ pathToFileURL(path).href);
-}
-
 async function faceApi(): Promise<FaceApi> {
   if (loaded) return loaded;
   loaded = (async () => {
-    const main = faceApiEntry();
+    const require = createRequire(import.meta.url);
+    const main = require.resolve("@vladmandic/face-api/dist/face-api.esm.js");
     // The bundle is the browser build: when it sees Node it builds tfjs's Node
     // platform from a stubbed-out `util` and throws. So it loads with
     // process.versions.node hidden, and the platform is registered here from the
@@ -92,17 +76,18 @@ async function faceApi(): Promise<FaceApi> {
     Object.defineProperty(process, "versions", { value: { ...versions, node: undefined }, configurable: true, writable: true });
     let api: FaceApi;
     try {
-      api = (await importAtRunTime(main)) as FaceApi;
+      api = (await import(pathToFileURL(main).href)) as unknown as FaceApi;
     } finally {
       Object.defineProperty(process, "versions", { value: versions, configurable: true, writable: true });
     }
-    const encoder = new TextEncoder();
+    const util = require("node:util") as typeof import("node:util");
+    const encoder = new util.TextEncoder();
     api.tf.setPlatform("node", {
       fetch: (input: string, init?: RequestInit) => fetch(input, init),
       now: () => performance.now(),
       encode: (text: string) => encoder.encode(text),
-      decode: (bytes: Uint8Array, encoding: string) => (bytes.length === 0 ? "" : new TextDecoder(encoding).decode(bytes)),
-      isTypedArray: (a: unknown) => types.isFloat32Array(a) || types.isInt32Array(a) || types.isUint8Array(a) || types.isUint8ClampedArray(a),
+      decode: (bytes: Uint8Array, encoding: string) => (bytes.length === 0 ? "" : new util.TextDecoder(encoding).decode(bytes)),
+      isTypedArray: (a: unknown) => util.types.isFloat32Array(a) || util.types.isInt32Array(a) || util.types.isUint8Array(a) || util.types.isUint8ClampedArray(a),
       setTimeoutCustom: (fn: () => void, delay: number) => setTimeout(fn, delay),
     });
     // face-api's own environment: input is always a tensor, so its media

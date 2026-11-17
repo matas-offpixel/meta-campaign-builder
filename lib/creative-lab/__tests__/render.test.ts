@@ -337,7 +337,7 @@ describe("renderCaptionOnClip", () => {
   it("fails, not waits, when the clip's stored face check failed", async () => {
     const fake = seed();
     const clip = fake.tables.creative_lab_clips[0]!;
-    clip.face_samples = { detector: "ssd_mobilenet_v1", fps: 5, cropFocusX: 0.5, cropFocusY: 0.5, inS: null, outS: null, error: "Cannot find module as expression is too dynamic" };
+    clip.face_samples = { detector: "ssd_mobilenet_v1", fps: 5, cropFocusX: 0.5, cropFocusY: 0.5, inS: null, outS: null, error: "no frames" };
     let rendered = false;
     const { deps: d } = deps(async () => {
       rendered = true;

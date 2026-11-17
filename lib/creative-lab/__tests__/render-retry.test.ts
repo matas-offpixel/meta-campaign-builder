@@ -103,8 +103,8 @@ describe("retry on a failed render row", () => {
     const fake = world("draft", FACE_CHECK_FAILED);
     const base = { detector: "ssd_mobilenet_v1", fps: 5, cropFocusX: 0.5, cropFocusY: 0.5, inS: null, outS: null };
     fake.tables.creative_lab_clips = [
-      { id: "clip-1", creative_asset_id: null, triple_fit_source_id: null, face_samples: { ...base, error: "Cannot find module as expression is too dynamic" }, face_samples_at: "2026-11-13T10:00:00Z" },
-      { id: "clip-2", creative_asset_id: null, triple_fit_source_id: null, face_samples: { ...base, error: "no frames" }, face_samples_at: "2026-11-13T10:00:00Z" },
+      { id: "clip-1", creative_asset_id: null, triple_fit_source_id: null, face_samples: { ...base, error: "no frames" }, face_samples_at: "2026-11-13T10:00:00Z" },
+      { id: "clip-2", creative_asset_id: null, triple_fit_source_id: null, face_samples: { ...base, error: "ffmpeg exited 1" }, face_samples_at: "2026-11-13T10:00:00Z" },
     ];
     await retryRender(fake as unknown as ServiceRoleDb, { renderId: "r1", userId: OP });
     const clip1 = fake.tables.creative_lab_clips.find((row) => row.id === "clip-1")!;
