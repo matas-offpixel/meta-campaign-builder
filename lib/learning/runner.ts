@@ -16,6 +16,14 @@
  *      the names job 5 is linking as if already linked.
  *   7. copy_features             (lib/learning/copy-features.ts), the same
  *      library re-keyed from words to shape labels
+ * then, in shadow,
+ *   genre_shadow                 (lib/learning/genre/shadow.ts): genre rows
+ *      for tag_performance, copy_performance and copy_features from
+ *      events.genre_family (migration 253), with the audit's shuffle
+ *      control. Nothing is written to a learning table and no reader reads
+ *      them (GK3); the status per job rides on the cron run
+ *      (`learningRefreshRunLog` → cron_runs.detail.genre) for the operator
+ *      status line on /admin/cron-health.
  * and, after them and only while ENABLE_ONSALE_REFRESH_SCORING is "1",
  *   8. onsale_refresh_scoring    (lib/onsale-refresh/scoring.ts): R6's
  *      outcome for each on-sale refresh line on its next full week, into
@@ -58,6 +66,8 @@ import { planArtistLibrary, writeArtistPlan, type ArtistPlan } from "./copy/arti
 import { passesCopyMinimum, type CopyPerformanceRow } from "./copy/score.ts";
 import { computeTagPerformance, TAG_WINDOW_DAYS, windowStart, writeTagPerformance, type TagPerformanceRow } from "./tag-performance.ts";
 import { isScoringEnabled, scoreOnsaleRefresh } from "../onsale-refresh/scoring.ts";
+import { computeGenreShadow, genreRunDetail, loadGenreFamilies, type GenreFamilies, type GenreShadowResult } from "./genre/shadow.ts";
+import type { GenreRunDetail } from "./genre/status-lines.ts";
 
 export function isLearningRefreshEnabled(env: Record<string, string | undefined>): boolean {
   return env.ENABLE_LEARNING_REFRESH === "1";
@@ -107,7 +117,9 @@ export function learningRefreshRunLog(body: Record<string, unknown>): {
     perJob[name] = count;
     rows += count;
   }
-  return { rows, detail: { jobs: perJob } };
+  // GK3: the genre status per job, for the operator status line. Not a learning.
+  const genre = body.genre && typeof body.genre === "object" ? (body.genre as GenreRunDetail) : null;
+  return { rows, detail: genre ? { jobs: perJob, genre } : { jobs: perJob } };
 }
 
 export type LearningRefreshResult =
@@ -115,8 +127,10 @@ export type LearningRefreshResult =
   | {
       ok: boolean;
       dryRun: boolean;
-      /** The seven jobs, plus `onsale_refresh_scoring` only while ENABLE_ONSALE_REFRESH_SCORING is "1". */
-      jobs: Record<LearningJobName, JobOutcome> & { onsale_refresh_scoring?: JobOutcome };
+      /** The seven jobs and genre_shadow, plus `onsale_refresh_scoring` only while ENABLE_ONSALE_REFRESH_SCORING is "1". */
+      jobs: Record<LearningJobName, JobOutcome> & { genre_shadow?: JobOutcome; onsale_refresh_scoring?: JobOutcome };
+      /** GK3: the shadow genre status per job. Absent when the genre job failed. */
+      genre?: GenreRunDetail;
       adDays: number;
       dropped: LearningInputs["dropped"];
       joinRates: Record<string, JoinRate>;
@@ -142,6 +156,7 @@ export type LearningRefreshResult =
         copyPerformance: CopyPerformanceRow[];
         artistPlan: ArtistPlan | null;
         copyFeatures: CopyFeatureRow[];
+        genre: GenreShadowResult | null;
       };
       error?: string;
     };
@@ -211,7 +226,7 @@ function spendCounts(facts: LearningInputs["facts"]): Record<string, { total: nu
   return out;
 }
 
-async function job(name: LearningJobName | "onsale_refresh_scoring", run: () => Promise<JobOutcome>): Promise<JobOutcome> {
+async function job(name: LearningJobName | "genre_shadow" | "onsale_refresh_scoring", run: () => Promise<JobOutcome>): Promise<JobOutcome> {
   try {
     const outcome = await run();
     console.log(`[learning-refresh] job=${name} ok=${outcome.ok} rows=${outcome.rows}${outcome.detail ? ` ${JSON.stringify(outcome.detail)}` : ""}`);
@@ -238,6 +253,10 @@ export async function runLearningRefresh(input: {
   confirm?: ArtistConfirmer | null;
   /** Tests: the on-sale refresh scoring job. Default: scoreOnsaleRefresh. */
   scoreRefresh?: typeof scoreOnsaleRefresh;
+  /** Tests: the confirmed genre families. Default: events.genre_family. */
+  genreFamilies?: GenreFamilies;
+  /** Tests: shuffles per genre job. Default GENRE_SHUFFLES. */
+  genreShuffles?: number;
 }): Promise<LearningRefreshResult> {
   const dryRun = input.dryRun === true;
   if (!dryRun && !isLearningRefreshEnabled(input.env)) return { ok: true, skippedReason: "killswitch" };
@@ -261,7 +280,9 @@ export async function runLearningRefresh(input: {
   let copyLibrary: CopyLibrary | null = null;
   let featureRows: CopyFeatureRow[] = [];
 
-  const jobs = {} as Record<LearningJobName, JobOutcome> & { onsale_refresh_scoring?: JobOutcome };
+  let genre: GenreShadowResult | null = null;
+
+  const jobs = {} as Record<LearningJobName, JobOutcome> & { genre_shadow?: JobOutcome; onsale_refresh_scoring?: JobOutcome };
   jobs.creative_scores = await job("creative_scores", async () => {
     const rows = computeCreativeScores(inputs.facts, { userId: await operator(), fetchedAt: runAt });
     const events = new Set(rows.map((r) => r.eventId)).size;
@@ -341,6 +362,31 @@ export async function runLearningRefresh(input: {
     return { ok: true, rows: written.written, detail: { ...detail, staleDeleted: written.deleted } };
   });
 
+  // Shadow (GK3): computed and checked, never written to a learning table, read by nothing but the status line.
+  jobs.genre_shadow = await job("genre_shadow", async () => {
+    const families = input.genreFamilies ?? (await loadGenreFamilies(input.db, inputs.archivedClientIds));
+    genre = computeGenreShadow({
+      families,
+      facts: inputs.facts,
+      tags: inputs.tags,
+      shows: inputs.shows,
+      tagRows,
+      library: copyLibrary,
+      copyRows,
+      now,
+      shuffles: input.genreShuffles,
+    });
+    const detail: Record<string, unknown> = {
+      read: genre.read,
+      events: genre.events,
+      ...Object.fromEntries(genre.jobs.map((j) => [j.job, { rows: j.genreRows, pairs: j.pairs, shuffles: j.shuffles, beats: j.beats, on: j.on.length }])),
+      ...(families.error ? { readError: families.error } : {}),
+      ...(dryRun ? { dryRun } : {}),
+    };
+    // Nothing is written: rows is 0 on every run, dry or not.
+    return { ok: true, rows: 0, detail };
+  });
+
   // 8. After the others, behind its own switch: a failure here is caught by job() and leaves them as they ran.
   if (isScoringEnabled(input.env)) {
     jobs.onsale_refresh_scoring = await job("onsale_refresh_scoring", async () => {
@@ -352,7 +398,7 @@ export async function runLearningRefresh(input: {
 
   const ticketSales = ticketSaleResultCounts(inputs.facts, windowStart(now, TAG_WINDOW_DAYS));
   const result: LearningRefreshResult = {
-    ok: LEARNING_JOBS.every((name) => jobs[name].ok) && (jobs.onsale_refresh_scoring?.ok ?? true),
+    ok: LEARNING_JOBS.every((name) => jobs[name].ok) && (jobs.genre_shadow?.ok ?? true) && (jobs.onsale_refresh_scoring?.ok ?? true),
     dryRun,
     jobs,
     adDays: inputs.facts.length,
@@ -365,6 +411,7 @@ export async function runLearningRefresh(input: {
     ticketSalePurchases: ticketSales.purchases,
     ticketSaleCheckouts: ticketSales.checkouts,
     currencyAssumed: [...inputs.currency.assumed].sort(),
+    ...(genre ? { genre: genreRunDetail(genre) } : {}),
   };
   if (dryRun) {
     result.preview = {
@@ -377,6 +424,7 @@ export async function runLearningRefresh(input: {
       copyPerformance: copyRows,
       artistPlan,
       copyFeatures: featureRows,
+      genre,
     };
   }
   console.log(
