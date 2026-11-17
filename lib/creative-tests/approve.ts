@@ -1,20 +1,24 @@
 /**
- * "Approve variants" (Matas, 16 Nov: going live is two clicks). Approving a
- * test's variants creates it on Meta, **everything paused**:
+ * "Approve variants". Approving a test's variants creates it on Meta,
+ * **ACTIVE** (Matas, 17 Nov: "Created ACTIVE from now on. Matas switches off
+ * anything he refuses"), so approving starts the test:
  *
- *   1. the event's "{code} · Tests" campaign (TT1), once per event, with its
- *      budget on the ad sets;
- *   2. the format's ad set, "{code} · Tests · Video" or "· Statics" (TT1):
- *      a wide Advantage+ audience — the event's location and age floor from a
- *      delivering main ad set, nothing narrower — with that ad set's
- *      placements, optimisation and promoted object (the event's result,
- *      R3), and TF1's daily budget;
+ *   1. the show's one "{code} · Tests" campaign (tests-campaign.ts): found by
+ *      its exact name in the event's ad account, else created ACTIVE with no
+ *      campaign budget (the budgets sit on the ad sets, so Meta can't move
+ *      money between tests). The A/B copy test's ad sets share it;
+ *   2. the test's own ad set, "{code} · Tests · Video" or "· Statics" (TT1),
+ *      never another test's: a wide Advantage+ audience — the event's
+ *      location and age floor from a delivering main ad set, nothing
+ *      narrower — with that ad set's placements, optimisation and promoted
+ *      object (the event's result, R3), TF1's daily budget, and its own end
+ *      four days after it starts;
  *   3. one ad per variant: the variant's video, with the copy, link, call to
  *      action and identity of the main campaign's current best ad, so the
  *      test changes one thing and holds the rest (CT6). The ads go through
- *      the launch route in attach mode with createPaused, the way the Lab's
- *      rounds do, so uploads, creatives, the write ledger and launched_ads
- *      rows are the app's own.
+ *      the launch route in attach mode, the way the Lab's rounds do, so
+ *      uploads, creatives, the write ledger and launched_ads rows are the
+ *      app's own.
  *
  * Gates, in order, before any Graph call or database write:
  *   - CREATIVE_TESTS_CREATE_ENABLED must be exactly "true" (503 otherwise);
@@ -22,18 +26,20 @@
  *   - one test at a time per test ad set (TT1);
  *   - TF1's budget, which needs spend in the last 7 days.
  *
- * Starting the test (TT1/TF2: the 4-day hold, ACTIVE) is a separate step and
- * isn't here. Meta and the launch route are passed in, so this file never
- * imports lib/meta/client.ts and tests run on fakes.
+ * The test is "running" from the moment its ads are made, with started_at
+ * the ad set's start (TF2's 4-day hold). Meta and the launch route are
+ * passed in, so this file never imports lib/meta/client.ts and tests run on
+ * fakes.
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { buildLabDraft, buildLabLaunchBody, type LabDraftAd } from "../creative-lab/lab-draft.ts";
+import { buildLabDraft, type LabDraftAd } from "../creative-lab/lab-draft.ts";
 import type { LabLaunchResponse, LabUploadRequest, LabUploadResult } from "../creative-lab/launch.ts";
 import { withMetaWriteIdempotency, type MetaWriteContext } from "../meta/write-idempotency.ts";
 import { sizeTest, type CboCampaign, type MainAdSet } from "./budget.ts";
 import { CONTROL, canApprove, chooseControl, variantCountOk, type TestRow } from "./plan.ts";
+import { hasCampaignBudget, pickTestsCampaign, testAdSetEndTime, testsCampaignPayload, type ListedCampaign } from "./tests-campaign.ts";
 import { testAdSetName, testsCampaignName, type ResultEvent, type TestFormat } from "./words.ts";
 
 type Db = Pick<SupabaseClient, "from">;
@@ -55,9 +61,10 @@ export type TestMeta = {
   readCampaign(campaignId: string): Promise<{ objective: string | null; dailyBudget: number | null; status: string | null } | null>;
   /** GET /{ad}?fields=creative{…}: the best ad's copy, link, call to action and identity. */
   readAdCopy(adId: string): Promise<AdCopy | null>;
+  /** GET /act_{id}/campaigns, ACTIVE and PAUSED, name containing `nameContains` (the exact match is pickTestsCampaign's). */
+  findCampaigns(adAccountId: string, nameContains: string): Promise<ListedCampaign[]>;
   createCampaign(adAccountId: string, payload: Record<string, unknown>): Promise<string>;
   createAdSet(adAccountId: string, payload: Record<string, unknown>): Promise<string>;
-  updateAdSetDailyBudget(adsetId: string, dailyMinor: number): Promise<void>;
 };
 
 export type AdCopy = { pageId: string; instagramActorId: string | null; message: string; link: string; cta: string };
@@ -67,7 +74,8 @@ export type ApproveDeps = {
   env: Record<string, string | undefined>;
   meta: TestMeta;
   upload: (request: LabUploadRequest) => Promise<LabUploadResult>;
-  launch: (body: ReturnType<typeof buildLabLaunchBody>) => Promise<LabLaunchResponse>;
+  /** The launch route, attach mode. createPaused is false: test ads are made ACTIVE (17 Nov). */
+  launch: (body: { draft: ReturnType<typeof buildLabDraft>; createPaused: false }) => Promise<LabLaunchResponse>;
   isMatas: (userId: string) => boolean;
   /** The event's ad-days since a date (tests pass them in; the route reads ad_daily_insights). */
   days?: (eventCode: string, since: string) => Promise<AdDay[]>;
@@ -124,7 +132,7 @@ export function factsFrom(days: readonly AdDay[], eventCode: string, result: Res
   return { last7Spend, deliveringAdSets, bestAd: pick ? { adId: pick.adId, adsetId: pick.adsetId } : null };
 }
 
-/** TT1's ad set: the event's location and age floor, nothing narrower; the source's placements and optimisation; TF1's budget; paused. */
+/** TT1's ad set: the event's location and age floor, nothing narrower; the source's placements and optimisation; TF1's budget; ACTIVE, ending 4 days after its start. */
 export function testAdSetPayload(source: Row, input: { name: string; campaignId: string; dailyMinor: number; startTime: string }): Record<string, unknown> {
   const t = (source.targeting ?? {}) as Row;
   const keep = ["geo_locations", "excluded_geo_locations", "locales", "publisher_platforms", "facebook_positions", "instagram_positions", "audience_network_positions", "messenger_positions", "device_platforms"];
@@ -135,13 +143,14 @@ export function testAdSetPayload(source: Row, input: { name: string; campaignId:
   const payload: Row = {
     name: input.name,
     campaign_id: input.campaignId,
-    status: "PAUSED",
+    status: "ACTIVE",
     daily_budget: input.dailyMinor,
     billing_event: source.billing_event ?? "IMPRESSIONS",
     optimization_goal: source.optimization_goal,
     bid_strategy: "LOWEST_COST_WITHOUT_CAP",
     targeting,
     start_time: input.startTime,
+    end_time: testAdSetEndTime(input.startTime),
   };
   for (const key of ["promoted_object", "attribution_spec", "destination_type"]) if (source[key] != null) payload[key] = source[key];
   return payload;
@@ -253,26 +262,30 @@ export async function approveTest(deps: ApproveDeps, input: { testId: string; us
   const mainCampaign = await deps.meta.readCampaign(str(source, "campaign_id"));
   const objective = mainCampaign?.objective ?? "OUTCOME_SALES";
 
-  // 1. The Tests campaign, once per event (any test of the plan may already hold it).
+  // 1. The show's one Tests campaign: a test of this plan may hold its id; else it's found by
+  // its exact name in the event's account (the A/B copy test's, another plan's); else made.
   const format = str(test, "format") as TestFormat;
   const campaignName = testsCampaignName(eventCode);
   let campaignId = planTests.map((t) => str(t, "meta_campaign_id")).find(Boolean) ?? "";
   if (!campaignId) {
-    const payload = { name: campaignName, objective, buying_type: "AUCTION", status: "PAUSED", special_ad_categories: [] };
-    campaignId = await withMetaWriteIdempotency(ledger, "campaign_create", { creative_test_plan: str(test, "plan_id"), ...payload }, () => deps.meta.createCampaign(adAccountId, payload), { required: true });
+    const found = pickTestsCampaign(await deps.meta.findCampaigns(adAccountId, campaignName), eventCode);
+    if (found && hasCampaignBudget(found)) return refuse(409, `${campaignName} has a campaign budget. Test budgets sit on the ad sets, so switch it to ad set budgets in Ads Manager first.`);
+    campaignId = found?.id ?? "";
+  }
+  if (!campaignId) {
+    const payload = testsCampaignPayload(eventCode, objective);
+    // Keyed on the show's account and name, not the plan: one Tests campaign per show.
+    campaignId = await withMetaWriteIdempotency(ledger, "campaign_create", { tests_campaign: campaignName, ad_account_id: adAccountId }, () => deps.meta.createCampaign(adAccountId, payload), { required: true });
   }
 
-  // 2. The format's ad set: an earlier, finished test's is reused at this test's budget; else a new one.
+  // 2. The test's own ad set (never another test's), ACTIVE, ending 4 days after it starts.
+  // A retry keeps the first attempt's start, so the end doesn't move.
   const adSetName = testAdSetName(eventCode, format);
-  let adsetId = planTests.filter((t) => str(t, "format") === format && str(t, "id") !== input.testId).map((t) => str(t, "meta_adset_id")).find(Boolean) ?? "";
-  if (adsetId) {
-    await withMetaWriteIdempotency(ledger, "refresh_adset_budget_update", { creative_test: input.testId, adset_id: adsetId, daily_budget: sized.dailyMinor }, async () => {
-      await deps.meta.updateAdSetDailyBudget(adsetId, sized.dailyMinor);
-      return adsetId;
-    }, { required: true });
-  } else {
-    const payload = testAdSetPayload(source, { name: adSetName, campaignId, dailyMinor: sized.dailyMinor, startTime: now.toISOString() });
-    adsetId = await withMetaWriteIdempotency(ledger, "adset_create", { creative_test_plan: str(test, "plan_id"), format, campaign_id: campaignId, targeting: payload.targeting }, () => deps.meta.createAdSet(adAccountId, payload), { required: true });
+  const startedAt = str(test, "started_at") || now.toISOString();
+  let adsetId = str(test, "meta_adset_id");
+  if (!adsetId) {
+    const payload = testAdSetPayload(source, { name: adSetName, campaignId, dailyMinor: sized.dailyMinor, startTime: startedAt });
+    adsetId = await withMetaWriteIdempotency(ledger, "adset_create", { creative_test: input.testId, format, campaign_id: campaignId, targeting: payload.targeting }, () => deps.meta.createAdSet(adAccountId, payload), { required: true });
     const recorded = await db.from("launched_ad_sets").upsert(
       { meta_adset_id: adsetId, meta_campaign_id: campaignId, ad_account_id: adAccountId, draft_id: draftId, user_id: input.userId, client_id: str(event, "client_id") || null, event_id: str(event, "id"), launch_run_id: input.testId, channel: "meta", source_type: "creative_test", source_name: adSetName, advantage_plus: true, objective: result, initial_daily_budget_pence: sized.dailyMinor, descriptor_source: "launch" },
       { onConflict: "meta_adset_id" },
@@ -280,12 +293,12 @@ export async function approveTest(deps: ApproveDeps, input: { testId: string; us
     if (recorded.error) throw new Error(`launched_ad_sets: ${recorded.error.message}`);
   }
 
-  // The test holds what it's sized at before any ad goes in, so a retry reuses the campaign and ad set.
-  const sizing = { ad_account_id: adAccountId, meta_campaign_id: campaignId, meta_adset_id: adsetId, result_event: result, currency: account.currency, current_daily_spend: sized.currentDaily, daily_budget_minor: sized.dailyMinor, budget_pct: Math.round(sized.sharePct * 100) / 100, at_minimum: sized.atMinimum, min_daily_budget_minor: sized.minDailyMinor, median_cap_minor: sized.medianCapMinor, hold_minor: sized.holdMinor, sized_at: now.toISOString() };
+  // The test holds what it's sized at before any ad goes in, so a retry reuses the campaign, the ad set and its start.
+  const sizing = { started_at: startedAt, ad_account_id: adAccountId, meta_campaign_id: campaignId, meta_adset_id: adsetId, result_event: result, currency: account.currency, current_daily_spend: sized.currentDaily, daily_budget_minor: sized.dailyMinor, budget_pct: Math.round(sized.sharePct * 100) / 100, at_minimum: sized.atMinimum, min_daily_budget_minor: sized.minDailyMinor, median_cap_minor: sized.medianCapMinor, hold_minor: sized.holdMinor, sized_at: now.toISOString() };
   const held = await db.from("creative_tests").update(sizing).eq("id", input.testId);
   if (held.error) throw new Error(`creative_tests: ${held.error.message}`);
 
-  // 3. The ads, paused, through the launch route in attach mode (the Lab's way).
+  // 3. The ads, ACTIVE, through the launch route in attach mode (the Lab's way).
   const failed: { variantId: string; error: string }[] = [];
   const draftAds: (LabDraftAd & { variantId: string })[] = [];
   for (const v of variants) {
@@ -308,11 +321,11 @@ export async function approveTest(deps: ApproveDeps, input: { testId: string; us
   const made: { variantId: string; metaAdId: string }[] = [];
   if (draftAds.length) {
     const draft = buildLabDraft(
-      { roundId: input.testId, eventId: str(event, "id"), clientId: str(event, "client_id") || null, campaignName, adAccountId, campaignId, campaignObjective: objective, adSetId: adsetId, adSetName, adSetStatus: "PAUSED", destinationUrl: copy.link, cta: copy.cta },
+      { roundId: input.testId, eventId: str(event, "id"), clientId: str(event, "client_id") || null, campaignName, adAccountId, campaignId, campaignObjective: objective, adSetId: adsetId, adSetName, adSetStatus: "ACTIVE", destinationUrl: copy.link, cta: copy.cta },
       draftAds,
       now,
     );
-    const response = await deps.launch(buildLabLaunchBody(draft));
+    const response = await deps.launch({ draft, createPaused: false });
     if (!response.ok || !response.launchRunId) {
       for (const ad of draftAds) failed.push({ variantId: ad.variantId, error: response.error || `launch returned ${response.status}` });
     } else {
@@ -333,7 +346,8 @@ export async function approveTest(deps: ApproveDeps, input: { testId: string; us
 
   const allMade = failed.length === 0;
   if (allMade) {
-    const done = await db.from("creative_tests").update({ state: "approved", approved_by: input.userId, approved_at: now.toISOString() }).eq("id", input.testId).eq("state", "making");
+    // Made ACTIVE, so approving starts it: running from its ad set's start (TF2's hold).
+    const done = await db.from("creative_tests").update({ state: "running", approved_by: input.userId, approved_at: now.toISOString() }).eq("id", input.testId).eq("state", "making");
     if (done.error) throw new Error(`creative_tests: ${done.error.message}`);
   }
   return { status: allMade ? 200 : 207, body: { ok: allMade, testId: input.testId, campaignId, adsetId, ads: made, failed } };

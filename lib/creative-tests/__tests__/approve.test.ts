@@ -1,8 +1,9 @@
 /**
  * "Approve variants" on fakes: the gate (exactly "true", else 503 with no
  * Graph call and no write), Matas only, one test at a time, TF1's budget,
- * the Tests campaign and ad set created PAUSED and keyed on the ledger, the
- * ads sent to the launch route with createPaused, and a retry that makes
+ * the show's one Tests campaign (found by exact name, else made with no
+ * campaign budget), the test's own ad set ending 4 days after it starts,
+ * everything ACTIVE (17 Nov), keyed on the ledger, and a retry that makes
  * nothing twice.
  */
 
@@ -11,6 +12,7 @@ import { describe, it } from "node:test";
 
 import { memoryDb } from "../../onsale-refresh/__tests__/memory-db.ts";
 import { CREATES_OFF, approveTest, factsFrom, resultsOf, testAdSetPayload, type AdDay, type ApproveDeps, type TestMeta } from "../approve.ts";
+import type { ListedCampaign } from "../tests-campaign.ts";
 
 const MATAS = "matas";
 const NOW = new Date("2026-11-16T12:00:00Z");
@@ -54,7 +56,7 @@ function seed(state = "making") {
   });
 }
 
-function fakes(mem: ReturnType<typeof memoryDb>, extra: Partial<ApproveDeps> = {}) {
+function fakes(mem: ReturnType<typeof memoryDb>, extra: Partial<ApproveDeps> = {}, listed: ListedCampaign[] = []) {
   const calls: string[] = [];
   const meta: TestMeta = {
     async readAccount() {
@@ -73,6 +75,10 @@ function fakes(mem: ReturnType<typeof memoryDb>, extra: Partial<ApproveDeps> = {
       calls.push(`readAdCopy ${id}`);
       return { pageId: "page-1", instagramActorId: "ig-1", message: "Luke Dean joins Enzo Siragusa for our 4th Birthday", link: "https://example.com/tickets", cta: "buy_tickets" };
     },
+    async findCampaigns(account, name) {
+      calls.push(`findCampaigns ${account} ${name}`);
+      return listed;
+    },
     async createCampaign(_a, payload) {
       calls.push(`createCampaign ${JSON.stringify(payload)}`);
       return "c-tests";
@@ -81,11 +87,8 @@ function fakes(mem: ReturnType<typeof memoryDb>, extra: Partial<ApproveDeps> = {
       calls.push(`createAdSet ${JSON.stringify(payload)}`);
       return "as-tests";
     },
-    async updateAdSetDailyBudget(id, minor) {
-      calls.push(`updateBudget ${id} ${minor}`);
-    },
   };
-  const launches: { draft: { id?: string }; createPaused: true }[] = [];
+  const launches: { draft: { id?: string }; createPaused: boolean }[] = [];
   const deps: ApproveDeps = {
     db: mem.db,
     env: { CREATIVE_TESTS_CREATE_ENABLED: "true" },
@@ -132,7 +135,7 @@ describe("the gate", () => {
 });
 
 describe("Approve variants", () => {
-  it("creates the Tests campaign and its Video ad set paused, sized by TF1, then the ads paused through the launch route", async () => {
+  it("creates the Tests campaign and the test's Video ad set ACTIVE, sized by TF1, then the ads ACTIVE through the launch route", async () => {
     const mem = seed();
     const { deps, calls, launches } = fakes(mem);
     const result = await approveTest(deps, { testId: "t1", userId: MATAS });
@@ -140,10 +143,13 @@ describe("Approve variants", () => {
     assert.deepEqual(result.body.ads, [{ variantId: "v1", metaAdId: "ad-1" }, { variantId: "v2", metaAdId: "ad-2" }]);
 
     const campaign = JSON.parse(calls.find((c) => c.startsWith("createCampaign "))!.slice(15));
-    assert.deepEqual(campaign, { name: "P26-BDAY · Tests", objective: "OUTCOME_SALES", buying_type: "AUCTION", status: "PAUSED", special_ad_categories: [] });
+    assert.deepEqual(campaign, { name: "P26-BDAY · Tests", objective: "OUTCOME_SALES", buying_type: "AUCTION", status: "ACTIVE", special_ad_categories: [], is_adset_budget_sharing_enabled: false });
+    assert.ok(calls.includes("findCampaigns act_1 P26-BDAY · Tests"), "looked for the show's Tests campaign first");
     const adset = JSON.parse(calls.find((c) => c.startsWith("createAdSet "))!.slice(12));
     assert.equal(adset.name, "P26-BDAY · Tests · Video");
-    assert.equal(adset.status, "PAUSED");
+    assert.equal(adset.status, "ACTIVE");
+    assert.equal(adset.start_time, "2026-11-16T12:00:00.000Z");
+    assert.equal(adset.end_time, "2026-11-20T12:00:00.000Z");
     assert.equal(adset.campaign_id, "c-tests");
     // £247.22 / 7 = £35.32 → 10 % = £3.53 → £3, under the £5.51 median.
     assert.equal(adset.daily_budget, 300);
@@ -152,20 +158,20 @@ describe("Approve variants", () => {
     assert.deepEqual(adset.promoted_object, { pixel_id: "px", custom_event_type: "INITIATED_CHECKOUT" });
 
     assert.equal(launches.length, 1);
-    assert.equal(launches[0]!.createPaused, true);
+    assert.equal(launches[0]!.createPaused, false);
     const draft = launches[0]!.draft as unknown as { id: string; creatives: { name: string; primaryText?: string }[] };
     assert.equal(draft.id, "t1");
     assert.deepEqual(draft.creatives.map((c) => c.name), ["P26-BDAY_luke-dean-1_snippet-x-on-sale_r1_9x16", "P26-BDAY_luke-dean-2_snippet-x-on-sale_r1_9x16"]);
 
     const test = mem.tables.creative_tests!.find((t) => t.id === "t1")!;
-    assert.equal(test.state, "approved");
+    assert.equal(test.state, "running");
     assert.equal(test.approved_by, MATAS);
     assert.equal(test.meta_campaign_id, "c-tests");
     assert.equal(test.meta_adset_id, "as-tests");
     assert.equal(test.daily_budget_minor, 300);
     assert.equal(test.hold_minor, 1200);
     assert.equal(test.result_event, "initiate_checkout");
-    assert.equal(test.started_at, undefined);
+    assert.equal(test.started_at, "2026-11-16T12:00:00.000Z");
     assert.deepEqual(mem.tables.creative_test_variants!.map((v) => [v.meta_ad_id, v.state]), [["ad-1", "created"], ["ad-2", "created"]]);
     assert.equal(mem.tables.launched_ad_sets!.find((r) => r.meta_adset_id === "as-tests")?.source_type, "creative_test");
     // Every create went through the ledger, keyed on the main campaign's draft.
@@ -173,11 +179,58 @@ describe("Approve variants", () => {
     assert.ok(mem.tables.meta_write_idempotency!.some((r) => r.op_kind === "adset_create" && r.draft_id === "d-main"));
   });
 
-  it("nothing is ever created ACTIVE", async () => {
+  it("no campaign budget is sent: the budget sits on the ad set only", async () => {
     const mem = seed();
     const { deps, calls } = fakes(mem);
     await approveTest(deps, { testId: "t1", userId: MATAS });
-    assert.ok(!calls.some((c) => /"status":"ACTIVE"/.test(c)));
+    const campaign = JSON.parse(calls.find((c) => c.startsWith("createCampaign "))!.slice(15));
+    assert.equal("daily_budget" in campaign, false);
+    assert.equal("lifetime_budget" in campaign, false);
+    assert.equal("bid_strategy" in campaign, false);
+    assert.equal(campaign.is_adset_budget_sharing_enabled, false);
+    assert.ok(!calls.some((c) => /"status":"PAUSED"/.test(c)), "nothing is created paused");
+  });
+
+  it("a second test reuses the show's existing Tests campaign, found by exact name in the event's account", async () => {
+    const mem = seed();
+    const listed: ListedCampaign[] = [
+      { id: "c-near", name: "P26-BDAY · Tests · Old", effective_status: "PAUSED", created_time: "2026-10-01T00:00:00+0000" },
+      { id: "c-gone", name: "P26-BDAY · Tests", effective_status: "ARCHIVED", created_time: "2026-10-02T00:00:00+0000" },
+      { id: "c-shared", name: "P26-BDAY · Tests", effective_status: "ACTIVE", created_time: "2026-11-16T09:00:00+0000" },
+    ];
+    const { deps, calls } = fakes(mem, {}, listed);
+    const result = await approveTest(deps, { testId: "t1", userId: MATAS });
+    assert.equal(result.status, 200, JSON.stringify(result));
+    assert.equal(result.body.campaignId, "c-shared");
+    assert.ok(!calls.some((c) => c.startsWith("createCampaign")), calls.join("\n"));
+    const adset = JSON.parse(calls.find((c) => c.startsWith("createAdSet "))!.slice(12));
+    assert.equal(adset.campaign_id, "c-shared");
+    assert.equal(mem.tables.creative_tests!.find((t) => t.id === "t1")!.meta_campaign_id, "c-shared");
+  });
+
+  it("refuses, with no write, when the show's Tests campaign has a campaign budget", async () => {
+    const mem = seed();
+    const { deps, calls } = fakes(mem, {}, [{ id: "c-cbo", name: "P26-BDAY · Tests", effective_status: "ACTIVE", daily_budget: "2000" }]);
+    const result = await approveTest(deps, { testId: "t1", userId: MATAS });
+    assert.deepEqual(result.body, { ok: false, error: "P26-BDAY · Tests has a campaign budget. Test budgets sit on the ad sets, so switch it to ad set budgets in Ads Manager first." });
+    assert.ok(!calls.some((c) => c.startsWith("createCampaign") || c.startsWith("createAdSet")));
+    assert.equal(mem.tables.meta_write_idempotency!.length, 0);
+  });
+
+  it("the next test of a format gets its own ad set, not the last test's, in the same campaign", async () => {
+    const mem = seed();
+    const t1 = mem.tables.creative_tests!.find((t) => t.id === "t1")!;
+    Object.assign(t1, { state: "called", meta_campaign_id: "c-tests", meta_adset_id: "as-old" });
+    Object.assign(mem.tables.creative_tests!.find((t) => t.id === "t2")!, { state: "making" });
+    for (const v of mem.tables.creative_test_variants!) v.test_id = "t2";
+    const { deps, calls } = fakes(mem);
+    const result = await approveTest(deps, { testId: "t2", userId: MATAS });
+    assert.equal(result.status, 200, JSON.stringify(result));
+    assert.ok(!calls.some((c) => c.startsWith("findCampaigns") || c.startsWith("createCampaign")), "the plan's campaign id stands");
+    const adset = JSON.parse(calls.find((c) => c.startsWith("createAdSet "))!.slice(12));
+    assert.equal(adset.campaign_id, "c-tests");
+    assert.equal(adset.status, "ACTIVE");
+    assert.equal(result.body.adsetId, "as-tests");
   });
 
   it("refuses a test that isn't being made, and one held by a running test of its format (TT1)", async () => {
@@ -209,10 +262,13 @@ describe("Approve variants", () => {
     const failed = await approveTest(first.deps, { testId: "t1", userId: MATAS });
     assert.equal(failed.status, 207);
     assert.equal(mem.tables.creative_tests!.find((t) => t.id === "t1")!.state, "making");
-    const again = fakes(mem);
+    assert.equal(mem.tables.creative_tests!.find((t) => t.id === "t1")!.started_at, "2026-11-16T12:00:00.000Z");
+    const again = fakes(mem, { now: new Date("2026-11-16T15:00:00Z") });
     const ok = await approveTest(again.deps, { testId: "t1", userId: MATAS });
     assert.equal(ok.status, 200);
     assert.ok(!again.calls.some((c) => c.startsWith("createCampaign") || c.startsWith("createAdSet")), again.calls.join("\n"));
+    // The retry keeps the first start, so the ad set's end doesn't move.
+    assert.equal(mem.tables.creative_tests!.find((t) => t.id === "t1")!.started_at, "2026-11-16T12:00:00.000Z");
   });
 });
 
@@ -230,9 +286,11 @@ describe("TF1's facts and the best ad", () => {
     assert.equal(resultsOf({ landing_page_views: 3, registrations: 2, actions: [] }, "complete_registration"), 2);
   });
 
-  it("the ad set keeps location and age floor only, adds Advantage+ audience, and is paused", () => {
-    const payload = testAdSetPayload({ targeting: { geo_locations: { countries: ["GB"] }, age_min: 21, age_max: 30, genders: [2] }, optimization_goal: "LANDING_PAGE_VIEWS" }, { name: "X · Tests · Statics", campaignId: "c", dailyMinor: 100, startTime: "t" });
+  it("the ad set keeps location and age floor only, adds Advantage+ audience, is ACTIVE, and ends 4 days after it starts", () => {
+    const payload = testAdSetPayload({ targeting: { geo_locations: { countries: ["GB"] }, age_min: 21, age_max: 30, genders: [2] }, optimization_goal: "LANDING_PAGE_VIEWS" }, { name: "X · Tests · Statics", campaignId: "c", dailyMinor: 100, startTime: "2026-11-17T08:30:00.000Z" });
     assert.deepEqual(payload.targeting, { geo_locations: { countries: ["GB"] }, age_min: 21, targeting_automation: { advantage_audience: 1 } });
-    assert.equal(payload.status, "PAUSED");
+    assert.equal(payload.status, "ACTIVE");
+    assert.equal(payload.daily_budget, 100);
+    assert.equal(payload.end_time, "2026-11-21T08:30:00.000Z");
   });
 });

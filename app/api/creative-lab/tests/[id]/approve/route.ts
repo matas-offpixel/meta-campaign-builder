@@ -1,10 +1,11 @@
 /**
  * POST /api/creative-lab/tests/{id}/approve — "Approve variants": creates
- * the test on Meta, everything PAUSED (lib/creative-tests/approve.ts).
+ * the test on Meta, ACTIVE, in the show's one "{code} · Tests" campaign
+ * (lib/creative-tests/approve.ts, tests-campaign.ts).
  *
  * CREATIVE_TESTS_CREATE_ENABLED must be exactly "true", or this returns 503
  * before any Graph call or database write. Then Matas only, then the test's
- * owner. Starting the test (ACTIVE) is a separate step.
+ * owner.
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -13,6 +14,7 @@ import { POST as metaLaunchPost } from "@/app/api/meta/launch-campaign/route";
 import { MATAS_USER_IDS } from "@/lib/auth/operator-allowlist";
 import type { LabUploadRequest } from "@/lib/creative-lab/launch";
 import { CREATES_OFF, approveTest, createsEnabled, type AdCopy, type TestMeta } from "@/lib/creative-tests/approve";
+import type { ListedCampaign } from "@/lib/creative-tests/tests-campaign";
 import { agencyMetaToken } from "@/lib/meta/agency-token";
 import { createMetaAdSet, graphGetWithToken, graphPostWithToken } from "@/lib/meta/client";
 import type { MetaAdSetPayload } from "@/lib/meta/adset";
@@ -71,8 +73,19 @@ function metaFor(token: string): TestMeta {
       const { id } = await createMetaAdSet(adAccountId, payload as unknown as MetaAdSetPayload, token);
       return id;
     },
-    async updateAdSetDailyBudget(adsetId, dailyMinor) {
-      await graphPostWithToken(`/${adsetId}`, { daily_budget: dailyMinor }, token);
+    async findCampaigns(adAccountId, nameContains) {
+      const res = await graphGetWithToken<{ data?: ListedCampaign[] }>(
+        `/${act(adAccountId)}/campaigns`,
+        {
+          fields: "id,name,effective_status,created_time,daily_budget,lifetime_budget",
+          effective_status: JSON.stringify(["ACTIVE", "PAUSED"]),
+          filtering: JSON.stringify([{ field: "name", operator: "CONTAIN", value: nameContains }]),
+          limit: "50",
+        },
+        token,
+        { maxAttempts: 1 },
+      );
+      return res?.data ?? [];
     },
   };
 }
