@@ -117,12 +117,12 @@ table.tier td:nth-last-child(-n+3){white-space:nowrap}
 <h1>One Retargeting campaign per show, in three tiers</h1>
 <p class="lead">From the audit in #1298 (<code>docs/session-logs/retargeting-funnel-audit-2026-11-17.md</code>, §1–§4) and Matas's budget rule of 17 Nov. Each show on sale gets its own <code>{code} · Retargeting</code> campaign, separate from its on-sale campaigns, with budgets set on the ad sets. It has three tiers that never share a person: Bottom, Mid Bottom and Mid. Budget moves between them on cost per attributed purchase, each move a line to accept. The campaign runs to the end of the show day.</p>
 <p class="lead">This record replaces the on-sale refresh's per-campaign Retargeting standing default ("This campaign has no retargeting ad set.") for every show that can take this campaign (RT9). R1–R6, C2–C9, E1–E4 and T1–T6 stand. The example figures are <span class="inv">invented</span>.</p>
-<p class="lead">Revised 17 Nov, before merge, from #1300's review: buyers come only from a hand-uploaded Buyers list for now (RT2, RT8), the pool before create reads "Known after create" (RT3), and RB is redrawn. A second pass on #1300's points 3–7 adds the reused-ads cap and Apply's words (RT1), videos grouped by their own page and the wizard's fields (RT2), the money-held sentences (RT4), the several-pages line and three more not-proposed sentences (RT8, RT9), and redraws RD-393.</p>
+<p class="lead">Revised 17 Nov, before merge, from #1300's review: buyers come only from a hand-uploaded Buyers list for now (RT2, RT8), the pool before create reads "Known after create" (RT3), and RB is redrawn. A second pass on #1300's points 3–7 adds the reused-ads cap and Apply's words (RT1), videos grouped by their own page and the wizard's fields (RT2), the money-held sentences (RT4), the several-pages line and three more not-proposed sentences (RT8, RT9), and redraws RD-393. A third pass carries Matas's ruling on open item 2: Signups lists stay in Bottom, and Similar lists move to Mid Bottom (RT2, RT3, RA redrawn; RB's rows don't change).</p>
 
 <div class="open"><b>Open, for Matas:</b>
 <ol style="margin:4px 0 0 18px;padding:0">
 <li><b>Step heights.</b> How far the budget rises in the payday stretch, the final month, the final two weeks and the final week (RT6). Until he sets them, the step lines are drawn with a slot, and the build ships with steps switched off.</li>
-<li><b>Signup lists in Mid Bottom.</b> Whether the show's signup list also goes in Mid Bottom (RT2). Until he rules, it's in Bottom only.</li>
+<li><b>Signup lists in Mid Bottom.</b> Closed (Matas, 17 Nov): Signups lists go in Bottom only, as the warmest data. Similar lists, wider data such as a genre upload, go in Mid Bottom (RT2).</li>
 <li><b>Buyers from a ticketing connection.</b> Uploading a show's buyers from its ticketing connection means processing fan data, so it waits for him (RT2). Until then, buyers come only from a list uploaded by hand.</li>
 </ol></div>
 
@@ -159,9 +159,9 @@ table.tier td:nth-last-child(-n+3){white-space:nowrap}
 <p>Every person is in one tier only. Each tier leaves out every audience the hotter tiers include, plus buyers. All three are built from <b>one source set per show</b> (the same pages, Instagram accounts, videos and URLs), so the windows can't drift apart as J2 Melodic's did (audit §3.3, point 4).</p>
 <table class="t" style="margin:6px 0 10px">
 <tr><th style="width:110px">Tier</th><th>Includes</th><th style="width:30%">Leaves out</th></tr>
-<tr><td>Bottom</td><td>Ticket-link visitors and checkout starters, last 30 days (high intent) · the show's signup list · similar lists</td><td>Buyers</td></tr>
-<tr><td>Mid Bottom</td><td>Event page visitors and checkout starters, last 60 days</td><td>Everything in Bottom · buyers</td></tr>
-<tr><td>Mid</td><td>Video viewers (75 %), last 365 days, across every video of the show's ads and every page they ran from · Facebook page and Instagram account engagers, last 180 days, for the promoter, the event or venue, and each lineup act</td><td>Everything in Mid Bottom and Bottom · buyers</td></tr>
+<tr><td>Bottom</td><td>Ticket-link visitors and checkout starters, last 30 days (high intent) · the show's Signups lists</td><td>Buyers</td></tr>
+<tr><td>Mid Bottom</td><td>Event page visitors and checkout starters, last 60 days · Similar lists (wider data, such as a genre upload)</td><td>Everything in Bottom · buyers</td></tr>
+<tr><td>Mid</td><td>Video viewers (75 %), last 365 days, across every video of the show's ads and every page they ran from · Facebook page and Instagram account engagers, last 180 days, for the promoter, the event or venue, and each lineup act</td><td>Everything in Mid Bottom, its Similar lists included, and everything in Bottom · buyers</td></tr>
 </table>
 <ul>
 <li><b>Checkout starters</b> are the pixel's Initiate Checkout. <b>Ticket-link visitors</b> are pixel visits to the ticket link's URL. <b>Event page visitors</b> are pixel visits to the show's page. Because Mid Bottom leaves out Bottom, it holds page visitors who didn't reach the ticket link in 30 days and checkout starters from 31–60 days ago.</li>
@@ -169,7 +169,7 @@ table.tier td:nth-last-child(-n+3){white-space:nowrap}
 <li><b>Buyers</b> come only from a list uploaded by hand with the Buyers role, for this show. Nothing fetches or uploads buyers from a ticketing connection until Matas rules on it (open item 3); a later record adds that. Without a Buyers list, see RT8.</li>
 <li><b>Lineup pages</b> go in only where the operator's Facebook user holds a role on the page (at least ADVERTISE). Missing pages: RT8.</li>
 <li><b>Videos are grouped by the page each one ran from</b>, one video audience per page (chunked to the builder's limits). A video with no page is left out. One context page for every video isn't enough: J2 Melodic's videos ran from four pages (audit §2.1).</li>
-<li><b>Signup lists in Mid Bottom:</b> open for Matas. Until he rules, they're in Bottom only.</li>
+<li><b>Where lists sit</b> (Matas, 17 Nov): <b>Signups</b> lists go in Bottom only, as the warmest data. <b>Similar</b> lists, wider data such as a genre upload (tech house data, say), go in Mid Bottom. A Similar-list member who is also a signup, or visited the ticket link or started a checkout in the last 30 days, is in Bottom, because Mid Bottom leaves out Bottom. Mid leaves out Mid Bottom's Similar lists along with the rest of Mid Bottom.</li>
 </ul></td></tr>
 
 <tr><td>RT3 · The tier rows</td><td>
@@ -182,7 +182,7 @@ table.tier td:nth-last-child(-n+3){white-space:nowrap}
 <p>One row per tier, hottest first. At 1280 the columns are:</p>
 <ul>
 <li><b>Tier:</b> Bottom, Mid Bottom or Mid.</li>
-<li><b>Audiences:</b> the includes in short, for example "Ticket-link visitors · checkout starters · 30 days" on one line and "Signup list · 2 similar lists" on the next. A missing source shows as its RT8 line under them.</li>
+<li><b>Audiences:</b> the includes in short, for example "Ticket-link visitors · checkout starters · 30 days" on one line and "Signup list" on the next for Bottom, and "Page visitors · checkout starters · 60 days" then "2 similar lists" for Mid Bottom. A missing source shows as its RT8 line under them.</li>
 <li><b>Pool:</b> Meta's estimate for the ad set's targeting with its exclusions applied (the delivery estimate), in Meta's band: "3,900–4,600", or "Below 1,000". Before Apply the tier's audiences don't exist, so Meta has no estimate, and the cell reads <b>"Known after create"</b> (on a phone, "Pool known after create"). It never reads "—" or a figure from anything else.</li>
 <li><b>Frequency:</b> the ad set's 7-day frequency to one decimal, "4.3". A tier at 4.0 or more reads it in brick.</li>
 <li><b>Leaves out:</b> "Buyers", "Bottom · buyers" or "Mid Bottom · Bottom · buyers". Without a Buyers list the word "buyers" goes, and RT8's line explains why. With nothing left out, Bottom reads "—".</li>
@@ -313,8 +313,8 @@ Lines stack as on the refresh panel, with the kind above the target and Accept a
 <div class="fs">Attributed purchases on the Warehouse Skiddle pixel, shared with its other shows' sales</div>
 <table class="tier">
 <tr><th style="width:84px">Tier</th><th>Audiences</th><th style="width:120px">Pool</th><th class="r" style="width:62px">Frequency</th><th style="width:116px">Leaves out</th><th class="r" style="width:96px">Budget</th><th class="r" style="width:84px">Cost per attributed purchase</th><th class="r" style="width:66px">Purchases</th></tr>
-<tr><td><b>Bottom</b></td><td class="src">Ticket-link visitors · checkout starters · 30 days<br>Signup list · 2 similar lists</td><td>3,900–4,600</td><td class="r" style="color:var(--brick)">4.3</td><td>Buyers</td><td class="r">£12.00 a day</td><td class="r">£5.15</td><td class="r">16</td></tr>
-<tr><td><b>Mid Bottom</b></td><td class="src">Page visitors · checkout starters · 60 days</td><td>6,300–7,400</td><td class="r">2.2</td><td>Bottom · buyers</td><td class="r">£6.00 a day</td><td class="r">£8.32</td><td class="r">5</td></tr>
+<tr><td><b>Bottom</b></td><td class="src">Ticket-link visitors · checkout starters · 30 days<br>Signup list</td><td>3,900–4,600</td><td class="r" style="color:var(--brick)">4.3</td><td>Buyers</td><td class="r">£12.00 a day</td><td class="r">£5.15</td><td class="r">16</td></tr>
+<tr><td><b>Mid Bottom</b></td><td class="src">Page visitors · checkout starters · 60 days<br>2 similar lists</td><td>6,300–7,400</td><td class="r">2.2</td><td>Bottom · buyers</td><td class="r">£6.00 a day</td><td class="r">£8.32</td><td class="r">5</td></tr>
 <tr><td><b>Mid</b></td><td class="src">Video viewers 75 % · 365 days<br>Page and Instagram engagers · 180 days · 4 pages</td><td>180,000–212,000</td><td class="r">1.6</td><td>Mid Bottom · Bottom · buyers</td><td class="r">£6.00 a day</td><td class="r">£20.95</td><td class="r">2</td></tr>
 <tr class="tot"><td>Last 7 days</td><td class="src" style="font-weight:400">£165.90 spent</td><td></td><td></td><td></td><td class="r">£24.00 a day</td><td class="r">£7.21</td><td class="r">23</td></tr>
 </table>
@@ -334,13 +334,13 @@ Lines stack as on the refresh panel, with the kind above the target and Accept a
 <div class="fs">£5.15 per attributed purchase · 16</div>
 <div class="fs">Pool 3,900–4,600 · <span style="color:var(--brick)">frequency 4.3</span></div>
 <div class="fs">Leaves out buyers</div>
-<div class="src">Ticket-link visitors · checkout starters · 30 days · signup list · 2 similar lists</div></div>
+<div class="src">Ticket-link visitors · checkout starters · 30 days · signup list</div></div>
 <div class="card">
 <div class="top"><span>Mid Bottom</span><span>£6.00 a day</span></div>
 <div class="fs">£8.32 per attributed purchase · 5</div>
 <div class="fs">Pool 6,300–7,400 · frequency 2.2</div>
 <div class="fs">Leaves out Bottom · buyers</div>
-<div class="src">Page visitors · checkout starters · 60 days</div></div>
+<div class="src">Page visitors · checkout starters · 60 days · 2 similar lists</div></div>
 <div class="card">
 <div class="top"><span>Mid</span><span>£6.00 a day</span></div>
 <div class="fs">£20.95 per attributed purchase · 2</div>
@@ -489,6 +489,7 @@ Lines stack as on the refresh panel, with the kind above the target and Accept a
 <li>Before Apply, every Pool cell reads "Known after create".</li>
 <li>The strings added in RT1 (Apply's words), RT2 (the wizard), RT4 (no budget) and RT8 (several pages, the three new not-proposed sentences) are exact. RD-393 shows all eight not-proposed sentences.</li>
 <li>Mid builds one video audience per page the videos ran from.</li>
+<li>Signups lists are among Bottom's includes and Similar lists among Mid Bottom's. Mid's exclusions include the Similar lists.</li>
 <li>RT9: no "This campaign has no retargeting ad set." on a show with the campaign, its Create line or "couldn't be read". The note shows instead.</li>
 <li>Frames RA, RB and RC at 1280 and 393, and RD at both, from fixtures with these figures.</li>
 </ul>
