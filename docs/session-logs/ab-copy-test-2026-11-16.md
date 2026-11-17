@@ -4,6 +4,40 @@ Stage 1 only. Nothing here has been written to Meta, Drive or the database.
 The current B lines are in the B redraft section. The current A lines are in the redraft section after it. The first draft further down is superseded.
 The Stage 2 plan (write path, gates, call count) is in the PR body. Since 17 Nov the A and B ads go in a test ad set per show: see the next section, which replaces the old plan's ad placement and write count.
 
+## Own campaigns (17 Nov rulings): made 17 Nov (paused): 5 of 7 tests in full, the cards test in part
+
+Everything was made `PAUSED` and read back from Meta as `PAUSED`, with no status write. Nothing spends until Matas switches it on.
+
+Each ad set ends **21 Nov 23:59 London** (`2026-11-21T23:59:00+0000`). If a test is switched on after 17 Nov, its end has to be moved by hand.
+
+| Test | Campaign | Ad set | Ads | Budget/day | Writes made |
+|---|---|---|---|---|---|
+| NX26-LOCKLEAD · AB copy test | `120252640391710755` | `120252640392110755` | A `120252640393760755`, B `120252640395850755` | 300p | 6 |
+| NX26-DOD · AB copy test | `120252640396730755` | `120252640397120755` | A `120252640400630755`, B `120252640402570755` | 76p | 6 |
+| NX26-ROBBIEDOHERTY · AB copy test | `120252640404020755` | `120252640404890755` | A `120252640406780755`, B `120252640408200755` | 300p | 6 |
+| NX27-JULIANFIJMA · AB copy test | `120252640410280755` | `120252640412680755` | A `120252640416540755`, B `120252640419580755` | 76p | 6 |
+| EBR26-KREAM · AB copy test | `120250552866110716` | `120250552866970716` | A `120250552877890716`, B `120250552884850716` | 200p | 6 |
+| EBR26-KREAM · Artist cards test | `120250552886550716` | `120250552886780716` | none yet | 200p | 3 of 14 |
+| P26-BDAY · AB copy test | not made | | | 100p | 0 of 6 |
+
+- **Meta accepted 76p** as a campaign daily budget on DOD and Julian.
+- **Julian's copy** keeps `ADD_TO_CART`; the others keep `INITIATED_CHECKOUT`.
+- **Writes so far: 33 of 50.**
+- **Rows:** each test has a `campaign_drafts` row (`5f0d6b0e-7a11-4c3e-9b52-1c4f0a2b9d01`…`07`), and every write has a ledger row. Each made ad set has a `launched_ad_sets` row and each ad a `launched_ads` row: 6 ad sets and 10 ads.
+
+### Why it stopped
+
+- **The cards test:** the campaign, the ad set and the `Kream.jpg` upload (hash `0b5502b8…`) were made. Then Meta refused the first card's creative with code 2, subcode 3858797, "Ad creative creation is temporarily unavailable", marked `is_transient`. The run stops at a failed step, as designed. The failed creative is on the ledger as `failed`, so a rerun tries it again, and the three steps that succeeded return their ids without a new write.
+- **The rerun:** this session's permission classifier blocked the rerun ("Destructive or Unwanted Actions"), so nothing more was sent. Per the standing rule, here is the exact command. It makes the remaining 17 writes (Kream cards 3 uploads + 4 creatives + 4 ads, P26 6) and nothing twice:
+
+```bash
+cd /Users/liebus/meta-campaign-builder/.claude/worktrees/ab-copy-test-f1f0fc && npx tsx --env-file=/Users/liebus/meta-campaign-builder/.env.local scripts/ab-copy-test-launch.mts --apply --only "EBR26-KREAM · Artist cards test" --only P26-BDAY
+```
+
+- **Paused but empty:** until that runs, the cards campaign and ad set sit paused with no ads.
+
+Before the writes: the recount and the name check are in PR comment 6947030332. The test-ad-set section below is superseded by these own campaigns.
+
 ## Test ad sets (17 Nov): plan change, for approval
 
 The operator changed where the A and B ads go. They no longer go into the main ad set,
