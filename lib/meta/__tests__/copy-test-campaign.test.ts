@@ -18,6 +18,7 @@ import {
   promoterIdentities,
   repointCopyTestAds,
   withRuledIdentity,
+  artistCardIdentities,
   type CopyTestMeta,
   type CopyTestSpec,
 } from "../copy-test-campaign.ts";
@@ -427,6 +428,58 @@ describe("single-image sources and ruled pages", () => {
   it("a ruled page with someone else's Instagram, or none linked, is refused", () => {
     assert.throws(() => withRuledIdentity([], { pageId: NX_LOVES.pageId, instagramId: "17841400834660844" }, { id: NX_LOVES.pageId, category: "Live music venue", linkedInstagramId: NX_LOVES.instagramId }), /isn't the account linked/);
     assert.throws(() => withRuledIdentity([], NX_LOVES, { id: NX_LOVES.pageId, category: "Live music venue", linkedInstagramId: null }), /no linked Instagram/);
+  });
+});
+
+describe("Kream's artist cards: the one artist-page exception (Matas, 17 Nov)", () => {
+  const CARDS = "120250552886550716";
+  const ESTIVA = { id: "71896176954", category: "Music", linkedInstagramId: "17841400394410479" };
+  const LEENA = { id: "1543580149233320", category: "Artist", linkedInstagramId: "17841401226850280" };
+  const PARTS = { id: "877729655689651", category: "Musician/band", linkedInstagramId: "17841408629200822" };
+  const LOCKLEAD = { id: "640971025955376", category: "Musician/band", linkedInstagramId: "17841400928229769" };
+  const ARTIST_COPY = "Bristol! Excited to be back alongside Kream on 4th December.";
+
+  it("the three pages, in the cards campaign only, each with its own Instagram", () => {
+    assert.deepEqual(artistCardIdentities(CARDS, [ESTIVA, LEENA, PARTS, LOCKLEAD]), [
+      { pageId: ESTIVA.id, instagramId: ESTIVA.linkedInstagramId },
+      { pageId: LEENA.id, instagramId: LEENA.linkedInstagramId },
+      { pageId: PARTS.id, instagramId: PARTS.linkedInstagramId },
+    ]);
+  });
+  it("no artist page on any other campaign, and the promoter tests still refuse them", () => {
+    for (const other of ["120252640391710755", "120250552866110716", "120248937493860539"]) assert.deepEqual(artistCardIdentities(other, [ESTIVA, LEENA, PARTS]), []);
+    const ids = promoterIdentities({ clientPageIds: [], promotablePageIds: [], showAdPageIds: [ESTIVA.id, LEENA.id, PARTS.id, "259905047197071"], pages: [ESTIVA, LEENA, PARTS, { id: "259905047197071", category: "Live music venue", linkedInstagramId: NX_LOVES.instagramId }] });
+    const leenaPayload = copyTestCreativePayload(VIDEO_CREATIVE, { name: "n", message: "A", postAs: { pageId: LEENA.id, instagramId: LEENA.linkedInstagramId } });
+    assert.throws(() => assertPromoterIdentity("EBR26-KREAM", leenaPayload, ids), CopyTestStop);
+  });
+
+  function cardMeta(campaignId: string) {
+    const CARD = { object_story_spec: { page_id: "1593045637629255", instagram_user_id: "17841401923285132", link_data: { image_hash: "7d3b", link: "https://www.kream-bristol.com/", message: "Kream, Estiva, Leena Punks & Parts at Electric Bristol, Friday 4 December.\nTickets on sale now.", call_to_action: { type: "BOOK_TRAVEL", value: { link: "https://www.kream-bristol.com/" } } } } };
+    const made: Record<string, unknown>[] = [];
+    const meta = {
+      ...fakeMeta().meta,
+      readCreative: async () => CARD,
+      readAd: async (id: string) => ({ id, name: "[CARD-SUPPORT-Estiva]", adsetId: "set1", campaignId, status: "PAUSED", creativeId: "bristolCard" }),
+      createCreative: async (_a: string, p: Record<string, unknown>) => (made.push(p), "new1"),
+      updateAd: async () => {},
+      archiveAd: async () => {},
+    };
+    return { meta, made, CARD };
+  }
+  const BRISTOL = { pageId: "1593045637629255", instagramId: "17841401923285132" };
+  const estivaAs = { pageId: ESTIVA.id, instagramId: ESTIVA.linkedInstagramId };
+
+  it("Estiva's card: same image, link and button, the artist's copy exactly, posted as Estiva", async () => {
+    const { meta, made, CARD } = cardMeta(CARDS);
+    const spec = { ...SPEC, campaignName: "EBR26-KREAM · Artist cards test", identities: [BRISTOL, ...artistCardIdentities(CARDS, [ESTIVA])] };
+    await repointCopyTestAds(setup().deps(meta), spec, [{ label: "Estiva", adId: "e1", mode: "identity", postAs: estivaAs, message: ARTIST_COPY }], BRISTOL);
+    assert.deepEqual(made[0].object_story_spec, { page_id: ESTIVA.id, instagram_user_id: ESTIVA.linkedInstagramId, link_data: { ...CARD.object_story_spec.link_data, message: ARTIST_COPY } });
+  });
+  it("an exception page on an ad in any other campaign: nothing is sent", async () => {
+    const { meta, made } = cardMeta("120252640391710755");
+    const spec = { ...SPEC, identities: [BRISTOL, estivaAs] };
+    await assert.rejects(repointCopyTestAds(setup().deps(meta), spec, [{ label: "Estiva", adId: "e1", mode: "identity", postAs: estivaAs, message: ARTIST_COPY }], BRISTOL), /artist page 71896176954 isn't allowed/);
+    assert.equal(made.length, 0);
   });
 });
 

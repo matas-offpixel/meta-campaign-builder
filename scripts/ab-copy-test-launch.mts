@@ -53,6 +53,7 @@ import {
   promoterIdentities,
   repointCopyTestAds,
   withRuledIdentity,
+  artistCardIdentities,
   type RepointRow,
   type CopyTestRecorders,
   type PageFacts,
@@ -164,13 +165,14 @@ const REPOINT: Record<string, { postAs: PromoterIdentity; rows: RepointRow[] }> 
   "NX26-DOD · AB copy test": { postAs: NX_LOVES, rows: ab2("120252640400630755", "120252640402570755") },
   "NX26-ROBBIEDOHERTY · AB copy test": { postAs: NX_LOVES, rows: ab2("120252640406780755", "120252640408200755") },
   "EBR26-KREAM · AB copy test": { postAs: ELECTRIC_BRISTOL, rows: ab2("120250552877890716", "120250552884850716") },
+  // Matas, 17 Nov (second ruling): the support cards run from each artist's own page
+  // with the artist's own copy, used exactly (ARTIST_CARD_EXCEPTIONS). PARTS and the
+  // headliner card are held on Electric Bristol until Matas sends their page and copy.
   "EBR26-KREAM · Artist cards test": {
     postAs: ELECTRIC_BRISTOL,
     rows: [
-      { label: "headliner", adId: "120250553057260716", mode: "identity" },
-      { label: "Estiva", adId: "120250553067990716", mode: "identity" },
-      { label: "LeenaPunks", adId: "120250553073120716", mode: "identity" },
-      { label: "Parts", adId: "120250553078180716", mode: "identity" },
+      { label: "Estiva", adId: "120250553067990716", mode: "identity", postAs: { pageId: "71896176954", instagramId: "17841400394410479" }, message: "Bristol! Excited to be back alongside Kream on 4th December." },
+      { label: "LeenaPunks", adId: "120250553073120716", mode: "identity", postAs: { pageId: "1543580149233320", instagramId: "17841401226850280" }, message: "Bristol! Excited to be back alongside Kream on 4th December." },
     ],
   },
 };
@@ -386,6 +388,18 @@ for (const t of selected) {
       break;
     }
     console.log(`  posts as: ${String(ruledPage.name).trim()} ${plan.postAs.pageId} (${String(ruledPage.category)}) + Instagram ${ruledIg?.username} ${plan.postAs.instagramId} (the page's linked account)`);
+    const artistRows = plan.rows.filter((row) => row.postAs);
+    if (artistRows.length) {
+      const firstAd = await meta.readAd!(artistRows[0]!.adId);
+      const facts: PageFacts[] = [];
+      for (const row of artistRows) {
+        const page = await get(`/${row.postAs!.pageId}`, "name,category,instagram_business_account{id,username}");
+        const ig = page.instagram_business_account as { id?: string; username?: string } | undefined;
+        facts.push({ id: String(page.id), category: (page.category as string | undefined) ?? null, linkedInstagramId: ig?.id ?? null });
+        console.log(`  ${row.label} posts as: ${String(page.name)} ${row.postAs!.pageId} (${String(page.category)}) + Instagram ${ig?.username} ${ig?.id}${ig?.id === row.postAs!.instagramId ? "" : " (NOT the ruled account)"}; copy, exactly: ${JSON.stringify(row.message)}`);
+      }
+      t.identities = [...t.identities, ...artistCardIdentities(firstAd?.campaignId ?? "", facts)];
+    }
     const source = plan.rows.some((row) => row.mode === "source") ? await meta.readCreative(t.sourceCreativeId) : null;
     for (const row of plan.rows) {
       const live = await meta.readAd!(row.adId);
@@ -397,9 +411,10 @@ for (const t of selected) {
         payload = copyTestCreativePayload(source!, { name: ad.adName, message: ad.kind === "copy" ? ad.message : "", postAs: plan.postAs });
       } else {
         const oss = (current?.object_story_spec ?? {}) as Record<string, Record<string, unknown>>;
-        payload = copyTestCreativePayload(current!, { name: live!.name, message: String(oss.link_data?.message ?? oss.video_data?.message ?? ""), postAs: plan.postAs });
+        payload = copyTestCreativePayload(current!, { name: live!.name, message: row.message ?? String(oss.link_data?.message ?? oss.video_data?.message ?? ""), postAs: row.postAs ?? plan.postAs });
       }
-      const done = now?.pageId === plan.postAs.pageId && now?.instagramId === plan.postAs.instagramId;
+      const rowAs = row.postAs ?? plan.postAs;
+      const done = now?.pageId === rowAs.pageId && now?.instagramId === rowAs.instagramId;
       console.log(`  ${row.label} ad ${row.adId} (${live?.status}; now page ${now?.pageId} / IG ${now?.instagramId}, creative ${live?.creativeId}) → ${row.mode === "source" ? `new creative from ${t.sourceCreativeId}` : "its own creative, page changed"}${done ? " [already on the ruled page]" : ""}: ${JSON.stringify(payload).slice(0, 360)}`);
     }
     const toDo = plan.rows.length;

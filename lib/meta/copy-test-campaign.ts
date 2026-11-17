@@ -320,6 +320,23 @@ export function withRuledIdentity(identities: readonly PromoterIdentity[], ruled
   return identities.some((id) => id.pageId === ruled.pageId && id.instagramId === ruled.instagramId) ? [...identities] : [...identities, ruled];
 }
 
+/**
+ * Matas, 17 Nov: Kream's support-act cards are no longer a promoter test. Each card
+ * runs from that artist's own page with the artist's own copy. This is the only place
+ * an artist page is allowed: these page ids, in this campaign. Every other test still
+ * refuses artist pages.
+ */
+export const ARTIST_CARD_EXCEPTIONS: Readonly<Record<string, readonly string[]>> = {
+  // EBR26-KREAM · Artist cards test: Estiva, Leena Punks, PARTS.
+  "120250552886550716": ["71896176954", "1543580149233320", "877729655689651"],
+};
+
+/** The artist identities a campaign may post as (each page with its own linked Instagram); none outside ARTIST_CARD_EXCEPTIONS. */
+export function artistCardIdentities(campaignId: string, pages: readonly PageFacts[]): PromoterIdentity[] {
+  const allowed = ARTIST_CARD_EXCEPTIONS[campaignId] ?? [];
+  return pages.filter((page) => allowed.includes(page.id) && page.linkedInstagramId).map((page) => ({ pageId: page.id, instagramId: page.linkedInstagramId! }));
+}
+
 /** Meta writes for a test: campaign, ad set, and per ad a creative and an ad (plus an image upload per card). */
 export function copyTestWriteCount(spec: Pick<CopyTestSpec, "ads">): number {
   return 2 + spec.ads.reduce((sum, ad) => sum + (ad.kind === "card" ? 3 : 2), 0);
@@ -406,7 +423,19 @@ export type RepointResult = {
  * with the ad's approved line and name. "identity": the ad's own creative (a card) kept
  * as it is, with only the page and Instagram changed.
  */
-export type RepointRow = { label: string; adId: string; mode: "source" | "identity" };
+export type RepointRow = {
+  label: string;
+  adId: string;
+  mode: "source" | "identity";
+  /** This ad's own page and Instagram, when it differs from the test's (an artist card). */
+  postAs?: PromoterIdentity;
+  /** Text used exactly, in place of the ad's own (an artist's copy). */
+  message?: string;
+};
+
+function artistExceptionPage(pageId: string): boolean {
+  return Object.values(ARTIST_CARD_EXCEPTIONS).some((pages) => pages.includes(pageId));
+}
 
 function creativeMessage(creative: Json | null): string | undefined {
   const oss = (creative?.object_story_spec ?? {}) as Json;
@@ -431,8 +460,10 @@ export async function repointCopyTestAds(
 ): Promise<RepointResult> {
   const { meta, ledger, record } = deps;
   if (!meta.readAd || !meta.updateAd || !meta.archiveAd) throw new Error("repointCopyTestAds needs readAd, updateAd and archiveAd");
-  if (!spec.identities.some((id) => id.pageId === postAs.pageId && id.instagramId === postAs.instagramId)) {
-    throw new CopyTestStop(`Page ${postAs.pageId} / Instagram ${postAs.instagramId} isn't ${spec.eventCode}'s promoter or venue page, so nothing was made`);
+  for (const target of [postAs, ...existing.flatMap((row) => (row.postAs ? [row.postAs] : []))]) {
+    if (!spec.identities.some((id) => id.pageId === target.pageId && id.instagramId === target.instagramId)) {
+      throw new CopyTestStop(`Page ${target.pageId} / Instagram ${target.instagramId} isn't allowed for ${spec.campaignName}, so nothing was made`);
+    }
   }
   if (!(await deps.lock.acquire())) throw new CopyTestStop(`Another run of ${spec.campaignName} is in progress, so this run made nothing`);
   try {
@@ -441,8 +472,12 @@ export async function repointCopyTestAds(
     // Read and build everything before the first write, so a bad ad stops the run with nothing sent.
     const plans = [];
     for (const row of existing) {
+      const rowAs = row.postAs ?? postAs;
       const live = await meta.readAd!(row.adId);
       if (!live?.creativeId) throw new CopyTestStop(`Ad ${row.adId} can't be read`);
+      if (artistExceptionPage(rowAs.pageId) && !(ARTIST_CARD_EXCEPTIONS[live.campaignId] ?? []).includes(rowAs.pageId)) {
+        throw new CopyTestStop(`Ad ${row.adId} is in campaign ${live.campaignId}, where artist page ${rowAs.pageId} isn't allowed, so nothing was made`);
+      }
       const current = await meta.readCreative(live.creativeId);
       if (!current) throw new CopyTestStop(`Ad ${row.adId}'s creative ${live.creativeId} can't be read`);
       let name: string;
@@ -452,18 +487,18 @@ export async function repointCopyTestAds(
         const ad = spec.ads.find((a) => a.label === row.label);
         if (!ad || ad.kind !== "copy") throw new CopyTestStop(`${spec.campaignName} has no copy line ${row.label}`);
         name = ad.adName;
-        message = ad.message;
-        payload = copyTestCreativePayload(source!, { name, message, postAs });
+        message = row.message ?? ad.message;
+        payload = copyTestCreativePayload(source!, { name, message, postAs: rowAs });
       } else {
         name = live.name;
-        message = creativeMessage(current) ?? "";
+        message = row.message ?? creativeMessage(current) ?? "";
         if (!message) throw new CopyTestStop(`Ad ${row.adId}'s creative has no text to keep`);
-        payload = copyTestCreativePayload(current, { name, message, postAs });
+        payload = copyTestCreativePayload(current, { name, message, postAs: rowAs });
       }
       assertPromoterIdentity(spec.eventCode, payload, spec.identities);
       const now = creativeIdentity(current);
-      const already = now.pageId === postAs.pageId && now.instagramId === postAs.instagramId && creativeMessage(current) === message && live.name === name;
-      plans.push({ row, live, current, name, payload, already });
+      const already = now.pageId === rowAs.pageId && now.instagramId === rowAs.instagramId && creativeMessage(current) === message && live.name === name;
+      plans.push({ row, rowAs, live, current, name, payload, already });
     }
     let writes = 0;
     const once = (opKind: Parameters<typeof withMetaWriteIdempotency>[1], key: unknown, run: () => Promise<string>) =>
@@ -472,14 +507,14 @@ export async function repointCopyTestAds(
         return run();
       }, { required: true });
     const out: RepointResult["ads"] = [];
-    for (const { row, live, name, payload, already } of plans) {
+    for (const { row, rowAs, live, name, payload, already } of plans) {
       if (already) {
         out.push({ label: row.label, adId: row.adId, creativeId: live.creativeId!, action: "already" });
         continue;
       }
       const key = row.mode === "source"
-        ? { test: spec.campaignName, creative: row.label, source_creative_id: spec.sourceCreativeId, page: postAs.pageId }
-        : { test: spec.campaignName, creative: row.label, identity_of: live.creativeId, page: postAs.pageId };
+        ? { test: spec.campaignName, creative: row.label, source_creative_id: spec.sourceCreativeId, page: rowAs.pageId }
+        : { test: spec.campaignName, creative: row.label, identity_of: live.creativeId, page: rowAs.pageId, ...(row.message ? { message: row.message } : {}) };
       const creativeId = await once("creative_upload", key, () => meta.createCreative(spec.adAccountId, payload));
       try {
         writes += 1;
