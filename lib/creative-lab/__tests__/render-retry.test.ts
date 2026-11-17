@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
+import { FACE_CHECK_FAILED_RENDER } from "../caption-placement.ts";
 import type { ServiceRoleDb } from "../load.ts";
 import { RenderRetryError, retryRender } from "../propose.ts";
 import { renderFailureLine, renderRetryable, renderRoundOpen } from "../surface.ts";
@@ -96,6 +97,32 @@ describe("retry on a failed render row", () => {
     assert.equal(snapshot(fake, "creative_lab_round_ads", "ad3"), before.ad3);
     assert.equal(fake.tables.creative_lab_rounds![0]!.status, "rendering");
     assert.equal(fake.tables.creative_lab_renders!.length, 3, "no new render row");
+  });
+
+  it("a render failed on its clip's face check clears that stored failure, so the next tick checks the clip again", async () => {
+    const fake = world("draft", FACE_CHECK_FAILED_RENDER);
+    const base = { detector: "ssd_mobilenet_v1", fps: 5, cropFocusX: 0.5, cropFocusY: 0.5, inS: null, outS: null };
+    fake.tables.creative_lab_clips = [
+      { id: "clip-1", creative_asset_id: null, triple_fit_source_id: null, face_samples: { ...base, error: "Cannot find module as expression is too dynamic" }, face_samples_at: "2026-11-13T10:00:00Z" },
+      { id: "clip-2", creative_asset_id: null, triple_fit_source_id: null, face_samples: { ...base, error: "no frames" }, face_samples_at: "2026-11-13T10:00:00Z" },
+    ];
+    await retryRender(fake as unknown as ServiceRoleDb, { renderId: "r1", userId: OP });
+    const clip1 = fake.tables.creative_lab_clips.find((row) => row.id === "clip-1")!;
+    assert.equal(clip1.face_samples, null);
+    assert.equal(clip1.face_samples_at, null);
+    assert.notEqual(fake.tables.creative_lab_clips.find((row) => row.id === "clip-2")!.face_samples, null, "another clip's failure stays");
+    assert.equal(fake.tables.creative_lab_renders!.find((row) => row.id === "r1")!.status, "queued");
+    assert.equal(fake.tables.creative_lab_round_ads!.find((row) => row.id === "ad1")!.launch_state, "pending");
+    assert.equal(fake.tables.creative_lab_rounds![0]!.status, "rendering");
+  });
+
+  it("samples a later check got right are kept when that render is tried again", async () => {
+    const fake = world("rendering", FACE_CHECK_FAILED_RENDER);
+    const ready = { detector: "ssd_mobilenet_v1", fps: 5, cropFocusX: 0.5, cropFocusY: 0.5, inS: null, outS: null, samples: [{ t: 0, faces: [] }] };
+    fake.tables.creative_lab_clips = [{ id: "clip-1", creative_asset_id: null, triple_fit_source_id: null, face_samples: ready }];
+    await retryRender(fake as unknown as ServiceRoleDb, { renderId: "r1", userId: OP });
+    assert.deepEqual(fake.tables.creative_lab_clips[0]!.face_samples, ready);
+    assert.equal(fake.tables.creative_lab_renders!.find((row) => row.id === "r1")!.status, "queued");
   });
 
   it("a settled draft round reads as rendering again until the queue settles it", async () => {

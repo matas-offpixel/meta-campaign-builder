@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { before, describe, it } from "node:test";
 
 import { styleVersion } from "../../../src/remotion/caption-style/profile.ts";
+import { FACE_CHECK_FAILED_RENDER } from "../caption-placement.ts";
 import type { ServiceRoleDb } from "../load.ts";
 import { TRIPLE_FIT_NOT_PAIRED } from "../import-quality.ts";
 import { audioMode, loadLabRender, renderCaptionOnClip, renderMadeTripleFit, renderStoragePath, type CaptionRenderRequest, type RenderDeps } from "../render.ts";
@@ -331,6 +332,25 @@ describe("renderCaptionOnClip", () => {
     assert.equal(typeof row.render_ms, "number");
     assert.equal(fake.tables.creative_assets.length, 1);
     assert.equal(uploaded.length, 0);
+  });
+
+  it("fails, not waits, when the clip's stored face check failed", async () => {
+    const fake = seed();
+    const clip = fake.tables.creative_lab_clips[0]!;
+    clip.face_samples = { detector: "ssd_mobilenet_v1", fps: 5, cropFocusX: 0.5, cropFocusY: 0.5, inS: null, outS: null, error: "Cannot find module as expression is too dynamic" };
+    let rendered = false;
+    const { deps: d } = deps(async () => {
+      rendered = true;
+      return { bytes: new Uint8Array([1]), renderMs: 1 };
+    });
+    await assert.rejects(
+      renderCaptionOnClip(db(fake), { renderId: "render-1", userId: "op", deps: d }),
+      (err: unknown) => err instanceof Error && err.name !== "SamplesPending" && err.message === FACE_CHECK_FAILED_RENDER,
+    );
+    assert.equal(rendered, false);
+    const row = fake.tables.creative_lab_renders[0]!;
+    assert.equal(row.status, "failed");
+    assert.equal(row.error, FACE_CHECK_FAILED_RENDER);
   });
 
   it("rejects a caption whose style version is not the bundled profile, before rendering", async () => {

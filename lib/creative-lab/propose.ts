@@ -12,6 +12,7 @@
 
 import { styleVersion } from "../../src/remotion/caption-style/profile.ts";
 import { crowdBlock, normaliseCaption } from "./caption-facts.ts";
+import { FACE_CHECK_FAILED_RENDER, readFaceSamples } from "./caption-placement.ts";
 import { captionAllowsClip } from "./footage-owner.ts";
 import { nextRoundPlan, type RoundPlanInput } from "./judge.ts";
 import type { ServiceRoleDb } from "./load.ts";
@@ -711,7 +712,8 @@ export class RenderRetryError extends Error {
  * re-queued with the next attempt number. Its round ads go back to pending so
  * the finished render reaches them, and a settled draft round reads as
  * rendering again until the queue settles it. No other render, ad or round
- * is touched.
+ * is touched. A render failed on its clip's face check also clears that
+ * clip's stored failure, so the next tick checks the clip again.
  */
 export async function retryRender(db: ServiceRoleDb, args: { renderId: string; userId: string }): Promise<{ renderId: string }> {
   const res = await db.from("creative_lab_renders").select("*").eq("id", args.renderId).maybeSingle();
@@ -758,6 +760,16 @@ export async function retryRender(db: ServiceRoleDb, args: { renderId: string; u
   const rounds = (roundsRes.data ?? []) as Row[];
   if (!renderRoundOpen(rounds.map((round) => String(round.status)))) {
     throw new RenderRetryError(409, "This round has moved on — propose the round again.");
+  }
+
+  if (error === FACE_CHECK_FAILED_RENDER) {
+    const faces = await db.from("creative_lab_clips").select("id, face_samples").eq("id", String(render.clip_id)).maybeSingle();
+    if (faces.error) throw new Error(`creative_lab_clips: ${faces.error.message}`);
+    // Only a stored failure is cleared: samples a later check got right stay.
+    if (readFaceSamples((faces.data as Row | null)?.face_samples)?.error) {
+      const clear = await db.from("creative_lab_clips").update({ face_samples: null, face_samples_at: null }).eq("id", String(render.clip_id));
+      if (clear.error) throw new Error(`creative_lab_clips face retry: ${clear.error.message}`);
+    }
   }
 
   const queued = await queueRender(db, {

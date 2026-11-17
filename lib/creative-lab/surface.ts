@@ -3,6 +3,7 @@
  * read the rows that are already stored. Nothing here calls Meta.
  */
 
+import { FACE_CHECK_FAILED_RENDER } from "./caption-placement.ts";
 import { captionAllowsClip } from "./footage-owner.ts";
 import {
   LANDSCAPE_TRIPLE_FIT_ONLY,
@@ -283,6 +284,7 @@ export function renderRefusalSentence(error: string | null | undefined, kind: "c
   const value = (error ?? "").trim();
   if (!value || isSupersededRender(value)) return null;
   if (value === "This quote is too long — drop a sentence from the start or end.") return value;
+  if (value === FACE_CHECK_FAILED_RENDER) return value;
   const lower = value.toLowerCase();
   if (lower.includes("9:16 only") || lower.includes("isn't vertical") || lower.includes("is not rendered")) {
     return "This clip isn't vertical — use a 9:16 file.";
@@ -311,6 +313,7 @@ const RETRY_SENTENCES = new Set([
   "The renderer failed — try it again.",
   "The render timed out — try it again.",
   "The finished render didn't save — try it again.",
+  FACE_CHECK_FAILED_RENDER,
 ]);
 const RETRY_TAIL = " — try it again.";
 

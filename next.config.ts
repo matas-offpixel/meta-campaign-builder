@@ -49,6 +49,10 @@ const nextConfig: NextConfig = {
     "/api/cron/creative-lab-render-tick": [
       "./node_modules/ffmpeg-static/ffmpeg",
       "./node_modules/ffmpeg-static/package.json",
+      // lib/creative-lab/face-detect.ts imports face-api at run time by path
+      // (turbopackIgnore), so nothing traces it: these lines are the only
+      // reason it ships. The package.json is there for Node's module type.
+      "./node_modules/@vladmandic/face-api/package.json",
       "./node_modules/@vladmandic/face-api/dist/face-api.esm.js",
       "./node_modules/@vladmandic/face-api/model/**/*",
     ],
