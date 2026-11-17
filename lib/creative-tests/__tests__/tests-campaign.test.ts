@@ -12,6 +12,7 @@ import {
   isTestsCampaign,
   londonDayLabel,
   londonEndOfDay,
+  TEST_AD_SET_DAYS,
   TEST_AD_SET_KINDS,
   creativeTestKind,
   testAdSetEndTime,
@@ -132,6 +133,14 @@ describe("a test ad set's name (TT10)", () => {
 });
 
 describe("a test ad set's end", () => {
+  it("runs TF1's four days, written out so this file never imports budget.ts", async () => {
+    const { TF1 } = await import("../budget.ts");
+    assert.equal(TEST_AD_SET_DAYS, TF1.holdDays);
+    assert.equal(TEST_AD_SET_DAYS, 4);
+    const source = (await import("node:fs")).readFileSync(new URL("../tests-campaign.ts", import.meta.url), "utf8");
+    assert.doesNotMatch(source, /from "\.\/budget\.ts"/, "tests-campaign.ts imports budget.ts again: plan-guard → load → tests-campaign → budget → plan-guard is a cycle");
+  });
+
   it("is 23:59 London, four days after the London day it starts", () => {
     assert.equal(testAdSetEndTime("2026-11-17T08:00:00.000Z"), "2026-11-21T23:59:00+0000");
     // 23:30 UTC on 16 Nov is still 16 Nov in London (GMT).
