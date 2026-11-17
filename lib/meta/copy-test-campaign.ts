@@ -1,7 +1,12 @@
 /**
  * A copy test in its own campaign (the A/B copy test, #1285; Matas's rulings of 17 Nov).
  *
- * One small campaign per test, holding one ad set:
+ * Since Matas's rules of 17 Nov (second set), one test campaign per show,
+ * "{code} · Tests" (lib/creative-tests/tests-campaign.ts), holding every test as
+ * its own ad set with its own daily budget; created ACTIVE unless asked paused.
+ * The 17 Nov round below was made as one campaign per test and stays so.
+ *
+ * Originally, one small campaign per test, holding one ad set:
  *   - the campaign: OUTCOME_SALES, PAUSED, a campaign daily budget (CBO) set
  *     to the test budget, in minor units, exactly as given (never rounded up);
  *   - the ad set: the source ad set copied as it stands (targeting, which
@@ -21,7 +26,7 @@
  * imports lib/meta/client.ts, so tests run on fakes.
  */
 
-import { buildCampaignPayload } from "./campaign.ts";
+import { findTestsCampaign, testsCampaignPayload, TestsCampaignProblem, type CampaignRow } from "../creative-tests/tests-campaign.ts";
 import { sanitizeCreativeForStrictMode, type MetaCreativePayload } from "./creative.ts";
 import { withMetaWriteIdempotency, type MetaWriteContext } from "./write-idempotency.ts";
 
@@ -59,23 +64,18 @@ export function copyTestEndTime(createdAt: Date, days = COPY_TEST_DAYS): { day: 
   return { day, endTime: londonEndOfDay(day) };
 }
 
-/** The campaign: OUTCOME_SALES, paused, the test budget as the campaign's daily budget (minor units, as given). */
-export function copyTestCampaignPayload(name: string, dailyMinor: number): Json {
-  if (!Number.isInteger(dailyMinor) || dailyMinor <= 0) throw new Error(`The daily budget must be a whole number of pence (got ${dailyMinor})`);
-  const payload = buildCampaignPayload({ name, objective: "purchase", status: "PAUSED", budget: { level: "campaign", type: "daily", amountMajor: dailyMinor / 100 } }) as unknown as Json;
-  if (payload.daily_budget !== dailyMinor) throw new Error(`The campaign payload's budget is ${String(payload.daily_budget)}, not ${dailyMinor}`);
-  return payload;
-}
-
 /** What the copy keeps from its source ad set, besides targeting and the promoted object. */
 export const COPIED_ADSET_FIELDS = ["optimization_goal", "billing_event", "attribution_spec", "destination_type", "adset_schedule"] as const;
 
 /**
- * The ad set copy: its source as it stands, in the test campaign, paused, with no budget
- * (the campaign holds it) and no bid strategy (the campaign's), ending at `endTime`.
- * `smart_pse_enabled` is Meta's read-back default and is left off the write.
+ * The ad set copy: its source as it stands (targeting, goal, promoted object), in the
+ * show's Tests campaign, carrying the test's own daily budget (minor units, as given)
+ * at lowest cost, ending at `endTime`, ACTIVE unless created paused. The campaign never
+ * holds a budget, so Meta can't move money between tests. `smart_pse_enabled` is
+ * Meta's read-back default and is left off the write.
  */
-export function copyTestAdSetPayload(src: Json, args: { campaignId: string; name: string; endTime: string }): Json {
+export function copyTestAdSetPayload(src: Json, args: { campaignId: string; name: string; endTime: string; dailyMinor: number; status: "ACTIVE" | "PAUSED" }): Json {
+  if (!Number.isInteger(args.dailyMinor) || args.dailyMinor <= 0) throw new Error(`The daily budget must be a whole number of pence (got ${args.dailyMinor})`);
   if (!src.targeting || typeof src.targeting !== "object") throw new Error("The source ad set has no targeting to copy");
   if (!src.promoted_object || typeof src.promoted_object !== "object") throw new Error("The source ad set has no promoted object to copy");
   const promoted: Json = { ...(src.promoted_object as Json) };
@@ -83,7 +83,9 @@ export function copyTestAdSetPayload(src: Json, args: { campaignId: string; name
   const payload: Json = {
     name: args.name,
     campaign_id: args.campaignId,
-    status: "PAUSED",
+    status: args.status,
+    daily_budget: args.dailyMinor,
+    bid_strategy: "LOWEST_COST_WITHOUT_CAP",
     targeting: src.targeting,
     promoted_object: promoted,
     is_dynamic_creative: false,
@@ -179,6 +181,7 @@ export type CopyTestAdSpec =
 
 export type CopyTestSpec = {
   eventCode: string;
+  /** The show's test campaign, "{code} · Tests" (testsCampaignName). The 17 Nov round used one campaign per test. */
   campaignName: string;
   adSetName: string;
   adAccountId: string;
@@ -187,6 +190,8 @@ export type CopyTestSpec = {
   sourceAdSetId: string;
   sourceCreativeId: string;
   ads: CopyTestAdSpec[];
+  /** ACTIVE (the default since 17 Nov) or PAUSED, for the ad set and its ads. A found Tests campaign keeps its own status. */
+  status?: "ACTIVE" | "PAUSED";
   /** The show's promoter/venue page + Instagram pairs (promoterIdentities). A creative on anything else is refused. */
   identities: PromoterIdentity[];
 };
@@ -196,6 +201,8 @@ export type CopyTestMeta = {
   readCreative(creativeId: string): Promise<Json | null>;
   /** The ad account's min_daily_budget, minor units, or null when it can't be read. */
   readMinDailyBudget(adAccountId: string): Promise<number | null>;
+  /** The ad account's campaigns whose name contains the event code (id, name, status, budgets), for findTestsCampaign. */
+  listCampaigns?(adAccountId: string, eventCode: string): Promise<CampaignRow[]>;
   createCampaign(adAccountId: string, payload: Json): Promise<string>;
   createAdSet(adAccountId: string, payload: Json): Promise<string>;
   /** POST /act_{id}/adimages. Returns the hash. */
@@ -337,21 +344,23 @@ export function artistCardIdentities(campaignId: string, pages: readonly PageFac
   return pages.filter((page) => allowed.includes(page.id) && page.linkedInstagramId).map((page) => ({ pageId: page.id, instagramId: page.linkedInstagramId! }));
 }
 
-/** Meta writes for a test: campaign, ad set, and per ad a creative and an ad (plus an image upload per card). */
-export function copyTestWriteCount(spec: Pick<CopyTestSpec, "ads">): number {
-  return 2 + spec.ads.reduce((sum, ad) => sum + (ad.kind === "card" ? 3 : 2), 0);
+/** Meta writes for a test: the Tests campaign (only when the show has none yet), the ad set, and per ad a creative and an ad (plus an image upload per card). */
+export function copyTestWriteCount(spec: Pick<CopyTestSpec, "ads">, opts: { campaignExists: boolean } = { campaignExists: false }): number {
+  return (opts.campaignExists ? 0 : 1) + 1 + spec.ads.reduce((sum, ad) => sum + (ad.kind === "card" ? 3 : 2), 0);
 }
 
 /**
- * Makes one test, in order: campaign, ad set, then per ad (image), creative, ad.
- * A failed step throws; everything made before it stays paused, and a rerun picks up
- * from the ledger. The budget is checked against the account's minimum before any write.
+ * Makes one test, in order: the show's Tests campaign (found by exact name, else made
+ * once with no budget), the test's ad set with its own daily budget, then per ad
+ * (image), creative, ad, all ACTIVE unless spec.status is PAUSED. A failed step throws;
+ * a rerun picks up from the ledger. The budget is checked against the account's minimum
+ * before any write.
  */
 export async function createCopyTest(
   deps: { meta: CopyTestMeta; ledger: MetaWriteContext; record: CopyTestRecorders; lock: CopyTestLock; now?: Date },
   spec: CopyTestSpec,
 ): Promise<CopyTestResult> {
-  if (!(await deps.lock.acquire())) throw new CopyTestStop(`Another run of ${spec.campaignName} is in progress, so this run made nothing`);
+  if (!(await deps.lock.acquire())) throw new CopyTestStop(`Another run of ${spec.adSetName} is in progress, so this run made nothing`);
   try {
     return await createCopyTestLocked(deps, spec);
   } finally {
@@ -372,10 +381,24 @@ async function createCopyTestLocked(
   const creative = await meta.readCreative(spec.sourceCreativeId);
   if (!creative) throw new CopyTestStop(`The source creative ${spec.sourceCreativeId} can't be read`);
 
+  if (!meta.listCampaigns) throw new Error("createCopyTest needs listCampaigns to find the show's Tests campaign");
+  const status = spec.status ?? "ACTIVE";
+  let existing: CampaignRow | null;
+  try {
+    existing = findTestsCampaign(await meta.listCampaigns(spec.adAccountId, spec.eventCode), spec.eventCode);
+  } catch (err) {
+    if (err instanceof TestsCampaignProblem) throw new CopyTestStop(err.message);
+    throw err;
+  }
+  // A copy test only ever goes in the show's "{code} · Tests" (the 17 Nov round's per-test campaigns can't be created again).
+  if (spec.campaignName !== testsCampaignPayload(spec.eventCode, { status }).name) {
+    throw new CopyTestStop(`${spec.campaignName} isn't ${spec.eventCode}'s Tests campaign name, so nothing was made`);
+  }
+
   const { day: endDay, endTime } = copyTestEndTime(deps.now ?? new Date());
   // Build every payload before the first write, so a bad source stops the test with nothing made.
-  const campaignPayload = copyTestCampaignPayload(spec.campaignName, spec.dailyMinor);
-  copyTestAdSetPayload(source, { campaignId: "0", name: spec.adSetName, endTime });
+  const campaignPayload = testsCampaignPayload(spec.eventCode, { status });
+  copyTestAdSetPayload(source, { campaignId: "0", name: spec.adSetName, endTime, dailyMinor: spec.dailyMinor, status });
   for (const ad of spec.ads) {
     const payload = ad.kind === "copy" ? copyTestCreativePayload(creative, { name: ad.adName, message: ad.message }) : copyTestCardPayload(creative, { name: ad.adName, message: ad.message, imageHash: "0" });
     assertPromoterIdentity(spec.eventCode, payload, spec.identities);
@@ -388,10 +411,11 @@ async function createCopyTestLocked(
       return run();
     }, { required: true });
 
-  // The ledger keys name the step, not the payload: a campaign, an ad set or an ad is made once per test, whatever the end time.
-  const campaignId = await once("campaign_create", { test: spec.campaignName }, () => meta.createCampaign(spec.adAccountId, campaignPayload));
-  const adSetPayload = copyTestAdSetPayload(source, { campaignId, name: spec.adSetName, endTime });
-  const adSetId = await once("adset_create", { test: spec.campaignName, source_adset_id: spec.sourceAdSetId }, () => meta.createAdSet(spec.adAccountId, adSetPayload));
+  // The show's Tests campaign: reused by exact name on the account, else made once (no campaign budget).
+  // The ledger keys name the step, not the payload: an ad set or an ad is made once per test, whatever the end time.
+  const campaignId = existing?.id ?? (await once("campaign_create", { tests_campaign: campaignPayload.name, ad_account: spec.adAccountId }, () => meta.createCampaign(spec.adAccountId, campaignPayload)));
+  const adSetPayload = copyTestAdSetPayload(source, { campaignId, name: spec.adSetName, endTime, dailyMinor: spec.dailyMinor, status });
+  const adSetId = await once("adset_create", { test: spec.adSetName, source_adset_id: spec.sourceAdSetId }, () => meta.createAdSet(spec.adAccountId, adSetPayload));
   await record.adSet({ metaAdsetId: adSetId, metaCampaignId: campaignId, source, dailyMinor: spec.dailyMinor });
 
   const ads: CopyTestResult["ads"] = [];
@@ -399,14 +423,14 @@ async function createCopyTestLocked(
     let imageHash: string | undefined;
     let payload: Json;
     if (ad.kind === "card") {
-      imageHash = await once("creative_upload", { test: spec.campaignName, image: ad.image.fileName }, () => meta.uploadImage(spec.adAccountId, ad.image));
+      imageHash = await once("creative_upload", { test: spec.adSetName, image: ad.image.fileName }, () => meta.uploadImage(spec.adAccountId, ad.image));
       payload = copyTestCardPayload(creative, { name: ad.adName, message: ad.message, imageHash });
     } else {
       payload = copyTestCreativePayload(creative, { name: ad.adName, message: ad.message });
     }
-    const creativeId = await once("creative_upload", { test: spec.campaignName, creative: ad.label }, () => meta.createCreative(spec.adAccountId, payload));
-    const adPayload = { name: ad.adName, adset_id: adSetId, creative: { creative_id: creativeId }, status: "PAUSED" };
-    const adId = await once("ad_create", { test: spec.campaignName, ad: ad.label }, () => meta.createAd(spec.adAccountId, adPayload));
+    const creativeId = await once("creative_upload", { test: spec.adSetName, creative: ad.label }, () => meta.createCreative(spec.adAccountId, payload));
+    const adPayload = { name: ad.adName, adset_id: adSetId, creative: { creative_id: creativeId }, status };
+    const adId = await once("ad_create", { test: spec.adSetName, ad: ad.label }, () => meta.createAd(spec.adAccountId, adPayload));
     await record.ad({ metaAdId: adId, metaCreativeId: creativeId, metaAdsetId: adSetId, metaCampaignId: campaignId, adName: ad.adName, creative: payload });
     ads.push({ label: ad.label, adName: ad.adName, adId, creativeId, ...(imageHash ? { imageHash } : {}) });
   }
@@ -462,10 +486,10 @@ export async function repointCopyTestAds(
   if (!meta.readAd || !meta.updateAd || !meta.archiveAd) throw new Error("repointCopyTestAds needs readAd, updateAd and archiveAd");
   for (const target of [postAs, ...existing.flatMap((row) => (row.postAs ? [row.postAs] : []))]) {
     if (!spec.identities.some((id) => id.pageId === target.pageId && id.instagramId === target.instagramId)) {
-      throw new CopyTestStop(`Page ${target.pageId} / Instagram ${target.instagramId} isn't allowed for ${spec.campaignName}, so nothing was made`);
+      throw new CopyTestStop(`Page ${target.pageId} / Instagram ${target.instagramId} isn't allowed for ${spec.adSetName}, so nothing was made`);
     }
   }
-  if (!(await deps.lock.acquire())) throw new CopyTestStop(`Another run of ${spec.campaignName} is in progress, so this run made nothing`);
+  if (!(await deps.lock.acquire())) throw new CopyTestStop(`Another run of ${spec.adSetName} is in progress, so this run made nothing`);
   try {
     const source = existing.some((row) => row.mode === "source") ? await meta.readCreative(spec.sourceCreativeId) : null;
     if (existing.some((row) => row.mode === "source") && !source) throw new CopyTestStop(`The source creative ${spec.sourceCreativeId} can't be read`);
@@ -485,7 +509,7 @@ export async function repointCopyTestAds(
       let payload: Json;
       if (row.mode === "source") {
         const ad = spec.ads.find((a) => a.label === row.label);
-        if (!ad || ad.kind !== "copy") throw new CopyTestStop(`${spec.campaignName} has no copy line ${row.label}`);
+        if (!ad || ad.kind !== "copy") throw new CopyTestStop(`${spec.adSetName} has no copy line ${row.label}`);
         name = ad.adName;
         message = row.message ?? ad.message;
         payload = copyTestCreativePayload(source!, { name, message, postAs: rowAs });
@@ -513,8 +537,8 @@ export async function repointCopyTestAds(
         continue;
       }
       const key = row.mode === "source"
-        ? { test: spec.campaignName, creative: row.label, source_creative_id: spec.sourceCreativeId, page: rowAs.pageId }
-        : { test: spec.campaignName, creative: row.label, identity_of: live.creativeId, page: rowAs.pageId, ...(row.message ? { message: row.message } : {}) };
+        ? { test: spec.adSetName, creative: row.label, source_creative_id: spec.sourceCreativeId, page: rowAs.pageId }
+        : { test: spec.adSetName, creative: row.label, identity_of: live.creativeId, page: rowAs.pageId, ...(row.message ? { message: row.message } : {}) };
       const creativeId = await once("creative_upload", key, () => meta.createCreative(spec.adAccountId, payload));
       try {
         writes += 1;
@@ -522,12 +546,12 @@ export async function repointCopyTestAds(
         await record.ad({ metaAdId: row.adId, metaCreativeId: creativeId, metaAdsetId: live.adsetId, metaCampaignId: live.campaignId, adName: name, creative: payload });
         out.push({ label: row.label, adId: row.adId, creativeId, action: "repointed" });
       } catch (refused) {
-        await once("ad_status_update", { test: spec.campaignName, ad_id: row.adId, status: "ARCHIVED" }, async () => {
+        await once("ad_status_update", { test: spec.adSetName, ad_id: row.adId, status: "ARCHIVED" }, async () => {
           await meta.archiveAd!(row.adId);
           return row.adId;
         });
         const adPayload = { name, adset_id: live.adsetId, creative: { creative_id: creativeId }, status: "PAUSED" };
-        const newAdId = await once("ad_create", { test: spec.campaignName, ad: row.label, replaces: row.adId }, () => meta.createAd(spec.adAccountId, adPayload));
+        const newAdId = await once("ad_create", { test: spec.adSetName, ad: row.label, replaces: row.adId }, () => meta.createAd(spec.adAccountId, adPayload));
         await record.ad({ metaAdId: newAdId, metaCreativeId: creativeId, metaAdsetId: live.adsetId, metaCampaignId: live.campaignId, adName: name, creative: payload });
         await record.archivedAd?.({ metaAdId: row.adId, replacedBy: newAdId });
         out.push({ label: row.label, adId: newAdId, creativeId, action: "replaced", archivedAdId: row.adId });

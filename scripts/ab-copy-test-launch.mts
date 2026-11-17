@@ -29,6 +29,17 @@
  *   npx tsx --env-file=.env.local scripts/ab-copy-test-launch.mts --repoint --only "NX26-DOD · AB copy test"          # dry run
  *   npx tsx --env-file=.env.local scripts/ab-copy-test-launch.mts --repoint --apply --only "NX26-DOD · AB copy test"
  *
+ * Since Matas's rules of 17 Nov (second set), a new test goes in the show's one
+ * "{code} · Tests" campaign (findTestsCampaign: reused by exact name on the account,
+ * else made once, never with a campaign budget) as its own ad set with its own daily
+ * budget, ending 23:59 London 4 days after it starts, created ACTIVE (--paused to
+ * create it paused). The TESTS below are the 17 Nov round, one campaign per test; the
+ * create path refuses them (their campaign isn't "{code} · Tests") and they stay as
+ * built. A new test sets campaignName: testsCampaignName(code) and its own adSetName.
+ *
+ *   npx tsx --env-file=.env.local scripts/ab-copy-test-launch.mts --activate-cards           # dry run
+ *   npx tsx --env-file=.env.local scripts/ab-copy-test-launch.mts --activate-cards --apply
+ *
  * It acts as the operator, on META_ACCESS_TOKEN, which the app only
  * allows an operator (mayUseAgencyMetaToken).
  */
@@ -39,6 +50,8 @@ import { writeFileSync } from "node:fs";
 import { createClient } from "@supabase/supabase-js";
 
 import { createDefaultDraft } from "../lib/campaign-defaults.ts";
+import { findTestsCampaign, testsCampaignPayload } from "../lib/creative-tests/tests-campaign.ts";
+import { withMetaWriteIdempotency } from "../lib/meta/write-idempotency.ts";
 import { driveFromEnv } from "../lib/drive/client.ts";
 import { recordLaunchedAdSet } from "../lib/launched-ad-sets/record.ts";
 import { phaseAtLaunchFromObjective } from "../lib/launched-ad-sets/snapshot.ts";
@@ -47,7 +60,6 @@ import { mayUseAgencyMetaToken } from "../lib/meta/agency-token.ts";
 import { createMetaAd, createMetaAdSet, createMetaCreative, graphGetWithToken, graphPostWithToken, uploadImageAsset } from "../lib/meta/client.ts";
 import {
   copyTestAdSetPayload,
-  copyTestCampaignPayload,
   copyTestCardPayload,
   creativeIdentity,
   promoterIdentities,
@@ -73,6 +85,9 @@ import {
 const argv = process.argv.slice(2);
 const apply = argv.includes("--apply");
 const repoint = argv.includes("--repoint");
+/** Matas, 17 Nov (second set): tests are created ACTIVE; --paused creates the ad set and ads paused instead. */
+const createPaused = argv.includes("--paused");
+const activateCards = argv.includes("--activate-cards");
 const only = argv.flatMap((arg, i) => (arg === "--only" && argv[i + 1] ? [argv[i + 1]!] : []));
 const jsonOut = argv.flatMap((arg, i) => (arg === "--json" && argv[i + 1] ? [argv[i + 1]!] : []))[0] ?? null;
 
@@ -217,6 +232,14 @@ const meta: CopyTestMeta = {
   updateAd: async (id, fields) => {
     await graphPostWithToken(`/${id}`, { creative: fields.creative, name: fields.name }, token);
   },
+  listCampaigns: async (account, eventCode) =>
+    (await getAll(`/act_${account}/campaigns`, { fields: "id,name,status,daily_budget,lifetime_budget", filtering: JSON.stringify([{ field: "name", operator: "CONTAIN", value: eventCode }]) })).map((row) => ({
+      id: String(row.id),
+      name: String(row.name ?? ""),
+      status: (row.status as string | undefined) ?? null,
+      daily_budget: (row.daily_budget as string | undefined) ?? null,
+      lifetime_budget: (row.lifetime_budget as string | undefined) ?? null,
+    })),
   archiveAd: async (id) => {
     await graphPostWithToken(`/${id}`, { status: "ARCHIVED" }, token);
   },
@@ -367,6 +390,68 @@ function recorders(t: Test, launchRunId: string): CopyTestRecorders {
 
 const results: Record<string, unknown>[] = [];
 let failed = false;
+
+/**
+ * --activate-cards (Matas, 17 Nov, second set): once Estiva's and Leena Punks' cards
+ * post from their own pages with the artist's copy, switch on those two ads and the
+ * cards ad set, and nothing else. PARTS and the Kream headliner card stay PAUSED.
+ * Each status write goes through the ledger under the run lock; one already ACTIVE is
+ * not written. Dry run unless --apply.
+ */
+if (activateCards) {
+  const t = TESTS.find((x) => x.campaignName === "EBR26-KREAM · Artist cards test")!;
+  const CARDS_CAMPAIGN = "120250552886550716";
+  const CARDS_ADSET = "120250552886780716";
+  const rows = REPOINT[t.campaignName]!.rows;
+  const problems: string[] = [];
+  const set = await get(`/${CARDS_ADSET}`, "id,name,status,effective_status,campaign_id");
+  if (String(set.campaign_id) !== CARDS_CAMPAIGN) problems.push(`ad set ${CARDS_ADSET} isn't in ${CARDS_CAMPAIGN}`);
+  console.log(`ad set ${CARDS_ADSET} ${String(set.name)}: ${String(set.status)} / ${String(set.effective_status)}`);
+  const plan: { kind: "adset" | "ad"; id: string; label: string; now: string }[] = [];
+  if (set.status !== "ACTIVE") plan.push({ kind: "adset", id: CARDS_ADSET, label: "cards ad set", now: String(set.status) });
+  for (const row of rows) {
+    const ad = await get(`/${row.adId}`, "id,name,status,effective_status,adset_id,creative{object_story_spec}");
+    const oss = ((ad.creative as { object_story_spec?: Record<string, Record<string, unknown>> } | undefined)?.object_story_spec ?? {}) as Record<string, Record<string, unknown> | string>;
+    const page = String(oss.page_id ?? "");
+    const ig = String(oss.instagram_user_id ?? "");
+    const text = String((oss.link_data as Record<string, unknown> | undefined)?.message ?? "");
+    const onOwnPage = page === row.postAs?.pageId && ig === row.postAs?.instagramId && text === row.message;
+    console.log(`  ${row.label} ad ${row.adId} ${String(ad.name)}: ${String(ad.status)} / ${String(ad.effective_status)}; page ${page} / IG ${ig}; text ${JSON.stringify(text)}${onOwnPage ? "" : "  ← NOT on its own page with the artist's copy"}`);
+    if (String(ad.adset_id) !== CARDS_ADSET) problems.push(`ad ${row.adId} isn't in ${CARDS_ADSET}`);
+    if (!onOwnPage) problems.push(`${row.label}'s card isn't on its own page with the artist's copy yet: run the --repoint command first`);
+    if (ad.status !== "ACTIVE") plan.push({ kind: "ad", id: row.adId, label: `${row.label} ad`, now: String(ad.status) });
+  }
+  for (const held of ["120250553078180716", "120250553057260716"]) {
+    const ad = await get(`/${held}`, "id,name,status");
+    console.log(`  held, not touched: ${held} ${String(ad.name)}: ${String(ad.status)}`);
+  }
+  if (problems.length) {
+    console.error(`STOPPED, nothing written:\n  ${problems.join("\n  ")}`);
+    process.exit(1);
+  }
+  console.log(`\nstatus writes: ${plan.length}${apply ? "" : " (dry run, nothing written)"}`);
+  for (const step of plan) console.log(`  ${step.label} ${step.id}: ${step.now} → ACTIVE`);
+  if (!apply || !plan.length) process.exit(0);
+  const lock = draftLock(t, randomUUID());
+  if (!(await lock.acquire())) {
+    console.error("Another run of the cards test is in progress, so this run changed nothing");
+    process.exit(1);
+  }
+  try {
+    const ledger = { supabase: db!, userId: OPERATOR_USER_ID, draftId: t.draftId, eventId: t.eventId };
+    for (const step of plan) {
+      await withMetaWriteIdempotency(ledger, step.kind === "adset" ? "adset_status_update" : "ad_status_update", { test: t.adSetName, [step.kind === "adset" ? "adset_id" : "ad_id"]: step.id, status: "ACTIVE" }, async () => {
+        await graphPostWithToken(`/${step.id}`, { status: "ACTIVE" }, token!);
+        return step.id;
+      }, { required: true });
+      console.log(`  ${step.label} ${step.id}: ACTIVE`);
+    }
+  } finally {
+    await lock.release();
+  }
+  process.exit(0);
+}
+
 for (const t of selected) {
   console.log(`\n== ${t.campaignName} · £${(t.dailyMinor / 100).toFixed(2)} a day · act_${t.adAccountId}`);
   const who = await identitiesFor(t);
@@ -433,14 +518,16 @@ for (const t of selected) {
     }
     continue;
   }
-  if (t.campaignName.endsWith("Artist cards test")) t.ads = await cardAds();
-  console.log(`  Meta writes: ${copyTestWriteCount(t)}`);
+  if (t.ads.some((ad) => ad.kind === "card") || t.adSetName.endsWith("Artist cards test")) t.ads = t.ads.length ? t.ads : await cardAds();
+  t.status = createPaused ? "PAUSED" : "ACTIVE";
+  const testsCampaign = findTestsCampaign(await meta.listCampaigns!(t.adAccountId, t.eventCode), t.eventCode);
+  console.log(`  Meta writes: ${copyTestWriteCount(t, { campaignExists: testsCampaign != null })}; created ${t.status}`);
   if (!apply) {
     const [minimum, source, creative] = [await meta.readMinDailyBudget(t.adAccountId), await meta.readAdSet(t.sourceAdSetId), await meta.readCreative(t.sourceCreativeId)];
     const { day, endTime } = copyTestEndTime(new Date());
     console.log(`  account minimum: ${minimum}; budget ${t.dailyMinor} ${minimum != null && t.dailyMinor >= minimum ? "ok" : "UNDER THE MINIMUM"}; ends ${endTime} (${day})`);
-    console.log("  campaign:", JSON.stringify(copyTestCampaignPayload(t.campaignName, t.dailyMinor)));
-    console.log("  ad set:", JSON.stringify(copyTestAdSetPayload(source!, { campaignId: "{campaign}", name: t.adSetName, endTime })));
+    console.log("  campaign:", testsCampaign ? `reuses ${testsCampaign.name} ${testsCampaign.id} (${testsCampaign.status})` : JSON.stringify(testsCampaignPayload(t.eventCode, { status: t.status })));
+    console.log("  ad set:", JSON.stringify(copyTestAdSetPayload(source!, { campaignId: testsCampaign?.id ?? "{new Tests campaign}", name: t.adSetName, endTime, dailyMinor: t.dailyMinor, status: t.status })));
     for (const ad of t.ads) {
       const payload = ad.kind === "copy" ? copyTestCreativePayload(creative!, { name: ad.adName, message: ad.message }) : copyTestCardPayload(creative!, { name: ad.adName, message: ad.message, imageHash: "{hash}" });
       console.log(`  creative ${ad.label}:`, JSON.stringify(payload));

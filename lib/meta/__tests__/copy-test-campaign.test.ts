@@ -5,7 +5,6 @@ import { testsCampaignName } from "../../creative-tests/words.ts";
 import { memoryDb } from "../../onsale-refresh/__tests__/memory-db.ts";
 import {
   copyTestAdSetPayload,
-  copyTestCampaignPayload,
   copyTestCardPayload,
   copyTestCreativePayload,
   copyTestEndTime,
@@ -82,34 +81,26 @@ describe("the end time: 23:59 London, 4 days after creation", () => {
   });
 });
 
-describe("the campaign", () => {
-  it("OUTCOME_SALES, paused, the budget in pence as given", () => {
-    const p = copyTestCampaignPayload("NX26-DOD · AB copy test", 76);
-    assert.equal(p.objective, "OUTCOME_SALES");
-    assert.equal(p.status, "PAUSED");
-    assert.equal(p.daily_budget, 76);
-    assert.equal(p.bid_strategy, "LOWEST_COST_WITHOUT_CAP");
-    assert.equal("lifetime_budget" in p, false);
-  });
-  it("refuses a budget that isn't whole pence", () => {
-    assert.throws(() => copyTestCampaignPayload("x", 0.76), /whole number of pence/);
-  });
-});
-
 describe("the ad set copy", () => {
-  it("keeps targeting, goal, promoted object and attribution; paused; no budget or bid of its own; the test's end", () => {
-    const p = copyTestAdSetPayload(SOURCE_ADSET, { campaignId: "c1", name: "NX26-LOCKLEAD · AB copy test", endTime: "2026-11-21T23:59:00+0000" });
+  it("keeps targeting, goal, promoted object and attribution; its own daily budget at lowest cost; ACTIVE; the test's end", () => {
+    const p = copyTestAdSetPayload(SOURCE_ADSET, { campaignId: "c1", name: "NX26-LOCKLEAD · AB copy test", endTime: "2026-11-21T23:59:00+0000", dailyMinor: 300, status: "ACTIVE" });
     assert.deepEqual(p.targeting, SOURCE_ADSET.targeting);
     assert.deepEqual(p.promoted_object, { pixel_id: "645185673672763", custom_event_type: "INITIATED_CHECKOUT" });
     assert.equal(p.optimization_goal, "OFFSITE_CONVERSIONS");
     assert.deepEqual(p.attribution_spec, SOURCE_ADSET.attribution_spec);
-    assert.equal(p.status, "PAUSED");
+    assert.equal(p.status, "ACTIVE");
     assert.equal(p.campaign_id, "c1");
+    assert.equal(p.daily_budget, 300);
+    assert.equal(p.bid_strategy, "LOWEST_COST_WITHOUT_CAP");
     assert.equal(p.end_time, "2026-11-21T23:59:00+0000");
-    for (const key of ["daily_budget", "lifetime_budget", "bid_strategy", "start_time", "id"]) assert.equal(key in p, false, key);
+    for (const key of ["lifetime_budget", "start_time", "id"]) assert.equal(key in p, false, key);
+  });
+  it("created paused on request; a budget that isn't whole pence is refused", () => {
+    assert.equal(copyTestAdSetPayload(SOURCE_ADSET, { campaignId: "c", name: "n", endTime: "e", dailyMinor: 76, status: "PAUSED" }).status, "PAUSED");
+    assert.throws(() => copyTestAdSetPayload(SOURCE_ADSET, { campaignId: "c", name: "n", endTime: "e", dailyMinor: 0.76, status: "ACTIVE" }), /whole number of pence/);
   });
   it("Julian's ADD_TO_CART goal is copied, not replaced", () => {
-    const p = copyTestAdSetPayload({ ...SOURCE_ADSET, promoted_object: { pixel_id: "1", custom_event_type: "ADD_TO_CART" } }, { campaignId: "c", name: "n", endTime: "e" });
+    const p = copyTestAdSetPayload({ ...SOURCE_ADSET, promoted_object: { pixel_id: "1", custom_event_type: "ADD_TO_CART" } }, { campaignId: "c", name: "n", endTime: "e", dailyMinor: 76, status: "ACTIVE" });
     assert.deepEqual(p.promoted_object, { pixel_id: "1", custom_event_type: "ADD_TO_CART" });
   });
 });
@@ -155,14 +146,20 @@ describe("the creatives: only the primary text changes", () => {
   });
 });
 
-function fakeMeta(over: Partial<CopyTestMeta> = {}) {
+function fakeMeta(over: Partial<CopyTestMeta> = {}, campaigns: { id: string; name: string; status?: string; daily_budget?: string; lifetime_budget?: string }[] = []) {
   const calls: string[] = [];
   let n = 0;
   const meta: CopyTestMeta = {
     readAdSet: async () => SOURCE_ADSET,
     readCreative: async () => VIDEO_CREATIVE,
     readMinDailyBudget: async () => 76,
-    createCampaign: async (_a, p) => (calls.push(`campaign ${p.status} ${p.daily_budget}`), `cmp${++n}`),
+    listCampaigns: async () => campaigns,
+    createCampaign: async (_a, p) => {
+      calls.push(`campaign ${p.status} ${"daily_budget" in p || "lifetime_budget" in p ? "with a budget" : "no budget"}`);
+      const id = `cmp${++n}`;
+      campaigns.push({ id, name: String(p.name), status: String(p.status) });
+      return id;
+    },
     createAdSet: async (_a, p) => (calls.push(`adset ${p.status} ${p.campaign_id}`), `set${++n}`),
     uploadImage: async (_a, img) => (calls.push(`image ${img.fileName}`), `hash${++n}`),
     createCreative: async (_a, p) => (calls.push(`creative ${p.name}`), `cr${++n}`),
@@ -174,7 +171,7 @@ function fakeMeta(over: Partial<CopyTestMeta> = {}) {
 
 const SPEC: CopyTestSpec = {
   eventCode: "NX26-DOD",
-  campaignName: "NX26-DOD · AB copy test",
+  campaignName: "NX26-DOD · Tests",
   adSetName: "NX26-DOD · AB copy test",
   adAccountId: "606252931141334",
   dailyMinor: 76,
@@ -204,7 +201,7 @@ describe("createCopyTest", () => {
     const { meta, calls } = fakeMeta();
     const s = setup();
     const out = await createCopyTest(s.deps(meta), SPEC);
-    assert.deepEqual(calls, ["campaign PAUSED 76", "adset PAUSED cmp1", "creative [AB-A] Artist - UGC 3", "ad PAUSED set2", "creative [AB-B] Artist - UGC 3", "ad PAUSED set2"]);
+    assert.deepEqual(calls, ["campaign ACTIVE no budget", "adset ACTIVE cmp1", "creative [AB-A] Artist - UGC 3", "ad ACTIVE set2", "creative [AB-B] Artist - UGC 3", "ad ACTIVE set2"]);
     assert.deepEqual(s.recorded, ["adset set2", "ad ad4", "ad ad6"]);
     assert.equal(out.writes, 6);
     assert.equal(copyTestWriteCount(SPEC), 6);
@@ -232,7 +229,7 @@ describe("createCopyTest", () => {
     fail = false;
     calls.length = 0;
     const out = await createCopyTest(s.deps(flaky), SPEC);
-    assert.deepEqual(calls, ["ad PAUSED set2"]);
+    assert.deepEqual(calls, ["ad ACTIVE set2"]);
     assert.equal(out.ads.length, 2);
   });
 
@@ -263,7 +260,7 @@ describe("createCopyTest", () => {
     const out = await createCopyTest(setup().deps(meta), cards);
     assert.equal(out.writes, 14);
     assert.equal(copyTestWriteCount(cards), 14);
-    assert.deepEqual(calls.slice(2, 5), ["image Kream.jpg", "creative [CARD] Kream", "ad PAUSED set2"]);
+    assert.deepEqual(calls.slice(2, 5), ["image Kream.jpg", "creative [CARD] Kream", "ad ACTIVE set2"]);
   });
 
   it("two overlapping runs of one test: the second makes nothing (the 17 Nov P26 duplicate)", async () => {
@@ -480,6 +477,43 @@ describe("Kream's artist cards: the one artist-page exception (Matas, 17 Nov)", 
     const spec = { ...SPEC, identities: [BRISTOL, estivaAs] };
     await assert.rejects(repointCopyTestAds(setup().deps(meta), spec, [{ label: "Estiva", adId: "e1", mode: "identity", postAs: estivaAs, message: ARTIST_COPY }], BRISTOL), /artist page 71896176954 isn't allowed/);
     assert.equal(made.length, 0);
+  });
+});
+
+describe("the show's one Tests campaign (Matas, 17 Nov, second set)", () => {
+  it("a second test reuses the show's Tests campaign: no campaign write, its ad set goes in it", async () => {
+    const campaigns = [{ id: "tests1", name: "NX26-DOD · Tests", status: "ACTIVE" }, { id: "main", name: "[NX26-DOD] On sale", status: "ACTIVE", daily_budget: "500" }];
+    const { meta, calls } = fakeMeta({}, campaigns);
+    const second: CopyTestSpec = { ...SPEC, adSetName: "NX26-DOD · Artist cards test", sourceAdSetId: "120252309614100755" };
+    const out = await createCopyTest(setup().deps(meta), second);
+    assert.equal(out.campaignId, "tests1");
+    assert.equal(calls.some((c) => c.startsWith("campaign")), false);
+    assert.equal(calls[0], "adset ACTIVE tests1");
+    assert.equal(out.writes, 5);
+    assert.equal(copyTestWriteCount(second, { campaignExists: true }), 5);
+  });
+  it("two tests in a row on one show make one campaign between them, and never send a campaign budget", async () => {
+    const campaigns: { id: string; name: string }[] = [];
+    const { meta, calls } = fakeMeta({}, campaigns);
+    await createCopyTest(setup().deps(meta), SPEC);
+    await createCopyTest({ ...setup().deps(meta) }, { ...SPEC, adSetName: "NX26-DOD · Artist cards test" });
+    assert.deepEqual(calls.filter((c) => c.startsWith("campaign")), ["campaign ACTIVE no budget"]);
+    assert.equal(campaigns.length, 1);
+  });
+  it("a Tests campaign with a campaign budget stops the test with nothing made", async () => {
+    const { meta, calls } = fakeMeta({}, [{ id: "t", name: "NX26-DOD · Tests", daily_budget: "300" }]);
+    await assert.rejects(createCopyTest(setup().deps(meta), SPEC), /has a campaign budget/);
+    assert.deepEqual(calls, []);
+  });
+  it("created paused on request: ad set and ads PAUSED, a new campaign PAUSED too", async () => {
+    const { meta, calls } = fakeMeta();
+    await createCopyTest(setup().deps(meta), { ...SPEC, status: "PAUSED" });
+    assert.deepEqual(calls.filter((c) => !c.startsWith("creative")), ["campaign PAUSED no budget", "adset PAUSED cmp1", "ad PAUSED set2", "ad PAUSED set2"]);
+  });
+  it("a test named for its own campaign (the 17 Nov shape) is refused", async () => {
+    const { meta, calls } = fakeMeta();
+    await assert.rejects(createCopyTest(setup().deps(meta), { ...SPEC, campaignName: "NX26-DOD · AB copy test" }), /isn't NX26-DOD's Tests campaign name/);
+    assert.deepEqual(calls, []);
   });
 });
 
