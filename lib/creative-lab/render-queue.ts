@@ -13,7 +13,7 @@
 
 import { loadArchivedClientScope } from "../db/client-status.ts";
 import { faceSampleState, readFaceSamples } from "./caption-placement.ts";
-import { claimFaceCheck } from "./face-check-lock.ts";
+import { claimFaceCheck, type FaceCheckClaim } from "./face-check-lock.ts";
 import { MAX_LAB_RENDERS_AT_ONCE } from "./lambda.ts";
 import type { ServiceRoleDb } from "./load.ts";
 import { isSamplesPending, renderCaptionOnClip } from "./render.ts";
@@ -31,24 +31,37 @@ export type RenderTickResult = {
   skippedReason?: string;
 };
 
-/** A clip with no row is ready: the caller has nothing to sample. One entry per clip id that exists. */
-async function clipReadiness(db: ServiceRoleDb, queued: readonly Row[]): Promise<Map<string, "ready" | "failed" | "checking">> {
+/**
+ * A clip with no row is ready: the caller has nothing to sample. One entry per clip id that exists. `checks`
+ * lists the clips still checking, a check already under way (parked between slices, or lapsed) first, oldest
+ * first, so the tick resumes it before starting another.
+ */
+async function clipReadiness(db: ServiceRoleDb, queued: readonly Row[]): Promise<{ readiness: Map<string, "ready" | "failed" | "checking">; checks: string[] }> {
   const ids = [...new Set(queued.map((row) => String(row.clip_id ?? "")).filter(Boolean))];
   const out = new Map<string, "ready" | "failed" | "checking">();
+  const underWay = new Map<string, string>();
   for (const id of ids) {
     const res = await db.from("creative_lab_clips").select("crop_focus_x, crop_focus_y, in_s, out_s, face_samples").eq("id", id).maybeSingle();
     if (res.error) throw new Error(`creative_lab_clips: ${res.error.message}`);
     const clip = res.data as Row | null;
     if (!clip) continue;
     const num = (value: unknown): number | null => (value == null || value === "" || !Number.isFinite(Number(value)) ? null : Number(value));
-    out.set(id, faceSampleState(readFaceSamples(clip.face_samples), {
+    const stored = readFaceSamples(clip.face_samples);
+    const state = faceSampleState(stored, {
       cropFocusX: num(clip.crop_focus_x) ?? 0.5,
       cropFocusY: num(clip.crop_focus_y) ?? 0.5,
       inS: num(clip.in_s),
       outS: num(clip.out_s),
-    }));
+    });
+    out.set(id, state);
+    if (state === "checking" && stored?.running) underWay.set(id, stored.running.since);
   }
-  return out;
+  const checking = [...out.entries()].filter(([, state]) => state === "checking").map(([id]) => id);
+  const checks = [
+    ...checking.filter((id) => underWay.has(id)).sort((a, b) => underWay.get(a)!.localeCompare(underWay.get(b)!)),
+    ...checking.filter((id) => !underWay.has(id)),
+  ];
+  return { readiness: out, checks };
 }
 
 async function rows(db: ServiceRoleDb, table: string, column: string, value: unknown): Promise<Row[]> {
@@ -93,8 +106,11 @@ export async function runRenderTick(
     now?: Date;
     archivedEventIds?: ReadonlySet<string>;
     render?: (renderId: string, userId: string) => Promise<void>;
-    /** The face check (ensureClipFaces). Tests inject it; with `render` injected and no `detect`, none runs. */
-    detect?: (db: ServiceRoleDb, clipId: string) => Promise<"ready" | "failed">;
+    /**
+     * One slice of the face check under the tick's claim (ensureClipFaces): "checking" when it parked with
+     * frames left. Tests inject it; with `render` injected and no `detect`, none runs.
+     */
+    detect?: (db: ServiceRoleDb, clipId: string, claim: Extract<FaceCheckClaim, { ok: true }>) => Promise<"ready" | "failed" | "checking">;
     remotionEnabled?: boolean;
     maxAtOnce?: number;
   } = {},
@@ -127,19 +143,21 @@ export async function runRenderTick(
   const queuedRes = await db.from("creative_lab_renders").select("*").eq("status", "queued").order("created_at", { ascending: true });
   if (queuedRes.error) throw new Error(`creative_lab_renders: ${queuedRes.error.message}`);
   const queued = (queuedRes.data ?? []) as Row[];
-  const readiness = await clipReadiness(db, queued);
-  const pending = [...readiness.entries()].find(([, state]) => state === "checking");
-  const detect = opts.detect ?? (opts.render ? null : async (d: ServiceRoleDb, id: string) => (await import("./caption-place-run.ts")).ensureClipFaces(d, id));
+  const { readiness, checks } = await clipReadiness(db, queued);
+  const pending = checks[0];
+  const detect = opts.detect ?? (opts.render ? null : async (d: ServiceRoleDb, id: string, claim: Extract<FaceCheckClaim, { ok: true }>) =>
+    (await import("./caption-place-run.ts")).ensureClipFaces(d, id, claim));
   if (pending && detect) {
-    // At most one face check at a time, never two on one clip (face-check-lock.ts).
-    const claim = await claimFaceCheck(db, pending[0], now);
+    // At most one face check at a time, never two on one clip (face-check-lock.ts). A parked check is
+    // resumed from its progress.
+    const claim = await claimFaceCheck(db, pending, now);
     if (claim.ok) {
-      readiness.set(pending[0], await detect(db, pending[0]));
-      // A face check can take most of the function's 800 s: this tick starts no renders it might not finish.
-      // The next minute's tick claims them (it sees the lock as busy, or the samples as ready).
+      readiness.set(pending, await detect(db, pending, claim));
+      // A slice of a face check takes most of the function's 800 s: this tick starts no renders it might not
+      // finish. The next minute's tick claims them (it sees the lock as busy, or the samples as ready).
       return { ok: true, claimed: 0, timedOut, skippedArchived: 0, busy: false };
     } else if (claim.reason === "timed_out") {
-      readiness.set(pending[0], "failed");
+      readiness.set(pending, "failed");
     }
   }
   let skippedArchived = 0;

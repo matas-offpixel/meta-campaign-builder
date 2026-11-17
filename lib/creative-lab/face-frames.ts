@@ -105,6 +105,8 @@ export async function extractFaceFrames(args: {
     // cost ~21 s a frame to write, decode and re-encode (review of #1311) against ~3.5 s at 1080.
     "-vf", `select='${select}',showinfo,scale=${args.side}:${args.side}:force_original_aspect_ratio=decrease`,
     "-fps_mode", "passthrough",
+    // Stop once the last pick is written: a slice of the window's first frames doesn't decode the rest.
+    "-frames:v", String(args.frames.length),
     join(args.dir, `${prefix}%04d.png`),
   ], { maxBuffer: 16 * 1024 * 1024, timeout: Math.max(1_000, args.timeoutMs) });
   const files = (await readdir(args.dir)).filter((name) => name.startsWith(prefix) && name.endsWith(".png")).sort();
