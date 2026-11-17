@@ -1,5 +1,6 @@
 "use client";
 
+import { WhatWeAreTesting } from "@/components/dashboard/creative-section/what-we-are-testing";
 import { useState } from "react";
 import { useSearchParams } from "next/navigation";
 
@@ -198,6 +199,8 @@ export function CreativePanel({ model }: { model: CreativeSectionModel }) {
           </Scroll>
         )}
       </div>
+
+      {model.surface === "share" && model.testing?.length ? <WhatWeAreTesting cards={model.testing} /> : null}
     </section>
   );
 }

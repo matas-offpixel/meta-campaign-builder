@@ -3,8 +3,8 @@
  *
  * HE2's step in the 23:55 UTC mailchimp-eod-snapshot cron, after the
  * CIRQLIN signups pass: one GET /api/partner/page-audience per linked page,
- * in sequence, all time, into cirqlin_page_audience (migration 247), one
- * row per page per fetch day.
+ * in sequence, all time, into cirqlin_page_audience (migration 247, and
+ * 254's community_joined_reachable), one row per page per fetch day.
  *
  * Behind ENABLE_CIRQLIN_AUDIENCE_INGEST, which must be exactly "1". Off,
  * the step makes no call and no read.
@@ -143,6 +143,7 @@ export function pageAudienceRow(target: PageAudienceTarget, audience: PageAudien
     consent_marketing: audience.consent.marketing,
     channels_offered: audience.consent.channels_offered,
     community_joined: audience.community_joined,
+    community_joined_reachable: audience.community_joined_reachable,
     community_link_clicks: audience.community_link_clicks,
     community_code_shared: audience.community_code_shared,
     whatsapp_with_phone: audience.whatsapp_with_phone,

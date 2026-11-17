@@ -19,6 +19,32 @@ export function capacityTicks(max: number, step: number): number[] {
   return ticks;
 }
 
+/** The axis's last tick reads "{max} capacity" (N6). */
+export function capacityTickLabel(tick: number, max: number): string {
+  return tick === max ? `${formatCount(tick)} capacity` : formatCount(tick);
+}
+
+/**
+ * N1 / N6: a tick whose label would sit under the "{max} capacity" label is
+ * left out. Pixel positions on an axis `axisWidth` wide: the capacity label
+ * is right-aligned and `capacityLabelWidth` wide; a tick label is centred on
+ * its tick and `labelWidth(tick)` wide. `gap` keeps a space between them.
+ * The first and last ticks always stay. With no width yet (server render,
+ * first paint), every tick stays.
+ */
+export function ticksClearOfCapacity(
+  ticks: readonly number[],
+  max: number,
+  axisWidth: number,
+  capacityLabelWidth: number,
+  labelWidth: (tick: number) => number,
+  gap = 6,
+): number[] {
+  if (!(axisWidth > 0) || !(capacityLabelWidth > 0) || max <= 0) return [...ticks];
+  const capacityLeft = axisWidth - capacityLabelWidth - gap;
+  return ticks.filter((tick) => tick === 0 || tick === max || (tick / max) * axisWidth + labelWidth(tick) / 2 <= capacityLeft);
+}
+
 /** "at its recent pace": D6's per-show rate between counts, not the Pace tile (design, 14 Nov). */
 export type BarOutcome = { text: string; sellout: "at its recent pace" | "if best" | null };
 

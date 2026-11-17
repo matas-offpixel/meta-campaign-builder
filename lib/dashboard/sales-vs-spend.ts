@@ -319,6 +319,8 @@ export type SalesTotal = {
   headline: string;
   /** "Not in this total: NX Newcastle umbrella £4,220. Finished shows (Include finished adds them)." Null when nothing is left out. */
   notIncluded: string | null;
+  /** PH6, client level: "includes brand campaigns (£22,553)", whole pounds. Absent or null when no brand spend is in this total. */
+  includes?: string | null;
 };
 
 /** N4: the sentence the view opens with, always to date, and its channel line. */
