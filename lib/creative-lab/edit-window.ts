@@ -91,7 +91,7 @@ export const VW_LINES = {
   noDrop: "No clear drop in this clip's sound, so it can't make a 15–20 s edit. Choose another clip.",
   tooSoon: (mainS: number) => `The main drop is ${tenth(mainS)} s in. An edit needs 3 s before it.`,
   tooLittleAfter: (afterS: number, mainS: number) => `Only ${tenth(afterS)} s after the main drop at ${clock(mainS)}. An edit needs 10 s after it.`,
-  useDrop: (dropS: number) => `Use the drop at ${clock(dropS)}`,
+  dropAction: (dropS: number) => `Use the drop at ${clock(dropS)}`,
   /** VW5. */
   heading: "Edit window",
   summary: (w: Pick<EditWindow, "dropS" | "dropInS" | "lengthS">, byHand: boolean) =>

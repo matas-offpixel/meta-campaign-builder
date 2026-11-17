@@ -44,7 +44,7 @@ describe("VW3 and VW5 words, exactly as the record", () => {
     assert.equal(VW_LINES.noDrop, "No clear drop in this clip's sound, so it can't make a 15–20 s edit. Choose another clip.");
     assert.equal(VW_LINES.tooSoon(1.8), "The main drop is 1.8 s in. An edit needs 3 s before it.");
     assert.equal(VW_LINES.tooLittleAfter(6.2, 24.8), "Only 6.2 s after the main drop at 0:24.8. An edit needs 10 s after it.");
-    assert.equal(VW_LINES.useDrop(9), "Use the drop at 0:09.0");
+    assert.equal(VW_LINES.dropAction(9), "Use the drop at 0:09.0");
   });
 
   it("pins the picker's words", () => {
@@ -141,7 +141,7 @@ describe("VW3 · refusals, in order", () => {
     assert.equal(r?.chip, "Drop too soon");
     assert.equal(r?.sentence, "The main drop is 1.8 s in. An edit needs 3 s before it.");
     assert.deepEqual(r?.useDrop, { tS: 9, riseDb: 8 });
-    assert.equal(VW_LINES.useDrop(r!.useDrop!.tS), "Use the drop at 0:09.0");
+    assert.equal(VW_LINES.dropAction(r!.useDrop!.tS), "Use the drop at 0:09.0");
   });
 
   it("VW-B: 6.2 s after a drop at 24.8 s, and no other fits", () => {
