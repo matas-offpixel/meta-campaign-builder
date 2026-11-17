@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { FACE_CHECK_FAILED } from "../caption-placement.ts";
+import { FACE_CHECK_FAILED, FACE_CHECK_FAILED_CELL } from "../caption-placement.ts";
 import type { ServiceRoleDb } from "../load.ts";
 import { runRenderTick } from "../render-queue.ts";
 import { renderFailureLine, renderRefusalSentence, renderRetryable } from "../surface.ts";
@@ -196,6 +196,7 @@ describe("runRenderTick", () => {
     assert.equal(renderRefusalSentence(FACE_CHECK_FAILED), FACE_CHECK_FAILED);
     assert.equal(renderRetryable(FACE_CHECK_FAILED), true);
     assert.equal(FACE_CHECK_FAILED, "Couldn't check this clip for faces — try again.", "the words already on main; a change needs a design record");
+    assert.equal(FACE_CHECK_FAILED_CELL, "Couldn't check this clip for faces.", "the round cell once its render has failed (design, CLP8)");
     assert.deepEqual(renderFailureLine(FACE_CHECK_FAILED, true), { lead: "Couldn't check this clip for faces — ", link: "try again", tail: "." });
     assert.deepEqual(renderFailureLine(FACE_CHECK_FAILED, false), { lead: "Couldn't check this clip for faces — propose the round again.", link: null, tail: "" });
   });
