@@ -56,7 +56,7 @@ function seed(state = "making") {
   });
 }
 
-function fakes(mem: ReturnType<typeof memoryDb>, extra: Partial<ApproveDeps> = {}, listed: CampaignRow[] = [], statuses: Record<string, string> = {}) {
+function fakes(mem: ReturnType<typeof memoryDb>, extra: Partial<ApproveDeps> = {}, listed: CampaignRow[] = [], statuses: Record<string, string> = {}, adSetNames: string[] = []) {
   const calls: string[] = [];
   const meta: TestMeta = {
     async readAccount() {
@@ -79,10 +79,15 @@ function fakes(mem: ReturnType<typeof memoryDb>, extra: Partial<ApproveDeps> = {
       calls.push(`findCampaigns ${account} ${name}`);
       return listed;
     },
+    async listAdSetNames(campaignId) {
+      calls.push(`listAdSetNames ${campaignId}`);
+      return adSetNames;
+    },
     async createCampaign(_a, payload) {
       calls.push(`createCampaign ${JSON.stringify(payload)}`);
-      // A fresh id each time Meta is asked: the first that isn't already a known (dead) campaign.
-      return ["c-tests", "c-tests-2", "c-tests-3"].find((id) => !statuses[id])!;
+      // A fresh id each time Meta is asked: the first the ledger hasn't recorded yet.
+      const made = new Set((mem.tables.meta_write_idempotency ?? []).map((r) => r.op_result_id));
+      return ["c-tests", "c-tests-2", "c-tests-3"].find((id) => !made.has(id))!;
     },
     async createAdSet(_a, payload) {
       calls.push(`createAdSet ${JSON.stringify(payload)}`);
@@ -147,7 +152,7 @@ describe("Approve variants", () => {
     assert.deepEqual(campaign, { name: "P26-BDAY · Tests", objective: "OUTCOME_SALES", buying_type: "AUCTION", status: "ACTIVE", special_ad_categories: [], is_adset_budget_sharing_enabled: false });
     assert.ok(calls.includes("findCampaigns act_1 P26-BDAY · Tests"), "looked for the show's Tests campaign first");
     const adset = JSON.parse(calls.find((c) => c.startsWith("createAdSet "))!.slice(12));
-    assert.equal(adset.name, "P26-BDAY · Tests · Video");
+    assert.equal(adset.name, "P26-BDAY · Tests · Video · 16 Nov");
     assert.equal(adset.status, "ACTIVE");
     assert.equal(adset.start_time, "2026-11-16T12:00:00.000Z");
     assert.equal(adset.end_time, "2026-11-20T23:59:00+0000");
@@ -213,7 +218,7 @@ describe("Approve variants", () => {
     const mem = seed();
     const { deps, calls } = fakes(mem, {}, [{ id: "c-cbo", name: "P26-BDAY · Tests", effective_status: "ACTIVE", daily_budget: "2000" }]);
     const result = await approveTest(deps, { testId: "t1", userId: MATAS });
-    assert.deepEqual(result.body, { ok: false, error: "P26-BDAY · Tests (c-cbo) has a campaign budget; tests need ad-set budgets, so nothing was made" });
+    assert.deepEqual(result.body, { ok: false, error: "P26-BDAY · Tests has a campaign budget, and tests need budgets on their ad sets. Remove the campaign budget in Ads Manager. Nothing was made." });
     assert.ok(!calls.some((c) => c.startsWith("createCampaign") || c.startsWith("createAdSet")));
     assert.equal(mem.tables.meta_write_idempotency!.length, 0);
   });
@@ -223,7 +228,7 @@ describe("Approve variants", () => {
     const { deps, calls } = fakes(mem, {}, [{ id: "a", name: "P26-BDAY · Tests", effective_status: "ACTIVE" }, { id: "b", name: "P26-BDAY · Tests", effective_status: "PAUSED" }]);
     const result = await approveTest(deps, { testId: "t1", userId: MATAS });
     assert.equal(result.status, 409);
-    assert.match(result.body.error!, /exists 2 times \(a, b\)/);
+    assert.equal(result.body.error, "P26-BDAY · Tests is in Ads Manager 2 times (a, b). Keep one and archive the rest. Nothing was made.");
     assert.ok(!calls.some((c) => c.startsWith("createCampaign") || c.startsWith("createAdSet")));
   });
 
@@ -243,6 +248,28 @@ describe("Approve variants", () => {
     assert.equal(mem.tables.creative_tests!.find((t) => t.id === "t1")!.meta_campaign_id, "c-tests-2");
     const creates = mem.tables.meta_write_idempotency!.filter((r) => r.op_kind === "campaign_create");
     assert.equal(creates.length, 2);
+  });
+
+  it("refuses when the remade Tests campaign is deleted again, in design's words", async () => {
+    const mem = seed();
+    await approveTest(fakes(mem, { launch: async () => ({ ok: false, status: 500, error: "Meta said no" }) }).deps, { testId: "t1", userId: MATAS });
+    Object.assign(mem.tables.creative_tests!.find((t) => t.id === "t1")!, { meta_adset_id: null, started_at: null });
+    // c-tests was deleted, and so is the one made in its place.
+    const again = fakes(mem, {}, [], { "c-tests": "DELETED", "c-tests-2": "DELETED" });
+    const result = await approveTest(again.deps, { testId: "t1", userId: MATAS });
+    assert.deepEqual(result.body, { ok: false, error: "P26-BDAY · Tests was deleted again after it was remade, so nothing more was made." });
+    assert.ok(!again.calls.some((c) => c.startsWith("createAdSet")));
+  });
+
+  it("names the ad set for the London day it's made, \" · 2\" for a second in the same format that day, and keeps that name", async () => {
+    const mem = seed();
+    const { deps, calls } = fakes(mem, {}, [{ id: "c-shared", name: "P26-BDAY · Tests", effective_status: "ACTIVE" }], {}, ["P26-BDAY · Tests · Video · 16 Nov", "P26-BDAY · Tests · AB copy · 16 Nov"]);
+    const result = await approveTest(deps, { testId: "t1", userId: MATAS });
+    assert.equal(result.status, 200, JSON.stringify(result));
+    assert.ok(calls.includes("listAdSetNames c-shared"));
+    const adset = JSON.parse(calls.find((c) => c.startsWith("createAdSet "))!.slice(12));
+    assert.equal(adset.name, "P26-BDAY · Tests · Video · 16 Nov · 2");
+    assert.equal(mem.tables.launched_ad_sets!.find((r) => r.meta_adset_id === "as-tests")?.source_name, "P26-BDAY · Tests · Video · 16 Nov · 2");
   });
 
   it("the round's AB copy test and Artist cards test campaigns are not main campaigns", () => {

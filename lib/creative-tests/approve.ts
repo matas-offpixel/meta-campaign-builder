@@ -39,8 +39,8 @@ import type { LabLaunchResponse, LabUploadRequest, LabUploadResult } from "../cr
 import { withMetaWriteIdempotency, type MetaWriteContext } from "../meta/write-idempotency.ts";
 import { sizeTest, type CboCampaign, type MainAdSet } from "./budget.ts";
 import { CONTROL, canApprove, chooseControl, variantCountOk, type TestRow } from "./plan.ts";
-import { TestsCampaignProblem, findTestsCampaign, isGoneCampaign, isShowTestCampaign, testAdSetEndTime, testsCampaignPayload, type CampaignRow } from "./tests-campaign.ts";
-import { testAdSetName, testsCampaignName, type ResultEvent, type TestFormat } from "./words.ts";
+import { TestsCampaignProblem, findTestsCampaign, isGoneCampaign, isShowTestCampaign, testAdSetEndTime, testsAdSetName, testsCampaignPayload, type CampaignRow } from "./tests-campaign.ts";
+import { testsCampaignName, type ResultEvent, type TestFormat } from "./words.ts";
 
 type Db = Pick<SupabaseClient, "from">;
 
@@ -63,6 +63,8 @@ export type TestMeta = {
   readAdCopy(adId: string): Promise<AdCopy | null>;
   /** GET /act_{id}/campaigns, name containing `nameContains` (the exact match, and skipping deleted/archived, is findTestsCampaign's). */
   findCampaigns(adAccountId: string, nameContains: string): Promise<CampaignRow[]>;
+  /** GET /{campaign}/adsets?fields=name: the names a new test ad set's " · 2" is counted against. */
+  listAdSetNames(campaignId: string): Promise<string[]>;
   createCampaign(adAccountId: string, payload: Record<string, unknown>): Promise<string>;
   createAdSet(adAccountId: string, payload: Record<string, unknown>): Promise<string>;
 };
@@ -290,16 +292,19 @@ export async function approveTest(deps: ApproveDeps, input: { testId: string; us
     for (let attempt = 0; ; attempt += 1) {
       campaignId = await withMetaWriteIdempotency(ledger, "campaign_create", key, () => deps.meta.createCampaign(adAccountId, payload), { required: true });
       if (!(await gone(campaignId))) break;
-      if (attempt >= 2) return refuse(409, `${campaignName} keeps coming back deleted; nothing more was made.`);
+      if (attempt >= 1) return refuse(409, `${campaignName} was deleted again after it was remade, so nothing more was made.`);
       key.replaces = campaignId;
     }
   }
 
-  // 2. The test's own ad set (never another test's), ACTIVE, ending 4 days after it starts.
-  // A retry keeps the first attempt's start, so the end doesn't move.
-  const adSetName = testAdSetName(eventCode, format);
+  // 2. The test's own ad set (never another test's), ACTIVE, ending 4 days after it starts, named
+  // "{code} · Tests · {Video | Statics} · {d Mon}" for the London day it's made (" · 2" for a second
+  // that day, TT8). A retry keeps the first attempt's start, so the end doesn't move, and its name.
   const startedAt = str(test, "started_at") || now.toISOString();
   let adsetId = str(test, "meta_adset_id");
+  const label = format === "video" ? "Video" : "Statics";
+  let adSetName = adsetId ? str(await deps.meta.readAdSet(adsetId), "name") : "";
+  if (!adSetName) adSetName = testsAdSetName(eventCode, label, startedAt, adsetId ? [] : await deps.meta.listAdSetNames(campaignId));
   if (!adsetId) {
     const payload = testAdSetPayload(source, { name: adSetName, campaignId, dailyMinor: sized.dailyMinor, startTime: startedAt });
     adsetId = await withMetaWriteIdempotency(ledger, "adset_create", { creative_test: input.testId, format, campaign_id: campaignId, targeting: payload.targeting }, () => deps.meta.createAdSet(adAccountId, payload), { required: true });

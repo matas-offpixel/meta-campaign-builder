@@ -65,6 +65,10 @@ function metaFor(token: string): TestMeta {
       if (!pageId || !link) return null;
       return { pageId, instagramActorId: spec?.instagram_user_id ?? spec?.instagram_actor_id ?? c?.instagram_user_id ?? c?.instagram_actor_id ?? null, message, link, cta: ctaOf(cta) };
     },
+    async listAdSetNames(campaignId) {
+      const res = await graphGetWithToken<{ data?: { name?: string }[] }>(`/${campaignId}/adsets`, { fields: "name", limit: "200" }, token, { maxAttempts: 1 });
+      return (res?.data ?? []).map((row) => row.name ?? "").filter(Boolean);
+    },
     async createCampaign(adAccountId, payload) {
       const res = await graphPostWithToken<{ id: string }>(`/${act(adAccountId)}/campaigns`, payload, token);
       return res.id;

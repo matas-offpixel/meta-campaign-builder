@@ -10,8 +10,10 @@ import {
   isGoneCampaign,
   isShowTestCampaign,
   isTestsCampaign,
+  londonDayLabel,
   londonEndOfDay,
   testAdSetEndTime,
+  testsAdSetName,
   testsCampaignPayload,
 } from "../tests-campaign.ts";
 
@@ -36,9 +38,14 @@ describe("the show's Tests campaign", () => {
   });
 
   it("two live Tests campaigns, or one with a campaign budget: refused, never picked", () => {
-    assert.throws(() => findTestsCampaign([{ id: "a", name: "X · Tests" }, { id: "b", name: "X · Tests", effective_status: "ACTIVE" }], "X"), (err: unknown) => err instanceof TestsCampaignProblem && /exists 2 times \(a, b\)/.test(err.message));
-    assert.throws(() => findTestsCampaign([{ id: "a", name: "X · Tests", lifetime_budget: "10000" }], "X"), /has a campaign budget/);
-    assert.throws(() => findTestsCampaign([{ id: "a", name: "X · Tests", daily_budget: 2000 }], "X"), /has a campaign budget/);
+    // Design's words, 17 Nov.
+    assert.throws(
+      () => findTestsCampaign([{ id: "a", name: "P26-BDAY · Tests" }, { id: "b", name: "P26-BDAY · Tests", effective_status: "ACTIVE" }], "P26-BDAY"),
+      (err: unknown) => err instanceof TestsCampaignProblem && err.message === "P26-BDAY · Tests is in Ads Manager 2 times (a, b). Keep one and archive the rest. Nothing was made.",
+    );
+    const budgetWords = { message: "P26-BDAY · Tests has a campaign budget, and tests need budgets on their ad sets. Remove the campaign budget in Ads Manager. Nothing was made." };
+    assert.throws(() => findTestsCampaign([{ id: "a", name: "P26-BDAY · Tests", lifetime_budget: "10000" }], "P26-BDAY"), budgetWords);
+    assert.throws(() => findTestsCampaign([{ id: "a", name: "P26-BDAY · Tests", daily_budget: 2000 }], "P26-BDAY"), budgetWords);
     assert.equal(hasCampaignBudget({ daily_budget: "0", lifetime_budget: null }), false);
   });
 
@@ -73,6 +80,23 @@ describe("a new Tests campaign", () => {
     assert.equal(p.objective, "OUTCOME_LEADS");
     assert.equal("daily_budget" in p, false);
     assert.equal(p.is_adset_budget_sharing_enabled, false);
+  });
+});
+
+describe("a test ad set's name", () => {
+  it("is \"{code} · Tests · {Video | Statics} · {d Mon}\", the London day it's made", () => {
+    assert.equal(testsAdSetName("P26-BDAY", "Statics", "2026-11-24T10:00:00Z"), "P26-BDAY · Tests · Statics · 24 Nov");
+    assert.equal(testsAdSetName("P26-BDAY", "Video", new Date("2026-11-17T08:00:00Z")), "P26-BDAY · Tests · Video · 17 Nov");
+    // No leading zero; 23:30 UTC on 2 Sep is already 3 Sep in London (BST).
+    assert.equal(testsAdSetName("NX26-LOCKLEAD", "Video", "2026-09-02T23:30:00Z"), "NX26-LOCKLEAD · Tests · Video · 3 Sep");
+    assert.equal(londonDayLabel("2026-01-05T12:00:00Z"), "5 Jan");
+  });
+
+  it("a second one in the same format on the same day gets \" · 2\", a third \" · 3\"", () => {
+    const taken = ["P26-BDAY · Tests · Statics · 24 Nov", "P26-BDAY · Tests · Video · 24 Nov", "P26-BDAY · Tests · Statics · 23 Nov"];
+    assert.equal(testsAdSetName("P26-BDAY", "Statics", "2026-11-24T15:00:00Z", taken), "P26-BDAY · Tests · Statics · 24 Nov · 2");
+    assert.equal(testsAdSetName("P26-BDAY", "Statics", "2026-11-24T15:00:00Z", [...taken, "P26-BDAY · Tests · Statics · 24 Nov · 2"]), "P26-BDAY · Tests · Statics · 24 Nov · 3");
+    assert.equal(testsAdSetName("P26-BDAY", "Statics", "2026-11-25T09:00:00Z", taken), "P26-BDAY · Tests · Statics · 25 Nov");
   });
 });
 

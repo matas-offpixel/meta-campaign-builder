@@ -62,6 +62,8 @@ export type TestInput = {
   at_minimum: boolean;
   first_delivery_at: string | null;
   winner_variant_id: string | null;
+  /** The test's ad set as made, "{code} · Tests · {Video | Statics} · {d Mon}" (TT8; panel-read takes it from launched_ad_sets). */
+  adset_name?: string | null;
 };
 
 export type VariantInput = { id: string; test_id: string; position: number; role: "variant" | "control"; label: string; state: string };
@@ -195,7 +197,8 @@ export function buildPanel(input: { eventCode: string | null; tests: TestInput[]
     const name = cardName(test, b.variants.map((v) => v.label));
     const daily = test.daily_budget_minor != null ? test.daily_budget_minor / 100 : null;
     const line = daily != null && test.budget_pct != null && test.runs_in === "tests_adset" ? budgetLine({ daily, sharePct: Number(test.budget_pct), cap: 10, atMinimum: test.at_minimum, currency: test.currency }) : null;
-    const adSet = testAdSetName(input.eventCode ?? "", test.format);
+    // TT8: the full ad set name as made; before it's made, the format's name without a date.
+    const adSet = test.adset_name?.trim() || testAdSetName(input.eventCode ?? "", test.format);
     const out: PanelRow[] = sortByShare(read.variants).map((v) => {
       const cost = v.muted ? RIGHTS_MUTED : !v.judged || v.cost == null ? NOT_ENOUGH_SPEND : money(v.cost, test.currency);
       const sharePct = v.share == null ? null : pct(v.share);
