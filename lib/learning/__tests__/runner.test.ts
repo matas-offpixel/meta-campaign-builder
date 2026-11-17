@@ -91,12 +91,12 @@ describe("learning-refresh killswitch", () => {
   });
 
   it("no lib/learning module calls Meta", () => {
-    for (const file of ["joins", "tag-performance", "creative-scores", "funnel-benchmarks", "interest-evidence", "runner", "read", "shrink", "currency", "copy-performance", "copy/normalise", "copy/score", "copy/shows", "copy/artist-extraction", "copy/artist-plan", "copy/artist-confirm", "copy-features", "copy/features"]) {
+    for (const file of ["joins", "tag-performance", "creative-scores", "funnel-benchmarks", "interest-evidence", "runner", "read", "shrink", "currency", "copy-performance", "copy/normalise", "copy/score", "copy/shows", "copy/artist-extraction", "copy/artist-plan", "copy/artist-confirm", "copy-features", "copy/features", "genre/families", "genre/shadow", "genre/status", "genre/status-lines", "genre/wording"]) {
       const source = readFileSync(`lib/learning/${file}.ts`, "utf8");
       assert.doesNotMatch(source, /graph\.facebook|graphGet|from "\.\.\/meta\/client/, file);
     }
     // The one outbound call in lib/learning is Spotify, from artist-confirm only.
-    for (const file of ["joins", "tag-performance", "creative-scores", "funnel-benchmarks", "interest-evidence", "runner", "read", "shrink", "currency", "copy-performance", "copy/normalise", "copy/score", "copy/shows", "copy/artist-extraction", "copy/artist-plan", "copy-features", "copy/features"]) {
+    for (const file of ["joins", "tag-performance", "creative-scores", "funnel-benchmarks", "interest-evidence", "runner", "read", "shrink", "currency", "copy-performance", "copy/normalise", "copy/score", "copy/shows", "copy/artist-extraction", "copy/artist-plan", "copy-features", "copy/features", "genre/families", "genre/shadow", "genre/status", "genre/status-lines", "genre/wording"]) {
       assert.doesNotMatch(readFileSync(`lib/learning/${file}.ts`, "utf8"), /\bfetch\(/, file);
     }
   });
@@ -117,7 +117,7 @@ describe("learning-refresh jobs", () => {
     assert.ok(!("skippedReason" in result));
     if ("skippedReason" in result) return;
     assert.equal(result.ok, false);
-    assert.deepEqual(Object.keys(result.jobs), [...LEARNING_JOBS]);
+    assert.deepEqual(Object.keys(result.jobs), [...LEARNING_JOBS, "genre_shadow"]);
     assert.equal(result.jobs.tag_performance.ok, false);
     assert.match(result.jobs.tag_performance.error ?? "", /tag table down/);
     assert.equal(result.jobs.creative_scores.ok, true);

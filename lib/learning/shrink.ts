@@ -33,6 +33,17 @@ export const THIN_MIN_RESULTS = 10;
 
 export type Confidence = "thin" | "ok" | "strong";
 
+/**
+ * GK7 (design record 2026-11-16-genre-key.html): at any scope, a row from
+ * fewer than 3 shows never reads "strong". Its confidence tops out at "ok".
+ * It changes no pool: choosePool only asks whether a row is thin.
+ */
+export const STRONG_MIN_SHOWS = 3;
+
+export function capByShows(confidence: Confidence, shows: number): Confidence {
+  return confidence === "strong" && shows < STRONG_MIN_SHOWS ? "ok" : confidence;
+}
+
 export function confidenceOf(fundedAds: number, spendGbp: number, results?: number): Confidence {
   if (fundedAds < THIN_MIN_AD_SETS || spendGbp < THIN_MIN_SPEND_GBP) return "thin";
   if (results !== undefined && results < THIN_MIN_RESULTS) return "thin";

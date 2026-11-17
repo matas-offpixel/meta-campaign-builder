@@ -1,7 +1,9 @@
 import { redirect } from "next/navigation";
 
 import { CronHealthRefreshButton } from "@/components/admin/cron-health-refresh-button";
-import { createClient } from "@/lib/supabase/server";
+import { GenrePoolStatus } from "@/components/learning/genre-pool-status";
+import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
+import { loadGenreStatusLines } from "@/lib/learning/genre/status";
 import { loadUnmatchedCampaignSnapshot } from "@/lib/db/unmatched-campaign-findings";
 import { LEARNING_LOOP_ROWS } from "@/lib/learning/loop-card";
 import { UNMATCHED_CAMPAIGN_SPEND_FLOOR_MAJOR } from "@/lib/insights/unmatched-campaign-code";
@@ -79,6 +81,11 @@ export default async function CronHealthPage() {
   const report = (data ?? null) as ReportRow | null;
   const tables = report?.report_jsonb?.tables ?? [];
   const unmatched = await loadUnmatchedCampaignSnapshot(supabase);
+  // GK3: operator-only. Null for anyone else, and no read is made.
+  const genreLines = await loadGenreStatusLines(() => createServiceRoleClient(), user.id).catch((err) => {
+    console.error("[CronHealthPage] genre status failed:", err);
+    return null;
+  });
 
   return (
     <main className="mx-auto max-w-4xl px-6 py-10">
@@ -115,6 +122,7 @@ export default async function CronHealthPage() {
             </li>
           ))}
         </ul>
+        {genreLines ? <GenrePoolStatus lines={genreLines} /> : null}
       </section>
 
       {!report ? (
