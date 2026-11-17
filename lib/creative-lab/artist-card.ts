@@ -19,9 +19,10 @@
  *   edge     the kit's shadow once on the whole text group: straight down
  *            0.007 W, blur 0.009 W, 25 % black (O6)
  *
- * Formats: the 9:16 master; the 4:5 as its pure centre crop; the 1:1 as O1's
- * re-sit — the 4:5 arrangement at 0.8× (864×1080 centred) with the photo
- * extended at the sides, rendered from the same props.
+ * Formats: the 9:16 master; the 4:5 and the 1:1 placed on their own from the
+ * same photo and pieces (O117, overlay-templates issue 17): FORMAT_SLOTS
+ * below, composed by artist-card-format.ts. The 4:5 is no longer the 9:16's
+ * centre crop and the 1:1 no longer O1's 0.8× re-sit.
  *
  * Photo rules (a photo that fails one is skipped, never covered with a scrim):
  *   contrast  in the text box, at most 10 % of the photo's pixels below 3:1
@@ -45,6 +46,7 @@
 import { deltaE, percentile, rgbToLab } from "./colour.ts";
 import { renderGradientShadow, type GradientShadow } from "./overlay-gradient.ts";
 import { maskTouches, type PersonMask } from "./segment.ts";
+import type { FormatCardResult } from "./artist-card-format.ts";
 
 // ─── Slots ──────────────────────────────────────────────────────────────────
 
@@ -63,6 +65,44 @@ export const SLOTS = {
 } as const;
 
 export const KIT_SHADOW = { dy: 0.007, blur: 0.009, opacity: 0.25 } as const;
+
+/** O117–O118: the 4:5 and the 1:1, each placed on its own (fractions of that format's W or H unless named). */
+export type CardFrameFormat = "4:5" | "1:1";
+export const FORMAT_FRAME: Record<CardFrameFormat, Size> = { "4:5": { width: 1080, height: 1350 }, "1:1": { width: 1080, height: 1080 } };
+export type FormatSlots = {
+  /** Lockup: top in px (7 % W from the top edge), width as a share of W. */
+  lockup: { top: number; width: number };
+  /** Name: px under the lockup, cap, O3's steps to the max width, floor. */
+  name: { gapAbove: number; cap: number; maxWidth: number; floorCap: number };
+  /** Face: the eyes' target and band, the head-top and chin limits (O117). */
+  face: { headTopMin: number; eyes: number; eyesMin: number; eyesMax: number; chinMax: number };
+  /** Info: cap, pitch, the first line's top under the chin and never above `floor`. */
+  info: { cap: number; pitch: number; underChin: number; floor: number; maxWidth: number };
+  /** The claim's last baseline, px, and its size against the 9:16's (O23's plan, scaled). */
+  claim: { bottom: number; k: number };
+  /** The photo's scale against the 9:16 card's (the 1:1 keeps O1's 0.8×), scaled down only for the face limits. */
+  photoK: number;
+};
+export const FORMAT_SLOTS: Record<CardFrameFormat, FormatSlots> = {
+  "4:5": {
+    lockup: { top: 76, width: 0.24 },
+    name: { gapAbove: 20, cap: 0.12, maxWidth: 0.8, floorCap: 0.07 },
+    face: { headTopMin: 0.27, eyes: 0.43, eyesMin: 0.4, eyesMax: 0.46, chinMax: 0.6 },
+    info: { cap: 0.03, pitch: 0.042, underChin: 0.03, floor: 0.62, maxWidth: 0.8 },
+    claim: { bottom: 1274, k: 1 },
+    photoK: 1,
+  },
+  "1:1": {
+    lockup: { top: 76, width: 0.22 },
+    name: { gapAbove: 18, cap: 0.11, maxWidth: 0.8, floorCap: 0.065 },
+    face: { headTopMin: 0.29, eyes: 0.445, eyesMin: 0.42, eyesMax: 0.47, chinMax: 0.6 },
+    info: { cap: 0.03, pitch: 0.042, underChin: 0.03, floor: 0.62, maxWidth: 0.8 },
+    claim: { bottom: 1004, k: 0.8 },
+    photoK: 0.8,
+  },
+};
+/** O117–O119: the eyes within 0.01 W of centre; the face box grown 0.02 H for the no-text check; 0.02 H between the info and the claim; the side extension's limit. */
+export const FORMAT_RULES = { centreTolerance: 0.01, faceClear: 0.02, claimGap: 0.02, maxSide: 0.12 } as const;
 
 export const PHOTO_RULES = {
   /** At most this share of text-box pixels below 3:1 against white. */
@@ -846,8 +886,9 @@ export type RenderInput = {
 
 export type RenderResult = {
   master: Buffer;
-  crop45: Buffer;
-  square: Buffer;
+  /** Null when that format was skipped (formats says why). */
+  crop45: Buffer | null;
+  square: Buffer | null;
   plan: CropPlan | null;
   layout: TextLayout;
   layoutCheck: LayoutCheck;
@@ -862,17 +903,15 @@ export type RenderResult = {
   seams: { edge: Edge; p95: number }[];
   /** When every extension was refused on O20 (a)/(b): the first one that passed the older tests, with all its figures. */
   rejectedExtension: { label: string; strips: Partial<Record<Edge, StripStats>>; seams: { edge: Edge; p95: number }[] } | null;
-  /** How far the 1:1's photo window had to shift sideways to stay inside the photo (px), 0 when it fit. */
-  squareShift: number;
-  /** The 1:1's photo scale relative to the master (0.8 unless the photo is too narrow to extend at the sides). */
-  squarePhotoScale: number;
+  /** The 4:5 and the 1:1 (O117–O119), each placed on its own; a skipped format has no png and says why. */
+  formats: Partial<Record<CardFrameFormat, FormatCardResult>>;
   headTopSource: "estimated" | "measured";
   /** Luminance stdev of the photo's top edge (0–255); under PLAIN_EDGE_STDEV the head top is measured on it. */
   edgeStdev: number;
 };
 
 /** The 48 px strip along one edge of the placed photo, at output scale, as luminance. */
-async function stripLuminance(rotated: Buffer, photo: Size, c: Pick<ExtCandidate, "scale" | "left" | "top" | "extend">, edge: Edge, frame: Size): Promise<{ lum: Buffer; w: number; h: number; source: Rect; rgb: Uint8Array; length: number; depth: number } | null> {
+export async function stripLuminance(rotated: Buffer, photo: Size, c: Pick<ExtCandidate, "scale" | "left" | "top" | "extend">, edge: Edge, frame: Size): Promise<{ lum: Buffer; w: number; h: number; source: Rect; rgb: Uint8Array; length: number; depth: number } | null> {
   const sharp = await sharpLib();
   const s = c.scale;
   const S = O20.strip;
@@ -932,7 +971,7 @@ async function extendedBase(rotated: Buffer, photo: Size, c: { scale: number; le
   return { raw, seams };
 }
 
-/** Plan, judge and compose one card: 9:16 master, its 4:5 centre crop, and the 1:1 re-sit. */
+/** Plan, judge and compose one card: the 9:16 master, and the 4:5 and 1:1 each placed on its own (O117). */
 export async function renderCard(input: RenderInput): Promise<RenderResult> {
   const sharp = await sharpLib();
   const frame = MASTER;
@@ -1090,25 +1129,32 @@ export async function renderCard(input: RenderInput): Promise<RenderResult> {
     : null;
   const overlay = await textOverlay(pieces, layout.all, frame, { k: 1, dx: 0, dy: 0 }, shadow);
   const master = await sharp(base).composite([...(gradientLayer ? [{ input: gradientLayer, left: 0, top: 0 }] : []), { input: overlay, left: 0, top: 0 }]).png().toBuffer();
-  const crop45 = await sharp(master).extract({ left: 0, top: RECT_45.top, width: frame.width, height: RECT_45.bottom - RECT_45.top }).png().toBuffer();
-
-  // 1:1 (O1): the 4:5 arrangement at 0.8×, centred, the photo extended at the sides.
-  const k = 0.8;
-  const side = 1080;
-  const dx = (side - frame.width * k) / 2; // 108
-  // A canvas too narrow to extend at the sides is scaled just enough to cover the square, anchored on the eyes.
-  const kPhoto = Math.max(k, side / scaled.width, side / scaled.height);
-  const small = await canvasAt(kPhoto);
-  const anchor = { x: frame.width / 2, y: plan ? plan.eyes * frame.height : frame.height / 2 };
-  const wantLeft = (crop.left + anchor.x) * kPhoto - (dx + anchor.x * k);
-  const wantTop = (crop.top + anchor.y) * kPhoto - (anchor.y - RECT_45.top) * k;
-  const sLeft = clampNum(Math.round(wantLeft), 0, small.width - side);
-  const sTop = clampNum(Math.round(wantTop), 0, small.height - side);
-  const squareBase = await sharp(small.png).extract({ left: sLeft, top: sTop, width: side, height: side }).png().toBuffer();
-  const squareOverlay = await textOverlay(pieces, layout.all, { width: side, height: side }, { k, dx, dy: -RECT_45.top * k }, shadow);
-  // The gradient follows the type into the 1:1: the 4:5 band of the frame's layer at 0.8× (it is uniform across, so it spans the square).
-  const squareGradient = gradientLayer ? await sharp(gradientLayer).extract({ left: 0, top: RECT_45.top, width: frame.width, height: RECT_45.bottom - RECT_45.top }).resize(side, side, { fit: "fill" }).png().toBuffer() : null;
-  const square = await sharp(squareBase).composite([...(squareGradient ? [{ input: squareGradient, left: 0, top: 0 }] : []), { input: squareOverlay, left: 0, top: 0 }]).png().toBuffer();
+  // 4:5 and 1:1 (O117–O119): each placed on its own from the same photo and pieces.
+  const { renderFormatCard } = await import("./artist-card-format.ts");
+  const formats: Partial<Record<CardFrameFormat, FormatCardResult>> = {};
+  if (face && plan) {
+    const w = face.box?.width ?? 0;
+    const known = face.box as { x?: number; y?: number; width: number; height?: number } | undefined;
+    const box = { x: known?.x ?? face.eyeX - w / 2, y: known?.y ?? face.headTopY, width: w, height: known?.height ?? face.chinY - face.headTopY };
+    for (const format of ["4:5", "1:1"] as const) {
+      formats[format] = await renderFormatCard({
+        rotated,
+        photo,
+        face: { ...face, box },
+        format,
+        masterScale: plan.scale,
+        mask: input.mask,
+        lockup: input.lockup,
+        name: input.name,
+        info: input.info,
+        claim: null,
+        bands: !!input.gradientShadow,
+        shadow,
+      });
+    }
+  }
+  const crop45 = formats["4:5"]?.png ?? null;
+  const square = formats["1:1"]?.png ?? null;
 
   const layoutCheck = checkLayout(layout, frame);
   return {
@@ -1125,8 +1171,7 @@ export async function renderCard(input: RenderInput): Promise<RenderResult> {
     seams,
     rejectedExtension,
     strips,
-    squareShift: Math.round(sLeft - wantLeft),
-    squarePhotoScale: kPhoto,
+    formats,
     headTopSource,
     edgeStdev,
   };

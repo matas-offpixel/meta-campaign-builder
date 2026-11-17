@@ -28,7 +28,11 @@ export const faceShareLine = (pct: number, claim = true): string =>
 
 export const faceRunLine = (t: number): string => `Face in the type for ${t.toFixed(1)} s at a time — choose another crop or clip`;
 
-export type FaceSample = { tS: number; faces: Rect[] };
+/**
+ * `heads` (O120): the artist's head on the sample, output px: the main face's whole box, or the person mask's
+ * head when no face was found. Tested whole (not O56's upper 60 %), with the same padding and limits.
+ */
+export type FaceSample = { tS: number; faces: Rect[]; heads?: Rect[] };
 
 const pad = (r: Rect, p: number): Rect => ({ left: r.left - p, top: r.top - p, width: r.width + 2 * p, height: r.height + 2 * p });
 const touches = (a: Rect, b: Rect) => a.left < b.left + b.width && b.left < a.left + a.width && a.top < b.top + b.height && b.top < a.top + a.height;
@@ -71,8 +75,9 @@ export function judgeFaceOverTime(samples: readonly FaceSample[], boxes: { alway
   let claimSamples = 0;
   let run = 0;
   let longest = 0;
+  const tested = (s: FaceSample): Rect[] => [...countedFaces(s.faces, W).map(upperFace), ...(s.heads ?? [])];
   for (const s of samples) {
-    const faces = countedFaces(s.faces, W).map(upperFace);
+    const faces = tested(s);
     const onClaim = !!claim && claimOn(s.tS);
     if (onClaim) claimSamples += 1;
     const hitTop = faces.some((f) => always.some((b) => touches(f, b)));
@@ -94,7 +99,7 @@ export function judgeFaceOverTime(samples: readonly FaceSample[], boxes: { alway
     const before = (i: number) => (i > 0 ? t[i - 1]! : t[i]! - gap(i));
     const after = (i: number) => (i + 1 < t.length ? t[i + 1]! : t[i]! + gap(i));
     const hit = samples.map((s) => {
-      const faces = countedFaces(s.faces, W).map(upperFace);
+      const faces = tested(s);
       return faces.some((f) => always.some((b) => touches(f, b))) || (!!claim && claimOn(s.tS) && faces.some((f) => touches(f, claim)));
     });
     longestRunS = 0;

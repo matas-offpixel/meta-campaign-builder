@@ -142,6 +142,8 @@ for (const job of jobs) {
   const slug = `${code}_${artistSlug(job.pick.artist)}_card-${job.pick.card}_${job.label}`;
   const files: string[] = [];
   if (res.master) for (const [fmt, buf] of [["9x16", res.master], ["4x5", res.crop45], ["1x1", res.square]] as const) {
+    // O119: one format can be skipped while the others are made.
+    if (!buf) continue;
     const f = `${slug}_${fmt}${watermark ? "_DRAFT" : ""}${res.pass ? "" : "_HELD"}.png`;
     writeFileSync(join(outDir, f), buf!);
     files.push(f);
@@ -171,6 +173,12 @@ for (const job of jobs) {
     say(`O20 ${x.edge} strip, ${x.px} px: residual ${lim(x.detailStdev, O20.maxDetailStdev)} · Sobel > ${O20.sobelThreshold}: ${(x.sobelShare * 100).toFixed(2)} % (max ${O20.maxSobelShare * 100} %) ${x.sobelShare <= O20.maxSobelShare ? "✓" : "✗"} · person mask ${x.maskPixels} px (max 0) ${x.maskPixels === 0 ? "✓" : "✗"} · column ΔE ${lim(x.columnMaxDeltaE, O20.maxColumnDeltaE)} · drift ΔE p95 ${lim(x.driftP95, O20.maxDriftP95)} · seam ΔE p95 after fill ${x.seamP95 == null ? "–" : lim(x.seamP95, O20.maxSeamP95)}`);
   }
   say(`rules: ${res.pass ? "all pass" : fails.join("; ")}`);
+  // O117–O119: the 4:5 and the 1:1, each placed on its own.
+  for (const [fmt, fr] of Object.entries(res.formats)) {
+    if (!fr) continue;
+    if (!fr.made) say(`${fmt}: skipped — ${fr.skipped}`);
+    else say(`${fmt}: eyes ${fr.eyeX.toFixed(3)} W · ${fr.plan.eyes.toFixed(3)} H · head ${fr.plan.headTop.toFixed(3)} · chin ${fr.plan.chin.toFixed(3)} H · scale ${fr.plan.scale.toFixed(3)}${fr.claimRect ? ` · claim ${(fr.claimRect.top / (fmt === "4:5" ? 1350 : 1080)).toFixed(3)} H` : ""}${fr.notes.length ? ` · ${fr.notes.join(" · ")}` : ""} · ${fr.rules.map((r) => `${r.rule} ${r.pass ? "✓" : "✗"} ${r.detail}`).join(" · ")}`);
+  }
   for (const f of files) say(`- ${f}`);
   say("");
   table.push(`| ${job.pick.artist} ${job.pick.card} ${job.label} | ${prep.name} | ${srcLabel} | ${job.claimText ? job.claimText.replace(/\n/g, " / ") : "–"} | ${pct(res.contrast.textBox)} | ${pct(res.contrast.claimBox)} | ${pct(res.contrast.redLine)}${res.redLineWhite ? " → white" : ""} | ${p ? `${p.headTop.toFixed(3)} / ${p.eyes.toFixed(3)} / ${p.chin.toFixed(3)}` : "–"} | ${p ? Math.round(p.faceWidthPx) : "–"} px | ${p ? p.scale.toFixed(3) : "–"} | ${res.extensionLabel || "none"} | ${res.held ? `held: ${res.held}` : res.pass ? "pass" : fails.map((x) => x.split(":")[0]).join(", ")} | ${files.length ? files.map((f) => f.replace(`${code}_`, "")).join("<br>") : "–"} |`);

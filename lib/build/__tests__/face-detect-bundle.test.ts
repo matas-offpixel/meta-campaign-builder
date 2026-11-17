@@ -38,8 +38,17 @@ describe("face-detect bundle check (after next build)", () => {
   it("fails when face-api's bundle or models are not traced into the function", () => {
     const io = fakeBuild(`throw Error("${FACE_DETECT_MARKER}")`, [FACE_API_FILES[0]]);
     const result = checkFaceDetectBundle(ROOT, RENDER_TICK_ROUTE, io);
-    assert.equal(result.problems.length, 2);
+    assert.equal(result.problems.length, FACE_API_FILES.length - 1);
     assert.ok(result.problems.every((problem) => problem.includes("outputFileTracingIncludes")));
+  });
+
+  it("fails when the person-outline model (segment.ts, O120) is not traced", () => {
+    const traced = FACE_API_FILES.filter((path) => !path.includes("/selfie/"));
+    const result = checkFaceDetectBundle(ROOT, RENDER_TICK_ROUTE, fakeBuild(`throw Error("${FACE_DETECT_MARKER}")`, traced));
+    assert.deepEqual(
+      result.problems.map((problem) => problem.split(": ")[1]!.split(" ")[0]),
+      ["lib/creative-lab/models/selfie/selfie.json", "lib/creative-lab/models/selfie/selfie.bin"],
+    );
   });
 
   it("fails when face-detect.ts is not compiled into the route at all", () => {

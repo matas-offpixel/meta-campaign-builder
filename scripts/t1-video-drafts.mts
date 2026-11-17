@@ -8,7 +8,19 @@
  *
  *   node --env-file=.env.local --experimental-strip-types scripts/t1-video-drafts.mts \
  *     --event P26-BDAY --kit <the static PSD's kit folder> --out .scratch/drafts/t1-video-2026-11-10 \
- *     --clip '<clip id>' [--clip …] [--seconds 8] [--lambda] [--local-from 2160] [--version v2-roll-call] [--format 9:16]
+ *     --clip '<clip id>' [--clip …] [--seconds 8] [--lambda] [--local-from 2160] [--version v2-roll-call] [--format 9:16] [--audio]
+ *
+ * --audio keeps the clip's own sound (AAC) and checks every draft has an audio
+ * stream; without it the drafts are muted, as before.
+ *
+ * O120 (issue 17), 9:16: the artist's head on each sample is the face box, or
+ * the person mask's top 0.18 when no face is found (segment.ts personHeadBox,
+ * cached beside the faces). The crop moves sideways to the head's median x
+ * when that is more than 0.05 W off centre, narrowing to ≥ 675 px when the
+ * head is near a side (clip-head.ts). The head joins O39's test for the name,
+ * the date and the claim; when the claim on its 1238 baseline is on the head
+ * it moves up under the date (A, claim up); failing that the clip is refused
+ * with clip-head.ts HEAD_REFUSAL.
  *
  * --lambda (issue 7, O52/O53): the face comes from the private kit-fonts
  * bucket through a one-hour signed URL and its name is checked
@@ -43,7 +55,9 @@ import { KIT_SHADOW, lowContrastShare, textOverlay, trimToInk, type Piece, type 
 import { redLineVerdict, watermarkLayer } from "../lib/creative-lab/artist-card-claim.ts";
 import { assertExportable, type WarningRow } from "../lib/creative-lab/claim-approval.ts";
 import { KIT_RED, KIT_WHITE, renderCardLine } from "../lib/creative-lab/claim-slot.ts";
+import { HEAD_REFUSAL, headOf, medianHeadX, planHeadCrop, toOutput, type HeadSample } from "../lib/creative-lab/clip-head.ts";
 import { detectFaces } from "../lib/creative-lab/face-detect.ts";
+import { personHeadBox } from "../lib/creative-lab/segment.ts";
 import { TOO_SMALL_FOR_916, tooSmallFor916 } from "../lib/creative-lab/import-quality.ts";
 import { providedFace } from "../lib/creative-lab/kit-faces.ts";
 import { REMOTION_REGION, lambdaChunking, pickLambdaFunction, readConcurrencyLimit } from "../lib/creative-lab/lambda.ts";
@@ -111,6 +125,7 @@ const kitDir = flag("--kit") ?? "";
 const outDir = resolve(flag("--out") ?? "");
 const clipIds = many("--clip");
 const seconds = Number(flag("--seconds") ?? "8");
+const withAudio = argv.includes("--audio");
 if (!code || !kitDir || !flag("--out") || !clipIds.length) fail("--event, --kit, --out and --clip are required");
 if (argv.some((a) => ["--apply", "--export", "--upload"].includes(a))) fail("this script renders drafts only: it never files, exports or uploads");
 const onLambda = argv.includes("--lambda");
@@ -340,6 +355,15 @@ for (const clipId of clipIds) {
     }
     writeFileSync(faceCache, JSON.stringify(sourceFaces));
   }
+  // O120: the person mask's head on the samples with no face, cached the same way (null where nothing is found).
+  const headCache = join(sdir, "heads.json");
+  let maskHeads: (Rect | null)[] = existsSync(headCache) ? (JSON.parse(readFileSync(headCache, "utf8")) as (Rect | null)[]) : [];
+  if (maskHeads.length !== frames.length) {
+    maskHeads = [];
+    for (const [i, f] of frames.entries()) maskHeads.push(sourceFaces[i]?.length ? null : await personHeadBox(readFileSync(join(sdir, f))));
+    writeFileSync(headCache, JSON.stringify(maskHeads));
+  }
+  const headSamples: HeadSample[] = times.map((tS, i) => ({ tS, faces: sourceFaces[i] ?? [], maskHead: maskHeads[i] ?? null }));
 
   // O54: the clip carries the lockup, the name and one date line (the kit's, verbatim); no venue or time.
   const nameRec = kit.pieces.find((p) => p.role === "name" && p.artist === artist);
@@ -362,17 +386,24 @@ for (const clipId of clipIds) {
         table.push({ clip: clipId.slice(0, 8), artist, claimLabel: job.label, fmt, arrangement: "–", crop: null, scale: null, tried: [], faceLine: small, topShare: 0, claimShare: 0, runS: 0, topP95: null, lockupP95: null, bottomP95: null, steps: "–", redP95: null, red: "–", feather: [], claim: "–", safe: true, file: null, result: small });
         continue;
       }
-      const cropX = Number(clip.crop_focus_x ?? 0.5);
       const own = Number(clip.crop_focus_y ?? 0.5);
+      // O120 (9:16 only: video is one 9:16, O95): the crop moves sideways to centre the artist's head.
+      const headCrop = fmt === "9:16" ? planHeadCrop(src, medianHeadX(headSamples), { cropFocusX: Number(clip.crop_focus_x ?? 0.5), cropFocusY: own }) : null;
+      const cropX = headCrop ? headCrop.cropFocusX : Number(clip.crop_focus_x ?? 0.5);
+      const cropW = headCrop && headCrop.movedPx > 0 ? headCrop.cropWidth : null;
+      if (headCrop?.line) console.log(`${id}: ${headCrop.line}`);
       // O73: candidates that give the same window are tried once.
-      const cands = distinctCrops(src, fmt, [...new Set([own, 0.5, 0.4, 0.6, 0.3, 0.7, 0.2, 0.8].map((v) => Math.round(v * 100) / 100))], cropX);
-      const samplesFor = (cy: number): FaceSample[] => {
-        const win = footageWindow(src, fmt, cy, cropX);
+      const cands = distinctCrops(src, fmt, [...new Set([own, 0.5, 0.4, 0.6, 0.3, 0.7, 0.2, 0.8].map((v) => Math.round(v * 100) / 100))], cropX, cropW);
+      const samplesFor = (cy: number, withHeads = fmt === "9:16"): FaceSample[] => {
+        const win = footageWindow(src, fmt, cy, cropX, cropW);
         const k = size.width / win.width;
-        return times.map((tS, i) => ({ tS, faces: (sourceFaces[i] ?? []).map((b) => ({ left: (b.left - win.left) * k, top: (b.top - win.top) * k, width: b.width * k, height: b.height * k })) }));
+        return times.map((tS, i) => {
+          const head = withHeads ? headOf(headSamples[i]!) : null;
+          return { tS, faces: (sourceFaces[i] ?? []).map((b) => ({ left: (b.left - win.left) * k, top: (b.top - win.top) * k, width: b.width * k, height: b.height * k })), heads: head ? [toOutput(head, win, size.width)] : [] };
+        });
       };
       const groundAt = async (cy: number, i: number, bands: Buffer) => {
-        const win = footageWindow(src, fmt, cy, cropX);
+        const win = footageWindow(src, fmt, cy, cropX, cropW);
         return sharp(join(sdir, frames[i]!)).extract({ left: Math.round(win.left), top: Math.round(win.top), width: Math.round(win.width), height: Math.round(win.height) }).resize(size.width, size.height).composite([{ input: bands }]).removeAlpha().raw().toBuffer({ resolveWithObject: true });
       };
 
@@ -385,17 +416,26 @@ for (const clipId of clipIds) {
       const tried: string[] = [];
       const arrangementsSeen: ("A" | "B")[] = [];
       const pc = (v: number) => `${(v * 100).toFixed(1)} %`;
+      if (headCrop?.line) tried.push(headCrop.line);
+      // O120: the head kept a layout out that the face alone would have let through, and nothing got as far as contrast.
+      let headBlocked = false;
+      let reachedContrast = false;
+      // O120: A, then A with the claim moved up under the date (9:16 with a claim), then B.
+      const tries: { arr: "A" | "B"; up: boolean }[] = [{ arr: "A", up: false }, ...(fmt === "9:16" && claimPlan ? [{ arr: "A" as const, up: true }] : []), { arr: "B", up: false }];
       search: for (const cy of cands) {
-        for (const arr of ["A", "B"] as const) {
+        for (const { arr, up } of tries) {
           arrangementsSeen.push(arr);
-          const l = planClipLayout({ lockup, name: namePiece, date: datePiece!, claim: claimPlan }, fmt, arr);
-          const fv = judgeFaceOverTime(samplesFor(cy), { always: arr === "A" ? [l.boxes.top] : [l.boxes.top, l.boxes.date], claim: l.boxes.claim }, { frameWidth: size.width });
+          const l = planClipLayout({ lockup, name: namePiece, date: datePiece!, claim: claimPlan }, fmt, arr, { claimUp: up });
+          const boxes = { always: arr === "A" ? [l.boxes.top] : [l.boxes.top, l.boxes.date], claim: l.boxes.claim };
+          const fv = judgeFaceOverTime(samplesFor(cy), boxes, { frameWidth: size.width });
           if (!bestFace || Math.max(fv.topShare, fv.claimShare) < Math.max(bestFace.topShare, bestFace.claimShare)) bestFace = fv;
-          const triedFace = `crop ${cy} · ${arr}: face ${pc(fv.topShare)} / ${pc(fv.claimShare)}, run ${fv.longestRunS.toFixed(1)} s`;
+          const triedFace = `crop ${cy} · ${arr}${up ? " (claim up)" : ""}: face or head ${pc(fv.topShare)} / ${pc(fv.claimShare)}, run ${fv.longestRunS.toFixed(1)} s`;
           if (!fv.ok) {
+            if (judgeFaceOverTime(samplesFor(cy, false), boxes, { frameWidth: size.width }).ok) headBlocked = true;
             tried.push(`${triedFace} → ${fv.line}`);
             continue;
           }
+          reachedContrast = true;
           // O57: the top block (and the lockup alone, O61) and the bottom block per band step, p95 over the samples.
           const tops: number[][] = T1C.bandSteps.map(() => []);
           const locks: number[][] = T1C.bandSteps.map(() => []);
@@ -430,7 +470,7 @@ for (const clipId of clipIds) {
         }
       }
       // A refused clip is still drawn as the flagged preview, on its own crop in A.
-      const refused = chosen ? null : (tooBright ?? bestFace?.line ?? "refused");
+      const refused = chosen ? null : headBlocked && !reachedContrast ? HEAD_REFUSAL : (tooBright ?? bestFace?.line ?? "refused");
       const layout = chosen?.layout ?? planClipLayout({ lockup, name: namePiece, date: datePiece!, claim: claimPlan }, fmt, "A");
       const cropY = chosen?.cy ?? own;
       const steps = { top: T1C.bandSteps[chosen?.topStep ?? 0]!, bottom: T1C.bandSteps[chosen?.bottomStep ?? 0]! };
@@ -443,7 +483,7 @@ for (const clipId of clipIds) {
       const l1 = layout.claim[0];
       if (l1 && l1.color === "red") {
         // O66: the neighbours are line 2's cap top below and the nearest type's baseline above (the date in B, else the top block).
-        const above = layout.arrangement === "B" ? layout.pieces.date.at.top + layout.pieces.date.piece.capPx * layout.pieces.date.at.scale : layout.boxes.top.top + layout.boxes.top.height;
+        const above = layout.arrangement === "B" || layout.claimUp ? layout.pieces.date.at.top + layout.pieces.date.piece.capPx * layout.pieces.date.at.scale : layout.boxes.top.top + layout.boxes.top.height;
         backing = backingRect(l1, size.width, { below: layout.claim[1] ? layout.claim[1].capTop : undefined, above });
         const byStep: number[][] = [[], ...RED_BACKING.steps.map(() => [])];
         for (let i = 0; i < frames.length; i += 1) {
@@ -493,10 +533,11 @@ for (const clipId of clipIds) {
         sourceHeight: src.height,
         cropFocusY: cropY,
         cropFocusX: cropX,
+        cropWidth: cropW,
         inS,
         fps,
         durationInSeconds: dur,
-        muted: true,
+        muted: !withAudio,
         bandsUrl: !here ? dataUri(bands) : `${base}/${id}-bands.png`,
         topUrl: !here ? dataUri(topWithStamp) : `${base}/${id}-top.png`,
         claimUrl: typeClaim ? (!here ? dataUri(typeClaim) : `${base}/${id}-claim.png`) : null,
@@ -517,7 +558,7 @@ for (const clipId of clipIds) {
         const nFrames = Math.round(dur * fps);
         const chunk = lambdaChunking(lambda.limit, nFrames);
         const started = Date.now();
-        const r = await renderMediaOnLambda({ region: REMOTION_REGION, functionName: lambda.functionName, serveUrl: lambda.serveUrl, composition: "T1OnClip", inputProps: props as unknown as Record<string, unknown>, codec: "h264", crf: 18, muted: true, framesPerLambda: chunk.framesPerLambda, concurrencyPerLambda: chunk.concurrencyPerLambda, privacy: "private", downloadBehavior: { type: "download", fileName: null } });
+        const r = await renderMediaOnLambda({ region: REMOTION_REGION, functionName: lambda.functionName, serveUrl: lambda.serveUrl, composition: "T1OnClip", inputProps: props as unknown as Record<string, unknown>, codec: "h264", crf: 18, muted: !withAudio, framesPerLambda: chunk.framesPerLambda, concurrencyPerLambda: chunk.concurrencyPerLambda, privacy: "private", downloadBehavior: { type: "download", fileName: null } });
         let progress = await getRenderProgress({ renderId: r.renderId, bucketName: r.bucketName, functionName: lambda.functionName, region: REMOTION_REGION });
         while (!progress.done && !progress.fatalErrorEncountered) {
           await new Promise((res) => setTimeout(res, 2000));
@@ -542,7 +583,13 @@ for (const clipId of clipIds) {
         console.log(`  lambda: ${functions} functions · $${(progress.costs?.accruedSoFar ?? 0).toFixed(4)} · ${((Date.now() - started) / 1000).toFixed(0)} s`);
       } else {
         const composition = await selectComposition({ serveUrl, id: "T1OnClip", inputProps: props as unknown as Record<string, unknown> });
-        await renderMedia({ composition, serveUrl, codec: "h264", crf: 18, outputLocation: out, inputProps: props as unknown as Record<string, unknown>, muted: true, logLevel: "error" });
+        await renderMedia({ composition, serveUrl, codec: "h264", crf: 18, outputLocation: out, inputProps: props as unknown as Record<string, unknown>, muted: !withAudio, logLevel: "error" });
+      }
+      // --audio: every draft must carry the clip's sound.
+      if (withAudio) {
+        const streams = ff("ffprobe", ["-v", "error", "-select_streams", "a", "-show_entries", "stream=codec_name", "-of", "csv=p=0", out]).trim();
+        if (!streams) fail(`${id}: rendered with --audio but the file has no audio stream`);
+        console.log(`  audio: ${streams}`);
       }
       contactRows.push({ label: `${id} · ${layout.arrangement}${refused ? " · REFUSED (flagged preview)" : ""}`, file: out });
       const fv = chosen?.face ?? bestFace!;
@@ -552,7 +599,7 @@ for (const clipId of clipIds) {
         : [];
       const redWord = !red ? "–" : red.white ? "white (whole clip)" : red.backing != null ? `red, backed ${Math.round(red.backing * 100)} %` : "red";
       const stepWord = chosen ? `top +${Math.round(steps.top * 100)} · bottom +${Math.round(steps.bottom * 100)}` : "–";
-      console.log(`${id}: ${layout.arrangement} · crop ${cropY} · ${refused ?? "passes"} · steps ${stepWord} · red ${redWord}`);
+      console.log(`${id}: ${layout.arrangement}${layout.claimUp ? " (claim up)" : ""} · crop ${cropY} · ${refused ?? "passes"} · steps ${stepWord} · red ${redWord}`);
       const safe = fmt !== "9:16" || insideVideoSafe([...topPieces.map((p) => p.at), ...layout.claim.map((c) => ({ left: (size.width - c.widthPx) / 2, top: c.capTop, width: c.widthPx, height: c.capPx }))]).ok;
       table.push({
         clip: clipId.slice(0, 8),
@@ -560,9 +607,9 @@ for (const clipId of clipIds) {
         claimLabel: job.label,
         fmt,
         // O73: a refused row lists every arrangement tried.
-        arrangement: chosen ? layout.arrangement : arrangementsTried(arrangementsSeen),
+        arrangement: chosen ? `${layout.arrangement}${layout.claimUp ? " (claim up)" : ""}` : arrangementsTried([...new Set(arrangementsSeen)]),
         crop: chosen?.cy ?? null,
-        scale: upscaleFactor(src, fmt, cropY, cropX),
+        scale: upscaleFactor(src, fmt, cropY, cropX, cropW),
         tried,
         faceLine: fv.ok ? "ok" : (fv.line ?? "refused"),
         topShare: fv.topShare,
@@ -579,7 +626,7 @@ for (const clipId of clipIds) {
         safe,
         file: `${id}_DRAFT${refused ? "_REFUSED" : ""}.mp4`,
         renderedOn,
-        result: refused ? `refused: ${refused}` : "passes",
+        result: `${refused ? `refused: ${refused}` : "passes"}${headCrop?.line ? ` · ${headCrop.line}` : ""}`,
       });
     }
   }
@@ -649,7 +696,7 @@ if (lambdaCosts.length) {
   const total = lambdaCosts.reduce((a, c) => a + (c.costUsd ?? 0), 0);
   L.push(`Lambda: ${lambdaCosts.length} renders, ${lambdaCosts[0]!.functions} functions each (one orchestrator plus the chunks), $${(total / lambdaCosts.length).toFixed(4)} a render on average, $${total.toFixed(4)} in all.`);
 }
-L.push(`Each clip: its first ${seconds} s from in_s, muted, H.264 CRF 18. Samples at ${T1V_FACE.fps} a second.`, "");
+L.push(`Each clip: its first ${seconds} s from in_s, ${withAudio ? "with its own sound (AAC)" : "muted"}, H.264 CRF 18. Samples at ${T1V_FACE.fps} a second.`, "");
 L.push(`The roll-call, from Puzzle's tiers (${tiers.map((t) => `${t.name} ${t.state}`).join(" · ")}): "${rollCall.claim!.replace("\n", " / ")}".`, "");
 L.push("| Clip | Version | Format | Arrangement | Crop | Scale (O63, ≤ 1.6×) | Face (O64): top / claim share · run | Top block p95 (≤ 10 %) | Lockup p95 (≤ 15 %) | Bottom block p95 (≤ 15 %) | Band steps (O57) | Red line p95 → result (O58) | Claim | Safe area | Result | Rendered | File |");
 L.push("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|");

@@ -26,6 +26,9 @@ export const FACE_API_FILES = [
   "node_modules/@vladmandic/face-api/dist/face-api.esm.js",
   "node_modules/@vladmandic/face-api/model/ssd_mobilenetv1_model.bin",
   "node_modules/@vladmandic/face-api/model/face_landmark_68_model.bin",
+  // The person-outline model segment.ts reads from the working directory (O120).
+  "lib/creative-lab/models/selfie/selfie.json",
+  "lib/creative-lab/models/selfie/selfie.bin",
 ] as const;
 
 export type Io = { exists(path: string): boolean; read(path: string): string };

@@ -51,6 +51,10 @@ const nextConfig: NextConfig = {
       "./node_modules/ffmpeg-static/package.json",
       "./node_modules/@vladmandic/face-api/dist/face-api.esm.js",
       "./node_modules/@vladmandic/face-api/model/**/*",
+      // The person-outline model (segment.ts, O120): read with readFileSync
+      // from the working directory, which no import reaches. 297 KB.
+      "./lib/creative-lab/models/selfie/selfie.json",
+      "./lib/creative-lab/models/selfie/selfie.bin",
     ],
   },
   // render-caption renders on Remotion Lambda from REMOTION_LAMBDA_SERVE_URL
