@@ -94,8 +94,8 @@ table.t table.t td:first-child{width:auto;font-weight:400}
 <h1>The main drop is the last major transient</h1>
 <p class="lead">This re-rules how VW1 of <code>2026-11-17-creative-lab-video-window.html</code> (#1319) picks the main drop. On P26-BDAY clip 27 (no-CTA r3), "largest rise, earlier wins" picked the first kick. That kick is the lead-in to the build-up, and the edit cut out just before the real drop. Matas approved clip 30's r3 as a perfect cut. His rule: the main drop is the second, or even the last, main transient in the clip, as long as the clip still runs on for 10 s after it.</p>
 <ul class="notes">
-<li><b>Replaced:</b> VW1's last two bullets, which picked the largest rise with the earlier one winning within 1 dB, and the build's choice of the largest fitting rise for "Use the drop at {m:ss.s}".</li>
-<li><b>Stands:</b> the rest of VW1–VW6. That covers what a candidate is (a 6 dB rise over 2 s with an onset within 0.1 s, merged within 4 s), VW2's window (the drop 3.0–5.0 s in, 15–20 s long), VW3's refusals and their words, VW4's nudges and VW5's words.</li>
+<li><b>Replaced:</b> VW1's onset test (an onset peak within 0.1 s of the rise). VW1's last two bullets, which picked the largest rise with the earlier one winning within 1 dB. The build's choice of the largest fitting rise for "Use the drop at {m:ss.s}".</li>
+<li><b>Stands:</b> the rest of VW1–VW6. That covers the rest of what a candidate is (a 6 dB rise over 2 s, merged within 4 s), VW2's window (the drop 3.0–5.0 s in, 15–20 s long), VW3's refusals and their words, VW4's nudges and VW5's words.</li>
 <li><b>Frames:</b> VW-A is redrawn with new expected figures, and VW-C is new (the rule on a schematic track).</li>
 <li><b>Invented:</b> the 3 dB margins, the after-level test and VW-C's figures are <span class="inv">invented</span>. Clips 27 and 30 settle them (acceptance).</li>
 </ul>
@@ -105,6 +105,11 @@ table.t table.t td:first-child{width:auto;font-weight:400}
 <tr><th style="width:190px">#</th><th>Ruling</th></tr>
 <tr><td>VW7 · The main drop</td><td>
 <ul>
+<li><b>No onset test.</b> A candidate is any rise of 6 dB or more over 2 s, merged within 4 s. The 0.1 s onset gate is dropped. Clip 30's approved drop is a 2.3 s ramp with no sharp onset, and clip 27's real drop sat 0.14 s from its onset peak, so the gate rejected both.
+<ul>
+<li>A candidate's time is its rise point: the 50 ms step where the 2 s after are loudest against the 2 s before.</li>
+<li>The distance to the nearest onset peak is stored with the candidate as data. It never gates.</li>
+</ul></li>
 <li><b>Major or minor.</b> Every candidate is either major or minor. A candidate is <b>major</b> when either of these holds:
 <ul>
 <li>its rise is within 3 dB of the largest rise in the clip;</li>
@@ -114,6 +119,7 @@ Every other candidate is minor: a fill, a snare roll, a small hit between sectio
 <li><b>The main drop is the last major candidate that fits VW2</b>, which means 3 s or more before it and 10 s or more after it. With only one major candidate, it's that one. "The earlier wins" is retired.</li>
 <li><b>No major candidate fits.</b> VW3 refuses the clip, naming the latest major candidate. With under 10 s after it, that's "Too little after the drop". Otherwise, that's "Drop too soon". The words are VW3's, unchanged.</li>
 <li><b>Ops' reading, confirmed with one change.</b> Rise size alone isn't enough to call a candidate major. A lead-in kick out of near-silence can rise more than the real drop does out of a loud build-up, and that is clip 27's shape. The second test catches a drop that lands at full level. Fills fail both tests: they rise little, and they don't reach the clip's loudest level.</li>
+<li><b>Ops' second call, confirmed:</b> the onset test is dropped rather than widened to 2.5 s. With the two major tests and the 3 s / 10 s fit, a slow riser can only win if it lands at the clip's full level, and that is what a drop is.</li>
 </ul></td></tr>
 <tr><td>VW8 · The other drops</td><td>
 <ul>
@@ -205,11 +211,11 @@ Every other candidate is minor: a fill, a snare roll, a small hit between sectio
 <ul class="notes">
 <li><b>Real fixtures.</b> P26-BDAY clips 27 and 30 become test fixtures, with their real candidate lists (time, rise, the after-level against the loudest 2 s) taken from the backfill's dry run.
 <ul>
-<li>Clip 30's main drop is where its approved r3 has the drop, within one 50 ms step.</li>
-<li>Clip 27's main drop is its later drop, not the lead-in kick.</li>
+<li><b>Clip 27:</b> 0:15.06 rising 17.8 dB is the first kick, major by its rise. 0:29.78 rising 12.4 dB is major by level, the clip's loudest point. The main drop is 0:29.78, the last major candidate that fits.</li>
+<li><b>Clip 30:</b> 0:02.22 rising 10.0 dB is the sputtery opening. It's out either way: it rises 7.1 dB less than the largest rise, and it has under 3 s before it, so it can't fit VW2. 0:11.48 rising 17.1 dB, the 2.3 s ramp, is major. The main drop is 0:11.48, where the approved r3 has it, within one 50 ms step.</li>
 <li>If either fails under VW7's margins, the build stops and reports both lists, and design re-rules the margins before merge.</li>
 </ul></li>
-<li><b>Synthetic tests.</b> A minor fill never becomes the main drop. The last major candidate that fits wins over a larger, earlier one. One major candidate is used alone. A latest major with under 10 s after it is skipped for an earlier major that fits. No major fitting gives VW3's refusal, naming the latest major. "Use the drop at" offers the latest candidate that fits.</li>
+<li><b>Synthetic tests.</b> A 6 dB rise with no onset peak is a candidate, and the build's "a slow swell isn't a drop" test is retired. A minor fill never becomes the main drop. The last major candidate that fits wins over a larger, earlier one. One major candidate is used alone. A latest major with under 10 s after it is skipped for an earlier major that fits. No major fitting gives VW3's refusal, naming the latest major. "Use the drop at" offers the latest candidate that fits.</li>
 <li><b>Frames:</b> VW-A at 1280 and 393 with the figures above. VW-B is unchanged.</li>
 </ul>
 
@@ -218,7 +224,7 @@ Every other candidate is minor: a fill, a snare roll, a small hit between sectio
 <tr><th style="width:190px">Piece</th><th>Build</th></tr>
 <tr><td>HV6 · Main drop</td><td>
 <ul>
-<li>In <code>DROP_RULE</code>: each candidate stores its after-level against the clip's loudest 2 s. Major is a rise within 3 dB of the largest, or an after-level within 3 dB of the loudest.</li>
+<li>In <code>DROP_RULE</code>: the onset gate is removed. A candidate's time is its rise point, and its onset distance is kept as data. Each candidate stores its after-level against the clip's loudest 2 s. Major is a rise within 3 dB of the largest, or an after-level within 3 dB of the loudest.</li>
 <li>Main is the last major candidate that fits VW2.</li>
 <li>Refusals name the latest major candidate.</li>
 <li>Both margins are named constants.</li>
@@ -230,6 +236,7 @@ Every other candidate is minor: a fill, a snare roll, a small hit between sectio
 <h2>Invented here</h2>
 <ul class="notes">
 <li>The two 3 dB margins and the after-level test.</li>
+<li>The rise point as a candidate's time, now that there's no onset gate.</li>
 <li>"Use the drop at" offering the latest candidate that fits.</li>
 <li>VW-C's track and figures.</li>
 </ul>
