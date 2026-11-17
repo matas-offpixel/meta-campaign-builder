@@ -79,7 +79,11 @@ describe("recordLaunchedAdSet", () => {
     );
     const elapsed = Date.now() - started;
     assert.ok(elapsed < 1000, `hung upsert blocked for ${elapsed}ms`);
-    assert.ok(elapsed >= 40, `timed out too early (${elapsed}ms)`);
+    // A 40 ms timer can read as 39 ms on Date.now(): Node schedules timers on its
+    // own monotonic clock and Date.now() rounds both ends to whole milliseconds,
+    // so the two can disagree by a millisecond or two (CI saw "timed out too early (39ms)" on
+    // 17 Nov 2026). The point is that the timeout, not an instant reject, ends it.
+    assert.ok(elapsed >= 38, `timed out too early (${elapsed}ms)`);
   });
 
   it("does not throw when meta_adset_id is empty", async () => {
