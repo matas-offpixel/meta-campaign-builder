@@ -250,3 +250,101 @@ export function joinNames(names: readonly string[]): string {
   if (names.length > 3) return `${names.slice(0, 3).join(", ")} and ${names.length - 3} more`;
   return `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
 }
+
+// ── RT3 (running) ────────────────────────────────────────────────────────────
+
+/** RT3: a tier with spend and no purchase in the 7 days. */
+export const NO_PURCHASE_YET = "No purchase yet";
+
+/** RT3: the total row's label and spend. */
+export const LAST_7_DAYS = "Last 7 days";
+export function spentText(minor: number): string {
+  return `${pence(minor, { minor: true })} spent`;
+}
+
+/** RT3: the pool in Meta's band, "3,900–4,600", or "Below 1,000". */
+export function poolBand(lower: number, upper: number): string {
+  if (!(upper >= 1000)) return "Below 1,000";
+  return `${group(String(Math.round(lower)))}–${group(String(Math.round(upper)))}`;
+}
+
+/** RT9 (PR B): the campaign's status read says it isn't delivering. */
+export function retargetingOff(code: string): string {
+  return `${retargetingCampaignName(code)} is off.`;
+}
+
+// ── RT5 ──────────────────────────────────────────────────────────────────────
+
+const freq = (value: number) => value.toFixed(1);
+const each = (gbp: number) => pence(gbp);
+const pool = (band: string | null) => band ?? NO_FIGURE;
+
+/** RT5: Move · "{giver} → {receiver}". */
+export function moveTitle(giver: Tier, receiver: Tier): string {
+  return `${TIER_LABEL[giver]} → ${TIER_LABEL[receiver]}`;
+}
+
+/** RT5: "£{c1} per attributed purchase ({n1}) to £{c2} ({n2}) · {receiver} frequency {f} on {pool} · £{x} a day". A giver with no purchase reads "No purchase yet on £{spent}". */
+export function moveDetail(args: { giverCost: number | null; giverPurchases: number; giverSpendMinor: number; receiver: Tier; receiverCost: number; receiverPurchases: number; frequency: number; pool: string | null; amountMinor: number }): string {
+  const giver = args.giverCost == null ? `${NO_PURCHASE_YET} on ${pence(args.giverSpendMinor, { minor: true })}` : `${each(args.giverCost)} per attributed purchase (${args.giverPurchases})`;
+  return `${giver} to ${each(args.receiverCost)} (${args.receiverPurchases}) · ${TIER_LABEL[args.receiver]} frequency ${freq(args.frequency)} on ${pool(args.pool)} · ${pence(args.amountMinor, { minor: true })} a day`;
+}
+
+/** RT5: the phone line, "£{c1} → £{c2} per attributed purchase · £{x} a day". */
+export function moveNarrow(args: { giverCost: number | null; receiverCost: number; amountMinor: number }): string {
+  const giver = args.giverCost == null ? NO_PURCHASE_YET : each(args.giverCost);
+  return `${giver} → ${each(args.receiverCost)} per attributed purchase · ${pence(args.amountMinor, { minor: true })} a day`;
+}
+
+/** RT5: the write, both sides. */
+export const BUDGET_WRITE_BOTH = "Ad-set budget write, both sides";
+/** A cut with no receiver writes one side. */
+export const BUDGET_WRITE_ONE = "Ad-set budget write";
+
+/** RT5: Hold · "{tier} held". */
+export function holdTitle(tier: Tier): string {
+  return `${TIER_LABEL[tier]} held`;
+}
+
+/** RT5: "Cheapest at £{c} per attributed purchase, but frequency {f} on {pool}. It gets no more until frequency falls under 4." */
+export function holdDetail(args: { cost: number; frequency: number; pool: string | null }): string {
+  return `Cheapest at ${each(args.cost)} per attributed purchase, but frequency ${freq(args.frequency)} on ${pool(args.pool)}. It gets no more until frequency falls under 4.`;
+}
+
+/** RT5: the phone line, "{tier} held · frequency {f}". */
+export function holdNarrow(tier: Tier, frequency: number): string {
+  return `${TIER_LABEL[tier]} held · frequency ${freq(frequency)}`;
+}
+
+/** RT5: Cut · "{tier} → {receiver}"; with no receiver, the tier alone. */
+export function cutTitle(tier: Tier, receiver: Tier | null): string {
+  return receiver ? `${TIER_LABEL[tier]} → ${TIER_LABEL[receiver]}` : TIER_LABEL[tier];
+}
+
+/** RT5: "Frequency {f} on {pool} · £{a} → £{b} a day, back to frequency 4 · £{x} a day to {receiver} (£{c} per attributed purchase, frequency {f2})", or "… · £{x} a day back to the plan". */
+export function cutDetail(args: { frequency: number; pool: string | null; beforeMinor: number; afterMinor: number; freedMinor: number; receiver: { tier: Tier; cost: number; frequency: number } | null }): string {
+  const head = `Frequency ${freq(args.frequency)} on ${pool(args.pool)} · ${pence(args.beforeMinor, { minor: true })} → ${pence(args.afterMinor, { minor: true })} a day, back to frequency 4`;
+  const x = `${pence(args.freedMinor, { minor: true })} a day`;
+  const tail = args.receiver ? `${x} to ${TIER_LABEL[args.receiver.tier]} (${each(args.receiver.cost)} per attributed purchase, frequency ${freq(args.receiver.frequency)})` : `${x} back to the plan`;
+  return `${head} · ${tail}`;
+}
+
+/** RT5: the phone line, "Frequency {f} · £{a} → £{b} a day". */
+export function cutNarrow(args: { frequency: number; beforeMinor: number; afterMinor: number }): string {
+  return `Frequency ${freq(args.frequency)} · ${pence(args.beforeMinor, { minor: true })} → ${pence(args.afterMinor, { minor: true })} a day`;
+}
+
+/** RT5: too little to rank. */
+export const NO_MOVE_TODAY = "No move today: no tier has 3 attributed purchases in 7 days.";
+
+/** RT5 / RT10: the line kinds as the panel labels them. */
+export const BUDGET_KIND_LABEL = { move: "Move", hold: "Hold", cut: "Cut" } as const;
+
+// ── RT6 (dates only; the heights are PR C's, unset) ─────────────────────────
+
+/** RT6: the footer, "Next step: final month from Thu 19 Nov · payday from Thu 26 Nov · step heights: Matas". */
+export function nextStepLine(steps: readonly { label: string; from: string }[], heightsSet: boolean): string | null {
+  if (!steps.length) return null;
+  const parts = steps.map((step) => `${step.label} from ${shortDay(step.from)}`);
+  return `Next step: ${[...parts, ...(heightsSet ? [] : ["step heights: Matas"])].join(" · ")}`;
+}

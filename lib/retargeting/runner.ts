@@ -24,10 +24,12 @@ import { buildEventInputs, loadAll, loadAux, loadInsights, loadOnSaleEvents, row
 import { ONSALE_PHASE } from "../onsale-refresh/phase-config.ts";
 import { loadPurchaseReads, type RefreshGraph } from "../onsale-refresh/purchase-read.ts";
 import { committedGbpOf, type PcBudgets } from "../onsale-refresh/purchase-campaign.ts";
+import { moveGuard } from "../onsale-refresh/plan-guard.ts";
 import { RETARGETING } from "../onsale-refresh/rules.ts";
 import { addDaysIso, planRun, todayLondon } from "../onsale-refresh/schedule.ts";
 import { urlFragment, type SourceList, type SourcePage, type SourceSet } from "./audiences.ts";
-import { planRetargeting, retargetingOnSaleDay, type RetargetingInput, type RetargetingPlan } from "./plan.ts";
+import { readRunning, type RunningRead } from "./delivery.ts";
+import { planRetargeting, retargetingOnSaleDay, type LiveRead, type RetargetingInput, type RetargetingPlan } from "./plan.ts";
 import { isRetargetingCampaignName, isTestsCampaignName, retargetingCampaignName, TIERS, type Tier } from "./words.ts";
 
 type Db = Pick<SupabaseClient, "from">;
@@ -148,6 +150,8 @@ export function retargetingInput(args: {
   sources: SourceSet;
   appliedLine: { applied_result: Record<string, unknown> | null; write: Record<string, unknown> | null } | null;
   minDailyMinor: number | null;
+  /** HR4: Meta's read of the running campaign (status, tier budgets, frequency, pool). */
+  running?: RunningRead | null;
 }): RetargetingInput {
   const { event, day } = args;
   const code = event.event_code ?? event.id;
@@ -162,7 +166,7 @@ export function retargetingInput(args: {
   const firstDay = rows.filter((row) => isRetargetingCampaignName(row.campaign_name, code) && num(row.spend) > 0).map((row) => row.date).sort()[0] ?? null;
   const tiers = progress?.adSets ? Object.fromEntries(TIERS.map((tier) => [tier, progress.adSets?.[tier]?.dailyMinor ?? 0])) as Record<Tier, number> : undefined;
   const existing = named || progress?.campaignId
-    ? { campaignId: progress?.campaignId ?? named?.meta_campaign_id ?? null, since: firstDay, totalMinor: tiers ? TIERS.reduce((sum, tier) => sum + tiers[tier], 0) : null, share: progress?.share ?? null, ...(tiers ? { tiers } : {}) }
+    ? { campaignId: progress?.campaignId ?? named?.meta_campaign_id ?? null, since: firstDay, totalMinor: tiers ? TIERS.reduce((sum, tier) => sum + tiers[tier], 0) : null, share: progress?.share ?? null, ...(tiers ? { tiers } : {}), live: liveRead(args.running ?? null, rows, start, end) }
     : null;
   const campaigns = args.campaigns;
   const legacy = campaigns.map((campaign) => ({ campaign: campaign.campaignKey, adSets: campaign.adSets.filter((set) => set.delivering && RETARGETING.test(set.name)).length }));
@@ -209,6 +213,32 @@ export function retargetingInput(args: {
     videoCampaignIds: [...new Set(campaigns.flatMap((campaign) => campaign.campaignIds))],
     today: day,
   };
+}
+
+/** RT3 / RT5: each tier's 7 days from ad_daily_insights (spend, attributed purchases), joined to Meta's read. */
+export function liveRead(running: RunningRead | null, rows: readonly { date: string; meta_adset_id?: string | null; spend: number | string; purchases: number | string }[], start: string, end: string): LiveRead | null {
+  if (!running) return null;
+  const tiers: LiveRead["tiers"] = {};
+  for (const tier of TIERS) {
+    const row = running.tiers[tier];
+    if (!row) continue;
+    const week = rows.filter((insight) => insight.meta_adset_id === row.adsetId && insight.date >= start && insight.date <= end);
+    tiers[tier] = {
+      adsetId: row.adsetId,
+      dailyMinor: row.dailyMinor,
+      frequency: row.frequency,
+      pool: row.pool,
+      spendMinor: Math.round(week.reduce((sum, insight) => sum + num(insight.spend), 0) * 100),
+      purchases: week.reduce((sum, insight) => sum + num(insight.purchases), 0),
+    };
+  }
+  return { status: running.status, tiers };
+}
+
+/** The ad set ids the Create line stored, by tier. */
+function knownAdSets(appliedLine: { applied_result: Record<string, unknown> | null } | null): Partial<Record<Tier, string>> {
+  const sets = ((appliedLine?.applied_result?.retargeting ?? null) as { adSets?: Partial<Record<Tier, { id?: string }>> } | null)?.adSets ?? {};
+  return Object.fromEntries(TIERS.flatMap((tier) => (sets[tier]?.id ? [[tier, sets[tier]!.id!]] : []))) as Partial<Record<Tier, string>>;
 }
 
 export async function runRetargetingRead(input: {
@@ -279,10 +309,23 @@ export async function runRetargetingRead(input: {
         metaCalls += 1;
         minDaily.set(account, await input.graph.graphGet(`/${account}`, { fields: "min_daily_budget" }).then((body) => num((body as { min_daily_budget?: unknown }).min_daily_budget) || null).catch(() => null));
       }
-      const plan = planRetargeting(retargetingInput({ event, day, rows, campaigns: inputs.campaigns, read, budgets: purchases.budgets, sources, appliedLine, minDailyMinor: account ? (minDaily.get(account) ?? null) : null }));
+      // HR4: a running campaign is read from Meta every morning, through show week to the show day (RT7).
+      const campaignId = (appliedLine?.applied_result?.retargeting as { campaignId?: string } | undefined)?.campaignId ?? rows.find((row) => isRetargetingCampaignName(row.campaign_name, code) && row.meta_campaign_id)?.meta_campaign_id ?? null;
+      let running: RunningRead | null = null;
+      if (campaignId && input.graph) {
+        const until = addDaysIso(day, -1);
+        running = await readRunning(input.graph.graphGet, { campaignId, code, since: addDaysIso(until, -6), until, known: knownAdSets(appliedLine) });
+        metaCalls += running.calls;
+        for (const reason of running.errors) skipped.push({ eventCode: code, reason: `Retargeting read: ${reason}` });
+      }
+      const plan = planRetargeting(retargetingInput({ event, day, rows, campaigns: inputs.campaigns, read, budgets: purchases.budgets, sources, appliedLine, minDailyMinor: account ? (minDaily.get(account) ?? null) : null, running }));
       const record: RetargetingRecord = { eventId: event.id, eventCode: event.event_code, plan, proposalId: null };
       if (!dryRun && plan.state !== "no_signal") {
-        record.proposalId = await writeRetargetingProposal(input.db, { event, day, plan, mode: applyGates(input.env, arms.get(event.id)).mode, userId: input.userId });
+        const createWrite = (appliedLine?.write ?? null) as { draftId?: string | null; adAccountId?: string | null } | null;
+        const where = campaignId ? { draftId: createWrite?.draftId ?? null, adAccountId: createWrite?.adAccountId ?? account, campaignIds: [campaignId] } : null;
+        const spendToDate = Math.round(rows.reduce((sum, row) => sum + num(row.spend), 0) * 100) / 100;
+        const budget = event.budget_marketing == null ? null : num(event.budget_marketing);
+        record.proposalId = await writeRetargetingProposal(input.db, { event, day, plan, mode: applyGates(input.env, arms.get(event.id)).mode, userId: input.userId, where, guard: { budget, spendToDate } });
       }
       records.push(record);
     } catch (err) {
@@ -309,7 +352,7 @@ async function loadArms(db: Db, eventIds: readonly string[]): Promise<Map<string
  * review line; a line already accepted, rejected, applied or failed stays
  * and is not proposed again. Earlier unanswered lines expire (RT5).
  */
-export async function writeRetargetingProposal(db: Db, args: { event: EventRow; day: string; plan: RetargetingPlan; mode: ArmMode; userId?: string }): Promise<string> {
+export async function writeRetargetingProposal(db: Db, args: { event: EventRow; day: string; plan: RetargetingPlan; mode: ArmMode; userId?: string; where?: { draftId: string | null; adAccountId: string | null; campaignIds: string[] } | null; guard?: { budget: number | null; spendToDate: number } }): Promise<string> {
   const { event, plan } = args;
   const userId = args.userId ?? (await ownerOf(db, event.id));
   const code = event.event_code!;
@@ -322,7 +365,7 @@ export async function writeRetargetingProposal(db: Db, args: { event: EventRow; 
         user_id: userId,
         event_id: event.id,
         campaign_key: key,
-        campaign_ids: plan.build?.campaignIds ?? [],
+        campaign_ids: plan.build?.campaignIds ?? args.where?.campaignIds ?? [],
         run_kind: "retargeting",
         run_day: args.day,
         cycle_monday: run.cycleMonday,
@@ -351,6 +394,9 @@ export async function writeRetargetingProposal(db: Db, args: { event: EventRow; 
   if (earlier.error) throw new Error(`earlier proposals: ${earlier.error.message}`);
   const earlierIds = ((earlier.data ?? []) as { id: string }[]).map((row) => row.id);
   const decided = await db.from("onsale_refresh_lines").select("id").in("proposal_id", [proposalId, ...earlierIds]).eq("kind", "retargeting_campaign").neq("state", "to_review").neq("state", "expired");
+  // RT5: today's Move or Cut, unless one was already decided on this read.
+  const decidedBudget = await db.from("onsale_refresh_lines").select("id").eq("proposal_id", proposalId).eq("kind", "move_budget").neq("state", "to_review").neq("state", "expired");
+  if (decidedBudget.error) throw new Error(`onsale_refresh_lines decided budget: ${decidedBudget.error.message}`);
   if (decided.error) throw new Error(`onsale_refresh_lines decided: ${decided.error.message}`);
   const cleared = await db.from("onsale_refresh_lines").delete().eq("proposal_id", proposalId).eq("state", "to_review");
   if (cleared.error) throw new Error(`onsale_refresh_lines clear: ${cleared.error.message}`);
@@ -375,6 +421,31 @@ export async function writeRetargetingProposal(db: Db, args: { event: EventRow; 
       state: "to_review",
     });
     if (written.error) throw new Error(`onsale_refresh_lines: ${written.error.message}`);
+  }
+  if (plan.state === "running" && plan.budget && args.where && !((decidedBudget.data ?? []) as unknown[]).length) {
+    const line = plan.budget;
+    // R5's 20 % cap on what moves into a tier; a cut back to the plan adds nothing.
+    const blocked = line.write.toAdsetId && args.guard ? moveGuard(line.write.amountGbp, args.guard.budget, args.guard.spendToDate, 0) : null;
+    const written = await db.from("onsale_refresh_lines").insert({
+      proposal_id: proposalId,
+      user_id: userId,
+      position: 2,
+      kind: "move_budget",
+      rule_id: `retargeting.${line.kind}`,
+      title: line.title,
+      detail: line.detail,
+      write_text: line.writeText,
+      narrow: { detail: line.narrow, writeText: null },
+      target: { fromTier: line.write.fromTier, toTier: line.write.toTier, fromAdsetId: line.write.fromAdsetId, toAdsetId: line.write.toAdsetId, label: line.label },
+      // R6 scores a move on the receiving ad set against its cost before (toCpr).
+      evidence: { state: plan.state, retargetingBudget: { kind: line.kind, label: line.label }, toCpr: line.write.toTier ? (plan.view.tiers.find((row) => row.tier === line.write.toTier)?.cost ?? null) : null, tiers: plan.view.tiers.map((row) => ({ tier: row.tier, budgetMinor: row.budgetMinor, spendMinor: row.spendMinor ?? null, purchases: row.purchases, frequency: row.frequency, pool: row.pool })) },
+      write: { ...line.write, ...args.where },
+      adds_spend: false,
+      blocked_reason: blocked,
+      supply: false,
+      state: "to_review",
+    });
+    if (written.error) throw new Error(`onsale_refresh_lines budget: ${written.error.message}`);
   }
   if (earlierIds.length) {
     const expired = await db.from("onsale_refresh_lines").update({ state: "expired" }).in("proposal_id", earlierIds).eq("state", "to_review");
