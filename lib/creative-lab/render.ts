@@ -20,6 +20,7 @@ import { captionLimits, outputSize, profile, styleVersion, type CaptionAspect, t
 import { quoteStyleVersion } from "../../src/remotion/caption-style/quote-profile.ts";
 import { deleteLambdaRender, renderCaptionViaLambda, requireLambdaServeUrl, type LambdaRenderOutput } from "./lambda.ts";
 import type { ServiceRoleDb } from "./load.ts";
+import { windowRefusalSentence } from "./edit-window.ts";
 import { TOO_SMALL_FOR_916, TRIPLE_FIT_NOT_PAIRED, tooSmallFor916 } from "./import-quality.ts";
 import { renderTripleFitClip, type TripleFitHooks } from "./triple-fit-render.ts";
 import { probeMp4Url, type Probe } from "./mp4-probe.ts";
@@ -234,6 +235,9 @@ export async function renderCaptionOnClip(
     const quoteWeight = caption.quote_weight === 400 ? 400 : 700;
     const audio = audioMode(String(clip.audio_status ?? "original"));
     if (audio === "replaced") throw new Error("replaced audio has no track on the clip yet");
+    // VW3: a clip that can't make a 15–20 s edit is refused with the record's sentence.
+    const refused = windowRefusalSentence(clip);
+    if (refused) throw new Error(refused);
 
     // The 1080 render proxy when the original is 4K (migration 220), else the original.
     const source = await one(db, "creative_assets", renderAssetId(clip));

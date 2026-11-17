@@ -78,7 +78,13 @@ export function groupOf(source: Size, refused: boolean): "runs" | "triple-fit on
   return k === "916" ? "runs" : k === "triple-fit" ? "triple-fit only" : "can't run";
 }
 
-/** O109: the render's length, the stored window up to 30 s, or the too-short line. */
+/**
+ * O109: the render's length, the stored window up to 30 s, or the too-short
+ * line. VW2 (2026-11-17-creative-lab-video-window) replaces it for every
+ * clip whose sound has been checked: the triple-fit then cuts the source's
+ * 15–20 s window (triple-fit-render.ts). This stays only for a source not
+ * checked yet, until migration 258's backfill has run.
+ */
 export function tripleFitLength(inS: number, outS: number): { ok: true; seconds: number } | { ok: false; line: string } {
   const seconds = Math.min(TRIPLE_FIT.maxS, Math.max(0, outS - inS));
   return seconds + 1e-9 >= TRIPLE_FIT.minS ? { ok: true, seconds } : { ok: false, line: TF_LINES.tooShort };

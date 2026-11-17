@@ -89,6 +89,8 @@ export type ClipForGroup = {
   /** The source clip's number, so the tile can read "Triple-fit · #{n}". */
   tripleFitSourceNo?: number | null;
   owner?: "promoter" | "artist" | null;
+  /** VW3's tile chip when the clip can't make a 15–20 s edit (edit-window.ts windowChip). Null or absent: it can, or it isn't checked yet. */
+  windowChip?: string | null;
 };
 
 export type ClipBucket = "keeping" | "new" | "cant" | "triple" | "made";
@@ -244,6 +246,7 @@ export function clipTileName(clip: {
  */
 export function showTripleFitOffer(clip: ClipForGroup, clips: readonly ClipForGroup[]): boolean {
   if (clip.tripleFitSourceId || clip.owner === "promoter") return false;
+  if (clip.windowChip) return false;
   if (!tripleFitOnlySentence(clip)) return false;
   if (clip.durationSeconds != null && clip.durationSeconds < TRIPLE_FIT_MIN_SECONDS) return false;
   if (clips.some((other) => other.tripleFitSourceId === clip.id)) return false;
@@ -258,6 +261,8 @@ export function showTripleFitOffer(clip: ClipForGroup, clips: readonly ClipForGr
 }
 
 export function clipBucket(clip: ClipForGroup): ClipBucket {
+  // VW3: a clip that can't make an edit isn't offered for any video edit, a triple-fit included.
+  if (clip.windowChip) return "cant";
   if (tripleFitOnlySentence(clip)) return "triple";
   if (madeTripleFitSentence(clip)) return "made";
   if (tooSmall916Sentence(clip)) return "cant";
@@ -375,7 +380,7 @@ export function importErrorSentence(error: unknown): string {
 }
 
 export function cantRunReason(clip: ClipForGroup): string | null {
-  return tooSmall916Sentence(clip) ?? renderRefusalSentence(clip.renderError) ?? burnedInTextSentence(clip);
+  return tooSmall916Sentence(clip) ?? clip.windowChip ?? renderRefusalSentence(clip.renderError) ?? burnedInTextSentence(clip);
 }
 
 /** A failed row whose clip cannot make 9:16. Another try is still a render, so there is no link. */
