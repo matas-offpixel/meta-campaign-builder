@@ -147,6 +147,8 @@ export function testAdSetPayload(source: Row, input: { name: string; campaignId:
   return payload;
 }
 
+// The raw `{table}: {message}` throws and "Meta did not return this ad" are API-only
+// errors (design, 17 Nov). If the Lab ever shows them, wrap them in plain words first.
 async function rows(db: Db, table: string, column: string, value: string, columns = "*"): Promise<Row[]> {
   const res = await db.from(table).select(columns).eq(column, value).range(0, 999);
   if (res.error) throw new Error(`${table}: ${res.error.message}`);
@@ -211,7 +213,7 @@ export async function approveTest(deps: ApproveDeps, input: { testId: string; us
   // The write ledger is keyed on a draft: the event's main campaign's (the Purchase campaign's way, HP3).
   const drafts = (await rows(db, "launched_ad_sets", "event_id", str(event, "id"), "draft_id, launched_at")).filter((r) => str(r, "draft_id")).sort((a, b) => str(b, "launched_at").localeCompare(str(a, "launched_at")));
   const draftId = str(drafts[0], "draft_id");
-  if (!draftId) return refuse(409, "No main campaign launched from the app to key the writes on.");
+  if (!draftId) return refuse(409, "Launch a main campaign from the app first.");
   const ledger: MetaWriteContext = { supabase: db, userId: input.userId, draftId, eventId: str(event, "id") };
 
   const proposal = await db.from("onsale_refresh_proposals").select("objective").eq("event_id", str(event, "id")).order("window_end", { ascending: false }).limit(1);
