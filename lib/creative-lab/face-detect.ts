@@ -10,7 +10,7 @@
  * in the source image's pixels.
  */
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -61,13 +61,27 @@ type FaceApi = {
 };
 
 const DETECT_LONG_SIDE = 640;
+export const FACE_API_MAIN = "@vladmandic/face-api/dist/face-api.esm.js";
+
+/**
+ * face-api's ESM bundle on disk. In the Vercel function the traced
+ * node_modules sit under the working directory (next.config.ts
+ * outputFileTracingIncludes), and a bundled require.resolve or import.meta.url
+ * can't be trusted to give a real path, so that copy wins. Local scripts and
+ * tests resolve it from this file.
+ */
+export function faceApiMain(cwd: string = process.cwd(), exists: (path: string) => boolean = existsSync): string {
+  const traced = join(cwd, "node_modules", FACE_API_MAIN);
+  if (exists(traced)) return traced;
+  return createRequire(import.meta.url).resolve(FACE_API_MAIN);
+}
 let loaded: Promise<FaceApi> | null = null;
 
 async function faceApi(): Promise<FaceApi> {
   if (loaded) return loaded;
   loaded = (async () => {
     const require = createRequire(import.meta.url);
-    const main = require.resolve("@vladmandic/face-api/dist/face-api.esm.js");
+    const main = faceApiMain();
     // The bundle is the browser build: when it sees Node it builds tfjs's Node
     // platform from a stubbed-out `util` and throws. So it loads with
     // process.versions.node hidden, and the platform is registered here from the
@@ -76,7 +90,11 @@ async function faceApi(): Promise<FaceApi> {
     Object.defineProperty(process, "versions", { value: { ...versions, node: undefined }, configurable: true, writable: true });
     let api: FaceApi;
     try {
-      api = (await import(pathToFileURL(main).href)) as unknown as FaceApi;
+      // webpackIgnore: the URL is computed at runtime, and a bundler that
+      // can't analyse it replaces the import with a stub that throws "Cannot
+      // find module as expression is too dynamic" (production, 17 Nov 2026).
+      // CI checks the built route: scripts/check-face-detect-bundle.mts.
+      api = (await import(/* webpackIgnore: true */ pathToFileURL(main).href)) as unknown as FaceApi;
     } finally {
       Object.defineProperty(process, "versions", { value: versions, configurable: true, writable: true });
     }
