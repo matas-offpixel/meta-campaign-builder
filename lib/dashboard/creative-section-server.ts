@@ -10,6 +10,8 @@ import "server-only";
  * their own readers.
  */
 
+import { loadTestInputs } from "@/lib/creative-tests/panel-read";
+import { buildShareCards } from "@/lib/creative-tests/panel-view";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { loadAllPaged } from "@/lib/db/paged-read";
@@ -241,6 +243,8 @@ async function load(
     const tiktokUntil = new Map(tiktok.map((row) => [row.eventId, row.until]));
     const shows: PanelShow[] = events.map((event) => ({ id: event.id, code: event.event_code, name: event.name ?? event.event_code ?? "—", venue_key: event.venue_key }));
     const scopes = scopesForViews(viewsOf(model).viewIds, viewsOf(model).venues, shows, model.clientName);
+    // CT11: the share link's "What we're testing". Read for the share surface only, figures only.
+    const testing = surface === "share" ? await loadTestInputs(service, eventIds) : null;
     const byView: CreativeByView = {};
     for (const [viewId, scope] of scopes) {
       const ids = scope.eventIds;
@@ -270,6 +274,10 @@ async function load(
         refreshOn,
         pauses: refreshOn && one ? pauseByEvent.get(one.id) ?? [] : [],
       });
+      if (testing?.tests.length) {
+        const cards = buildShareCards({ tests: testing.tests.filter((t) => ids.includes(t.event_id)), variants: testing.variants, reads: testing.reads, now: new Date().toISOString() });
+        if (cards.length) byView[viewId] = { ...byView[viewId]!, testing: cards };
+      }
     }
     return byView;
   } catch (error) {

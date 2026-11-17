@@ -14,12 +14,17 @@
  *
  * D3 engagement is Meta's only, so its costs divide Meta spend.
  *
+ * PH6: undated brand campaigns get series of their own (`buildSeriesWithBrands`),
+ * mapped after every show, so no show's figures move. `periodFigures` adds
+ * their spend to a client-level total and its cost per ticket only: never
+ * to tickets, signups or the engagement counts and their costs.
+ *
  * Relative imports only: the `node --test` runner can't resolve `@/`.
  */
 
 import { NO_OVERRIDES, campaignOwner } from "../../attribution/campaign-owner.ts";
 import { addDays, dayDiff, daysBetween } from "./days.ts";
-import type { CountSource, LiftEntry, Platform, SalesCalcInput, ShowCount, ShowInput } from "./types.ts";
+import type { BrandCampaignInput, CountSource, LiftEntry, Platform, SalesCalcInput, ShowCount, ShowInput } from "./types.ts";
 
 export const PLATFORMS: readonly Platform[] = ["meta", "tiktok", "google"];
 
@@ -100,10 +105,40 @@ export function orderShows<T extends { showDate: string; code: string }>(shows: 
   return [...shows].sort((a, b) => a.showDate.localeCompare(b.showDate) || a.code.localeCompare(b.code));
 }
 
+/** Sorts an undated brand campaign after every show (it never wins a link or a [CODE] from a show). */
+export const UNDATED = "9999-12-31";
+
+/** PH6: a brand campaign as a calc row: no counts, no capacity, no page, dated after every show. */
+export function brandShowInput(b: BrandCampaignInput): ShowInput {
+  return {
+    eventId: b.eventId,
+    code: b.code,
+    name: b.name,
+    showDate: UNDATED,
+    presaleDate: null,
+    capacity: null,
+    allocation: null,
+    allocationFromTiers: false,
+    isUmbrella: false,
+    cirqlinPageId: null,
+    linkedCampaignIds: b.linkedCampaignIds,
+    referenceEventIds: [],
+    counts: [],
+    finalCount: null,
+  };
+}
+
+/** The shows, then the brand campaigns: the order every owner rule reads. */
+function owners(input: SalesCalcInput): ShowInput[] {
+  return [...input.shows, ...(input.brandCampaigns ?? []).map(brandShowInput)];
+}
+
 /**
  * D1: campaign → show. Linked (the id is in events.meta_campaign_id) beats
  * tagged (the name holds "[CODE]", first show in show order). The name is
- * the campaign's largest stored name, as the model reads it.
+ * the campaign's largest stored name, as the model reads it. A brand
+ * campaign (PH6) comes after every show, so a show keeps every campaign it
+ * had.
  */
 export function mapCampaigns(input: SalesCalcInput): Map<string, { eventId: string; linked: boolean; name: string }> {
   const names = new Map<string, string>();
@@ -111,7 +146,7 @@ export function mapCampaigns(input: SalesCalcInput): Map<string, { eventId: stri
     const current = names.get(r.campaignId);
     if (current == null || r.campaignName > current) names.set(r.campaignId, r.campaignName);
   }
-  return metaCampaignOwners(input.shows, names, input.overrides?.meta ?? {});
+  return metaCampaignOwners(owners(input), names, input.overrides?.meta ?? {});
 }
 
 /**
@@ -153,9 +188,10 @@ export function metaCampaignOwners(
 
 /** Google: the override, else the stored first [CODE] exactly as written. */
 export function googleOwner(input: SalesCalcInput, row: { eventCode: string; campaignId?: string | null }): ShowInput | null {
+  const all = owners(input);
   const override = row.campaignId ? input.overrides?.google?.[row.campaignId] : undefined;
-  if (override != null) return input.shows.find((s) => s.eventId === override) ?? null;
-  return input.shows.find((s) => s.code === row.eventCode) ?? null;
+  if (override != null) return all.find((s) => s.eventId === override) ?? null;
+  return all.find((s) => s.code === row.eventCode) ?? null;
 }
 
 /**
@@ -191,6 +227,11 @@ export function buildWindows(counts: readonly ShowCount[], spendOn: (day: string
 }
 
 export function buildSeries(input: SalesCalcInput): Map<string, ShowSeries> {
+  return buildSeriesWithBrands(input).shows;
+}
+
+/** The shows' series (as `buildSeries`) and, apart, one per brand campaign (PH6). */
+export function buildSeriesWithBrands(input: SalesCalcInput): { shows: Map<string, ShowSeries>; brands: ShowSeries[] } {
   const endDay = endDayOf(input);
   const mapping = mapCampaigns(input);
   const out = new Map<string, ShowSeries>();
@@ -281,7 +322,7 @@ export function buildSeries(input: SalesCalcInput): Map<string, ShowSeries> {
     }
   }
 
-  for (const show of input.shows) {
+  const seriesOf = (show: ShowInput): ShowSeries => {
     const days = byShowDay.get(show.eventId) ?? new Map<string, DayFigures>();
     const finished = show.showDate < input.today;
     const { counts, finalDay } = effectiveCounts(show, input.today);
@@ -289,7 +330,7 @@ export function buildSeries(input: SalesCalcInput): Map<string, ShowSeries> {
     const windows = buildWindows(counts, spendOn, endDay);
     const signupDays = [...days.values()].filter((f) => f.signups > 0).map((f) => f.day).sort();
     const active = [...days.values()].filter((f) => f.spend > 0 || f.linkClicks > 0 || f.signups > 0).map((f) => f.day).sort();
-    out.set(show.eventId, {
+    return {
       show,
       finished,
       counts,
@@ -302,9 +343,11 @@ export function buildSeries(input: SalesCalcInput): Map<string, ShowSeries> {
       startDay: active[0] ?? null,
       lastDay: finished && show.showDate < endDay ? show.showDate : endDay,
       audit: audit.get(show.eventId) ?? { rollupMeta: 0, unlinkedMeta: 0 },
-    });
-  }
-  return out;
+    };
+  };
+  for (const show of input.shows) out.set(show.eventId, seriesOf(show));
+  const brands = (input.brandCampaigns ?? []).map((b) => seriesOf(brandShowInput(b)));
+  return { shows: out, brands };
 }
 
 /** D5: total sold on a day. Straight line between counts; 0 before presale or before a first count of 0; null before a non-zero first count. */
@@ -331,8 +374,11 @@ export function windowOn(windows: readonly TicketWindow[], day: string): TicketW
 }
 
 export interface PeriodFigures {
+  /** All channels. At client level it includes `brandSpend` (PH6). */
   spend: number;
   byPlatform: Record<Platform, number>;
+  /** PH6: the part of `spend` that is brand campaigns'. 0 below client level and with no brand campaign. */
+  brandSpend: number;
   platformsWithData: Platform[];
   /** Latest count (paid). Null when no show has counts. */
   sold: number | null;
@@ -387,8 +433,14 @@ export function latestCountDay(list: readonly ShowSeries[]): string | null {
  * straddles the period start counts by its share of days inside, for its
  * tickets and its spend; since launch, cost per ticket stops each show's
  * spend at its latest count.
+ *
+ * PH6: `brand` (client level only) adds the brand campaigns' spend to the
+ * total, its channels and cost per ticket. Cost per ticket takes their
+ * spend over the same days as the shows' (since launch, to the scope's
+ * latest count; in a period, the ticket days), so D13's words still hold.
+ * Their results never reach tickets, signups or the engagement figures.
  */
-export function periodFigures(list: readonly ShowSeries[], period: PeriodId, endDay: string): PeriodFigures {
+export function periodFigures(list: readonly ShowSeries[], period: PeriodId, endDay: string, brand: readonly ShowSeries[] = []): PeriodFigures {
   const cutoff = periodCutoff(period, endDay);
   const inPeriod = (day: string) => day <= endDay && (cutoff == null || day >= cutoff);
   const byPlatform = zeroPlatforms();
@@ -408,6 +460,20 @@ export function periodFigures(list: readonly ShowSeries[], period: PeriodId, end
       checkoutActions += f.checkoutActions;
       lpv += f.landingPageViews;
       clicks += f.linkClicks;
+    }
+  }
+  // PH6: brand spend counts in the client's spend and its channels, nothing else.
+  let brandSpend = 0;
+  const brandDays: DayFigures[] = [];
+  for (const b of brand) {
+    for (const p of b.platformsWithData) platformsWithData.add(p);
+    for (const f of b.days.values()) {
+      if (f.day > endDay) continue;
+      brandDays.push(f);
+      if (!inPeriod(f.day)) continue;
+      brandSpend += f.spend;
+      spend += f.spend;
+      for (const p of PLATFORMS) byPlatform[p] += f.byPlatform[p];
     }
   }
 
@@ -447,6 +513,11 @@ export function periodFigures(list: readonly ShowSeries[], period: PeriodId, end
           if (f.day <= last) capped += f.spend;
           else if (f.spend > 0) spendPastCount = true;
         }
+      }
+      // PH6: brand spend to the scope's latest count, past it left out and said, as D13 does for a show.
+      for (const f of brandDays) {
+        if (f.day <= soldDay!) capped += f.spend;
+        else if (f.spend > 0) spendPastCount = true;
       }
       costPerTicket = ratio(capped, sold);
     }
@@ -488,6 +559,12 @@ export function periodFigures(list: readonly ShowSeries[], period: PeriodId, end
         if (end > latest) latest = end;
         if (!earliest || end < earliest) earliest = end;
       }
+      // PH6: brand spend over the ticket days; in the period past them, left out and said.
+      const brandFrom = addDays(latest, -n);
+      for (const f of brandDays) {
+        if (f.day > brandFrom && f.day <= latest) spendOnTicketDays += f.spend;
+        else if (f.day > latest && inPeriod(f.day) && f.spend > 0) spendPastCount = true;
+      }
       tickets = t;
       ticketDays = { from: addDays(latest, -n + 1), to: latest };
       ticketDaysDiffer = earliest !== latest;
@@ -520,6 +597,7 @@ export function periodFigures(list: readonly ShowSeries[], period: PeriodId, end
   return {
     spend,
     byPlatform,
+    brandSpend,
     platformsWithData: PLATFORMS.filter((p) => platformsWithData.has(p)),
     sold,
     soldComps: soldComps && soldComps > 0 ? soldComps : null,

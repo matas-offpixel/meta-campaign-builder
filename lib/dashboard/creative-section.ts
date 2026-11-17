@@ -13,6 +13,7 @@
  * Relative imports only: the `node --test` runner can't resolve `@/`.
  */
 
+import type { ShareCard } from "../creative-tests/panel-view.ts";
 import { driveFileUrl } from "../drive/panel.ts";
 
 export const FORMAT_COST_GBP = 500;
@@ -190,6 +191,8 @@ export type CreativeSectionModel = CreativeTables & {
   /** Unfiltered creatives, so a tag filter can be applied again without the raw days. */
   rows: Row[];
   pauses: LeastRow[];
+  /** CT11 / TT6 / TF3: "What we're testing", figures only. Share surface only; the event page has the Test plan panel. */
+  testing?: ShareCard[];
 };
 
 type Acc = {

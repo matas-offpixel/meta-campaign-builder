@@ -43,7 +43,7 @@ import {
   PERIOD_DAYS,
   PERIOD_IDS,
   buildLibrary,
-  buildSeries,
+  buildSeriesWithBrands,
   chartRows,
   endDayOf,
   latestCountDay,
@@ -58,7 +58,7 @@ import {
   type ShowSeries,
 } from "./figures.ts";
 import { PLATFORM_LABEL, type CountSource, type LiftEntry, type SalesCalcInput } from "./types.ts";
-import { defaultVenue, groupVenues, headerSentence, spendToCountClause, spendTotal, type VenueGroup } from "./scope.ts";
+import { brandIncludes, defaultVenue, groupVenues, headerSentence, spendToCountClause, spendTotal, type VenueGroup } from "./scope.ts";
 
 export const ALL_SHOWS_ID = "all";
 /** N5: v2 opens on since launch; the view's own tiles and campaigns are that period's (every period is in `periods`). */
@@ -153,7 +153,9 @@ function tilesFor(f: PeriodFigures, sinceLaunch: PeriodFigures, period: SalesPer
   const spendTile: SalesTile = {
     id: "spend",
     value: money(f.spend),
-    detail: [ctx.scope, split, period === "launch" ? null : `of ${money(sinceLaunch.spend)} since launch`].filter(Boolean).join(" · ") || sp.wide,
+    detail:
+      [ctx.scope, split, brandIncludes(f.brandSpend), period === "launch" ? null : `of ${money(sinceLaunch.spend)} since launch`].filter(Boolean).join(" · ") ||
+      sp.wide,
     narrowDetail: split || sp.narrow,
     title: split ? `${split}.` : "",
   };
@@ -571,7 +573,9 @@ function viewTitle(name: string, clientName: string): string {
 
 export function buildSalesDashboard(input: SalesCalcInput): SalesBuild {
   const endDay = endDayOf(input);
-  const series = buildSeries(input);
+  const { shows: series, brands: brandSeries } = buildSeriesWithBrands(input);
+  // PH6: brand campaigns with spend, for the client-level views only.
+  const brands = brandSeries.filter((b) => periodFigures([], "launch", endDay, [b]).spend > 0);
   const { entries: library, fresh, excluded } = buildLibrary(series, input.library, input.today);
   const ordered = orderShows([...series.values()].map((s) => ({ ...s, showDate: s.show.showDate, code: s.show.code })));
   const upcoming = ordered.filter((s) => !s.finished && !s.show.isUmbrella);
@@ -626,31 +630,38 @@ export function buildSalesDashboard(input: SalesCalcInput): SalesBuild {
       venueKey: string | null;
       kind: "venue" | "all" | "show" | "umbrella";
       parts: { id: string; label: string; list: ShowSeries[]; children?: { id: string; label: string; list: ShowSeries[] }[] }[];
+      /** PH6: brand campaigns in this total (client level only). Each is a part of its own. */
+      brand?: ShowSeries[];
       leftOut: ShowSeries[];
       finishedLeftOut: boolean;
       sentenceName: string;
       venues?: number;
     },
   ) => {
-    const launchF = periodFigures(list, "launch", endDay);
+    const brand = totals.brand ?? [];
+    const launchF = periodFigures(list, "launch", endDay, brand);
     const soldTitle = soldHover(list, launchF);
     const shows = list.length;
     const countedShows = list.filter((s) => s.counts.length > 0).length;
     const perPeriod = {} as Record<SalesPeriod, PeriodView>;
     for (const period of PERIOD_IDS) {
-      const f = period === "launch" ? launchF : periodFigures(list, period, endDay);
+      const f = period === "launch" ? launchF : periodFigures(list, period, endDay, brand);
       perPeriod[period] = {
         tiles: tilesFor(f, launchF, period, endDay, { ...ctx, soldTitle, shows, countedShows }),
         campaigns: campaignRows(list, period, endDay),
         spendTotal: spendTotal({
           scope: totals.scope,
           figures: f,
-          parts: totals.parts.map((part) => ({
-            id: part.id,
-            label: part.label,
-            figures: periodFigures(part.list, period, endDay),
-            ...(part.children ? { children: part.children.map((c) => ({ id: c.id, label: c.label, figures: periodFigures(c.list, period, endDay) })) } : {}),
-          })),
+          parts: [
+            ...totals.parts.map((part) => ({
+              id: part.id,
+              label: part.label,
+              figures: periodFigures(part.list, period, endDay),
+              ...(part.children ? { children: part.children.map((c) => ({ id: c.id, label: c.label, figures: periodFigures(c.list, period, endDay) })) } : {}),
+            })),
+            // PH6: each brand campaign is its own part, by its name as written, so the parts still sum to the total.
+            ...brand.map((b) => ({ id: `brand:${chipId(b.show.code)}`, label: b.show.name, figures: periodFigures([], period, endDay, [b]) })),
+          ],
           span: span(period).wide,
           endDay,
           leftOut: totals.leftOut.map((u) => ({ label: umbrellaName(u), amount: periodFigures([u], period, endDay).spend })),
@@ -718,6 +729,7 @@ export function buildSalesDashboard(input: SalesCalcInput): SalesBuild {
             ...(g.key == null ? { children: g.live.map((s) => ({ id: chipId(s.show.code), label: s.show.name, list: [s] })) } : {}),
           }))
         : upcoming.map((s) => ({ id: chipId(s.show.code), label: s.show.name, list: [s] })),
+      brand: brands,
       leftOut: umbrellas,
       finishedLeftOut: true,
       sentenceName: multiVenue ? clientName : live[0]?.name ?? clientName,
@@ -740,6 +752,8 @@ export function buildSalesDashboard(input: SalesCalcInput): SalesBuild {
         venueKey: g.key,
         kind: "venue",
         parts: g.live.map((s) => ({ id: chipId(s.show.code), label: s.show.name, list: [s] })),
+        // PH6: with one venue, its All shows is the client's view, so brand counts here too. Never under several venues.
+        brand: !multiVenue && g.live.length > 0 ? brands : [],
         leftOut: g.umbrellas,
         finishedLeftOut: true,
         sentenceName: g.name,
