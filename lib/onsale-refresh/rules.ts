@@ -42,6 +42,7 @@ import { MIN_DAILY_BUDGET_MINOR, maxWeeklyMoveGbp } from "./plan-guard.ts";
 import { stoppedText, trackKey, type TrackRecords } from "./track-record.ts";
 import type { PurchaseScalePlan } from "./load.ts";
 import { runningForm, type PcState, type PurchaseCampaignPlan } from "./purchase-campaign.ts";
+import type { RetargetingView } from "../retargeting/plan.ts";
 import { purchaseWhy, unreadPurchases, type PurchaseRead } from "./purchases.ts";
 import { dayMonth, shortDay, type RunPlan } from "./schedule.ts";
 
@@ -202,6 +203,14 @@ export type CampaignInput = {
    * campaign of the event; `isMain` marks the campaign the line goes on.
    * Absent on inputs built before P4.
    */
+  /**
+   * RT9 (docs/design-record/2026-11-17-retargeting-campaign.html): the show
+   * takes its own `{code} · Retargeting` campaign (it has one, its Create
+   * line is proposed, or the read couldn't tell). Then no campaign of the
+   * show is offered the Retargeting standing default, and the panel shows
+   * `note` once. Absent on inputs built before it: the default as before.
+   */
+  retargeting?: { takes: boolean; note: string | null };
   purchaseCampaign?: { plan: PurchaseCampaignPlan; isMain: boolean; budget: { plan: { wide: string; narrow: string } | null; main: { campaignKey: string; detail: string } | null }; /** P4 PR C (PC4): the running Purchase campaign's step and copies. */ scale?: PurchaseScalePlan };
 };
 
@@ -215,7 +224,9 @@ export type LineKind =
   | "move_budget"
   | "purchase_campaign"
   | "scale_purchase"
-  | "copy_audience";
+  | "copy_audience"
+  /** The Retargeting campaign's Create line (docs/design-record/2026-11-17-retargeting-campaign.html, RT1, RT4). */
+  | "retargeting_campaign";
 
 export type ProposalLine = {
   kind: LineKind;
@@ -283,6 +294,10 @@ export type Proposal = {
     adds: string;
     /** P5: rules stopped for this client (R6), each with the sentence the panel shows. Absent while scoring is off. */
     stopped?: { ruleId: string; text: string }[];
+    /** RT9: "Retargeting runs in its own campaign, {code} · Retargeting." in place of the per-campaign default. */
+    retargeting?: string;
+    /** RT1–RT8: on the show's `{code} · Retargeting` proposal (run_kind retargeting), the Retargeting panel. */
+    retargetingView?: RetargetingView;
     /** P4 PR C (PC4): the Purchase campaign's hold note, the "no audience to copy" note and the Scale line's cap sentence. */
     purchase?: { hold: string | null; copy: string | null; cap: string | null };
   };
@@ -550,7 +565,7 @@ export function audienceLines(input: CampaignInput, config: PhaseConfig): { line
 
   // Missing standing default.
   const delivering = input.adSets.filter((set) => set.delivering);
-  if (delivering.length && !delivering.some((set) => RETARGETING.test(set.name)) && !input.storedDefaults?.includes("retargeting")) {
+  if (delivering.length && !input.retargeting?.takes && !delivering.some((set) => RETARGETING.test(set.name)) && !input.storedDefaults?.includes("retargeting")) {
     pushNewAdSet(lines, watch, defaultLine(input, "retargeting", newSets), newSets);
   }
   if (delivering.length && !delivering.some((set) => REG_LOOKALIKE.test(set.name)) && !input.storedDefaults?.includes("registrations_lookalike")) {
@@ -942,7 +957,7 @@ export function buildProposal(input: CampaignInput, config: PhaseConfig, trackRe
     notEnoughData,
     lines,
     watch: { creatives: pauses.watch, audiences: audiences.watch },
-    notes: { pauses: pauses.note, drops: audiences.note, adds: "Files uploaded by hand in Ads Manager aren't matched.", ...(tracked.stopped?.length ? { stopped: tracked.stopped } : {}), ...(scaled.notes ? { purchase: scaled.notes } : {}) },
+    notes: { pauses: pauses.note, drops: audiences.note, adds: "Files uploaded by hand in Ads Manager aren't matched.", ...(tracked.stopped?.length ? { stopped: tracked.stopped } : {}), ...(scaled.notes ? { purchase: scaled.notes } : {}), ...(input.retargeting?.takes && input.retargeting.note ? { retargeting: input.retargeting.note } : {}) },
     campaignSummary: campaignSummary(input),
   };
 }

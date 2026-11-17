@@ -33,6 +33,7 @@ export const maxDuration = 300;
 import { createClient } from "@/lib/supabase/server";
 import { resolveServerMetaToken } from "@/lib/meta/server-token";
 import { normalizeAdAccountId } from "@/lib/meta/ad-account";
+import { isListRole, recordRoleList } from "@/lib/retargeting/list-row";
 import {
   classifyLaunchMetaCode,
   type LaunchErrorKind,
@@ -65,6 +66,10 @@ interface UploadBody {
   sessionId: number;
   /** Total hashed records across all chunks */
   estimatedTotal: number;
+  /** HR2: the list's role for the show's Retargeting campaign (signups, similar, buyers), with its show and client. */
+  listRole?: string;
+  eventId?: string;
+  clientId?: string;
 }
 
 interface MetaCreateAudienceResponse {
@@ -124,7 +129,7 @@ export async function POST(req: Request) {
   if (auth.error || !auth.token) {
     return Response.json({ error: auth.error }, { status: auth.status });
   }
-  const { token } = auth;
+  const { token, user } = auth;
 
   let body: UploadBody;
   try {
@@ -148,6 +153,9 @@ export async function POST(req: Request) {
     totalChunks = 1,
     sessionId,
     estimatedTotal,
+    listRole,
+    eventId,
+    clientId,
   } = body;
 
   if (!adAccountRaw) {
@@ -301,7 +309,17 @@ export async function POST(req: Request) {
     `numInvalid=${uploadJson.num_invalid_entries ?? 0}`,
   );
 
+  // HR2: a list with a role and a show is recorded once its last chunk is in (name, role, show and id only).
+  let listRecorded: boolean | undefined;
+  if (isLastBatch && isListRole(listRole) && eventId && clientId && user) {
+    const supabase = await createClient();
+    const recorded = await recordRoleList(supabase, { userId: user.id, clientId, eventId, name: audienceName?.trim() || audienceId, role: listRole, metaAudienceId: audienceId, adAccountId, now: new Date() });
+    listRecorded = recorded.ok;
+    if (!recorded.ok) console.error(`[customer-audience-upload] list row not recorded audienceId=${audienceId} role=${listRole} error="${recorded.error}"`);
+  }
+
   return Response.json({
+    ...(listRecorded !== undefined ? { listRecorded } : {}),
     audienceId,
     chunkIndex,
     numReceived: uploadJson.num_received ?? data.length,

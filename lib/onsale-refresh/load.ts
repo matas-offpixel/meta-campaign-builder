@@ -20,6 +20,8 @@ import { driveFromEnv, FOLDER_MIME, type DriveApi, type DriveFile } from "../dri
 import { kindForFile } from "../drive/tree.ts";
 import { loadAdContextIndex, resolveAdContext, type AdContextIndex } from "../learning/ad-facts.ts";
 import { CONFIDENCE_SCORE, type Confidence } from "../learning/shrink.ts";
+import { retargetingOnSaleDay, retargetingState } from "../retargeting/plan.ts";
+import { isRetargetingCampaignName, isTestsCampaignName, runsInOwnCampaign } from "../retargeting/words.ts";
 import type { PhaseConfig, ResultEvent } from "./phase-config.ts";
 import { isOnSale } from "./on-sale.ts";
 import { mainRow, planPurchaseCampaign, planSentence, purchaseCampaignInput, type PcBudgets } from "./purchase-campaign.ts";
@@ -159,6 +161,8 @@ export type Aux = {
   storedAdSets?: { event_id: string; kind: string; campaign_key: string; meta_adset_id: string | null }[];
   /** P4 PR C: the event's applied Purchase campaign, Scale and Copy audience lines (their writes and results). */
   purchaseLines?: PurchaseLineRow[];
+  /** RT9: the events' Retargeting Create lines, any state (before migration 256 there are none). */
+  retargetingLines?: { state: string; applied_result: Record<string, unknown> | null; onsale_refresh_proposals: { event_id: string | null } | null }[];
 };
 
 export type DraftRow = {
@@ -181,7 +185,7 @@ type LaunchedRenderRow = { drive_file_id: string | null; creative_lab_round_ads:
 
 export async function loadAux(db: Db, eventIds: readonly string[], clientIds: readonly string[]): Promise<Aux> {
   const inEvents = (q: any) => q.in("event_id", eventIds);
-  const [scores, clusters, launchedAdSets, warnings, ticketing, driveFolders, launchedRenders, drafts, appliedAdds, storedAdSets, purchaseLines] = await Promise.all([
+  const [scores, clusters, launchedAdSets, warnings, ticketing, driveFolders, launchedRenders, drafts, appliedAdds, storedAdSets, purchaseLines, retargetingLines] = await Promise.all([
     eventIds.length
       ? loadAll<Aux["scores"][number] & { id: string; axis: string; fetched_at: string }>(db, "creative_scores", "id, event_id, creative_name, axis, score, significance, fetched_at", ["id"], (q) => inEvents(q).eq("axis", "convert"))
       : Promise.resolve([]),
@@ -206,6 +210,10 @@ export async function loadAux(db: Db, eventIds: readonly string[], clientIds: re
     eventIds.length
       ? loadAll<PurchaseLineRow>(db, "onsale_refresh_lines", "id, kind, write, applied_result, applied_at, onsale_refresh_proposals!inner(event_id)", ["id"], (q) => q.in("kind", ["purchase_campaign", "scale_purchase", "copy_audience"]).eq("state", "applied").in("onsale_refresh_proposals.event_id", eventIds)).catch(() => [] as PurchaseLineRow[])
       : Promise.resolve([] as PurchaseLineRow[]),
+    // RT9: the Retargeting Create lines; before migration 256 the kind can't exist.
+    eventIds.length
+      ? loadAll<NonNullable<Aux["retargetingLines"]>[number] & { id: string }>(db, "onsale_refresh_lines", "id, state, applied_result, onsale_refresh_proposals!inner(event_id)", ["id"], (q) => q.eq("kind", "retargeting_campaign").in("onsale_refresh_proposals.event_id", eventIds)).catch(() => [])
+      : Promise.resolve([]),
   ]);
   const refreshDriveIds = new Map<string, Set<string>>();
   for (const row of appliedAdds) {
@@ -239,6 +247,7 @@ export async function loadAux(db: Db, eventIds: readonly string[], clientIds: re
     drafts,
     storedAdSets,
     purchaseLines,
+    retargetingLines,
   };
 }
 
@@ -485,6 +494,8 @@ export async function buildEventInputs(args: {
   }
   const campaigns: CampaignInput[] = [];
   for (const [campaignKey, campaignRows] of byName) {
+    // RT9: the show's `{code} · Retargeting` campaign has its own panel and its own read; the refresh never proposes on it.
+    if (isRetargetingCampaignName(campaignKey, event.event_code)) continue;
     const inWindow = campaignRows.filter((row) => row.date >= plan.window.start && row.date <= plan.window.end);
     const since = campaignRows.filter((row) => row.date >= sinceDay);
     if (!inWindow.some((row) => num(row.spend) > 0)) continue;
@@ -633,8 +644,23 @@ export async function buildEventInputs(args: {
   const path = args.purchases?.state === "platform_proposed" ? "platform" : args.purchases?.state === "proposed" ? "own_domain" : args.purchases?.platform ? "platform" : null;
   const budgetBlock = { plan: planSentence(budget, spendToDate, plan.window.end), main: pcInput.main ? mainRow(pcInput.main, path) : null };
   const mainKey = running?.mainCampaignKey || pcInput.main?.campaignKey;
+  // RT9: whether the show takes its own Retargeting campaign; then the per-campaign default stands down and the panel shows one note.
+  const retargeting = retargetingFor({ event, rows, plan, read: args.purchases, lines: (aux.retargetingLines ?? []).filter((line) => line.onsale_refresh_proposals?.event_id === event.id) });
   for (const campaign of campaigns) campaign.purchaseCampaign = { plan: pcPlan, isMain: campaign.campaignKey === mainKey, budget: budgetBlock, ...(scale ? { scale } : {}) };
+  for (const campaign of campaigns) campaign.retargeting = retargeting;
   return { event, plan, campaigns, driveCalls: supply.driveCalls, driveReason: supply.reason };
+}
+
+/** RT9 for one show, from its ad-days, its purchase read and its stored Create lines. */
+export function retargetingFor(args: { event: EventRow; rows: readonly InsightRow[]; plan: RunPlan; read: PurchaseRead | undefined; lines: { state: string; applied_result: Record<string, unknown> | null }[] }): { takes: boolean; note: string | null } {
+  const code = args.event.event_code;
+  if (!code) return { takes: false, note: null };
+  const named = args.rows.some((row) => isRetargetingCampaignName(row.campaign_name, code));
+  const applied = args.lines.some((line) => Boolean((line.applied_result?.retargeting as { campaignId?: string } | undefined)?.campaignId));
+  const last7 = args.rows.filter((row) => row.date >= args.plan.window.start && row.date <= args.plan.window.end && !isRetargetingCampaignName(row.campaign_name, code) && !isTestsCampaignName(row.campaign_name, code)).reduce((sum, row) => sum + num(row.spend), 0);
+  const stored = args.lines.some((line) => line.state !== "expired");
+  const { takes } = retargetingState({ onSaleDay: retargetingOnSaleDay(args.event), runDay: args.plan.day, eventDate: args.event.event_date, read: args.read, existing: named || applied, last7SpendGbp: last7, storedLine: stored });
+  return { takes: takes || stored, note: takes || stored ? runsInOwnCampaign(code) : null };
 }
 
 export function driveForRefresh(env: Record<string, string | undefined>): { drive: DriveApi | null; reason: string | null } {

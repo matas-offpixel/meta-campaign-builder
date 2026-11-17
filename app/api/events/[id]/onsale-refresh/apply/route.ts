@@ -38,6 +38,8 @@ import { handleUploadAsset } from "@/lib/meta/upload-asset-handler";
 import { APPLY_SHADOW, applyAccepted, type DriveCopy, type RefreshMeta } from "@/lib/onsale-refresh/apply";
 import { audienceDraftFields, type AudienceSpec, type NewAdSetDeps } from "@/lib/onsale-refresh/apply-adsets";
 import type { PurchaseMeta } from "@/lib/onsale-refresh/apply-purchase";
+import type { RetargetingDeps } from "@/lib/retargeting/apply";
+import { groupVideosByPage, retargetingAudienceDraft } from "@/lib/retargeting/audiences";
 
 import { ownedRefreshEvent } from "../_owned";
 
@@ -264,8 +266,42 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     },
   };
 
+  // RT1 (docs/design-record/2026-11-17-retargeting-campaign.html): the Retargeting campaign's create path — the Purchase create's
+  // calls, the audience builder for the tier audiences, and the show's videos (gated inside applyRetargetingCampaign).
+  const retargeting: Pick<RetargetingDeps, "meta" | "ensureAudience"> = {
+    meta: {
+      ...purchase,
+      readAdSetTargeting: (adsetId) => graphGetWithToken<{ targeting?: Record<string, unknown> }>(`/${adsetId}`, { fields: "targeting" }, token, { maxAttempts: 1 }).then((row) => row?.targeting ?? null),
+      audienceState: (audienceId) => adsets.meta.audienceState(audienceId),
+      async listShowVideos(adAccountId, campaignIds) {
+        // RT2: one video audience per page the videos ran from; a video with no page is left out.
+        const videos = await fetchAudienceMultiCampaignVideos(adAccountId, campaignIds, token);
+        return groupVideosByPage(videos.videos);
+      },
+    },
+    async ensureAudience(aud, name, adAccountId) {
+      if (!who.event.client_id) throw new Error("This event has no client, so the audience builder can't file the audience.");
+      const spec = retargetingAudienceDraft(aud);
+      const draft = await createAudienceDraft({
+        userId: who.userId,
+        clientId: who.event.client_id,
+        eventId: who.event.id,
+        name,
+        funnelStage: "retargeting",
+        audienceSubtype: spec.subtype,
+        retentionDays: spec.retentionDays,
+        sourceId: spec.sourceId,
+        sourceMeta: spec.sourceMeta as never,
+        metaAdAccountId: adAccountId,
+      });
+      const made = await createMetaCustomAudience(draft.id, { userId: who.userId, supabase: who.session as never });
+      if (!made.metaAudienceId) throw new Error(made.statusError ?? "The audience builder returned no audience.");
+      return { metaAudienceId: made.metaAudienceId };
+    },
+  };
+
   const result = await applyAccepted({
-    deps: { db: who.db, env: process.env, meta, copyFromDrive, upload, adsets, purchase },
+    deps: { db: who.db, env: process.env, meta, copyFromDrive, upload, adsets, purchase, retargeting },
     eventId: who.event.id,
     userId: who.userId,
     appliedByName: who.userName,
