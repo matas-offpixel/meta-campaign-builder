@@ -61,7 +61,7 @@ type FaceApi = {
   detectAllFaces(input: unknown, opts: unknown): Promise<{ score: number; box: { x: number; y: number; width: number; height: number } }[]>;
 };
 
-const DETECT_LONG_SIDE = 640;
+export const DETECT_LONG_SIDE = 640;
 export const FACE_API_MAIN = "@vladmandic/face-api/dist/face-api.esm.js";
 
 /**
@@ -93,6 +93,11 @@ export function faceApiEsmPath(main: string, dir: string = tmpdir()): string {
   renameSync(partial, out);
   return out;
 }
+/** face-api's SSD and landmark weights, next to its dist folder. */
+export function faceApiModelDir(main: string = faceApiMain()): string {
+  return join(dirname(main), "..", "model");
+}
+
 let loaded: Promise<FaceApi> | null = null;
 
 async function faceApi(): Promise<FaceApi> {
@@ -149,7 +154,7 @@ async function faceApi(): Promise<FaceApi> {
     });
     await api.tf.setBackend("cpu");
     await api.tf.ready();
-    const modelDir = join(dirname(main), "..", "model");
+    const modelDir = faceApiModelDir(main);
     const weights = (name: string) => {
       const manifest = JSON.parse(readFileSync(join(modelDir, `${name}-weights_manifest.json`), "utf8")) as { weights: unknown }[];
       const bytes = readFileSync(join(modelDir, `${name}.bin`));
@@ -172,15 +177,19 @@ export async function faceApiTf(): Promise<unknown> {
   return (await faceApi()).tf;
 }
 
-/** Every face in the image, largest first, in source pixels (EXIF rotation applied). */
-export async function detectFaces(image: Buffer, opts: { minConfidence?: number } = {}): Promise<FaceBox[]> {
+/**
+ * Every face in the image, largest first, in source pixels (EXIF rotation applied). `longSide` is the copy's
+ * long side the detector sees (640 by default; the face check's timing samples try 512 and 416). SSD MobileNet
+ * v1 resizes whatever it is given to 512 × 512 inside face-api, so this changes the copy, not the network.
+ */
+export async function detectFaces(image: Buffer, opts: { minConfidence?: number; longSide?: number } = {}): Promise<FaceBox[]> {
   const sharp = (await import("sharp")).default;
   const api = await faceApi();
   const rotated = sharp(image).rotate();
   const meta = await sharp(await rotated.clone().toBuffer()).metadata();
   const sourceW = meta.width ?? 0;
   const { data, info } = await rotated
-    .resize({ width: DETECT_LONG_SIDE, height: DETECT_LONG_SIDE, fit: "inside", withoutEnlargement: true })
+    .resize({ width: opts.longSide ?? DETECT_LONG_SIDE, height: opts.longSide ?? DETECT_LONG_SIDE, fit: "inside", withoutEnlargement: true })
     .removeAlpha()
     .raw()
     .toBuffer({ resolveWithObject: true });
