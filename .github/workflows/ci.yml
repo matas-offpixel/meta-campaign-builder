@@ -53,6 +53,8 @@ jobs:
       - run: npm run build
       # Vercel refuses a function over 250 MB uncompressed (#1186). Fails above 230.
       - run: npm run check:function-size
+      # The render tick must load face-api at runtime: Turbopack stubs an unanalysable import() (17 Nov 2026).
+      - run: npm run check:face-detect-bundle
 
   frames:
     name: frames:check
