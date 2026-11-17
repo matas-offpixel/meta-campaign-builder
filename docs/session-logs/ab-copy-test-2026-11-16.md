@@ -2,7 +2,138 @@
 
 Stage 1 only. Nothing here has been written to Meta, Drive or the database.
 The current B lines are in the B redraft section. The current A lines are in the redraft section after it. The first draft further down is superseded.
-The Stage 2 plan (write path, gates, call count) is in the PR body.
+The Stage 2 plan (write path, gates, call count) is in the PR body. Since 17 Nov the A and B ads go in a test ad set per show: see the next section, which replaces the old plan's ad placement and write count.
+
+## Test ad sets (17 Nov): plan change, for approval
+
+The operator changed where the A and B ads go. They no longer go into the main ad set,
+because Meta starves new ads added to an existing ad set. Each show gets **one new test ad set**
+in its on-sale campaign, named `{code} · AB copy test`. It holds only the A and B ads, which
+use the same creative. Kream's 4 artist cards get their own test ad set,
+`EBR26-KREAM · Artist cards test`. Everything is created PAUSED. After 4 days the winner is
+copied into the main ad sets and the test ad set is paused, each with the operator's OK.
+
+The copy, the creatives and the ad names don't change.
+
+### What was read (read-only, 17 Nov)
+
+- **Spend:** `event_daily_rollups.ad_spend` for 10–16 Nov (7 days, every show has all 7 rows).
+  The per-campaign sums in `ad_daily_insights` match to the penny, apart from a 7p rounding
+  difference on Kream. The queries were aggregates in SQL, so PostgREST's 1,000-row cap doesn't
+  apply.
+- **Meta, GET only:** each on-sale campaign (`daily_budget`, `lifetime_budget`, `bid_strategy`),
+  every ad set in it (`effective_status`, budgets, optimisation, `promoted_object`, `targeting`)
+  and each ad account's `min_daily_budget`. The Ads MCP isn't enabled on these accounts, so
+  the reads used the Graph API with the app's read token.
+- **Meta's minimum:** `min_daily_budget` is 76 (pence) on all three accounts: £0.76, not
+  £1.00. TF1 says the build uses Meta's figure when it differs, so the floor here is £0.76.
+
+### The budget rule (TF1, #1290, plus this brief)
+
+Test budget per day = 10 % of the show's 7-day average Meta spend, rounded down to the whole
+pound. That figure is capped at £10 and at the median live main ad set's daily budget, and never
+goes below Meta's minimum (£0.76).
+
+| Show | 7-day spend | Average / day | 10 % | Rounded down | £10 cap | Median live ad set | Floor | **Test / day** | Share of daily spend |
+|---|---|---|---|---|---|---|---|---|---|
+| NX26-LOCKLEAD | £239.73 | £34.25 | £3.42 | £3 | — | none (CBO) | — | **£3** | 9 % |
+| NX26-DOD | £48.15 | £6.88 | £0.69 | £0 | — | £1.00 | £0.76 | **£0.76** (Meta's minimum) | 11 % |
+| NX26-ROBBIEDOHERTY | £226.08 | £32.30 | £3.23 | £3 | — | none (CBO) | — | **£3** | 9 % |
+| NX27-JULIANFIJMA | £53.14 | £7.59 | £0.76 | £0 | — | none (CBO) | £0.76 | **£0.76** (Meta's minimum) | 10 % |
+| EBR26-KREAM (A/B) | £158.83 | £22.69 | £2.27 | £2 | — | none (CBO) | — | **£2** | 9 % |
+| EBR26-KREAM (cards) | same | £22.69 | £2.27 | £2 | — | none (CBO) | — | **£2** | 9 % |
+| P26-BDAY | £239.07 | £34.15 | £3.42 | £3 | — | £7.50 | — | **£3** | 9 % |
+| NX27-EWANMCVICAR | £117.17 | £16.74 | £1.67 | £1 | — | £20.00 (Signup) | — | £1 today (recalculated at on-sale) | 6 % |
+| NX27-PAULVANDYK | £0.00 | £0.00 | — | — | — | — | — | **can't start**: "No spend in the last 7 days to size a test from." | — |
+
+Notes on the table:
+
+- **Median live ad set:**
+  - DOD's six live ad sets have budgets of £2.00, £1.00, £1.00, £1.00, £1.00 and £1.00.
+  - P26's five live ad sets (On Sale V2) have budgets of £10.00, £7.50, £7.50, £2.50 and £1.00. Its paused ad set is left out.
+  - In a CBO campaign the ad sets carry no budget, so this cap has nothing to read. See the rulings.
+- **Kream:** the two test ad sets together come to £4 a day, 18 % of daily spend. That is within TF1's 20 % cap for two tests.
+- **P26:** the 7-day base includes £102.22 from the first on-sale campaign, which is now paused. It spent on 3 of the 7 days. Without it, the average is £19.54 and the test would be £1.
+- **Ewan McVicar:** all of the spend so far is from the Signup campaign, on 16 Nov. The on-sale campaign doesn't exist yet. The budget is worked out again from the 7 days before his on-sale (20 Nov).
+- **Paul van Dyk:** no spend yet. The test waits until there is a week of spend to size it from.
+- **4 days:** each test holds 4 days of its budget against the plan (R5). That is £12 for Locklead, Robbie and P26, £8 for each Kream test and £3.04 for DOD and Julian.
+
+### CBO
+
+| Show | Campaign budget | CBO |
+|---|---|---|
+| NX26-LOCKLEAD | £1,240.73 lifetime | yes |
+| NX27-JULIANFIJMA | £1,000.00 lifetime | yes |
+| NX26-ROBBIEDOHERTY | £1,651.35 lifetime | yes |
+| EBR26-KREAM | £951.33 lifetime | yes |
+| NX26-DOD | none (ad set budgets) | no |
+| P26-BDAY (On Sale V2) | none (ad set budgets) | no |
+
+- **Four of the six ready shows are CBO** with a **lifetime** campaign budget. A test ad set there can't hold its own budget. It shares the campaign's lifetime budget, and Meta decides how much it gets.
+  - This is the starvation this change is meant to fix, one level up. Locklead shows how far it goes: in the last 7 days one ad set, Lineup - Suggested, took £228.45 of the campaign's £239.67.
+  - In these CBO shows the test spends no new money; it takes a share of the existing budget. In DOD and P26 the test's daily budget is new spend on top of the existing ad sets: £0.76 and £3 a day.
+- **Would an ad-set spend floor carry the 10 % rule?** Partly. `daily_min_spend_target` only works under a **daily** campaign budget, and these four have lifetime budgets. The lifetime-budget equivalent is `lifetime_min_spend_target`, with `lifetime_spend_cap` set to the same amount.
+  - Set to 4 days of the test budget (for example £12 for Locklead), this would hold the test near its 10 %.
+  - The ad set's `end_time` would then have to be 4 days after the start, so the test stops on its own on day 4 instead of waiting to be paused.
+  - Meta treats a minimum as a target, not a guarantee.
+  - The launch route sets no spend limits today, so this would be part of the Stage 2 code change below. **Not set. It's the operator's call.**
+
+### Write path for a test ad set (changes the Stage 2 plan)
+
+`attach_adset` (the old plan) can't create an ad set. `attach_campaign` can, but it builds the
+ad set's targeting from the draft's audience model, not from a live ad set. A faithful copy needs
+a small Stage 2 code change:
+
+- `attach_campaign` takes a source ad set id. The route reads that ad set's `targeting`, `optimization_goal`, `billing_event`, `bid_strategy`, `promoted_object`, `attribution_spec` and `destination_type`, and posts them unchanged.
+- It sets the test name, `status: PAUSED`, an `end_time` (the source's, or 4 days if the floor is used) and the budget: `daily_budget` for DOD and P26, none in CBO.
+- The create runs through `withMetaWriteIdempotency`, and the route's existing `launched_ad_sets` binding records the ad set. The two ads then go in as before, each with a `launched_ads` row.
+
+The source ad sets:
+
+- 5 of the 6 have Advantage+ audience off and no placement list, so automatic placements. Robbie's (Lineup — Primary – 1%) and P26's carry an explicit placement list. P26's also has Advantage+ audience on.
+- Julian's source (Venue) optimises for Add to cart. The other five optimise for Initiate checkout.
+- A verbatim copy keeps each of these as it is.
+
+### The table for the operator
+
+| Code | On-sale campaign | Source ad set | CBO | 7-day avg | Test / day | Meta writes |
+|---|---|---|---|---|---|---|
+| NX26-LOCKLEAD | `120252504415460755` | `120252504502750755` Lineup - Suggested | yes | £34.25 | £3 (shared) | 5 |
+| NX26-DOD | `120251749138730755` | `120252309614100755` Commercial house data | no | £6.88 | £0.76 | 5 |
+| NX26-ROBBIEDOHERTY | `120252129289330755` | `120252129292810755` Lineup — Primary – 1% | yes | £32.30 | £3 (shared) | 5 |
+| NX27-JULIANFIJMA | `120252504524280755` | `120252504524480755` Venue | yes | £7.59 | £0.76 (shared) | 5 |
+| EBR26-KREAM · AB copy test | `120250163680690716` | `120250163686370716` Lineup — Secondary | yes | £22.69 | £2 (shared) | 5 |
+| EBR26-KREAM · Artist cards test | `120250163680690716` | `120250163686370716` Lineup — Secondary | yes | £22.69 | £2 (shared) | 13 |
+| P26-BDAY | `120248863408430539` (On Sale V2) | `120248863412000539` Similar Pages – Adv+ — Primary | no | £34.15 | £3 | 5 |
+| **Total now** | | | | | | **43** |
+| NX27-EWANMCVICAR | not yet (on sale 20 Nov) | to follow | — | £16.74 (Signup) | recalculated | 5 later |
+| NX27-PAULVANDYK | not yet (on sale 24 Nov) | to follow | — | £0.00 | can't start yet | 5 later |
+
+Meta writes per row:
+
+- An A/B test is 1 ad set + 2 creatives + 2 ads = 5.
+- Kream's cards are 1 ad set + 4 image uploads + 4 creatives + 4 ads = 13.
+
+Against the old plan (ads in the main ad sets):
+
+| | Old plan | New plan | Change |
+|---|---|---|---|
+| 6 A/B shows | 24 | 30 | +6 (one ad set each) |
+| Kream cards | 12 | 13 | +1 |
+| **Total now** | **36** | **43** | **+7** |
+| Ewan McVicar and Paul van Dyk later | 8 | 10 | +2 |
+
+Reads go up by one per test ad set, for the source ad set's settings. That is about 42–52 now,
+against about 35–45 before. Everything is created PAUSED.
+
+### Rulings this adds
+
+1. **CBO floor:** set `lifetime_min_spend_target` / `lifetime_spend_cap` (4 days of the test budget, ending on day 4) on the four CBO tests, or leave Meta to share the budget. Not set without the operator's OK.
+2. **Median cap in CBO:** with no ad set budgets the cap has nothing to read, and the table leaves it out.
+   - The alternative is the median live ad set's 7-day average spend: £0.02 Locklead, £0.07 Julian, £1.40 Robbie, £1.25 Kream.
+   - That would cut Robbie's test to £1.40 and Kream's to £1.25, and send Locklead's to the £0.76 floor.
+3. **Meta's minimum:** £0.76 (the accounts' `min_daily_budget`), not £1.00. That affects DOD and Julian.
+4. **P26 base:** whether to count the paused first on-sale campaign's £102.22. Counting it gives £3, leaving it out gives £1.
 
 ## B redraft (overnight 16 Nov): selling-point B lines, for approval
 
