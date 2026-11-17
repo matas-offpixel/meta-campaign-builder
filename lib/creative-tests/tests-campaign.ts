@@ -90,23 +90,52 @@ export class TestsCampaignProblem extends Error {
  */
 export function findTestsCampaign(rows: readonly CampaignRow[], eventCode: string): CampaignRow | null {
   const matches = rows.filter((row) => isTestsCampaign(row.name, eventCode) && !isGoneCampaign(row));
-  if (matches.length > 1) throw new TestsCampaignProblem(`${testsCampaignName(eventCode)} exists ${matches.length} times (${matches.map((m) => m.id).join(", ")}); nothing was made`);
+  if (matches.length > 1) throw new TestsCampaignProblem(`${testsCampaignName(eventCode)} is in Ads Manager ${matches.length} times (${matches.map((m) => m.id).join(", ")}). Keep one and archive the rest. Nothing was made.`);
   const found = matches[0] ?? null;
-  if (found && hasCampaignBudget(found)) throw new TestsCampaignProblem(`${testsCampaignName(eventCode)} (${found.id}) has a campaign budget; tests need ad-set budgets, so nothing was made`);
+  if (found && hasCampaignBudget(found)) throw new TestsCampaignProblem(`${testsCampaignName(eventCode)} has a campaign budget, and tests need budgets on their ad sets. Remove the campaign budget in Ads Manager. Nothing was made.`);
   return found;
 }
 
 /**
- * A new Tests campaign: no campaign budget (ad-set budgets, no sharing) and the given
- * status. `objective` is the app's (default purchase → OUTCOME_SALES); `metaObjective`,
- * when given, is a Meta objective copied as it is (the creative tests copy the main
- * campaign's).
+ * A new Tests campaign: objective Sales (TT8; `purchase` → OUTCOME_SALES), no campaign
+ * budget (ad-set budgets, no sharing) and the given status.
  */
-export function testsCampaignPayload(eventCode: string, input: { objective?: CampaignObjective; metaObjective?: string | null; status: "ACTIVE" | "PAUSED" }): Record<string, unknown> {
+export function testsCampaignPayload(eventCode: string, input: { objective?: CampaignObjective; status: "ACTIVE" | "PAUSED" }): Record<string, unknown> {
   const payload = buildCampaignPayload({ name: testsCampaignName(eventCode), objective: input.objective ?? "purchase", status: input.status }) as unknown as Record<string, unknown>;
-  if (input.metaObjective) payload.objective = input.metaObjective;
   if ("daily_budget" in payload || "lifetime_budget" in payload || payload.is_adset_budget_sharing_enabled !== false) throw new Error("A Tests campaign never carries a campaign budget");
   return payload;
+}
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"] as const;
+
+/** "{d Mon}" of an instant's London calendar day: "24 Nov", "3 Sep" (no leading zero). */
+export function londonDayLabel(at: Date | string): string {
+  const day = londonDay(typeof at === "string" ? new Date(at) : at);
+  return `${Number(day.slice(8, 10))} ${MONTHS[Number(day.slice(5, 7)) - 1]}`;
+}
+
+/** TT10's {kind}: Video or Statics for a creative test (by its format), AB copy, Artist cards. */
+export const TEST_AD_SET_KINDS = ["Video", "Statics", "AB copy", "Artist cards"] as const;
+export type TestAdSetKind = (typeof TEST_AD_SET_KINDS)[number];
+
+/** A creative test's {kind}, by its format. */
+export function creativeTestKind(format: "video" | "statics"): TestAdSetKind {
+  return format === "video" ? "Video" : "Statics";
+}
+
+/**
+ * A test ad set's name in the show's Tests campaign (TT10, 2026-11-17-creative-testing-5):
+ * "{code} · Tests · {kind} · {d Mon}", e.g. "P26-BDAY · Tests · Statics · 24 Nov", the date
+ * the London day the ad set is made. `existingNames` is the campaign's ad set names: a
+ * same-day repeat of the same kind adds " · 2", then " · 3"; the first has no number.
+ * Names are for people reading Ads Manager: the app follows its ad sets by stored id.
+ */
+export function testsAdSetName(eventCode: string, kind: TestAdSetKind, createdAt: Date | string, existingNames: readonly string[] = []): string {
+  if (!TEST_AD_SET_KINDS.includes(kind)) throw new Error(`Not a test ad set kind: ${String(kind)}`);
+  const base = `${testsCampaignName(eventCode.trim())} · ${kind} · ${londonDayLabel(createdAt)}`;
+  const names = new Set(existingNames.map((name) => name.trim()));
+  if (!names.has(base)) return base;
+  for (let n = 2; ; n += 1) if (!names.has(`${base} · ${n}`)) return `${base} · ${n}`;
 }
 
 /** How many days a test's ad set runs (TF1's hold). */

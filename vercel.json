@@ -114,6 +114,10 @@
       "schedule": "5 10 * * 1"
     },
     {
+      "path": "/api/cron/retargeting-read",
+      "schedule": "0 7,8 * * *"
+    },
+    {
       "path": "/api/cron/creative-lab-clip-sync",
       "schedule": "45 3 * * *"
     },
