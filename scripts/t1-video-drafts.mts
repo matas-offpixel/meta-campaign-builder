@@ -86,9 +86,8 @@ import {
 } from "../lib/creative-lab/t1-video.ts";
 import { applyBacking, backingLayer, checkFeather, type FeatherCheck } from "../lib/creative-lab/red-backing.ts";
 import { renderSourceAsset } from "../lib/creative-lab/render-source.ts";
-import { tripleFitSound } from "../lib/creative-lab/triple-fit.ts";
 import { emptyTriedHeadings, triedSection } from "../lib/creative-lab/draft-report.ts";
-import { draftVersions, releaseFromRow, type DraftVersion } from "../lib/creative-lab/draft-versions.ts";
+import { draftSound, draftVersions, releaseFromRow, type DraftVersion } from "../lib/creative-lab/draft-versions.ts";
 import { MAX_KNEE_STEP, MAX_ROW_STEP, renderVideoBands, rowMeanLuma } from "../lib/creative-lab/video-bands.ts";
 import type { T1OnClipProps } from "../src/remotion/compositions/T1OnClip.tsx";
 
@@ -303,9 +302,8 @@ for (const clipId of clipIds) {
   const c = await db.from("creative_lab_clips").select("*").eq("id", clipId).maybeSingle();
   if (c.error || !c.data) fail(`clip ${clipId}`);
   const clip = c.data!;
-  // The clip's own sound unless the clip is marked muted (triple-fit's rule, tripleFitSound). Until 17 Nov 2026
-  // every draft was rendered muted, so the roll-call and no-CTA edits filed for P26-BDAY had no audio stream.
-  const sound = tripleFitSound({ hasAudio: true, audioMatch: clip.audio_match as boolean | null, audioStatus: clip.audio_status as string | null });
+  // The clip's own sound unless the clip is marked muted (draftSound, draft-versions.ts).
+  const sound = draftSound(clip);
   const art = await db.from("creative_lab_artists").select("name").eq("id", clip.artist_id).maybeSingle();
   const artist = String(art.data?.name ?? "?");
   // O68 / migration 220: the clip's 1080 render copy (render_asset_id) when it has one, else the original (creative_asset_id).

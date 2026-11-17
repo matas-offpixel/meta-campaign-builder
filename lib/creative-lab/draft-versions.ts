@@ -13,6 +13,7 @@
  */
 
 import { rollCallWords } from "../releases/roll-call.ts";
+import { tripleFitSound } from "./triple-fit.ts";
 import type { Release } from "../releases/types.ts";
 import { WATERMARK, approvedClaim, type WarningRow } from "./claim-approval.ts";
 
@@ -70,4 +71,18 @@ export function draftVersions(tiers: readonly Release[], warnings: readonly Warn
       why: inForce ? `approved ticket_warnings ${(approved as { id: string }).id}` : held ? `held ticket_warnings ${held.id.slice(0, 8)}, not approved` : "the event's tiers through the roll-call generator, no claim row (sample)",
     },
   ];
+}
+
+/**
+ * A T1 draft's sound (scripts/t1-video-drafts.mts): the clip's own track unless
+ * the clip's audio_status is muted, triple-fit's rule (tripleFitSound). Until
+ * 17 Nov 2026 every draft was rendered muted, and the P26-BDAY roll-call and
+ * no-CTA edits went to Drive with no audio stream.
+ */
+export function draftSound(clip: { audio_status?: unknown; audio_match?: unknown }): { muted: boolean; flag: string | null } {
+  return tripleFitSound({
+    hasAudio: true,
+    audioMatch: typeof clip.audio_match === "boolean" ? clip.audio_match : null,
+    audioStatus: typeof clip.audio_status === "string" ? clip.audio_status : null,
+  });
 }

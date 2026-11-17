@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
 import { WATERMARK, fixtureRelease as r, type WarningRow } from "../claim-approval.ts";
-import { draftVersions, releaseFromRow } from "../draft-versions.ts";
+import { draftSound, draftVersions, releaseFromRow } from "../draft-versions.ts";
 
 /** Puzzle 4th Birthday's tiers on 10 Nov. */
 const puzzle = [r(1, "Early bird", "sold_out"), r(2, "1st release", "sold_out"), r(3, "2nd release", "sold_out"), r(4, "3rd release", "selling_fast")];
@@ -43,5 +43,23 @@ describe("Puzzle's draft rounds carry two versions (Matas, 10 Nov)", () => {
       assert.match(src, /draftVersions\(/, f);
       assert.doesNotMatch(src, /a-general-sale-live|RECORD_RUNG1|LONGEST|OVERLONG|SIX_RELEASES|b-sample-roll-call|bands-off/, f);
     }
+  });
+});
+
+describe("T1 draft sound (17 Nov 2026: the P26-BDAY edits went to Drive silent)", () => {
+  it("keeps the clip's own sound unless its audio_status is muted", () => {
+    assert.equal(draftSound({ audio_status: "original" }).muted, false);
+    assert.equal(draftSound({ audio_status: "cleared" }).muted, false);
+    assert.equal(draftSound({ audio_status: "replaced" }).muted, false);
+    assert.equal(draftSound({}).muted, false);
+    assert.equal(draftSound({ audio_status: "muted" }).muted, true);
+  });
+
+  it("the T1 draft script renders with draftSound, and only the grey test clip is hard-muted", () => {
+    const src = readFileSync(new URL("../../../scripts/t1-video-drafts.mts", import.meta.url), "utf8");
+    assert.match(src, /const sound = draftSound\(clip\);/);
+    const hardMuted = src.split("\n").filter((line) => /muted:\s*true/.test(line));
+    assert.ok(hardMuted.every((line) => /grey/i.test(line)), hardMuted.join("\n"));
+    assert.equal((src.match(/muted: sound\.muted/g) ?? []).length, 3);
   });
 });
