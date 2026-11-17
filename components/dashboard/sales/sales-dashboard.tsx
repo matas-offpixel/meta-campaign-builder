@@ -21,7 +21,16 @@ import {
 import { NO_TICKET_COUNTS_LINE, TILE_NAMES, spendScopeLine, tileSubline } from "@/components/dashboard/sales/tile-copy";
 import type { SalesQueryUpdate } from "@/components/dashboard/sales/venue-query";
 import { shortDay } from "@/lib/dashboard/sales-calc/days";
-import { barOutcome, capacityTicks, formatCount, shareOf, trajectoryAxisMax, trajectorySums } from "@/components/dashboard/sales/trajectory-bars";
+import {
+  barOutcome,
+  capacityTickLabel,
+  capacityTicks,
+  formatCount,
+  shareOf,
+  ticksClearOfCapacity,
+  trajectoryAxisMax,
+  trajectorySums,
+} from "@/components/dashboard/sales/trajectory-bars";
 import {
   campaignsForPeriod,
   DEFAULT_ON_METRICS,
@@ -820,7 +829,25 @@ function BarLayers({
 }
 
 function CapacityAxis({ max }: { max: number }) {
+  // N1 / N6: measured after layout, so a tick the "{max} capacity" label would cover is left out.
+  const axisRef = useRef<HTMLDivElement>(null);
+  const capacityRef = useRef<HTMLSpanElement>(null);
+  const [widths, setWidths] = useState({ axis: 0, capacity: 0 });
+  useEffect(() => {
+    const axis = axisRef.current;
+    if (!axis) return;
+    const measure = () => setWidths({ axis: axis.clientWidth, capacity: capacityRef.current?.offsetWidth ?? 0 });
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(axis);
+    return () => observer.disconnect();
+  }, [max]);
   if (max <= 0) return null;
+  const capacityText = capacityTickLabel(max, max);
+  // A tick label is in the same type as the capacity label: its width is that label's width per character.
+  const perChar = widths.capacity / capacityText.length;
+  const wideTicks = ticksClearOfCapacity(capacityTicks(max, 500), max, widths.axis, widths.capacity, (tick) => capacityTickLabel(tick, max).length * perChar);
   return (
     <>
       <div className="hidden">
@@ -832,10 +859,15 @@ function CapacityAxis({ max }: { max: number }) {
       </div>
       <div className="mt-1 hidden sm:grid sm:grid-cols-[9rem_minmax(0,1fr)_14rem] sm:gap-3">
         <span />
-        <div className="relative h-4 text-[10px] text-muted-foreground">
-          {capacityTicks(max, 500).map((tick) => (
-            <span key={tick} className={`absolute whitespace-nowrap ${tick === 0 ? "" : tick === max ? "right-0" : "-translate-x-1/2"}`} style={tick === 0 || tick === max ? undefined : { left: `${(tick / max) * 100}%` }}>
-              {tick === max ? `${formatCount(tick)} capacity` : formatCount(tick)}
+        <div ref={axisRef} className="relative h-4 text-[10px] text-muted-foreground">
+          {wideTicks.map((tick) => (
+            <span
+              key={tick}
+              ref={tick === max ? capacityRef : undefined}
+              className={`absolute whitespace-nowrap ${tick === 0 ? "" : tick === max ? "right-0" : "-translate-x-1/2"}`}
+              style={tick === 0 || tick === max ? undefined : { left: `${(tick / max) * 100}%` }}
+            >
+              {capacityTickLabel(tick, max)}
             </span>
           ))}
         </div>
