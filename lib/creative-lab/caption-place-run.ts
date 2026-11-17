@@ -29,7 +29,8 @@ import { T1V_FACE } from "./t1-face.ts";
 import { nearestRank } from "./t1-video.ts";
 
 const run = promisify(execFile);
-export const FACE_DETECTOR = "ssd_mobilenet_v1";
+export { FACE_DETECTOR } from "./caption-placement.ts";
+import { FACE_DETECTOR } from "./caption-placement.ts";
 
 async function ffmpegPath(): Promise<string> {
   const mod = (await import("ffmpeg-static")) as { default?: string | null } | string;
