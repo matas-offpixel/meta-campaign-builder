@@ -100,11 +100,13 @@ export const REASON_UNREADABLE = "it can't be read";
  * seconds. Anything the Lab can't open or doesn't recognise as one of those
  * is "it can't be read".
  */
-export function unusableReason(probe: ProbedAudio | null, fileName: string): string | null {
+export function unusableReason(probe: ProbedAudio | null, fileName: string, opts: { minMp3Kbps?: number } = {}): string | null {
   if (!probe || (probe.durationS == null && !probe.codec)) return REASON_UNREADABLE;
   const format = formatOf(probe, fileName);
   if (!format) return REASON_UNREADABLE;
-  if (format === "mp3" && (probe.bitrateKbps == null || probe.bitrateKbps < SNIPPET.minMp3Kbps)) return REASON_MP3_LOW;
+  // A per-asset exception (audio-exceptions.ts) can name a lower floor for one file; AU1's own floor never moves.
+  const minKbps = opts.minMp3Kbps ?? SNIPPET.minMp3Kbps;
+  if (format === "mp3" && (probe.bitrateKbps == null || probe.bitrateKbps < minKbps)) return REASON_MP3_LOW;
   if (probe.durationS == null || probe.durationS < SNIPPET.minFileSeconds) return REASON_SHORT;
   return null;
 }

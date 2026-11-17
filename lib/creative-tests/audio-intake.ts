@@ -10,6 +10,7 @@
  * that folder. creative_lab_audio_files (migration 255).
  */
 
+import { audioRuleException } from "./audio-exceptions.ts";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import path from "node:path";
 
@@ -98,7 +99,8 @@ export async function readAudioFile(eventId: string, file: DriveFile, deps: Inta
     const local = path.join(dir, `source.${extensionOf(file.name) || "audio"}`);
     await deps.downloadTo(file.id, local);
     const probe = await deps.probe(local);
-    const reason = unusableReason(probe, file.name);
+    const exception = audioRuleException(eventId, file.id);
+    const reason = unusableReason(probe, file.name, { minMp3Kbps: exception?.minMp3Kbps });
     const format = probe ? formatOf(probe, file.name) : null;
     const base = { format, bitrateKbps: probe?.bitrateKbps ?? null, durationS: probe?.durationS ?? null, unusableReason: reason };
     if (reason) return { ...base, storagePath: null, dropS: null, windowStartS: null, waveform: null };
