@@ -78,7 +78,8 @@ export const COPIED_ADSET_FIELDS = ["optimization_goal", "billing_event", "attri
 export function copyTestAdSetPayload(src: Json, args: { campaignId: string; name: string; endTime: string }): Json {
   if (!src.targeting || typeof src.targeting !== "object") throw new Error("The source ad set has no targeting to copy");
   if (!src.promoted_object || typeof src.promoted_object !== "object") throw new Error("The source ad set has no promoted object to copy");
-  const { smart_pse_enabled: _ignored, ...promoted } = src.promoted_object as Json;
+  const promoted: Json = { ...(src.promoted_object as Json) };
+  delete promoted.smart_pse_enabled;
   const payload: Json = {
     name: args.name,
     campaign_id: args.campaignId,
