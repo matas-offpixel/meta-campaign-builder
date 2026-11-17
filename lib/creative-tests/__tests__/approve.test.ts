@@ -12,6 +12,7 @@ import { describe, it } from "node:test";
 
 import { memoryDb } from "../../onsale-refresh/__tests__/memory-db.ts";
 import { CREATES_OFF, approveTest, factsFrom, isMainCampaign, resultsOf, testAdSetPayload, type AdDay, type ApproveDeps, type TestMeta } from "../approve.ts";
+import { capText } from "../budget.ts";
 import type { CampaignRow } from "../tests-campaign.ts";
 
 const MATAS = "matas";
@@ -48,7 +49,8 @@ function seed(state = "making") {
       { id: "a1", storage_path: "videos/creative-lab/snippet/r1-9x16.mp4", content_hash: "h1", byte_size: 100 },
       { id: "a2", storage_path: "videos/creative-lab/snippet/r2-9x16.mp4", content_hash: "h2", byte_size: 100 },
     ],
-    events: [{ id: "ev1", event_code: "P26-BDAY", meta_ad_account_id: "act_1", client_id: "cl1" }],
+    events: [{ id: "ev1", event_code: "P26-BDAY", meta_ad_account_id: "act_1", client_id: "cl1", budget_marketing: 5000 }],
+    event_daily_rollups: [{ event_id: "ev1", date: "2026-11-10", ad_spend: 1000 }],
     launched_ad_sets: [{ meta_adset_id: "as-1", event_id: "ev1", draft_id: "d-main", launched_at: "2026-10-30T12:00:00Z" }],
     onsale_refresh_proposals: [{ event_id: "ev1", objective: "initiate_checkout", window_end: "2026-11-15" }],
     launched_ads: [],
@@ -270,6 +272,38 @@ describe("Approve variants", () => {
     const adset = JSON.parse(calls.find((c) => c.startsWith("createAdSet "))!.slice(12));
     assert.equal(adset.name, "P26-BDAY · Tests · Video · 16 Nov · 2");
     assert.equal(mem.tables.launched_ad_sets!.find((r) => r.meta_adset_id === "as-tests")?.source_name, "P26-BDAY · Tests · Video · 16 Nov · 2");
+  });
+
+  it("the Tests campaign is objective Sales, whatever the main campaign's objective (TT8)", async () => {
+    const mem = seed();
+    const { deps, calls } = fakes(mem);
+    deps.meta = { ...deps.meta, readCampaign: async () => ({ objective: "OUTCOME_TRAFFIC", dailyBudget: null, status: "ACTIVE" }) };
+    const result = await approveTest(deps, { testId: "t1", userId: MATAS });
+    assert.equal(result.status, 200, JSON.stringify(result));
+    assert.equal(JSON.parse(calls.find((c) => c.startsWith("createCampaign "))!.slice(15)).objective, "OUTCOME_SALES");
+  });
+
+  it("holds TF1's four days against R5 before anything is made: no budget, no write", async () => {
+    const mem = seed();
+    mem.tables.events![0]!.budget_marketing = null;
+    const { deps, calls } = fakes(mem);
+    const result = await approveTest(deps, { testId: "t1", userId: MATAS });
+    assert.deepEqual(result.body, { ok: false, error: "Set this event's budget to apply this." });
+    assert.ok(!calls.some((c) => c.startsWith("createCampaign") || c.startsWith("createAdSet") || c.startsWith("findCampaigns")));
+    assert.equal(mem.tables.meta_write_idempotency!.length, 0);
+  });
+
+  it("refuses when this test and the running one would pass R5's 20 % cap", async () => {
+    const mem = seed();
+    // £100 budget, £40 spent: £60 left, so the cap is £12.00. Another test holds £5.00; this one would hold £12.00.
+    mem.tables.events![0]!.budget_marketing = 100;
+    mem.tables.event_daily_rollups![0]!.ad_spend = 40;
+    mem.tables.creative_tests!.push({ id: "t9", user_id: MATAS, plan_id: "p1", event_id: "ev1", n: 9, kind: "copy", format: "statics", runs_in: "tests_adset", state: "called", hold_minor: 99999 });
+    mem.tables.creative_tests!.push({ id: "t8", user_id: MATAS, plan_id: "p1", event_id: "ev1", n: 8, kind: "copy", format: "statics", runs_in: "tests_adset", state: "approved", hold_minor: 500 });
+    const { deps, calls } = fakes(mem);
+    const result = await approveTest(deps, { testId: "t1", userId: MATAS });
+    assert.deepEqual(result.body, { ok: false, error: capText(12, 7, "GBP") });
+    assert.ok(!calls.some((c) => c.startsWith("createCampaign") || c.startsWith("createAdSet")));
   });
 
   it("the round's AB copy test and Artist cards test campaigns are not main campaigns", () => {

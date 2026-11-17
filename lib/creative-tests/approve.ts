@@ -37,9 +37,10 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { buildLabDraft, type LabDraftAd } from "../creative-lab/lab-draft.ts";
 import type { LabLaunchResponse, LabUploadRequest, LabUploadResult } from "../creative-lab/launch.ts";
 import { withMetaWriteIdempotency, type MetaWriteContext } from "../meta/write-idempotency.ts";
-import { sizeTest, type CboCampaign, type MainAdSet } from "./budget.ts";
-import { CONTROL, canApprove, chooseControl, variantCountOk, type TestRow } from "./plan.ts";
-import { TestsCampaignProblem, findTestsCampaign, isGoneCampaign, isShowTestCampaign, testAdSetEndTime, testsAdSetName, testsCampaignPayload, type CampaignRow } from "./tests-campaign.ts";
+import { spendToDate } from "../onsale-refresh/plan-guard.ts";
+import { planCheck, sizeTest, type CboCampaign, type MainAdSet } from "./budget.ts";
+import { CONTROL, HOLDS_AD_SET, canApprove, chooseControl, variantCountOk, type TestRow } from "./plan.ts";
+import { TestsCampaignProblem, creativeTestKind, findTestsCampaign, isGoneCampaign, isShowTestCampaign, testAdSetEndTime, testsAdSetName, testsCampaignPayload, type CampaignRow } from "./tests-campaign.ts";
 import { testsCampaignName, type ResultEvent, type TestFormat } from "./words.ts";
 
 type Db = Pick<SupabaseClient, "from">;
@@ -261,8 +262,15 @@ export async function approveTest(deps: ApproveDeps, input: { testId: string; us
   if (!source) return refuse(409, "The best ad's ad set couldn't be read.");
   const copy = await deps.meta.readAdCopy(facts.bestAd.adId);
   if (!copy) return refuse(409, "The best ad's copy couldn't be read.");
-  const mainCampaign = await deps.meta.readCampaign(str(source, "campaign_id"));
-  const objective = mainCampaign?.objective ?? "OUTCOME_SALES";
+  // TT8: the Tests campaign is objective Sales; the result sits on each ad set's promoted object.
+  const objective = "OUTCOME_SALES";
+
+  // TT9 / R5: the plan holds TF1's four days against the 20 % cap before anything is made,
+  // with every other creative test of the event that holds an ad set now.
+  const otherHoldMinor = planTests.filter((t) => str(t, "id") !== input.testId && HOLDS_AD_SET.includes(str(t, "state") as TestRow["state"])).reduce((sum, t) => sum + (Number(t.hold_minor) || 0), 0);
+  const budget = event.budget_marketing == null || str(event, "budget_marketing") === "" ? null : Number(event.budget_marketing);
+  const overPlan = planCheck({ budget, spendToDate: budget != null ? await spendToDate(db, str(event, "id")) : 0, holdMinor: sized.holdMinor, otherHoldMinor, currency: account.currency });
+  if (overPlan) return refuse(409, overPlan);
 
   // 1. The show's one Tests campaign: a test of this plan may hold its id; else it's found by
   // its exact name in the event's account (the A/B copy test's, another plan's); else made.
@@ -284,7 +292,7 @@ export async function approveTest(deps: ApproveDeps, input: { testId: string; us
     }
   }
   if (!campaignId) {
-    const payload = testsCampaignPayload(eventCode, { metaObjective: objective, status: "ACTIVE" });
+    const payload = testsCampaignPayload(eventCode, { status: "ACTIVE" });
     // Keyed on the show's account and name, not the plan: one Tests campaign per show. The ledger
     // hands back the id it made before; if Matas has since deleted that campaign, the key names the
     // dead id it replaces, so the next create is a new write.
@@ -302,9 +310,8 @@ export async function approveTest(deps: ApproveDeps, input: { testId: string; us
   // that day, TT8). A retry keeps the first attempt's start, so the end doesn't move, and its name.
   const startedAt = str(test, "started_at") || now.toISOString();
   let adsetId = str(test, "meta_adset_id");
-  const label = format === "video" ? "Video" : "Statics";
   let adSetName = adsetId ? str(await deps.meta.readAdSet(adsetId), "name") : "";
-  if (!adSetName) adSetName = testsAdSetName(eventCode, label, startedAt, adsetId ? [] : await deps.meta.listAdSetNames(campaignId));
+  if (!adSetName) adSetName = testsAdSetName(eventCode, creativeTestKind(format), startedAt, adsetId ? [] : await deps.meta.listAdSetNames(campaignId));
   if (!adsetId) {
     const payload = testAdSetPayload(source, { name: adSetName, campaignId, dailyMinor: sized.dailyMinor, startTime: startedAt });
     adsetId = await withMetaWriteIdempotency(ledger, "adset_create", { creative_test: input.testId, format, campaign_id: campaignId, targeting: payload.targeting }, () => deps.meta.createAdSet(adAccountId, payload), { required: true });
