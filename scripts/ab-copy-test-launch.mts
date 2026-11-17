@@ -20,6 +20,15 @@
  * launched_ads rows, and marks the draft published. A rerun returns the ids
  * already made. Only one run of a test may go at a time: a second run that starts while
  * the first holds the test stops before any read or write (the 17 Nov P26 duplicate).
+ * Every creative must post as the show's promoter/venue page and its own Instagram
+ * account (promoterIdentities, from data); an artist page is refused before any write.
+ * --repoint moves the 17 Nov ads made on an artist identity (REPOINT) onto the promoter
+ * creative: new creative, then the ad's creative and name swapped; if Meta refuses the
+ * swap, the old ad is archived (never deleted) and a new paused ad made.
+ *
+ *   npx tsx --env-file=.env.local scripts/ab-copy-test-launch.mts --repoint --only "NX26-DOD · AB copy test"          # dry run
+ *   npx tsx --env-file=.env.local scripts/ab-copy-test-launch.mts --repoint --apply --only "NX26-DOD · AB copy test"
+ *
  * It acts as the operator, on META_ACCESS_TOKEN, which the app only
  * allows an operator (mayUseAgencyMetaToken).
  */
@@ -40,6 +49,12 @@ import {
   copyTestAdSetPayload,
   copyTestCampaignPayload,
   copyTestCardPayload,
+  creativeIdentity,
+  promoterIdentities,
+  repointCopyTestAds,
+  type CopyTestRecorders,
+  type PageFacts,
+  type PromoterIdentity,
   copyTestCreativePayload,
   copyTestEndTime,
   copyTestLockFilter,
@@ -54,6 +69,7 @@ import {
 
 const argv = process.argv.slice(2);
 const apply = argv.includes("--apply");
+const repoint = argv.includes("--repoint");
 const only = argv.flatMap((arg, i) => (arg === "--only" && argv[i + 1] ? [argv[i + 1]!] : []));
 const jsonOut = argv.flatMap((arg, i) => (arg === "--json" && argv[i + 1] ? [argv[i + 1]!] : []))[0] ?? null;
 
@@ -79,22 +95,23 @@ const KREAM_CARDS: { label: string; adName: string; fileName: string; fileId: st
   { label: "Parts", adName: "[CARD-SUPPORT-Parts]", fileName: "Parts.jpg", fileId: "1PwMah6CK-Ei2Bs0bpO9lyNf78iAbj6ug" },
 ];
 
-function test(t: Omit<Test, "adSetName">): Test {
-  return { ...t, adSetName: t.campaignName };
+function test(t: Omit<Test, "adSetName" | "identities">): Test {
+  // identities are read from data at run time (identitiesFor), never written here.
+  return { ...t, adSetName: t.campaignName, identities: [] };
 }
 
 const TESTS: Test[] = [
   test({
     eventCode: "NX26-LOCKLEAD", campaignName: "NX26-LOCKLEAD · AB copy test", draftId: "5f0d6b0e-7a11-4c3e-9b52-1c4f0a2b9d01",
     eventId: "602f9e86-ee03-4ece-81e0-6b7a3b224ae6", clientId: ELECTRIC_BRIXTON, adAccountId: NX, dailyMinor: 300,
-    sourceAdSetId: "120252504502750755", sourceCreativeId: "2399259150841758", sourceAdName: "Artist - UGC 3",
-    ads: ab("Artist - UGC 3", "Locklead, Marlie & Paramida at NX Newcastle, Friday 11 December.", "In-demand house star Locklead lands at NX Newcastle, 11 December, with Marlie & Paramida."),
+    sourceAdSetId: "120252504502750755", sourceCreativeId: "1097820786572638", sourceAdName: "NX - Marlie Artist Card",
+    ads: ab("NX - Marlie Artist Card", "Locklead, Marlie & Paramida at NX Newcastle, Friday 11 December.", "In-demand house star Locklead lands at NX Newcastle, 11 December, with Marlie & Paramida."),
   }),
   test({
     eventCode: "NX26-DOD", campaignName: "NX26-DOD · AB copy test", draftId: "5f0d6b0e-7a11-4c3e-9b52-1c4f0a2b9d02",
     eventId: "f0b5636b-ea5d-442e-8a71-36fd930a2b2b", clientId: ELECTRIC_BRIXTON, adAccountId: NX, dailyMinor: 76,
-    sourceAdSetId: "120252309614100755", sourceCreativeId: "1112160641684081", sourceAdName: "Artist - UGC 3",
-    ads: ab("Artist - UGC 3", "D.O.D at NX Newcastle, Friday 4 December.", "A highly anticipated return: D.O.D is back at NX Newcastle, 4 December."),
+    sourceAdSetId: "120252309614100755", sourceCreativeId: "1088553564059419", sourceAdName: "Promo Vid - No Text – Copy 2",
+    ads: ab("Promo Vid - No Text – Copy 2", "D.O.D at NX Newcastle, Friday 4 December.", "A highly anticipated return: D.O.D is back at NX Newcastle, 4 December."),
   }),
   test({
     eventCode: "NX26-ROBBIEDOHERTY", campaignName: "NX26-ROBBIEDOHERTY · AB copy test", draftId: "5f0d6b0e-7a11-4c3e-9b52-1c4f0a2b9d03",
@@ -127,6 +144,17 @@ const TESTS: Test[] = [
     ads: ab("Puzzle - Static CTA", "Luke Dean, Enzo Siragusa & more. Puzzle's 4th Birthday, 27 December at Circuit & Engine Rooms.", "The biggest house party in Southampton returns on 27 December with Luke Dean, Enzo Siragusa & more."),
   }),
 ];
+
+/**
+ * 17 Nov: the paused ads made on an artist page or Instagram, moved onto the
+ * promoter/venue creative above with --repoint (Matas: copy tests are promoter copy).
+ * Robbie Doherty and both Kream tests are not here: neither show has a promoter
+ * or venue page in the data, so the guard refuses them until one is ruled.
+ */
+const REPOINT: Record<string, { label: string; adId: string }[]> = {
+  "NX26-LOCKLEAD · AB copy test": [{ label: "A", adId: "120252640393760755" }, { label: "B", adId: "120252640395850755" }],
+  "NX26-DOD · AB copy test": [{ label: "A", adId: "120252640400630755" }, { label: "B", adId: "120252640402570755" }],
+};
 
 const token = process.env.META_ACCESS_TOKEN;
 if (!token) {
@@ -161,7 +189,58 @@ const meta: CopyTestMeta = {
   },
   createCreative: async (account, payload) => (await createMetaCreative(account, payload as never, token)).id,
   createAd: async (account, payload) => (await createMetaAd(account, payload as never, token)).id,
+  readAd: async (id) => {
+    const row = await get(`/${id}`, "id,name,adset_id,campaign_id,status,creative{id}");
+    return { id: String(row.id), name: String(row.name ?? ""), adsetId: String(row.adset_id), campaignId: String(row.campaign_id), status: String(row.status), creativeId: ((row.creative as { id?: string } | undefined)?.id) ?? null };
+  },
+  updateAd: async (id, fields) => {
+    await graphPostWithToken(`/${id}`, { creative: fields.creative, name: fields.name }, token);
+  },
+  archiveAd: async (id) => {
+    await graphPostWithToken(`/${id}`, { status: "ARCHIVED" }, token);
+  },
 };
+
+/** Every page of a Graph edge. */
+async function getAll(path: string, params: Record<string, string>): Promise<Record<string, unknown>[]> {
+  const out: Record<string, unknown>[] = [];
+  let after: string | undefined;
+  for (let page = 0; page < 50; page += 1) {
+    reads += 1;
+    const res = await graphGetWithToken<{ data?: Record<string, unknown>[]; paging?: { cursors?: { after?: string }; next?: string } }>(path, { ...params, limit: "200", ...(after ? { after } : {}) }, token!);
+    out.push(...(res.data ?? []));
+    if (!res.paging?.next || !res.paging.cursors?.after) break;
+    after = res.paging.cursors.after;
+  }
+  return out;
+}
+
+/**
+ * The show's promoter/venue identities, from data (promoterIdentities): the client's
+ * pages on record, the pages promotable on the ad account, the pages on the show's own
+ * ads (every campaign named [CODE] on the account), and each page's Meta category and
+ * linked Instagram account. Reads only.
+ */
+async function identitiesFor(t: Test): Promise<{ identities: PromoterIdentity[]; facts: PageFacts[]; showAdPageIds: string[]; clientPageIds: string[] }> {
+  const client = await dbRead!.from("clients").select("default_page_ids").eq("id", t.clientId).maybeSingle();
+  if (client.error) throw new Error(`clients: ${client.error.message}`);
+  const clientPageIds = ((client.data as { default_page_ids?: string[] | null } | null)?.default_page_ids ?? []).map(String);
+  const promotable = (await getAll(`/act_${t.adAccountId}/promote_pages`, { fields: "id" })).map((row) => String(row.id));
+  const campaigns = await getAll(`/act_${t.adAccountId}/campaigns`, { fields: "id,name", filtering: JSON.stringify([{ field: "name", operator: "CONTAIN", value: `[${t.eventCode}` }]) });
+  const showAdPageIds = new Set<string>();
+  for (const campaign of campaigns) {
+    for (const ad of await getAll(`/${String(campaign.id)}/ads`, { fields: "creative{object_story_spec}" })) {
+      const page = ((ad.creative as { object_story_spec?: { page_id?: string } } | undefined)?.object_story_spec?.page_id);
+      if (page) showAdPageIds.add(String(page));
+    }
+  }
+  const facts: PageFacts[] = [];
+  for (const id of new Set([...showAdPageIds, ...clientPageIds])) {
+    const page = await get(`/${id}`, "category,instagram_business_account{id}");
+    facts.push({ id, category: (page.category as string | undefined) ?? null, linkedInstagramId: ((page.instagram_business_account as { id?: string } | undefined)?.id) ?? null });
+  }
+  return { identities: promoterIdentities({ clientPageIds, promotablePageIds: promotable, showAdPageIds: [...showAdPageIds], pages: facts }), facts, showAdPageIds: [...showAdPageIds], clientPageIds };
+}
 
 async function cardAds(): Promise<CopyTestAdSpec[]> {
   const { drive, reason } = driveFromEnv();
@@ -178,7 +257,13 @@ async function cardAds(): Promise<CopyTestAdSpec[]> {
 const selected = TESTS.filter((t) => !only.length || only.includes(t.eventCode) || only.includes(t.campaignName));
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-const db = apply ? (url && key ? createClient(url, key, { auth: { persistSession: false } }) : null) : null;
+// The service role reads the client's pages on record in a dry run too (a SELECT); it writes only with --apply.
+const dbRead = url && key ? createClient(url, key, { auth: { persistSession: false } }) : null;
+const db = apply ? dbRead : null;
+if (!dbRead) {
+  console.error("NEXT_PUBLIC_SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY are not set, so the promoter pages can't be read and nothing runs");
+  process.exit(2);
+}
 if (apply && !db) {
   console.error("NEXT_PUBLIC_SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY are not set, so nothing is written");
   process.exit(2);
@@ -227,10 +312,72 @@ function draftLock(t: Test, runId: string): CopyTestLock {
   };
 }
 
+function recorders(t: Test, launchRunId: string): CopyTestRecorders {
+  return {
+          adSet: (row) =>
+            recordLaunchedAdSet(db!, {
+              metaAdsetId: row.metaAdsetId, metaCampaignId: row.metaCampaignId, adAccountId: t.adAccountId, draftId: t.draftId, userId: OPERATOR_USER_ID,
+              clientId: t.clientId, eventId: t.eventId, launchRunId, objective: "purchase", phaseAtLaunch: phaseAtLaunchFromObjective("purchase"), descriptorSource: "launch",
+              suggestion: {
+                id: `copy-test-${t.sourceAdSetId}`, name: t.adSetName, sourceType: "custom_group", sourceId: t.sourceAdSetId, sourceName: `copy of ${t.sourceAdSetId}`,
+                ageMin: Number((row.source.targeting as Record<string, unknown>)?.age_min ?? 18), ageMax: Number((row.source.targeting as Record<string, unknown>)?.age_max ?? 65),
+                budgetPerDay: row.dailyMinor / 100, advantagePlus: ((row.source.targeting as Record<string, Record<string, unknown>>)?.targeting_automation?.advantage_audience ?? 0) === 1, enabled: true,
+              } as never,
+              audiences: null,
+              launchNote: `AB copy test: copy of ad set ${t.sourceAdSetId}, campaign daily budget ${row.dailyMinor}`,
+            }),
+          ad: (row) =>
+            recordLaunchedAd(db!, {
+              metaAdId: row.metaAdId, metaCreativeId: row.metaCreativeId, metaAdsetId: row.metaAdsetId, metaCampaignId: row.metaCampaignId, adAccountId: t.adAccountId,
+              draftId: t.draftId, userId: OPERATOR_USER_ID, clientId: t.clientId, eventId: t.eventId, launchRunId, descriptorSource: "launch", adName: row.adName,
+              descriptor: {
+                creativeName: row.adName, mediaType: (row.creative.object_story_spec as Record<string, unknown>)?.video_data ? "video" : "image",
+                sourceType: "uploaded", placementMode: row.creative.asset_feed_spec ? "per_placement" : "single", variationCount: 1,
+                cta: null, destinationUrl: null, urlTagsApplied: typeof row.creative.url_tags === "string", assetContentHashes: [],
+              },
+            }),
+    archivedAd: async (row) => {
+      const current = await db!.from("launched_ads").select("ad_name").eq("meta_ad_id", row.metaAdId).maybeSingle();
+      const name = (current.data as { ad_name?: string | null } | null)?.ad_name ?? "";
+      if (!name.startsWith("[ARCHIVED")) await db!.from("launched_ads").update({ ad_name: `[ARCHIVED, replaced by ${row.replacedBy}] ${name}` }).eq("meta_ad_id", row.metaAdId);
+    },
+  };
+}
+
 const results: Record<string, unknown>[] = [];
 let failed = false;
 for (const t of selected) {
   console.log(`\n== ${t.campaignName} · £${(t.dailyMinor / 100).toFixed(2)} a day · act_${t.adAccountId}`);
+  const who = await identitiesFor(t);
+  t.identities = who.identities;
+  console.log(`  promoter/venue: ${who.identities.length ? who.identities.map((id) => `page ${id.pageId} + Instagram ${id.instagramId}`).join("; ") : "NONE on record"} (client pages ${who.clientPageIds.join(",") || "none"}; show ad pages ${who.showAdPageIds.join(",")}; ${who.facts.map((f) => `${f.id}=${f.category}`).join(", ")})`);
+  if (repoint) {
+    const existing = REPOINT[t.campaignName];
+    if (!existing) {
+      console.log("  not a repoint test; skipped");
+      continue;
+    }
+    const creative = await meta.readCreative(t.sourceCreativeId);
+    for (const row of existing) {
+      const ad = t.ads.find((a) => a.label === row.label)!;
+      const payload = copyTestCreativePayload(creative!, { name: ad.adName, message: ad.kind === "copy" ? ad.message : "" });
+      console.log(`  ${row.label} ${row.adId} → ${JSON.stringify(creativeIdentity(payload))}: ${JSON.stringify(payload).slice(0, 400)}`);
+    }
+    console.log(`  Meta writes: 4 (2 creatives, 2 ad updates; 2 archives + 2 new ads more only if Meta refuses a swap)`);
+    if (!apply) continue;
+    const launchRunId = randomUUID();
+    try {
+      const out = await repointCopyTestAds({ meta, ledger: { supabase: db!, userId: OPERATOR_USER_ID, draftId: t.draftId, eventId: t.eventId }, lock: draftLock(t, launchRunId), record: recorders(t, launchRunId) }, t, existing);
+      console.log(`  repointed: ${out.ads.map((a) => `${a.label} ${a.action} ad ${a.adId} creative ${a.creativeId}${a.archivedAdId ? ` (archived ${a.archivedAdId})` : ""}`).join("; ")}; writes ${out.writes}`);
+      results.push({ test: t.campaignName, repoint: out });
+    } catch (err) {
+      console.error(`  STOPPED: ${err instanceof Error ? err.message : String(err)}`);
+      results.push({ test: t.campaignName, stopped: err instanceof Error ? err.message : String(err) });
+      failed = true;
+      break;
+    }
+    continue;
+  }
   if (t.campaignName.endsWith("Artist cards test")) t.ads = await cardAds();
   console.log(`  Meta writes: ${copyTestWriteCount(t)}`);
   if (!apply) {
@@ -258,30 +405,7 @@ for (const t of selected) {
         meta,
         ledger: { supabase: db!, userId: OPERATOR_USER_ID, draftId: t.draftId, eventId: t.eventId },
         lock: draftLock(t, launchRunId),
-        record: {
-          adSet: (row) =>
-            recordLaunchedAdSet(db!, {
-              metaAdsetId: row.metaAdsetId, metaCampaignId: row.metaCampaignId, adAccountId: t.adAccountId, draftId: t.draftId, userId: OPERATOR_USER_ID,
-              clientId: t.clientId, eventId: t.eventId, launchRunId, objective: "purchase", phaseAtLaunch: phaseAtLaunchFromObjective("purchase"), descriptorSource: "launch",
-              suggestion: {
-                id: `copy-test-${t.sourceAdSetId}`, name: t.adSetName, sourceType: "custom_group", sourceId: t.sourceAdSetId, sourceName: `copy of ${t.sourceAdSetId}`,
-                ageMin: Number((row.source.targeting as Record<string, unknown>)?.age_min ?? 18), ageMax: Number((row.source.targeting as Record<string, unknown>)?.age_max ?? 65),
-                budgetPerDay: row.dailyMinor / 100, advantagePlus: ((row.source.targeting as Record<string, Record<string, unknown>>)?.targeting_automation?.advantage_audience ?? 0) === 1, enabled: true,
-              } as never,
-              audiences: null,
-              launchNote: `AB copy test: copy of ad set ${t.sourceAdSetId}, campaign daily budget ${row.dailyMinor}`,
-            }),
-          ad: (row) =>
-            recordLaunchedAd(db!, {
-              metaAdId: row.metaAdId, metaCreativeId: row.metaCreativeId, metaAdsetId: row.metaAdsetId, metaCampaignId: row.metaCampaignId, adAccountId: t.adAccountId,
-              draftId: t.draftId, userId: OPERATOR_USER_ID, clientId: t.clientId, eventId: t.eventId, launchRunId, descriptorSource: "launch", adName: row.adName,
-              descriptor: {
-                creativeName: row.adName, mediaType: (row.creative.object_story_spec as Record<string, unknown>)?.video_data ? "video" : "image",
-                sourceType: "uploaded", placementMode: row.creative.asset_feed_spec ? "per_placement" : "single", variationCount: 1,
-                cta: null, destinationUrl: null, urlTagsApplied: typeof row.creative.url_tags === "string", assetContentHashes: [],
-              },
-            }),
-        },
+        record: recorders(t, launchRunId),
       },
       t,
     );

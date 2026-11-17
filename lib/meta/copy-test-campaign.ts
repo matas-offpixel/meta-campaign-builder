@@ -177,6 +177,8 @@ export type CopyTestSpec = {
   sourceAdSetId: string;
   sourceCreativeId: string;
   ads: CopyTestAdSpec[];
+  /** The show's promoter/venue page + Instagram pairs (promoterIdentities). A creative on anything else is refused. */
+  identities: PromoterIdentity[];
 };
 
 export type CopyTestMeta = {
@@ -190,11 +192,19 @@ export type CopyTestMeta = {
   uploadImage(adAccountId: string, image: { fileName: string; bytes: Uint8Array }): Promise<string>;
   createCreative(adAccountId: string, payload: Json): Promise<string>;
   createAd(adAccountId: string, payload: Json): Promise<string>;
+  /** GET /{ad}: its name, ad set, status and creative id. */
+  readAd?(adId: string): Promise<{ id: string; name: string; adsetId: string; campaignId: string; status: string; creativeId: string | null } | null>;
+  /** POST /{ad} with a new creative and name. Never a status. */
+  updateAd?(adId: string, fields: { creative: { creative_id: string }; name: string }): Promise<void>;
+  /** POST /{ad} { status: "ARCHIVED" }. Never DELETED. */
+  archiveAd?(adId: string): Promise<void>;
 };
 
 export type CopyTestRecorders = {
   adSet(row: { metaAdsetId: string; metaCampaignId: string; source: Json; dailyMinor: number }): Promise<void>;
   ad(row: { metaAdId: string; metaCreativeId: string; metaAdsetId: string; metaCampaignId: string; adName: string; creative: Json }): Promise<void>;
+  /** Keeps an archived ad's launched_ads row, marked. */
+  archivedAd?(row: { metaAdId: string; replacedBy: string }): Promise<void>;
 };
 
 export type CopyTestResult = {
@@ -231,6 +241,60 @@ export class CopyTestStop extends Error {
   constructor(message: string) {
     super(message);
     this.name = "CopyTestStop";
+  }
+}
+
+// ─── Promoter identity guard (Matas, 17 Nov) ─────────────────────────────────
+// Copy tests are promoter copy: every A and B ad posts as the show's promoter or
+// venue page and its Instagram account, never as an artist. Artist-page ads carry
+// the artist's own signed-off caption, which is never changed.
+
+export type PromoterIdentity = { pageId: string; instagramId: string };
+
+/** Meta page categories that mean an artist's own page. */
+export const ARTIST_PAGE_CATEGORIES: ReadonlySet<string> = new Set(["musician/band", "musician", "artist", "dj", "band", "producer"]);
+
+export type PageFacts = { id: string; category: string | null; linkedInstagramId: string | null };
+
+/**
+ * The show's promoter/venue identities, from data: a page qualifies when it is on the
+ * show's own ads, or is the client's page on record and promotable on the show's ad
+ * account; and its Meta category isn't an artist's. Its Instagram is the account
+ * linked to the page on Meta, never another account paired with it on an ad.
+ */
+export function promoterIdentities(input: {
+  clientPageIds: readonly string[];
+  promotablePageIds: readonly string[];
+  showAdPageIds: readonly string[];
+  pages: readonly PageFacts[];
+}): PromoterIdentity[] {
+  const promotable = new Set(input.promotablePageIds);
+  const candidates = new Set([...input.showAdPageIds, ...input.clientPageIds.filter((id) => promotable.has(id))]);
+  const out: PromoterIdentity[] = [];
+  for (const id of candidates) {
+    const page = input.pages.find((p) => p.id === id);
+    if (!page?.linkedInstagramId) continue;
+    if (ARTIST_PAGE_CATEGORIES.has((page.category ?? "").trim().toLowerCase())) continue;
+    out.push({ pageId: id, instagramId: page.linkedInstagramId });
+  }
+  return out;
+}
+
+/** The page and Instagram a creative payload posts as. */
+export function creativeIdentity(payload: Json): { pageId: string | null; instagramId: string | null } {
+  const oss = (payload.object_story_spec ?? {}) as Json;
+  const page = oss.page_id ?? null;
+  const ig = oss.instagram_user_id ?? payload.instagram_user_id ?? null;
+  return { pageId: page == null ? null : String(page), instagramId: ig == null ? null : String(ig) };
+}
+
+/** Throws unless the creative posts as one of the show's promoter/venue identities, page and Instagram together. */
+export function assertPromoterIdentity(eventCode: string, payload: Json, identities: readonly PromoterIdentity[]): void {
+  if (!identities.length) throw new CopyTestStop(`${eventCode} has no promoter or venue page on record, so nothing was made`);
+  const { pageId, instagramId } = creativeIdentity(payload);
+  const ok = identities.some((id) => id.pageId === pageId && id.instagramId === instagramId);
+  if (!ok) {
+    throw new CopyTestStop(`${String(payload.name ?? "The creative")} would post as page ${pageId ?? "none"} / Instagram ${instagramId ?? "none"}, which isn't ${eventCode}'s promoter or venue page, so nothing was made`);
   }
 }
 
@@ -274,8 +338,8 @@ async function createCopyTestLocked(
   const campaignPayload = copyTestCampaignPayload(spec.campaignName, spec.dailyMinor);
   copyTestAdSetPayload(source, { campaignId: "0", name: spec.adSetName, endTime });
   for (const ad of spec.ads) {
-    if (ad.kind === "copy") copyTestCreativePayload(creative, { name: ad.adName, message: ad.message });
-    else copyTestCardPayload(creative, { name: ad.adName, message: ad.message, imageHash: "0" });
+    const payload = ad.kind === "copy" ? copyTestCreativePayload(creative, { name: ad.adName, message: ad.message }) : copyTestCardPayload(creative, { name: ad.adName, message: ad.message, imageHash: "0" });
+    assertPromoterIdentity(spec.eventCode, payload, spec.identities);
   }
 
   let writes = 0;
@@ -309,3 +373,79 @@ async function createCopyTestLocked(
   }
   return { campaignId, adSetId, endDay, endTime, ads, writes };
 }
+
+export type RepointResult = {
+  ads: { label: string; adId: string; creativeId: string; action: "already" | "repointed" | "replaced"; archivedAdId?: string }[];
+  writes: number;
+};
+
+/**
+ * Moves a test's existing paused ads onto a promoter/venue creative: per ad, a new
+ * creative from `spec.sourceCreativeId` with the ad's approved line, then the ad's
+ * creative and name swapped (POST /{ad}; no status). If Meta refuses the swap, the old
+ * ad is archived (never deleted) and a new paused ad made in the same ad set. An ad
+ * already on a promoter creative with its line is left alone. Every creative and new
+ * ad goes through the ledger; the swap itself is an idempotent update under the lock.
+ */
+export async function repointCopyTestAds(
+  deps: { meta: CopyTestMeta; ledger: MetaWriteContext; record: CopyTestRecorders; lock: CopyTestLock },
+  spec: CopyTestSpec,
+  existing: readonly { label: string; adId: string }[],
+): Promise<RepointResult> {
+  const { meta, ledger, record } = deps;
+  if (!meta.readAd || !meta.updateAd || !meta.archiveAd) throw new Error("repointCopyTestAds needs readAd, updateAd and archiveAd");
+  if (!(await deps.lock.acquire())) throw new CopyTestStop(`Another run of ${spec.campaignName} is in progress, so this run made nothing`);
+  try {
+    const source = await meta.readCreative(spec.sourceCreativeId);
+    if (!source) throw new CopyTestStop(`The source creative ${spec.sourceCreativeId} can't be read`);
+    const plans = existing.map((row) => {
+      const ad = spec.ads.find((a) => a.label === row.label);
+      if (!ad || ad.kind !== "copy") throw new CopyTestStop(`${spec.campaignName} has no copy line ${row.label}`);
+      const payload = copyTestCreativePayload(source, { name: ad.adName, message: ad.message });
+      assertPromoterIdentity(spec.eventCode, payload, spec.identities);
+      return { row, ad, payload };
+    });
+    let writes = 0;
+    const once = (opKind: Parameters<typeof withMetaWriteIdempotency>[1], key: unknown, run: () => Promise<string>) =>
+      withMetaWriteIdempotency(ledger, opKind, key, async () => {
+        writes += 1;
+        return run();
+      }, { required: true });
+    const out: RepointResult["ads"] = [];
+    for (const { row, ad, payload } of plans) {
+      const live = await meta.readAd!(row.adId);
+      if (!live) throw new CopyTestStop(`Ad ${row.adId} can't be read`);
+      if (live.creativeId) {
+        const current = await meta.readCreative(live.creativeId);
+        const onPromoter = current ? spec.identities.some((id) => id.pageId === creativeIdentity(current).pageId && id.instagramId === creativeIdentity(current).instagramId) : false;
+        const message = (((current?.object_story_spec as Json | undefined)?.video_data as Json | undefined)?.message ?? ((current?.asset_feed_spec as Json | undefined)?.bodies as Json[] | undefined)?.[0]?.text) as string | undefined;
+        if (onPromoter && message === ad.message && live.name === ad.adName) {
+          out.push({ label: row.label, adId: row.adId, creativeId: live.creativeId, action: "already" });
+          continue;
+        }
+      }
+      const creativeId = await once("creative_upload", { test: spec.campaignName, creative: row.label, source_creative_id: spec.sourceCreativeId }, () => meta.createCreative(spec.adAccountId, payload));
+      try {
+        writes += 1;
+        await meta.updateAd!(row.adId, { creative: { creative_id: creativeId }, name: ad.adName });
+        await record.ad({ metaAdId: row.adId, metaCreativeId: creativeId, metaAdsetId: live.adsetId, metaCampaignId: live.campaignId, adName: ad.adName, creative: payload });
+        out.push({ label: row.label, adId: row.adId, creativeId, action: "repointed" });
+      } catch (refused) {
+        await once("ad_status_update", { test: spec.campaignName, ad_id: row.adId, status: "ARCHIVED" }, async () => {
+          await meta.archiveAd!(row.adId);
+          return row.adId;
+        });
+        const adPayload = { name: ad.adName, adset_id: live.adsetId, creative: { creative_id: creativeId }, status: "PAUSED" };
+        const newAdId = await once("ad_create", { test: spec.campaignName, ad: row.label, replaces: row.adId }, () => meta.createAd(spec.adAccountId, adPayload));
+        await record.ad({ metaAdId: newAdId, metaCreativeId: creativeId, metaAdsetId: live.adsetId, metaCampaignId: live.campaignId, adName: ad.adName, creative: payload });
+        await record.archivedAd?.({ metaAdId: row.adId, replacedBy: newAdId });
+        out.push({ label: row.label, adId: newAdId, creativeId, action: "replaced", archivedAdId: row.adId });
+        console.warn(`[copy-test] ${row.adId} couldn't take the new creative (${refused instanceof Error ? refused.message : String(refused)}); archived and replaced by ${newAdId}`);
+      }
+    }
+    return { ads: out, writes };
+  } finally {
+    await deps.lock.release();
+  }
+}
+

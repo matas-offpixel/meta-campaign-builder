@@ -12,8 +12,11 @@ import {
   copyTestLockFilter,
   copyTestName,
   copyTestWriteCount,
+  assertPromoterIdentity,
   createCopyTest,
   CopyTestStop,
+  promoterIdentities,
+  repointCopyTestAds,
   type CopyTestMeta,
   type CopyTestSpec,
 } from "../copy-test-campaign.ts";
@@ -40,8 +43,8 @@ const SOURCE_ADSET = {
 const VIDEO_CREATIVE = {
   name: "Newcastle! Excited to be back soon.",
   object_story_spec: {
-    page_id: "640971025955376",
-    instagram_user_id: "17841400928229769",
+    page_id: "259905047197071",
+    instagram_user_id: "17841460869627228",
     video_data: { video_id: "3327294087471844", message: "Newcastle! Excited to be back soon.", image_url: "https://example.test/thumb", image_hash: "e557", call_to_action: { type: "BOOK_NOW", value: { link: "https://www.locklead-newcastle.com/?ref=meta" } } },
   },
   degrees_of_freedom_spec: { creative_features_spec: { inline_comment: { enroll_status: "OPT_IN" } } },
@@ -113,8 +116,8 @@ describe("the creatives: only the primary text changes", () => {
   it("video: same video, thumbnail hash, button, link, page and Instagram account", () => {
     const p = copyTestCreativePayload(VIDEO_CREATIVE, { name: "[AB-A] Artist - UGC 3", message: "A line\nTickets on sale now." });
     const oss = p.object_story_spec as Record<string, Record<string, unknown>>;
-    assert.equal(oss.page_id as unknown, "640971025955376");
-    assert.equal(oss.instagram_user_id as unknown, "17841400928229769");
+    assert.equal(oss.page_id as unknown, "259905047197071");
+    assert.equal(oss.instagram_user_id as unknown, "17841460869627228");
     assert.equal(oss.video_data.video_id, "3327294087471844");
     assert.equal(oss.video_data.image_hash, "e557");
     assert.equal("image_url" in oss.video_data, false);
@@ -175,6 +178,7 @@ const SPEC: CopyTestSpec = {
   dailyMinor: 76,
   sourceAdSetId: "120252309614100755",
   sourceCreativeId: "1112160641684081",
+  identities: [{ pageId: "259905047197071", instagramId: "17841460869627228" }],
   ads: [
     { kind: "copy", label: "A", adName: "[AB-A] Artist - UGC 3", message: "A\nTickets on sale now." },
     { kind: "copy", label: "B", adName: "[AB-B] Artist - UGC 3", message: "B\nTickets on sale now." },
@@ -287,3 +291,94 @@ describe("createCopyTest", () => {
     assert.equal(copyTestLockFilter("2026-11-17T11:40:00.000Z"), 'draft_json->copyTestRun.is.null,draft_json->copyTestRun->>at.lt."2026-11-17T11:40:00.000Z"');
   });
 });
+
+const NX_LOVES = { pageId: "259905047197071", instagramId: "17841460869627228" };
+const LOCKLEAD_ARTIST = { page_id: "640971025955376", instagram_user_id: "17841400928229769" };
+
+describe("the promoter identity guard", () => {
+  const pages = [
+    { id: "259905047197071", category: "Live music venue", linkedInstagramId: "17841460869627228" },
+    { id: "640971025955376", category: "Musician/band", linkedInstagramId: "17841400928229769" },
+    { id: "103824529223927", category: "Event", linkedInstagramId: "17841456620568454" },
+    { id: "454884974621000", category: "Artist", linkedInstagramId: "17841402061405557" },
+  ];
+  it("from data: the show's non-artist pages with their own Instagram; artist pages and an unpromotable client page left out", () => {
+    const ids = promoterIdentities({ clientPageIds: ["103824529223927"], promotablePageIds: ["259905047197071", "640971025955376"], showAdPageIds: ["640971025955376", "259905047197071"], pages });
+    assert.deepEqual(ids, [NX_LOVES]);
+  });
+  it("a show with only artist ads and a wrong client record has no list (Robbie Doherty, Kream)", () => {
+    assert.deepEqual(promoterIdentities({ clientPageIds: ["103824529223927"], promotablePageIds: ["454884974621000"], showAdPageIds: ["454884974621000"], pages }), []);
+  });
+  it("the client's page counts when it is promotable on the account", () => {
+    assert.deepEqual(promoterIdentities({ clientPageIds: ["103824529223927"], promotablePageIds: ["103824529223927"], showAdPageIds: [], pages }), [{ pageId: "103824529223927", instagramId: "17841456620568454" }]);
+  });
+  it("an artist page fails", () => {
+    const payload = copyTestCreativePayload({ ...VIDEO_CREATIVE, object_story_spec: { ...VIDEO_CREATIVE.object_story_spec, ...LOCKLEAD_ARTIST } }, { name: "[AB-A] Artist - UGC 3", message: "A" });
+    assert.throws(() => assertPromoterIdentity("NX26-LOCKLEAD", payload, [NX_LOVES]), (err: unknown) => err instanceof CopyTestStop && /page 640971025955376 \/ Instagram 17841400928229769, which isn't NX26-LOCKLEAD's promoter or venue page/.test(err.message));
+  });
+  it("the promoter page with an artist's Instagram fails (DOD's dj_dod)", () => {
+    const payload = copyTestCreativePayload({ ...VIDEO_CREATIVE, object_story_spec: { ...VIDEO_CREATIVE.object_story_spec, instagram_user_id: "17841400834660844" } }, { name: "n", message: "A" });
+    assert.throws(() => assertPromoterIdentity("NX26-DOD", payload, [NX_LOVES]), CopyTestStop);
+  });
+  it("no list: refused", () => {
+    assert.throws(() => assertPromoterIdentity("NX26-ROBBIEDOHERTY", copyTestCreativePayload(VIDEO_CREATIVE, { name: "n", message: "A" }), []), /has no promoter or venue page on record/);
+  });
+  it("createCopyTest from an artist creative: nothing is made", async () => {
+    const { meta, calls } = fakeMeta({ readCreative: async () => ({ ...VIDEO_CREATIVE, object_story_spec: { ...VIDEO_CREATIVE.object_story_spec, ...LOCKLEAD_ARTIST } }) });
+    await assert.rejects(createCopyTest(setup().deps(meta), SPEC), CopyTestStop);
+    assert.deepEqual(calls, []);
+  });
+});
+
+describe("repointCopyTestAds", () => {
+  const ARTIST_CREATIVE = { ...VIDEO_CREATIVE, object_story_spec: { ...VIDEO_CREATIVE.object_story_spec, ...LOCKLEAD_ARTIST } };
+  function repointMeta(over: Partial<CopyTestMeta> = {}) {
+    const base = fakeMeta();
+    const creatives: Record<string, Record<string, unknown>> = { old: ARTIST_CREATIVE };
+    const ads: Record<string, { name: string; creativeId: string }> = { adA: { name: "[AB-A] Artist - UGC 3", creativeId: "old" }, adB: { name: "[AB-B] Artist - UGC 3", creativeId: "old" } };
+    const meta: CopyTestMeta = {
+      ...base.meta,
+      readCreative: async (id) => creatives[id] ?? VIDEO_CREATIVE,
+      createCreative: async (_a, p) => { base.calls.push(`creative ${p.name}`); const id = `cr${base.calls.length}`; creatives[id] = p; return id; },
+      readAd: async (id) => (ads[id] ? { id, name: ads[id].name, adsetId: "set1", campaignId: "cmp1", status: "PAUSED", creativeId: ads[id].creativeId } : null),
+      updateAd: async (id, f) => { base.calls.push(`update ${id} ${f.name}`); ads[id] = { name: f.name, creativeId: f.creative.creative_id }; },
+      archiveAd: async (id) => void base.calls.push(`archive ${id}`),
+      ...over,
+    };
+    return { meta, calls: base.calls };
+  }
+  const REPOINT: CopyTestSpec = { ...SPEC, sourceCreativeId: "promo", ads: [{ kind: "copy", label: "A", adName: "[AB-A] Promo Vid", message: "A\nTickets on sale now." }, { kind: "copy", label: "B", adName: "[AB-B] Promo Vid", message: "B\nTickets on sale now." }] };
+  const EXISTING = [{ label: "A", adId: "adA" }, { label: "B", adId: "adB" }];
+
+  it("per ad: a promoter creative, then the ad swapped onto it with its new name; no status write; 4 writes", async () => {
+    const { meta, calls } = repointMeta();
+    const out = await repointCopyTestAds(setup().deps(meta), REPOINT, EXISTING);
+    assert.deepEqual(calls, ["creative [AB-A] Promo Vid", "update adA [AB-A] Promo Vid", "creative [AB-B] Promo Vid", "update adB [AB-B] Promo Vid"]);
+    assert.deepEqual(out.ads.map((a) => a.action), ["repointed", "repointed"]);
+    assert.equal(out.writes, 4);
+  });
+  it("a rerun leaves the swapped ads alone and sends nothing", async () => {
+    const { meta, calls } = repointMeta();
+    const s = setup();
+    await repointCopyTestAds(s.deps(meta), REPOINT, EXISTING);
+    calls.length = 0;
+    const again = await repointCopyTestAds(s.deps(meta), REPOINT, EXISTING);
+    assert.deepEqual(calls, []);
+    assert.deepEqual(again.ads.map((a) => a.action), ["already", "already"]);
+  });
+  it("Meta refuses the swap: the old ad is archived (never deleted) and a new paused ad made in the same ad set", async () => {
+    const archived: string[] = [];
+    const { meta, calls } = repointMeta({ updateAd: async () => { throw new Error("Can't change the page of an existing ad"); } });
+    const s = setup();
+    const out = await repointCopyTestAds({ ...s.deps(meta), record: { adSet: async () => {}, ad: async () => {}, archivedAd: async (r) => void archived.push(`${r.metaAdId}->${r.replacedBy}`) } }, REPOINT, EXISTING);
+    assert.deepEqual(calls.filter((c) => c.startsWith("archive") || c.startsWith("ad ")), ["archive adA", "ad PAUSED set1", "archive adB", "ad PAUSED set1"]);
+    assert.deepEqual(out.ads.map((a) => [a.action, a.archivedAdId]), [["replaced", "adA"], ["replaced", "adB"]]);
+    assert.equal(archived.length, 2);
+  });
+  it("an artist source: nothing is sent", async () => {
+    const { meta, calls } = repointMeta({ readCreative: async () => ARTIST_CREATIVE });
+    await assert.rejects(repointCopyTestAds(setup().deps(meta), REPOINT, EXISTING), CopyTestStop);
+    assert.deepEqual(calls, []);
+  });
+});
+
