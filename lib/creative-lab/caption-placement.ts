@@ -53,7 +53,20 @@ function sameTime(a: number | null, b: number | null): boolean {
   return Math.abs(a - b) < 0.05;
 }
 
-/** Ready samples match this crop and window. A crop or window change is stale. A stored error stays failed until it is cleared. */
+/**
+ * The detector failed to load (a fault in the deploy, not in the clip): the
+ * bundler's stub for an import it could not analyse, or a missing module.
+ * Production stored these on every clip until 17 Nov 2026 (face-detect.ts).
+ */
+export function isDetectorLoadError(error: string | undefined): boolean {
+  return /cannot find module|too dynamic|module_not_found/i.test(error ?? "");
+}
+
+/**
+ * Ready samples match this crop and window. A crop or window change is stale.
+ * A stored detection error stays failed until it is cleared; a detector that
+ * failed to load is tried again (checking), since the clip was never looked at.
+ */
 export function faceSampleState(
   stored: StoredFaceSamples | null,
   clip: { cropFocusX: number; cropFocusY: number; inS: number | null; outS: number | null },
@@ -65,6 +78,7 @@ export function faceSampleState(
     && sameTime(stored.inS, clip.inS)
     && sameTime(stored.outS, clip.outS);
   if (!same) return "checking";
+  if (stored.error && isDetectorLoadError(stored.error)) return "checking";
   if (stored.error || !stored.samples?.length) return "failed";
   return "ready";
 }

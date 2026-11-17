@@ -5,6 +5,7 @@ import { describe, it } from "node:test";
 
 import sharp from "sharp";
 
+import { faceSampleState, isDetectorLoadError } from "../caption-placement.ts";
 import { detectFaces, FACE_API_MAIN, faceApiMain } from "../face-detect.ts";
 
 const SOURCE = readFileSync(new URL("../face-detect.ts", import.meta.url), "utf8")
@@ -33,5 +34,20 @@ describe("face-detect.ts loads face-api the way the production bundle can", () =
     const blank = await sharp({ create: { width: 64, height: 64, channels: 3, background: "#808080" } }).png().toBuffer();
     const faces = await detectFaces(blank);
     assert.deepEqual(faces, []);
+  });
+});
+
+describe("a detector that failed to load is tried again (faceSampleState)", () => {
+  const clip = { cropFocusX: 0.5, cropFocusY: 0.5, inS: 0, outS: 30 };
+  const stored = (extra: Record<string, unknown>) => ({ detector: "ssd_mobilenet_v1", fps: 5 as const, cropFocusX: 0.5, cropFocusY: 0.5, inS: 0, outS: 30, ...extra });
+
+  it("reads production's stored bundler error (17 Nov 2026) as checking, so the render tick re-detects", () => {
+    assert.equal(faceSampleState(stored({ error: "Cannot find module as expression is too dynamic" }), clip), "checking");
+    assert.equal(isDetectorLoadError("Cannot find module '@vladmandic/face-api'"), true);
+  });
+
+  it("keeps a real detection failure failed, and good samples ready", () => {
+    assert.equal(faceSampleState(stored({ error: "ffmpeg exited with code 1" }), clip), "failed");
+    assert.equal(faceSampleState(stored({ samples: [{ t: 0, faces: [] }] }), clip), "ready");
   });
 });
