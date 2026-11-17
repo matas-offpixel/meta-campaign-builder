@@ -93,6 +93,8 @@ export async function runRenderTick(
     now?: Date;
     archivedEventIds?: ReadonlySet<string>;
     render?: (renderId: string, userId: string) => Promise<void>;
+    /** The face check (ensureClipFaces). Tests inject it; with `render` injected and no `detect`, none runs. */
+    detect?: (db: ServiceRoleDb, clipId: string) => Promise<"ready" | "failed">;
     remotionEnabled?: boolean;
     maxAtOnce?: number;
   } = {},
@@ -127,13 +129,12 @@ export async function runRenderTick(
   const queued = (queuedRes.data ?? []) as Row[];
   const readiness = await clipReadiness(db, queued);
   const pending = [...readiness.entries()].find(([, state]) => state === "checking");
-  if (pending && !opts.render) {
+  const detect = opts.detect ?? (opts.render ? null : async (d: ServiceRoleDb, id: string) => (await import("./caption-place-run.ts")).ensureClipFaces(d, id));
+  if (pending && detect) {
     // At most one face check at a time, never two on one clip (face-check-lock.ts).
     const claim = await claimFaceCheck(db, pending[0], now);
     if (claim.ok) {
-      const { ensureClipFaces } = await import("./caption-place-run.ts");
-      const detected = await ensureClipFaces(db, pending[0]);
-      readiness.set(pending[0], detected);
+      readiness.set(pending[0], await detect(db, pending[0]));
     } else if (claim.reason === "timed_out") {
       readiness.set(pending[0], "failed");
     }
