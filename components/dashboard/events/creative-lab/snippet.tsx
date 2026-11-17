@@ -176,10 +176,10 @@ export function LabSnippet({
       <div className="flex flex-wrap items-center gap-3">
         {view.statics.length ? (
           <details className="relative">
-            <summary className="cursor-pointer list-none rounded border border-border-strong bg-background px-3 py-1.5 text-sm">{chosenStatic?.label ?? view.statics[0]!.label}</summary>
+            <summary style={FILE_NAME_STYLE} className="cursor-pointer list-none rounded border border-border-strong bg-background px-3 py-1.5 text-sm">{chosenStatic?.label ?? view.statics[0]!.label}</summary>
             <div className="absolute z-10 mt-1 max-h-64 w-[min(28rem,calc(100vw-2rem))] overflow-auto rounded border border-border bg-card p-1 shadow">
               {view.statics.map((s) => (
-                <button key={s.driveFileId} type="button" className="block w-full truncate rounded px-2 py-1 text-left text-sm hover:bg-background" onClick={() => setStaticId(s.driveFileId)}>
+                <button key={s.driveFileId} type="button" style={FILE_NAME_STYLE} className="block w-full truncate rounded px-2 py-1 text-left text-sm hover:bg-background" onClick={() => setStaticId(s.driveFileId)}>
                   {s.label}
                 </button>
               ))}
@@ -220,11 +220,11 @@ function PickerLine({ row, picked, open, extra = false, onToggle, onOpen, onEdit
       />
       <span className="font-mono text-xs text-muted-foreground">{n}</span>
       <div className="min-w-0">
-        <button type="button" onClick={onOpen} disabled={!file} className="block max-w-full truncate text-left text-sm disabled:cursor-default">
+        <button type="button" onClick={onOpen} disabled={!file} style={FILE_NAME_STYLE} className="block max-w-full truncate text-left text-sm disabled:cursor-default">
           {extra ? <span className="font-mono text-xs">{title}</span> : title}
         </button>
         {row.empty ? <p className="text-[11.5px] text-muted-foreground">{row.empty}</p> : null}
-        {file?.note ? <p className={`text-[11.5px] ${file.noteTone === "plain" ? "text-muted-foreground" : "text-destructive"}`}>{file.note}</p> : null}
+        {file?.note ? <p style={FILE_NAME_STYLE} className={`text-[11.5px] ${file.noteTone === "plain" ? "text-muted-foreground" : "text-destructive"}`}>{file.note}</p> : null}
       </div>
       <div className="col-start-3 flex flex-wrap items-center justify-start gap-2 empty:hidden sm:col-start-auto sm:justify-end">
         {file?.suggestion ? (
@@ -236,6 +236,22 @@ function PickerLine({ row, picked, open, extra = false, onToggle, onOpen, onEdit
       </div>
     </div>
   );
+}
+
+/** A label at a fraction of the track: start-aligned at the left edge, end-aligned at the right, centred between. */
+function labelShift(fraction: number): string {
+  if (fraction < 0.04) return "0%";
+  if (fraction > 0.96) return "-100%";
+  return "-50%";
+}
+
+/** Whole minutes before the end, then the end itself when it is at least 6 % of the track past the last minute. */
+function timeLabels(durationS: number): { s: number; end: boolean }[] {
+  const labels: { s: number; end: boolean }[] = [];
+  for (let s = 0; s < durationS; s += 60) labels.push({ s, end: false });
+  const last = labels[labels.length - 1]?.s ?? 0;
+  if ((durationS - last) / durationS >= 0.06) labels.push({ s: durationS, end: true });
+  return labels;
 }
 
 /** CT4 / CT5: the waveform with the drop marker and the window, the length chips, and the 9:16 preview. */
@@ -251,17 +267,27 @@ export function TrackEditor({ title, file, preview, onEdit }: { title: string; f
     if (!box) return 0;
     return Math.min(duration, Math.max(0, ((clientX - box.left) / box.width) * duration));
   };
-  const ticks = (step: number) => Array.from({ length: Math.floor(duration / step) + 1 }, (_, i) => i * step);
   const line = file.dropSource ? `${file.dropSource} · ${spanText(startS, file.lengthS)}` : null;
 
   return (
     <div className="grid grid-cols-1 gap-4 rounded-lg border border-border bg-background/40 p-3 sm:grid-cols-[minmax(0,1fr)_11.25rem]">
       <div className="min-w-0 space-y-2">
-        <p className="text-sm font-medium">{title}</p>
+        <p style={FILE_NAME_STYLE} className="text-sm font-medium">{title}</p>
         {line ? <p className="text-xs text-muted-foreground">{line}</p> : <p className="text-xs text-destructive">{NO_CLEAR_DROP}</p>}
         <div className="sm:hidden">
           <PreviewPane preview={preview} lengthS={file.lengthS} startS={startS} />
         </div>
+        {dropS != null ? (
+          // Design, 17 Nov: the drop label sits above the marker line, not loose under the waveform.
+          <div className="relative h-4">
+            <span
+              className="absolute bottom-0 whitespace-nowrap font-mono text-[10px] uppercase tracking-[0.12em] text-destructive"
+              style={{ left: `${(dropS / duration) * 100}%`, transform: `translateX(${labelShift(dropS / duration)})` }}
+            >
+              {dropLabel(dropS)}
+            </span>
+          </div>
+        ) : null}
         <svg
           ref={svg}
           viewBox="0 0 1000 120"
@@ -311,12 +337,17 @@ export function TrackEditor({ title, file, preview, onEdit }: { title: string; f
             </g>
           ) : null}
         </svg>
-        {dropS != null ? <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-destructive">{dropLabel(dropS)}</p> : null}
-        <div className="flex justify-between font-mono text-[10px] text-muted-foreground max-sm:hidden">
-          {ticks(60).map((t) => <span key={t}>{mmss(t)}</span>)}
-        </div>
-        <div className="flex justify-between font-mono text-[10px] text-muted-foreground sm:hidden">
-          {[0, Math.floor(duration / 2 / 30) * 30, Math.floor(duration / 30) * 30].map((t, i) => <span key={i}>{mmss(t)}</span>)}
+        {/* Design, 17 Nov: each minute label at its real time on the track; the end label is the track's length, or nothing when it would crowd the last minute. */}
+        <div className="relative h-3.5 font-mono text-[10px] text-muted-foreground">
+          {timeLabels(duration).map((label) => (
+            <span
+              key={label.s}
+              className={`absolute top-0 whitespace-nowrap ${label.end ? "max-sm:hidden" : ""}`}
+              style={{ left: `${(label.s / duration) * 100}%`, transform: `translateX(${label.end ? "-100%" : labelShift(label.s / duration)})` }}
+            >
+              {mmss(label.s)}
+            </span>
+          ))}
         </div>
         <div className="flex flex-wrap gap-1.5" role="group" aria-label="Length">
           {LENGTHS.map((len, i) => (
@@ -378,6 +409,9 @@ function PreviewPane({ preview, lengthS, startS }: { preview: Preview | null; le
   );
 }
 
+/** Design, 17 Nov: file names keep their x — the font's contextual alternates turn "9x16" into "9×16". */
+const FILE_NAME_STYLE = { fontFeatureSettings: '"calt" 0' } as const;
+
 const RENDER_STATUS: Record<string, string> = { queued: "Queued", rendering: "Rendering", done: "Ready", failed: "Failed" };
 
 function SnippetRenders({ renders, onAction }: { renders: RenderView[]; onAction: (action: "approve" | "retryDrive" | "retryRender", id: string) => void }) {
@@ -386,8 +420,8 @@ function SnippetRenders({ renders, onAction }: { renders: RenderView[]; onAction
       {renders.map((r) => (
         <div key={r.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 border-t border-border py-1.5">
           <div className="min-w-0">
-            <p className="truncate text-sm">{r.tag ?? r.fileName}</p>
-            {r.tag && r.fileName ? <p className="truncate font-mono text-[11px] text-muted-foreground">{r.fileName}</p> : null}
+            <p style={FILE_NAME_STYLE} className="truncate text-sm">{r.tag ?? r.fileName}</p>
+            {r.tag && r.fileName ? <p style={FILE_NAME_STYLE} className="truncate font-mono text-[11px] text-muted-foreground">{r.fileName}</p> : null}
             {r.note ? <p className="text-[11.5px] text-muted-foreground">{r.note}</p> : null}
           </div>
           <div className="flex items-center gap-2 text-xs">
