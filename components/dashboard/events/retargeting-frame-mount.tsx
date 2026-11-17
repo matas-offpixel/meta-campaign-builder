@@ -18,7 +18,7 @@ export function RetargetingFrameMount({ id }: { id: string }) {
     return (
       <main data-frame-ready="retargeting/RB" className="min-h-screen bg-background p-4 text-foreground sm:p-8">
         <div className="mx-auto max-w-[72rem]">
-          <RetargetingPanelView view={view} line={rbLine(view)} clientId="xmpl-client" mode="shadow" />
+          <RetargetingPanelView view={view} line={rbLine(view)} clientId="xmpl-client" eventId="xmpl-roof" mode="shadow" />
         </div>
       </main>
     );

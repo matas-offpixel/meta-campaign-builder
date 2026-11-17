@@ -130,6 +130,11 @@ export function audiencesNarrow(lines: readonly string[]): string {
 /** RT3: before the campaign runs, the figure columns read "—". */
 export const NO_FIGURE = "—";
 
+/** RT3 (revised 17 Nov): before Apply the tier's audiences don't exist, so Meta has no estimate. Never "—" or another figure. */
+export const POOL_BEFORE_CREATE = "Known after create";
+/** RT10's card form. */
+export const POOL_BEFORE_CREATE_NARROW = "Pool known after create";
+
 // ── RT4 ──────────────────────────────────────────────────────────────────────
 
 /** RT4: "No spend in the last 7 days to size a budget from." */
@@ -199,8 +204,8 @@ export function pagesNoRoleNarrow(names: readonly string[]): string {
 
 export const MID_NOT_BUILT = "Mid has no audience yet: no page with a role and no video views.";
 
-export const NO_TICKETING = "No ticketing connection, so buyers aren't left out and will keep seeing these ads.";
-export const CONNECT_TICKETING = "Connect ticketing";
+/** RT8 (revised 17 Nov): the same line whether or not the client has a ticketing connection, which doesn't supply buyers yet. */
+export const NO_BUYERS_LIST = "No buyers list yet, so buyers aren't left out and will keep seeing these ads.";
 export const UPLOAD_BUYERS = "Upload a buyers list";
 
 /** RT8: "Buyers list uploaded {d Mon} · {n} days old", and from 7 days "…: upload it again so new buyers drop out". */

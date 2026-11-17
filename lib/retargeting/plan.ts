@@ -31,7 +31,6 @@ import {
   audiencesNarrow,
   audiencesShort,
   buyersListAge,
-  CONNECT_TICKETING,
   CREATE_WRITE,
   createLine,
   createSplit,
@@ -44,7 +43,7 @@ import {
   NO_PIXEL,
   NO_SIGNUP_LIST,
   NO_SPEND,
-  NO_TICKETING,
+  NO_BUYERS_LIST,
   NOT_READ,
   noMoney,
   overCap,
@@ -65,7 +64,8 @@ import {
 export type RetargetingState = "before_onsale" | "no_pixel" | "sells_elsewhere" | "not_read" | "no_signal" | "no_spend" | "proposed" | "running";
 
 /** An RT8 line: the sentence (and its 393 form) with its actions. */
-export type MissingLine = { text: string; narrow: string; actions: { label: string; href: "client" | "ticketing" }[] };
+/** An RT8 action opens the client page's customer-audience wizard with this role and this show chosen. */
+export type MissingLine = { text: string; narrow: string; actions: { label: string; role: "signups" | "buyers" }[] };
 
 export type TierRow = {
   tier: Tier;
@@ -146,7 +146,6 @@ export type RetargetingInput = {
   /** The ad account's min_daily_budget, minor units; null when not read. */
   minDailyMinor: number | null;
   sources: SourceSet;
-  ticketingLinked: boolean;
   /** The show's `{code} · Retargeting` campaign, whatever its status; null when it has none. */
   existing: { campaignId: string | null; since: string | null; totalMinor: number | null; share: number | null; tiers?: Partial<Record<Tier, number>> } | null;
   /** Delivering ad sets with "retarget" in their name, per campaign of the show (not this one). */
@@ -223,7 +222,7 @@ function daysBetween(from: string, to: string): number {
 }
 
 /** RT2 / RT8: the tier rows for these budgets, with their missing lines. */
-export function tierRows(input: Pick<RetargetingInput, "sources" | "ticketingLinked">, budgets: Record<Tier, number>): { rows: TierRow[]; notes: MissingLine[] } {
+export function tierRows(input: Pick<RetargetingInput, "sources"> & { today?: string }, budgets: Record<Tier, number>): { rows: TierRow[]; notes: MissingLine[] } {
   const sources = input.sources;
   const specs = tierSpecs(sources);
   const buyers = sources.lists.some((list) => list.role === "buyers");
@@ -237,7 +236,7 @@ export function tierRows(input: Pick<RetargetingInput, "sources" | "ticketingLin
   for (const tier of TIERS) {
     const spec = specs.find((row) => row.tier === tier);
     const missing: MissingLine[] = [];
-    if (tier === "bottom" && !signupLists) missing.push({ text: NO_SIGNUP_LIST, narrow: NO_SIGNUP_LIST, actions: [{ label: UPLOAD_SIGNUP_LIST, href: "client" }] });
+    if (tier === "bottom" && !signupLists) missing.push({ text: NO_SIGNUP_LIST, narrow: NO_SIGNUP_LIST, actions: [{ label: UPLOAD_SIGNUP_LIST, role: "signups" }] });
     if (tier === "mid" && noRole.length) {
       const names = noRole.map((page) => page.name);
       missing.push({ text: pagesNoRole(names), narrow: pagesNoRoleNarrow(names), actions: [] });
@@ -263,11 +262,13 @@ export function tierRows(input: Pick<RetargetingInput, "sources" | "ticketingLin
   const buyerLists = sources.lists.filter((list) => list.role === "buyers").sort((a, b) => (a.uploadedAt < b.uploadedAt ? 1 : -1));
   if (buyerLists.length) {
     const latest = buyerLists[0]!.uploadedAt.slice(0, 10);
-    const age = Math.max(0, daysBetween(latest, (input as { today?: string }).today ?? latest));
+    const age = Math.max(0, daysBetween(latest, input.today ?? latest));
     const text = buyersListAge(latest, age);
-    notes.push({ text, narrow: text, actions: age >= 7 ? [{ label: UPLOAD_BUYERS, href: "client" }] : [] });
-  } else if (!input.ticketingLinked) {
-    notes.push({ text: NO_TICKETING, narrow: NO_TICKETING, actions: [{ label: CONNECT_TICKETING, href: "ticketing" }, { label: UPLOAD_BUYERS, href: "client" }] });
+    // RT8: the two hand-uploaded list lines, as the record writes them.
+    notes.push({ text, narrow: text, actions: [] });
+  } else {
+    // RT8 (revised 17 Nov): one line whether or not ticketing is connected, and no ticketing action until Matas rules.
+    notes.push({ text: NO_BUYERS_LIST, narrow: NO_BUYERS_LIST, actions: [{ label: UPLOAD_BUYERS, role: "buyers" }] });
   }
   return { rows, notes };
 }
@@ -306,7 +307,7 @@ export function planRetargeting(input: RetargetingInput): RetargetingPlan {
   // The show already has the campaign: it runs (PR B reads its tiers).
   if (input.existing) {
     const tiers = { bottom: input.existing.tiers?.bottom ?? 0, mid_bottom: input.existing.tiers?.mid_bottom ?? 0, mid: input.existing.tiers?.mid ?? 0 };
-    const { rows, notes } = tierRows({ ...input, today: input.today ?? input.runDay } as RetargetingInput, tiers);
+    const { rows, notes } = tierRows({ sources: input.sources, today: input.today ?? input.runDay }, tiers);
     const read = input.read;
     const path = read ? signalPath(read) : null;
     const signal = read && (path === "own_domain" || path === "platform") ? { wide: signalLine(path, { pixelName: read.pixelName, domain: read.domain }), narrow: signalNarrow(path, { pixelName: read.pixelName, domain: read.domain }) } : null;
@@ -361,7 +362,7 @@ export function planRetargeting(input: RetargetingInput): RetargetingPlan {
   }
   const defaultShare: Share = RT4.defaultShare;
   const chosen = options.find((option) => option.share === defaultShare)!;
-  const { rows, notes } = tierRows({ ...input, today: input.today ?? input.runDay } as RetargetingInput, chosen.tiers);
+  const { rows, notes } = tierRows({ sources: input.sources, today: input.today ?? input.runDay }, chosen.tiers);
   const legacy = input.legacy.filter((row) => row.adSets > 0).map((row) => legacyAdSets(row.adSets, shortCampaign(row.campaign)));
   const create: CreateCard = { title, defaultShare, options, legacy, writeText: CREATE_WRITE, days };
   const signal = { wide: signalLine(path, { pixelName: read.pixelName, domain: read.domain }), narrow: signalNarrow(path, { pixelName: read.pixelName, domain: read.domain }) };

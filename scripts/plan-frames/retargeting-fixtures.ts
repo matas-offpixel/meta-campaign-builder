@@ -9,8 +9,8 @@
  *     £5.80 × 32 = £185.60, all from plan headroom. One retargeting ad set
  *     already runs in XMPL-ROOF · Tickets. All three missing states: no
  *     signup list, a lineup page with no role (Mira Vale, so 3 of 4 pages)
- *     and no ticketing connection. The pools are the record's: the build
- *     reads them in PR B's daily read, so here they're the fixture's.
+ *     and no buyers list. Before Apply every pool reads "Known after create"
+ *     (RT3, revised 17 Nov).
  * RD: RA's show (XMPL-WHSE) on the on-sale panel: its Registrations
  *     lookalike standing default, and the one note in place of the
  *     per-campaign Retargeting default (RT9). Under it, the not-proposed
@@ -81,7 +81,6 @@ function input(overrides: Partial<RetargetingInput>): RetargetingInput {
       ],
       lists: [],
     },
-    ticketingLinked: false,
     existing: null,
     legacy: [{ campaign: "XMPL-ROOF · Tickets", adSets: 1 }],
     budgetGbp: 4000,
@@ -96,12 +95,9 @@ function input(overrides: Partial<RetargetingInput>): RetargetingInput {
   };
 }
 
-const RB_POOLS = { bottom: "Below 1,000", mid_bottom: "1,600–1,900", mid: "41,000–48,000" } as const;
-
-/** RB: the Create line with all three missing states. */
+/** RB: the Create line with all three missing states, before Apply. */
 export function rbView(): RetargetingView {
-  const plan = planRetargeting(input({}));
-  return { ...plan.view, tiers: plan.view.tiers.map((row) => ({ ...row, pool: RB_POOLS[row.tier] })) };
+  return planRetargeting(input({})).view;
 }
 
 /** RB's stored line, To review, as the daily read writes it. */

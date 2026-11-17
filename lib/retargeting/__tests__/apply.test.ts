@@ -93,7 +93,6 @@ function buildLine() {
       pages: [{ id: "p1", name: "XMPL Promotions", igId: "ig1", kind: "promoter", hasRole: true }],
       lists: [{ metaAudienceId: "buyers1", name: "Buyers", role: "buyers", uploadedAt: "2026-11-16T10:00:00Z" }],
     },
-    ticketingLinked: false,
     existing: null,
     legacy: [],
     budgetGbp: 4000,

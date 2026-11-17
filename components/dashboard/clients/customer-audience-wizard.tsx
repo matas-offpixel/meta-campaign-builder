@@ -59,6 +59,9 @@ export interface CustomerAudienceWizardProps {
   adAccountId: string;
   /** HR2: the client's upcoming shows, for a list's show (its Retargeting campaign reads the list by role). */
   shows?: { id: string; label: string }[];
+  /** HR2 / RT8: a preset from the Retargeting panel's "Upload a buyers list" / "Upload the signup list". */
+  initialRole?: "signups" | "similar" | "buyers";
+  initialShow?: string;
 }
 
 /** HR2 / RT2: a list's role for the show's Retargeting campaign. */
@@ -194,6 +197,8 @@ export function CustomerAudienceWizard({
   clientName,
   adAccountId,
   shows = [],
+  initialRole,
+  initialShow,
 }: CustomerAudienceWizardProps) {
   const backHref = `/clients/${clientId}`;
 
@@ -206,8 +211,8 @@ export function CustomerAudienceWizard({
   const [audienceDescription, setAudienceDescription] = useState("");
   const [retentionDays, setRetentionDays] = useState(180);
   // HR2: both or neither — a role needs its show.
-  const [listRole, setListRole] = useState<string>("");
-  const [listShow, setListShow] = useState<string>("");
+  const [listRole, setListRole] = useState<string>(initialRole ?? "");
+  const [listShow, setListShow] = useState<string>(initialRole && initialShow ? initialShow : "");
   const [existingAudiences, setExistingAudiences] = useState<ExistingAudience[]>([]);
   const [existingLoading, setExistingLoading] = useState(false);
   const [existingError, setExistingError] = useState<string | null>(null);

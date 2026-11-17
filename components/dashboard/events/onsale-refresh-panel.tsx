@@ -911,7 +911,7 @@ export function OnSaleRefreshPanel({ eventId, eventDate }: { eventId: string; ev
         const proposal = panel.proposals.find((row) => row.runKind === "retargeting");
         const line = proposal?.lines.find((row) => row.kind === "retargeting_campaign") ?? null;
         const view = line?.retargeting ?? proposal?.notes.retargetingView ?? panel.retargeting;
-        return view ? <RetargetingPanelView key={line?.id ?? view.state} view={view} line={line} clientId={panel.clientId} apply={panel.apply ?? undefined} actions={actions} /> : null;
+        return view ? <RetargetingPanelView key={line?.id ?? view.state} view={view} line={line} clientId={panel.clientId} eventId={eventId} apply={panel.apply ?? undefined} actions={actions} /> : null;
       })()}
       {/* CT9: the Test plan panel sits under the Refresh panel. It draws nothing for an event with no plan. */}
       <TestPlanPanel eventId={eventId} />

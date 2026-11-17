@@ -146,7 +146,6 @@ export function retargetingInput(args: {
   read: RetargetingInput["read"];
   budgets: PcBudgets | null;
   sources: SourceSet;
-  ticketingLinked: boolean;
   appliedLine: { applied_result: Record<string, unknown> | null; write: Record<string, unknown> | null } | null;
   minDailyMinor: number | null;
 }): RetargetingInput {
@@ -190,7 +189,6 @@ export function retargetingInput(args: {
     last7SpendGbp: Math.round(last7 * 100) / 100,
     minDailyMinor: args.minDailyMinor,
     sources: args.sources,
-    ticketingLinked: args.ticketingLinked,
     existing,
     legacy,
     budgetGbp: event.budget_marketing == null ? null : num(event.budget_marketing),
@@ -274,7 +272,6 @@ export async function runRetargetingRead(input: {
       const code = event.event_code!;
       const hasVideo = rows.some((row) => !isRetargetingCampaignName(row.campaign_name, code) && num(row.video_plays_3s) > 0);
       const sources = sourceSetFor({ event, rows: sourceRows, pixelId: read?.pixel?.id ?? null, roles: roles?.roles ?? null, hasVideo });
-      const ticketingLinked = aux.ticketing.some((row) => row.client_id === event.client_id && (row.status ?? "active") === "active");
       const mine = lines.filter((line) => line.onsale_refresh_proposals?.event_id === event.id);
       const appliedLine = mine.find((line) => (line.applied_result?.retargeting as { campaignId?: string } | undefined)?.campaignId) ?? null;
       const account = inputs.campaigns.find((campaign) => campaign.draft)?.draft?.adAccountId ?? null;
@@ -282,7 +279,7 @@ export async function runRetargetingRead(input: {
         metaCalls += 1;
         minDaily.set(account, await input.graph.graphGet(`/${account}`, { fields: "min_daily_budget" }).then((body) => num((body as { min_daily_budget?: unknown }).min_daily_budget) || null).catch(() => null));
       }
-      const plan = planRetargeting(retargetingInput({ event, day, rows, campaigns: inputs.campaigns, read, budgets: purchases.budgets, sources, ticketingLinked, appliedLine, minDailyMinor: account ? (minDaily.get(account) ?? null) : null }));
+      const plan = planRetargeting(retargetingInput({ event, day, rows, campaigns: inputs.campaigns, read, budgets: purchases.budgets, sources, appliedLine, minDailyMinor: account ? (minDaily.get(account) ?? null) : null }));
       const record: RetargetingRecord = { eventId: event.id, eventCode: event.event_code, plan, proposalId: null };
       if (!dryRun && plan.state !== "no_signal") {
         record.proposalId = await writeRetargetingProposal(input.db, { event, day, plan, mode: applyGates(input.env, arms.get(event.id)).mode, userId: input.userId });

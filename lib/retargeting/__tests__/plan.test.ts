@@ -5,7 +5,10 @@
  * check and the words RT10 keeps off the panel. Pure: no database, no Meta.
  */
 import { strict as assert } from "node:assert";
+import { readdirSync, readFileSync } from "node:fs";
+import path from "node:path";
 import { describe, it } from "node:test";
+import { fileURLToPath } from "node:url";
 
 import { rbView, rdStates } from "../../../scripts/plan-frames/retargeting-fixtures.ts";
 import { midBuildable, RT2, tierSpecs, tiersMatching, urlFragment, type SourceSet } from "../audiences.ts";
@@ -153,11 +156,14 @@ describe("RT1 / RT8: the states and the Create line", () => {
     assert.equal(view.create!.writeText, "New campaign, audiences and ad sets through the Purchase create path · goes in live");
     const [bottom, midBottom, mid] = view.tiers;
     assert.deepEqual(bottom!.audiences, ["Ticket-link visitors · checkout starters · 30 days"]);
-    assert.deepEqual(bottom!.missing.map((line) => [line.text, line.actions.map((a) => a.label)]), [["No signup list yet, so Bottom runs on ticket-link visitors and checkout starters only.", ["Upload the signup list"]]]);
+    assert.deepEqual(bottom!.missing.map((line) => [line.text, line.actions.map((a) => [a.label, a.role])]), [["No signup list yet, so Bottom runs on ticket-link visitors and checkout starters only.", [["Upload the signup list", "signups"]]]]);
     assert.deepEqual([bottom!.leavesOut, midBottom!.leavesOut, mid!.leavesOut], ["", "Bottom", "Mid Bottom · Bottom"]);
     assert.deepEqual(mid!.audiences, ["Video viewers 75 % · 365 days", "Page and Instagram engagers · 180 days · 3 of 4 pages"]);
     assert.deepEqual(mid!.missing.map((line) => [line.text, line.narrow]), [["Mira Vale isn't in Mid: your Facebook user has no role on the page. Granting ADVERTISE on it adds it at the next read.", "Mira Vale: no page role, not in Mid."]]);
-    assert.deepEqual(view.notes.map((line) => [line.text, line.actions.map((a) => a.label)]), [["No ticketing connection, so buyers aren't left out and will keep seeing these ads.", ["Connect ticketing", "Upload a buyers list"]]]);
+    assert.deepEqual(view.notes.map((line) => [line.text, line.actions.map((a) => [a.label, a.role])]), [["No buyers list yet, so buyers aren't left out and will keep seeing these ads.", [["Upload a buyers list", "buyers"]]]]);
+    // RT3 (revised 17 Nov): before Apply no pool is read or carried; the panel says "Known after create".
+    assert.deepEqual(view.tiers.map((row) => row.pool), [null, null, null]);
+    assert.equal(view.state, "proposed");
   });
 
   it("RD 393: the not-proposed states, each replacing the Create line, in the record's words", () => {
@@ -225,9 +231,15 @@ describe("RT9: the check moves from campaign to show", () => {
 
 describe("RT8: buyers lists and their age", () => {
   it("a hand-uploaded list says its age, and from 7 days asks for a new upload", () => {
-    const rows = (uploadedAt: string) => tierRows({ sources: { ...SET, lists: [{ metaAudienceId: "buy", name: "Buyers", role: "buyers", uploadedAt }] }, ticketingLinked: false, today: "2026-11-17" } as never, { bottom: 100, mid_bottom: 100, mid: 100 }).notes.map((line) => line.text);
-    assert.deepEqual(rows("2026-11-13T10:00:00Z"), ["Buyers list uploaded 13 Nov · 4 days old"]);
-    assert.deepEqual(rows("2026-11-07T10:00:00Z"), ["Buyers list uploaded 7 Nov · 10 days old: upload it again so new buyers drop out"]);
+    const rows = (uploadedAt: string) => tierRows({ sources: { ...SET, lists: [{ metaAudienceId: "buy", name: "Buyers", role: "buyers", uploadedAt }] }, today: "2026-11-17" }, { bottom: 100, mid_bottom: 100, mid: 100 }).notes.map((line) => [line.text, line.actions.length]);
+    assert.deepEqual(rows("2026-11-13T10:00:00Z"), [["Buyers list uploaded 13 Nov · 4 days old", 0]]);
+    assert.deepEqual(rows("2026-11-07T10:00:00Z"), [["Buyers list uploaded 7 Nov · 10 days old: upload it again so new buyers drop out", 0]]);
+  });
+
+  it("no Buyers list: one line, ticketing connected or not, and \"buyers\" drops out of Leaves out (Bottom reads \"—\")", () => {
+    const out = tierRows({ sources: { ...SET, lists: [] }, today: "2026-11-17" }, { bottom: 100, mid_bottom: 100, mid: 100 });
+    assert.deepEqual(out.notes.map((line) => line.text), ["No buyers list yet, so buyers aren't left out and will keep seeing these ads."]);
+    assert.deepEqual(out.rows.map((row) => row.leavesOut), ["", "Bottom", "Mid Bottom · Bottom"]);
   });
 });
 
@@ -235,5 +247,25 @@ describe("RT10: words kept off the panel", () => {
   it("no ABO, CBO, IC, LPV, cost per sale, CAPI, Events API, advertiser ID or dataset in any panel string", () => {
     const strings = JSON.stringify([rbView(), rdStates(), planRetargeting]);
     for (const banned of [/\bABO\b/, /\bCBO\b/, /\bIC\b/, /\bLPV\b/, /cost per sale/i, /\bCAPI\b/, /Events API/, /advertiser ID/i, /\bdataset\b/i]) assert.equal(banned.test(strings.replace(/"[a-z_]+":/g, "")), false, String(banned));
+  });
+});
+
+describe("RT8 acceptance (revised 17 Nov): no \"Connect ticketing\" anywhere on the panel", () => {
+  it("the retargeting UI, its words and its fixtures never say it", () => {
+    const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
+    const files = [
+      ...readdirSync(path.join(root, "lib/retargeting")).filter((name) => /\.tsx?$/.test(name)).map((name) => `lib/retargeting/${name}`),
+      "components/dashboard/events/retargeting-panel.tsx",
+      "components/dashboard/events/retargeting-frame-mount.tsx",
+      "scripts/plan-frames/retargeting-fixtures.ts",
+    ];
+    for (const file of files) assert.equal(/connect ticketing/i.test(readFileSync(path.join(root, file), "utf8")), false, file);
+  });
+
+  it("RT3: the panel draws the pool before create in the record's words", () => {
+    assert.equal(words.POOL_BEFORE_CREATE, "Known after create");
+    assert.equal(words.POOL_BEFORE_CREATE_NARROW, "Pool known after create");
+    const panel = readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../components/dashboard/events/retargeting-panel.tsx"), "utf8");
+    assert.match(panel, /created \? figure\(row\.pool\) : POOL_BEFORE_CREATE/);
   });
 });

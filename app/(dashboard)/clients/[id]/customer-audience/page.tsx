@@ -16,10 +16,13 @@ import { CustomerAudienceWizard } from "@/components/dashboard/clients/customer-
 
 interface Props {
   params: Promise<{ id: string }>;
+  /** RT8's actions (the Retargeting panel): `?role=buyers&event={id}` opens the wizard with the role and the show chosen. */
+  searchParams?: Promise<{ role?: string; event?: string }>;
 }
 
-export default async function ClientCustomerAudiencePage({ params }: Props) {
+export default async function ClientCustomerAudiencePage({ params, searchParams }: Props) {
   const { id } = await params;
+  const preset = (await searchParams) ?? {};
 
   const supabase = await createClient();
   const {
@@ -49,6 +52,8 @@ export default async function ClientCustomerAudiencePage({ params }: Props) {
         clientName={client.name ?? ""}
         adAccountId={client.meta_ad_account_id ?? ""}
         shows={shows}
+        initialRole={preset.role === "signups" || preset.role === "similar" || preset.role === "buyers" ? preset.role : undefined}
+        initialShow={preset.event && shows.some((show) => show.id === preset.event) ? preset.event : undefined}
       />
     </main>
   );

@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { REJECT_REASONS, appliesNow, panelText, rejectReasonsFor, stateText, type RejectReason } from "@/lib/onsale-refresh/line-states";
 import type { PanelApply, PanelLine } from "@/lib/onsale-refresh/read";
 import type { MissingLine, RetargetingView, ShareOption, TierRow } from "@/lib/retargeting/plan";
-import { budgetHeader, endsLine, NO_FIGURE, pence, runningLine, tierBudget } from "@/lib/retargeting/words";
+import { budgetHeader, endsLine, NO_FIGURE, pence, POOL_BEFORE_CREATE, POOL_BEFORE_CREATE_NARROW, runningLine, tierBudget } from "@/lib/retargeting/words";
 
 /**
  * The Retargeting panel (docs/design-record/2026-11-17-retargeting-campaign.html,
@@ -28,15 +28,21 @@ export type RetargetingActions = {
 
 const k = panelText;
 
-function Missing({ line, clientId, narrow = false }: { line: MissingLine; clientId: string | null; narrow?: boolean }) {
-  const href = (target: "client" | "ticketing") => (clientId ? (target === "client" ? `/clients/${clientId}/customer-audience` : `/clients/${clientId}`) : "#");
+/** RT8's actions open the client page's customer-audience wizard with the role and this show chosen. */
+export function wizardHref(clientId: string | null, eventId: string | null, role: "signups" | "buyers"): string {
+  if (!clientId) return "#";
+  const query = new URLSearchParams({ role, ...(eventId ? { event: eventId } : {}) });
+  return `/clients/${clientId}/customer-audience?${query.toString()}`;
+}
+
+function Missing({ line, clientId, eventId, narrow = false }: { line: MissingLine; clientId: string | null; eventId: string | null; narrow?: boolean }) {
   return (
     <p className="mt-0.5 text-xs text-destructive" data-missing>
       {k(narrow ? line.narrow : line.text)}
       {line.actions.map((action, index) => (
         <span key={action.label}>
           {index === 0 ? " " : " · "}
-          <Link href={href(action.href)} className="underline underline-offset-2">
+          <Link href={wizardHref(clientId, eventId, action.role)} className="underline underline-offset-2">
             {action.label}
           </Link>
         </span>
@@ -47,7 +53,7 @@ function Missing({ line, clientId, narrow = false }: { line: MissingLine; client
 
 const figure = (value: string | number | null, format?: (v: number) => string) => (value == null ? NO_FIGURE : typeof value === "number" ? (format ? format(value) : String(value)) : value);
 
-function TierTable({ rows, budgets, clientId }: { rows: TierRow[]; budgets: (row: TierRow) => number; clientId: string | null }) {
+function TierTable({ rows, budgets, clientId, eventId, created }: { rows: TierRow[]; budgets: (row: TierRow) => number; clientId: string | null; eventId: string | null; created: boolean }) {
   return (
     <table className="mt-3 hidden w-full table-fixed border-collapse text-xs sm:table" data-tiers>
       <colgroup>
@@ -81,10 +87,10 @@ function TierTable({ rows, budgets, clientId }: { rows: TierRow[]; budgets: (row
                 <p key={line}>{k(line)}</p>
               ))}
               {row.missing.map((line) => (
-                <Missing key={line.text} line={line} clientId={clientId} />
+                <Missing key={line.text} line={line} clientId={clientId} eventId={eventId} />
               ))}
             </td>
-            <td className="py-2 pr-2 tabular-nums">{figure(row.pool)}</td>
+            <td className="py-2 pr-2 tabular-nums" data-pool>{created ? figure(row.pool) : POOL_BEFORE_CREATE}</td>
             <td className={`py-2 pr-2 tabular-nums ${row.frequency != null && row.frequency >= 4 ? "text-destructive" : ""}`}>{figure(row.frequency, (v) => v.toFixed(1))}</td>
             <td className="py-2 pr-2">{row.leavesOut || NO_FIGURE}</td>
             <td className="py-2 pr-2 tabular-nums">{k(tierBudget(budgets(row)))}</td>
@@ -97,12 +103,12 @@ function TierTable({ rows, budgets, clientId }: { rows: TierRow[]; budgets: (row
   );
 }
 
-function TierCards({ rows, budgets, clientId }: { rows: TierRow[]; budgets: (row: TierRow) => number; clientId: string | null }) {
+function TierCards({ rows, budgets, clientId, eventId, created }: { rows: TierRow[]; budgets: (row: TierRow) => number; clientId: string | null; eventId: string | null; created: boolean }) {
   return (
     <ul className="mt-3 space-y-2 sm:hidden" data-tier-cards>
       {rows.map((row) => {
         const running = row.cost != null || row.frequency != null;
-        const pool = `Pool ${row.pool == null ? NO_FIGURE : row.pool.replace(/^Below/, "below")}`;
+        const pool = created ? `Pool ${row.pool == null ? NO_FIGURE : row.pool.replace(/^Below/, "below")}` : POOL_BEFORE_CREATE_NARROW;
         return (
           <li key={row.tier} className="rounded border border-border/70 p-3 text-xs" data-tier={row.tier}>
             <p className="flex items-baseline justify-between gap-2">
@@ -120,7 +126,7 @@ function TierCards({ rows, budgets, clientId }: { rows: TierRow[]; budgets: (row
             )}
             {row.audiencesNarrow ? <p className="mt-0.5 text-muted-foreground">{k(row.audiencesNarrow)}</p> : null}
             {row.missing.map((line) => (
-              <Missing key={line.text} line={line} clientId={clientId} narrow />
+              <Missing key={line.text} line={line} clientId={clientId} eventId={eventId} narrow />
             ))}
           </li>
         );
@@ -161,8 +167,8 @@ function CreateCard({ view, line, shadow, apply, actions, share, setShare }: { v
   const lineText = option.line.replace(`${budgetHeader(option.totalMinor, share)} · `, "");
   return (
     <div className="mt-2 rounded border border-border/70 p-3" data-create data-line-state={state}>
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:gap-4">
-        <div className="min-w-0">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+        <div className="min-w-0 flex-1">
           <p className="flex flex-wrap items-baseline gap-x-2">
             <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Create</span>
             <span className="text-sm font-medium">{create.title}</span>
@@ -188,7 +194,7 @@ function CreateCard({ view, line, shadow, apply, actions, share, setShare }: { v
           ) : null}
         </div>
         {state === "applied" || state === "applying" || state === "expired" ? null : (
-          <div className="flex shrink-0 gap-2 sm:order-first" role="group" aria-label="Accept or reject">
+          <div className="flex shrink-0 gap-2" role="group" aria-label="Accept or reject">
             <Button type="button" size="sm" variant={state === "accepted" ? "primary" : "outline"} aria-pressed={state === "accepted"} disabled={!decidable || busy || (state !== "accepted" && Boolean(blocked))} title={shadowTitle} onClick={() => line && actions.onDecide?.(line.id, "accept", undefined, undefined, { share })}>
               Accept
             </Button>
@@ -238,13 +244,17 @@ export type RetargetingPanelViewProps = {
   /** The Create line, when one is stored. */
   line?: PanelLine | null;
   clientId?: string | null;
+  /** The show, for RT8's wizard links. */
+  eventId?: string | null;
   /** The gates (live controls). Absent = read-only (the frames). */
   apply?: PanelApply;
   mode?: "shadow" | "live";
   actions?: RetargetingActions;
 };
 
-export function RetargetingPanelView({ view, line = null, clientId = null, apply, mode, actions = {} }: RetargetingPanelViewProps) {
+export function RetargetingPanelView({ view, line = null, clientId = null, eventId = null, apply, mode, actions = {} }: RetargetingPanelViewProps) {
+  // RT3: before Apply the tiers' audiences don't exist, so the pool is "Known after create".
+  const created = view.state === "running";
   const create = view.create;
   const [share, setShare] = useState<number>(line?.share ?? create?.defaultShare ?? 10);
   const shadow = apply ? apply.mode === "shadow" : (mode ?? "shadow") === "shadow";
@@ -279,10 +289,10 @@ export function RetargetingPanelView({ view, line = null, clientId = null, apply
 
       {view.tiers.length ? (
         <>
-          <TierTable rows={view.tiers} budgets={budgets} clientId={clientId} />
-          <TierCards rows={view.tiers} budgets={budgets} clientId={clientId} />
+          <TierTable rows={view.tiers} budgets={budgets} clientId={clientId} eventId={eventId} created={created} />
+          <TierCards rows={view.tiers} budgets={budgets} clientId={clientId} eventId={eventId} created={created} />
           {view.notes.map((note) => (
-            <Missing key={note.text} line={note} clientId={clientId} />
+            <Missing key={note.text} line={note} clientId={clientId} eventId={eventId} />
           ))}
         </>
       ) : null}
