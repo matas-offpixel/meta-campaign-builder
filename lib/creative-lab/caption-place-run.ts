@@ -30,7 +30,7 @@ import { nearestRank } from "./t1-video.ts";
 
 const run = promisify(execFile);
 export { FACE_DETECTOR } from "./caption-placement.ts";
-import { FACE_DETECTOR } from "./caption-placement.ts";
+import { FACE_CHECK_BUDGET_MS, FACE_CHECK_TIMED_OUT, FACE_DETECTOR, FACE_SAMPLE_FPS } from "./caption-placement.ts";
 
 async function ffmpegPath(): Promise<string> {
   const mod = (await import("ffmpeg-static")) as { default?: string | null } | string;
@@ -60,8 +60,13 @@ export async function detectClipFaces(args: {
   sourceWidth: number;
   sourceHeight: number;
   cropFocusX: number;
+  /** Samples a second (FACE_SAMPLE_FPS). */
+  fps?: number;
+  /** Past this (ms since epoch) the check stops and throws FACE_CHECK_TIMED_OUT, before the function limit. */
+  deadline?: number;
 }): Promise<StoredFaceRect[][]> {
   const { detectFaces } = await import("./face-detect.ts");
+  const fps = args.fps ?? FACE_SAMPLE_FPS;
   const dir = await mkdtemp(join(tmpdir(), "caption-place-"));
   try {
     const ffmpeg = await ffmpegPath();
@@ -70,7 +75,7 @@ export async function detectClipFaces(args: {
       "-ss", String(args.inS),
       "-t", String(Math.max(0, args.outS - args.inS)),
       "-i", args.url,
-      "-r", String(T1V_FACE.fps),
+      "-r", String(fps),
       join(dir, "s%04d.png"),
     ], { maxBuffer: 4 * 1024 * 1024 });
     const frames = (await readdir(dir)).filter((name) => name.endsWith(".png")).sort();
@@ -78,6 +83,9 @@ export async function detectClipFaces(args: {
     const k = 1080 / crop.width;
     const faces: StoredFaceRect[][] = [];
     for (const name of frames) {
+      if (args.deadline != null && Date.now() > args.deadline) {
+        throw new Error(`${FACE_CHECK_TIMED_OUT} (${faces.length} of ${frames.length} frames in ${Math.round(FACE_CHECK_BUDGET_MS / 1000)} s)`);
+      }
       const found = await detectFaces(await readFile(join(dir, name)), { minConfidence: 0.3 });
       faces.push(found.map((box) => ({
         left: (box.x - crop.left) * k,
@@ -111,7 +119,8 @@ export async function ensureClipFaces(db: ServiceRoleDb, clipId: string): Promis
   const inS = num(clip.in_s, null);
   const outS = num(clip.out_s, null);
   const stamp = new Date().toISOString();
-  const base = { detector: FACE_DETECTOR, fps: 5 as const, cropFocusX, cropFocusY, inS, outS };
+  const base = { detector: FACE_DETECTOR, fps: FACE_SAMPLE_FPS, cropFocusX, cropFocusY, inS, outS };
+  const started = Date.now();
   try {
     const assetRes = await db.from("creative_assets").select("*").eq("id", renderAssetId(clip)).maybeSingle();
     if (assetRes.error) throw new Error(`creative_assets: ${assetRes.error.message}`);
@@ -133,17 +142,22 @@ export async function ensureClipFaces(db: ServiceRoleDb, clipId: string): Promis
       sourceWidth: meta.width,
       sourceHeight: meta.height,
       cropFocusX,
+      fps: FACE_SAMPLE_FPS,
+      deadline: started + FACE_CHECK_BUDGET_MS,
     });
     if (!frames.length) throw new Error("no frames");
+    // Time per clip, for the function limit (17 Nov 2026: 5 fps never finished in 800 s).
+    console.log(`[creative-lab-face-check] clip ${clipId}: ${frames.length} frames at ${FACE_SAMPLE_FPS} fps in ${Date.now() - started} ms`);
     const body: StoredFaceSamples = {
       ...base,
-      samples: frames.map((faces, i) => ({ t: i / T1V_FACE.fps, faces })),
+      samples: frames.map((faces, i) => ({ t: i / FACE_SAMPLE_FPS, faces })),
     };
     const update = await db.from("creative_lab_clips").update({ face_samples: body, face_samples_at: stamp }).eq("id", clipId);
     if (update.error) throw new Error(`creative_lab_clips: ${update.error.message}`);
     return "ready";
   } catch (err) {
     const message = (err instanceof Error ? err.message : String(err)).slice(0, 300);
+    console.error(`[creative-lab-face-check] clip ${clipId}: failed after ${Date.now() - started} ms: ${message.slice(0, 120)}`);
     const body: StoredFaceSamples = { ...base, error: message };
     await db.from("creative_lab_clips").update({ face_samples: body, face_samples_at: stamp }).eq("id", clipId);
     return "failed";

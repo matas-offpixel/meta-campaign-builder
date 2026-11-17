@@ -30,7 +30,8 @@ export type StoredFaceRect = { left: number; top: number; width: number; height:
 /** One detection for a clip's crop and window. `t` is seconds from the window start. */
 export type StoredFaceSamples = {
   detector: string;
-  fps: 5;
+  /** Samples a second: 5 before 17 Nov 2026, FACE_SAMPLE_FPS since. */
+  fps: number;
   cropFocusX: number;
   cropFocusY: number;
   inS: number | null;
@@ -42,6 +43,15 @@ export type StoredFaceSamples = {
 };
 
 export const FACE_DETECTOR = "ssd_mobilenet_v1";
+/**
+ * Face samples a second for caption placement. 5 took ~150 frames per clip,
+ * about 500 s on an M-series Mac and past Vercel's 800 s limit; face-api's
+ * pure-JS CPU backend costs ~3.3 s a frame whatever the frame size. At 2 a
+ * lone hit is 0.5 s, inside T1V_FACE.maxRunS, as at 5.
+ */
+export const FACE_SAMPLE_FPS = 2;
+/** A check that runs past this stores FACE_CHECK_TIMED_OUT instead of being killed by the function limit. */
+export const FACE_CHECK_BUDGET_MS = 600_000;
 
 /** A lock outlives the function (800 s), so a check still running is never started again. */
 export const FACE_CHECK_LOCK_MS = 15 * 60 * 1000;
@@ -57,7 +67,7 @@ export function faceCheckLocked(stored: StoredFaceSamples | null, now: Date): bo
 export function readFaceSamples(value: unknown): StoredFaceSamples | null {
   if (!value || typeof value !== "object") return null;
   const row = value as StoredFaceSamples;
-  if (row.fps !== 5 || typeof row.detector !== "string") return null;
+  if (typeof row.fps !== "number" || !(row.fps > 0 && row.fps <= 5) || typeof row.detector !== "string") return null;
   if (typeof row.cropFocusX !== "number" || typeof row.cropFocusY !== "number") return null;
   return row;
 }
@@ -108,6 +118,8 @@ export function placeFromStoredSamples(args: {
   windowIn: number;
   windowOut: number;
   samples: readonly { t: number; faces: StoredFaceRect[] }[];
+  /** The samples' rate (StoredFaceSamples.fps); runs are judged in seconds from it. */
+  fps?: number;
 }): PlaceHit | PlaceMiss {
   const faces: FaceSample[] = args.samples.map((sample) => ({ tS: sample.t, faces: sample.faces }));
   return searchPlacement({
@@ -120,7 +132,7 @@ export function placeFromStoredSamples(args: {
       const slice = faces
         .filter((sample) => sample.tS >= origin - 1e-6)
         .map((sample) => ({ tS: sample.tS - origin, faces: sample.faces }));
-      const verdict = judgeFaceOverTime(slice, { always: boxes, claim: null }, { frameWidth: 1080 });
+      const verdict = judgeFaceOverTime(slice, { always: boxes, claim: null }, { frameWidth: 1080, fps: args.fps });
       return { ok: verdict.ok, topShare: verdict.topShare, longestRunS: verdict.longestRunS };
     },
   });
