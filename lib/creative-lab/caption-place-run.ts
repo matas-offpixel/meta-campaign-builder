@@ -33,8 +33,8 @@ const run = promisify(execFile);
 export const FACE_FRAME_SIDE = 640;
 export { FACE_DETECTOR } from "./caption-placement.ts";
 import { FACE_CHECK_BUDGET_MS, FACE_CHECK_TIMED_OUT, FACE_DETECTOR, FACE_SAMPLE_FPS, FACE_SAMPLING } from "./caption-placement.ts";
-import { extractFaceFrames } from "./face-frames.ts";
-import { faceSampleSeed, sampleTimes, snapToFrames } from "./face-sampling.ts";
+import { pullFaceFrames, type FacePull } from "./face-frames.ts";
+import { FACE_MAX_GAP_S, faceSampleSeed, sampleTimes } from "./face-sampling.ts";
 
 async function ffmpegPath(): Promise<string> {
   const mod = (await import("ffmpeg-static")) as { default?: string | null } | string;
@@ -70,25 +70,24 @@ export async function detectClipFaces(args: {
   times: readonly number[];
   /** Past this (ms since epoch) the check stops and throws FACE_CHECK_TIMED_OUT, before the function limit. */
   deadline?: number;
-}): Promise<{ t: number; faces: StoredFaceRect[] }[]> {
+}): Promise<{ samples: { t: number; faces: StoredFaceRect[] }[]; pull: Omit<FacePull, "frames"> & { returned: number } }> {
   const { detectFaces } = await import("./face-detect.ts");
-  // The scheme's times as source frames counted from inS (ffmpeg's n after the seek), clamped to the window's last frame.
-  const picks = snapToFrames(args.times, args.sourceFps, Math.max(0, args.outS - args.inS));
-  if (!picks.length) return [];
   const dir = await mkdtemp(join(tmpdir(), "caption-place-"));
   try {
-    // Each frame keeps the time ffmpeg reports for it; a short count (a variable-frame-rate clip) is kept, not an error.
-    const frames = await extractFaceFrames({
+    // No gap between checked frames over FACE_MAX_GAP_S, window start and end included (face-frames.ts).
+    const pull = await pullFaceFrames({
       ffmpeg: await ffmpegPath(),
       url: args.url,
       inS: args.inS,
       outS: args.outS,
-      frames: picks.map((p) => p.frame),
+      times: args.times,
+      sourceFps: args.sourceFps,
       dir,
       side: FACE_FRAME_SIDE,
       // A stalled extract over the signed URL stops inside the budget, not at the function's kill.
-      timeoutMs: (args.deadline ?? Date.now() + FACE_CHECK_BUDGET_MS) - Date.now(),
+      deadline: args.deadline ?? Date.now() + FACE_CHECK_BUDGET_MS,
     });
+    const frames = pull.frames;
     const crop = cropWindow(args.sourceWidth, args.sourceHeight, args.cropFocusX);
     const k = 1080 / crop.width;
     const faces: { t: number; faces: StoredFaceRect[] }[] = [];
@@ -111,7 +110,10 @@ export async function detectClipFaces(args: {
         })),
       });
     }
-    return faces;
+    return {
+      samples: faces,
+      pull: { requested: pull.requested, returned: frames.length, largestGapS: pull.largestGapS, scanned: pull.scanned, hole: pull.hole },
+    };
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -152,7 +154,7 @@ export async function ensureClipFaces(db: ServiceRoleDb, clipId: string): Promis
       outS,
     });
     const end = window.outS ?? meta.durationInSeconds;
-    const frames = await detectClipFaces({
+    const { samples: frames, pull } = await detectClipFaces({
       url: signed,
       inS: window.inS,
       outS: end,
@@ -165,8 +167,14 @@ export async function ensureClipFaces(db: ServiceRoleDb, clipId: string): Promis
       deadline: started + FACE_CHECK_BUDGET_MS,
     });
     if (!frames.length) throw new Error("no frames");
-    // Time per clip, for the function limit (17 Nov 2026: 5 fps never finished in 800 s).
-    console.log(`[creative-lab-face-check] clip ${clipId}: ${frames.length} frames (${FACE_SAMPLING.kind}) in ${Date.now() - started} ms`);
+    // One line per check, for the function limit and the tempo-guard question (design, 17 Nov). No owner or person data.
+    const totalS = (Date.now() - started) / 1000;
+    const line =
+      `[creative-lab-face-check] clip ${clipId}: requested ${pull.requested}, returned ${pull.returned}, ` +
+      `largest gap ${pull.largestGapS.toFixed(3)} s, window ${(end - window.inS).toFixed(1)} s, ` +
+      `${totalS.toFixed(1)} s total, ${(totalS / frames.length).toFixed(2)} s per frame (${FACE_SAMPLING.kind}${pull.scanned ? ", frame times scanned" : ""})`;
+    if (pull.hole) console.warn(`${line}; the source has no frame in a ${pull.largestGapS.toFixed(3)} s stretch, so the ${FACE_MAX_GAP_S} s gap isn't guaranteed on this clip`);
+    else console.log(line);
     const body: StoredFaceSamples = { ...base, samples: frames };
     const update = await db.from("creative_lab_clips").update({ face_samples: body, face_samples_at: stamp }).eq("id", clipId);
     if (update.error) throw new Error(`creative_lab_clips: ${update.error.message}`);
