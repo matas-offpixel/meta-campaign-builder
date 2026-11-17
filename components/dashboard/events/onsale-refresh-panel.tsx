@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 
+import { TestPlanPanel } from "@/components/dashboard/events/test-plan-panel";
 import { Button } from "@/components/ui/button";
 import { LOW_TRACK_RECORD } from "@/lib/onsale-refresh/track-labels";
 import { REJECT_REASONS, acceptable, appliesNow, displayState, heldText, panelText, panelTextDeep, rejectReasonsFor, retriesNow, stateText, type RejectReason } from "@/lib/onsale-refresh/line-states";
@@ -891,7 +892,13 @@ export function OnSaleRefreshPanel({ eventId, eventDate }: { eventId: string; ev
     onApply: (opts) => void act("apply", opts),
     onProposeAgain: (ruleId) => void act("restart", { ruleId }),
   };
-  return <OnSaleRefreshPanelView eventId={eventId} proposals={panel.proposals} showWeek={showWeek} apply={panel.apply ?? undefined} actions={actions} />;
+  return (
+    <>
+      <OnSaleRefreshPanelView eventId={eventId} proposals={panel.proposals} showWeek={showWeek} apply={panel.apply ?? undefined} actions={actions} />
+      {/* CT9: the Test plan panel sits under the Refresh panel. It draws nothing for an event with no plan. */}
+      <TestPlanPanel eventId={eventId} />
+    </>
+  );
 }
 
 export { dayMonth as refreshDayMonth };

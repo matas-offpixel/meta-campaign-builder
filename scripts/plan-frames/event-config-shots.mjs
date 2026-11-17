@@ -8,15 +8,21 @@
  * design passes.
  */
 
+import { TEST_PLAN_SHOTS } from "./test-plan-shots.mjs";
+
 export const EVENT_CONFIG_FRAME_IDS = ["EC1", "EC2", "EC3", "EC4", "EC5", "EC6", "EC7"];
 export const EVENT_CONFIG_WIDTHS = [1280, 393];
 
-export const EVENT_CONFIG_SHOTS = EVENT_CONFIG_FRAME_IDS.flatMap((frame) =>
-  EVENT_CONFIG_WIDTHS.map((width) => ({
-    id: `${frame}-${width}`,
-    frame: `event-config/${frame}`,
-    width,
-    lab: false,
-    before: null,
-  })),
-);
+export const EVENT_CONFIG_SHOTS = [
+  ...EVENT_CONFIG_FRAME_IDS.flatMap((frame) =>
+    EVENT_CONFIG_WIDTHS.map((width) => ({
+      id: `${frame}-${width}`,
+      frame: `event-config/${frame}`,
+      width,
+      lab: false,
+      before: null,
+    })),
+  ),
+  // Creative testing's Test plan shots (TF-A, TF-B, TT-D, TF-C), listed here while run.mjs sits in open PRs.
+  ...TEST_PLAN_SHOTS,
+];
