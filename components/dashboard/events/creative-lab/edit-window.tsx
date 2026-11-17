@@ -165,7 +165,7 @@ function Waveform({ peaks, durationS, window, others }: { peaks: number[]; durat
   const bars = peaks.length ? peaks : [0];
   return (
     <div>
-      <div className="relative mt-4 h-14">
+      <div className="relative mt-7 h-14">
         <div className="absolute inset-0 flex items-center gap-px" aria-hidden>
           {bars.map((p, i) => (
             <span key={i} className="flex-1 rounded-sm bg-muted-foreground/40" style={{ height: `${Math.max(4, p * 100)}%` }} />
