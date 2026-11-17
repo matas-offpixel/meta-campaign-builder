@@ -1,0 +1,496 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Retargeting campaign — 17 Nov 2026</title>
+<style>
+:root{
+  --sand:#F0C9A8; --card:#e8d4c0; --edit:#f6ebe0; --paper:#fff8f0; --ink:#1e1810; --ink-2:#4a3d30; --ink-3:#6f6052;
+  --border:rgba(30,24,16,.10); --border-strong:rgba(30,24,16,.18); --muted:rgba(30,24,16,.06);
+  --olive:#4f5a1f; --ochre:#8a560c; --brick:#8f3424;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--sand);color:var(--ink);font:14px/1.5 var(--sans);font-feature-settings:"calt" 0}
+.wrap{max-width:1360px;margin:0 auto;padding:40px 24px 120px}
+h1{font-size:24px;font-weight:600;margin:0 0 6px}
+h2{font-size:20px;font-weight:600;margin:56px 0 8px}
+h3{font-size:13px;font-weight:600;margin:20px 0 6px}
+p{margin:0 0 10px;max-width:86ch}
+.lead{font-size:13px;color:var(--ink-2)}
+.k{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+code{font:12px var(--mono);background:var(--muted);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+figure{margin:0;min-width:0;max-width:100%}
+figcaption{font:700 9px/1.5 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+table.t{border-collapse:collapse;width:100%;font-size:12.5px;margin:10px 0 22px;background:var(--card);border-radius:8px;overflow:hidden;table-layout:fixed}
+table.t th,table.t td{text-align:left;vertical-align:top;padding:8px 12px;border-bottom:1px solid var(--border);overflow-wrap:anywhere}
+table.t th{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.t td:first-child{font-weight:600;width:190px}
+table.t ul{margin:4px 0 0 16px;padding:0}table.t li{margin:0 0 4px}
+.open{background:#f3e3c8;border:1px dashed var(--ochre);border-radius:8px;padding:10px 14px;font-size:12.5px;margin:10px 0 16px}
+.notes{font-size:12.5px;color:var(--ink-2)}.notes li{margin:0 0 6px;max-width:96ch}
+.frame{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start;margin:12px 0 24px}
+.vp{background:var(--paper);border:1px solid var(--border-strong);border-radius:8px;overflow:hidden;max-width:100%;padding:16px;font-size:13px}
+.vp.wide{width:760px}.vp.w393{width:393px}
+.ph{font:700 9px/1.4 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+.h{font-weight:600;font-size:14px;margin:0 0 4px}
+.sub{font-size:12px;color:var(--ink-2);margin:0 0 10px}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 10px}
+.chip{border:1px solid var(--border-strong);border-radius:999px;padding:3px 10px;font-size:12px;background:#fff}
+.chip.on{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.mono{font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase}
+.row{display:grid;grid-template-columns:22px 26px 1fr auto;gap:8px;align-items:center;padding:7px 0;border-top:1px solid var(--border)}
+.row .n{color:var(--ink-3);font:12px var(--mono)}
+.box{width:16px;height:16px;border:1.5px solid var(--ink);border-radius:3px;display:inline-block}
+.box.on{background:var(--ink)}
+.box.off{border-color:var(--ink-3);opacity:.45}
+.fs{font-size:11.5px;color:var(--ink-2)}
+.fs.warn{color:var(--brick)}
+.ok{color:var(--olive)}
+.btn{display:inline-block;border:1px solid var(--ink);border-radius:4px;padding:5px 10px;font:700 10px var(--mono);letter-spacing:.1em;text-transform:uppercase;background:var(--ink);color:var(--paper)}
+.btn.ghost{background:transparent;color:var(--ink)}
+.btn.dis{opacity:.4}
+.wave{position:relative;height:64px;background:repeating-linear-gradient(90deg,var(--ink-3) 0 2px,transparent 2px 5px);border-radius:4px;margin:26px 0 4px;opacity:.9}
+.wave .win{position:absolute;top:-4px;bottom:-4px;border:2px solid var(--ink);background:rgba(232,212,192,.55);border-radius:4px}
+.wave .drop{position:absolute;top:-10px;bottom:-10px;width:2px;background:var(--brick)}
+.wave .drop span{position:absolute;top:-16px;left:-20px;font:700 9px var(--mono);letter-spacing:.1em;color:var(--brick);white-space:nowrap}
+.tl{display:flex;justify-content:space-between;font:11px var(--mono);color:var(--ink-3)}
+.pv{width:150px;height:267px;background:#222;border-radius:6px;position:relative;flex:none;display:flex;align-items:center;justify-content:center;color:#fff;font:700 9px var(--mono);letter-spacing:.12em}
+.pv .play{position:absolute;bottom:10px;left:10px;width:28px;height:28px;border-radius:50%;background:#fff}
+.split{display:flex;gap:16px;align-items:flex-start}
+table.v{border-collapse:collapse;width:100%;font-size:12px;margin:6px 0}
+table.v th{font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);text-align:left;padding:4px 6px;border-bottom:1px solid var(--border-strong)}
+table.v td{padding:6px;border-bottom:1px solid var(--border)}
+table.v td.r,table.v th.r{text-align:right}
+.st{display:inline-block;border:1px solid var(--border-strong);border-radius:10px;padding:2px 8px;font:700 9px/1.5 var(--mono);letter-spacing:.1em;text-transform:uppercase}
+.st.run{border-style:dashed}
+.st.win{background:var(--olive);color:#fff;border-color:var(--olive)}
+.test{border:1px solid var(--border);border-radius:6px;padding:10px 12px;margin:8px 0;background:#fff}
+.test.dim{opacity:.55}
+.line{background:var(--card);border-radius:6px;padding:8px 10px;margin:6px 0;font-size:12px}
+.inv{text-decoration:underline dotted var(--brick);text-decoration-thickness:1.5px;text-underline-offset:3px}
+table.t table.t td:first-child{width:auto;font-weight:400}
+@media (max-width:560px){table.t th[style]{width:100px!important}table.t td:first-child{width:100px}}
+.st.fail{border-color:var(--brick);color:var(--brick)}
+.line .acts{float:right;font:700 9px var(--mono);letter-spacing:.1em;text-transform:uppercase}
+.line.wait{opacity:.6}
+.line.failed{border:1px solid var(--brick);background:#f6e3dc}
+.tick{display:inline-block;width:11px;height:11px;border:1.5px solid var(--ink);border-radius:2px;margin-right:6px;vertical-align:-1px}
+.tick.on{background:var(--ink)}
+.bar{display:inline-block;height:8px;background:var(--ink-3);border-radius:2px;vertical-align:middle;margin-right:6px}
+.sbar{position:relative;display:inline-block;width:100px;height:8px;background:var(--muted);border-radius:2px;vertical-align:middle;margin-right:8px}
+.sbar i{position:absolute;left:0;top:0;bottom:0;background:var(--ink-3);border-radius:2px}
+.sbar i.lead{background:var(--olive)}
+.sbar b{position:absolute;left:60px;top:-3px;bottom:-3px;width:1px;background:var(--ink)}
+.sbar s{position:absolute;left:10px;top:-3px;bottom:-3px;width:1px;background:var(--ink-3);opacity:.6}
+.vp.wide{width:860px}
+table.tier{border-collapse:collapse;width:100%;font-size:12px;margin:8px 0 6px;table-layout:fixed}
+table.tier th{font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);text-align:left;padding:4px 6px;border-bottom:1px solid var(--border-strong);vertical-align:bottom}
+table.tier td{padding:7px 6px;border-bottom:1px solid var(--border);vertical-align:top}
+table.tier td.r,table.tier th.r{text-align:right}
+table.tier tr.tot td{font-weight:600;border-bottom:0}
+.src{font-size:11.5px;color:var(--ink-2);line-height:1.45}
+.miss{font-size:11.5px;color:var(--brick);margin-top:3px}
+.miss a,.fs a{color:inherit}
+.kind{display:inline-block;min-width:62px;font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);margin-right:6px}
+.line .t{font-weight:600}
+.line .d{color:var(--ink-2);margin-top:2px}
+.line .w{color:var(--ink-3);font-size:11px;margin-top:2px}
+.line.note{background:transparent;border:1px dashed var(--border-strong)}
+.slot{display:inline-block;border:1px dashed var(--ochre);background:#f3e3c8;border-radius:4px;padding:0 5px;font:700 10px var(--mono);letter-spacing:.06em;color:var(--ochre)}
+.card{border:1px solid var(--border);border-radius:6px;padding:9px 11px;margin:8px 0;background:#fff;font-size:12px}
+.card .top{display:flex;justify-content:space-between;gap:8px;font-weight:600}
+.card .fs{margin-top:3px}
+.seg{display:inline-flex;border:1px solid var(--ink);border-radius:4px;overflow:hidden;vertical-align:middle}
+.seg span{padding:2px 8px;font:700 10px var(--mono);letter-spacing:.06em}
+.seg span.on{background:var(--ink);color:var(--paper)}
+.hr{border:0;border-top:1px solid var(--border);margin:12px 0}
+table.tier td:nth-last-child(-n+3){white-space:nowrap}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<p class="k">Off/Pixel · design record · retargeting · 17 November 2026</p>
+<h1>One Retargeting campaign per show, in three tiers</h1>
+<p class="lead">From the audit in #1298 (<code>docs/session-logs/retargeting-funnel-audit-2026-11-17.md</code>, §1–§4) and Matas's budget rule of 17 Nov. Each show on sale gets its own <code>{code} · Retargeting</code> campaign, separate from its on-sale campaigns, with budgets set on the ad sets. It has three tiers that never share a person: Bottom, Mid Bottom and Mid. Budget moves between them on cost per attributed purchase, each move a line to accept. The campaign runs to the end of the show day.</p>
+<p class="lead">This record replaces the on-sale refresh's per-campaign Retargeting standing default ("This campaign has no retargeting ad set.") for every show that can take this campaign (RT9). R1–R6, C2–C9, E1–E4 and T1–T6 stand. The example figures are <span class="inv">invented</span>.</p>
+
+<div class="open"><b>Open, for Matas:</b>
+<ol style="margin:4px 0 0 18px;padding:0">
+<li><b>Step heights.</b> How far the budget rises in the payday stretch, the final month, the final two weeks and the final week (RT6). Until he sets them, the step lines are drawn with a slot, and the build ships with steps switched off.</li>
+<li><b>Signup lists in Mid Bottom.</b> Whether the show's signup list also goes in Mid Bottom (RT2). Until he rules, it's in Bottom only.</li>
+</ol></div>
+
+<h2>Rulings</h2>
+<table class="t">
+<tr><th style="width:190px">#</th><th>Ruling</th></tr>
+
+<tr><td>RT1 · The campaign</td><td>
+<ul>
+<li><b>One per show:</b> <code>{code} · Retargeting</code>, objective Sales, with a daily budget on each ad set and none on the campaign. Its three ad sets are <code>{code} · Retargeting · Bottom</code>, <code>· Mid Bottom</code> and <code>· Mid</code> (the TT1 naming; J2's Ads Manager names in audit §1.1 aren't copied). The panel calls them Bottom, Mid Bottom and Mid.</li>
+<li><b>What it optimises on</b> is what the show's Purchase campaign would, with no 15-purchase trigger, because retargeting runs from the start of the on-sale:
+<ul>
+<li>the show's own-domain custom conversion when its own domain has had a purchase in 28 days (E1, T5);</li>
+<li>otherwise the resolved pixel's standard Purchase on the platform path, when T2's guard passes (the show's platform carries at least half the pixel's purchases).</li>
+</ul></li>
+<li><b>When it's proposed:</b> from the show's first on-sale date (presale when stored, else general sale), as a <b>Create</b> line at the top of the panel (frame RB). Accept, then Apply accepted, as with every refresh line.</li>
+<li><b>Apply</b> takes the Purchase campaign's create path (audit §4.3), with each step idempotent: the campaign paused, then the three audience sets (RT2), then the three ad sets paused, then the ads, then everything switched on.
+<ul>
+<li>The ads reuse the creatives live in the show's on-sale campaigns, with the same ads in every tier.</li>
+<li>Every tier shares these settings (audit §3.1): 7-day click + 1-day view, Advantage+ audience off, audience expansion off, Facebook Feed plus Instagram Feed, Stories and Reels, and the location of the show's on-sale ad sets.</li>
+</ul></li>
+<li><b>Gates:</b> the Purchase create's gates (campaign create, apply, the event armed Live) plus the audience-write gate. In Shadow the lines show and Accept is disabled, as on the refresh panel.</li>
+<li><b>End:</b> 23:59 London on the show day. It keeps running through show week (RT7).</li>
+</ul></td></tr>
+
+<tr><td>RT2 · The tiers and their audiences</td><td>
+<p>Every person is in one tier only. Each tier leaves out every audience the hotter tiers include, plus buyers. All three are built from <b>one source set per show</b> (the same pages, Instagram accounts, videos and URLs), so the windows can't drift apart as J2 Melodic's did (audit §3.3, point 4).</p>
+<table class="t" style="margin:6px 0 10px">
+<tr><th style="width:110px">Tier</th><th>Includes</th><th style="width:30%">Leaves out</th></tr>
+<tr><td>Bottom</td><td>Ticket-link visitors and checkout starters, last 30 days (high intent) · the show's signup list · similar lists</td><td>Buyers</td></tr>
+<tr><td>Mid Bottom</td><td>Event page visitors and checkout starters, last 60 days</td><td>Everything in Bottom · buyers</td></tr>
+<tr><td>Mid</td><td>Video viewers (75 %), last 365 days, across every video of the show's ads and every page they ran from · Facebook page and Instagram account engagers, last 180 days, for the promoter, the event or venue, and each lineup act</td><td>Everything in Mid Bottom and Bottom · buyers</td></tr>
+</table>
+<ul>
+<li><b>Checkout starters</b> are the pixel's Initiate Checkout. <b>Ticket-link visitors</b> are pixel visits to the ticket link's URL. <b>Event page visitors</b> are pixel visits to the show's page. Because Mid Bottom leaves out Bottom, it holds page visitors who didn't reach the ticket link in 30 days and checkout starters from 31–60 days ago.</li>
+<li><b>Lists</b> are the show's customer lists with a role: <b>Signups</b>, <b>Similar</b> or <b>Buyers</b>. The customer-audience wizard on the client page gains a role and a show, and writes the list's row (today it writes none, audit §4.1). Lists have no window.</li>
+<li><b>Buyers</b> come from the client's ticketing connection. The list is uploaded at create and refreshed every morning while the campaign runs. Without a connection, see RT8.</li>
+<li><b>Lineup pages</b> go in only where the operator's Facebook user holds a role on the page (at least ADVERTISE). Missing pages: RT8.</li>
+<li><b>Signup lists in Mid Bottom:</b> open for Matas. Until he rules, they're in Bottom only.</li>
+</ul></td></tr>
+
+<tr><td>RT3 · The tier rows</td><td>
+<p>The panel is headed <b>"{code} · Retargeting"</b>. Under the title:</p>
+<ul>
+<li>"£{total} a day · {pct} % of current daily spend";</li>
+<li>"Running since {Ddd d Mon} · ends {Ddd d Mon}, 23:59";</li>
+<li>the signal, in T4's words: on the platform path, "Attributed purchases on the {pixel name} pixel, shared with its other shows' sales"; with an own domain, "Attributed purchases on {domain}".</li>
+</ul>
+<p>One row per tier, hottest first. At 1280 the columns are:</p>
+<ul>
+<li><b>Tier:</b> Bottom, Mid Bottom or Mid.</li>
+<li><b>Audiences:</b> the includes in short, for example "Ticket-link visitors · checkout starters · 30 days" on one line and "Signup list · 2 similar lists" on the next. A missing source shows as its RT8 line under them.</li>
+<li><b>Pool:</b> Meta's estimate for the ad set's targeting with its exclusions applied (the delivery estimate), in Meta's band: "3,900–4,600", or "Below 1,000".</li>
+<li><b>Frequency:</b> the ad set's 7-day frequency to one decimal, "4.3". A tier at 4.0 or more reads it in brick.</li>
+<li><b>Leaves out:</b> "Buyers", "Bottom · buyers" or "Mid Bottom · Bottom · buyers". Without a buyers source the word "buyers" goes, and RT8's line explains why.</li>
+<li><b>Budget:</b> "£12.00 a day".</li>
+<li><b>Cost per attributed purchase:</b> 7 days, "£5.15", with the count, "16", in its own column. Spend with no purchase reads "No purchase yet". Before the campaign runs, the figure columns read "—".</li>
+</ul>
+<p>A total row gives the campaign's spend, purchases and cost per attributed purchase for the 7 days. On a phone each tier is a card (RT10).</p>
+</td></tr>
+
+<tr><td>RT4 · The starting budget</td><td>
+<ul>
+<li><b>Current daily spend</b> is TF1's: the show's average Meta spend per day over the last 7 days, across its on-sale campaigns. The Tests and Retargeting campaigns aren't counted.</li>
+<li><b>The total</b> starts at 10 % of that, rounded down to the penny. The Create line offers <b>10 % · 15 % · 20 %</b>, with 10 % chosen, because tier pools are smallest at the start (Matas: "10–20%").</li>
+<li><b>The split</b> is Bottom 50 %, Mid Bottom 25 %, Mid 25 %, to the penny, with any odd penny going to Bottom.</li>
+<li><b>The floor</b> is £1.00 a day per tier, or Meta's <code>min_daily_budget</code> when that's higher. A tier under the floor is lifted to it and the difference comes out of Bottom, so the smallest total is £3.00. At the floor, the line adds " · £1 a tier minimum".</li>
+<li><b>No spend in 7 days:</b> no budget can be set, and the line reads <b>"No spend in the last 7 days to size a budget from."</b></li>
+<li><b>Money:</b> the total × the days to the show (today and the show day included) is held against the plan, from headroom or a move out of the main campaign, inside R5's 20 % cap, as the Purchase create does.</li>
+<li><b>The Create line:</b> "£{total} a day · {pct} % of current daily spend · Bottom £{b} · Mid Bottom £{mb} · Mid £{m}", and under it "£{hold} to the show ({n} days) · {from}".</li>
+</ul></td></tr>
+
+<tr><td>RT5 · Moves, holds and cuts</td><td>
+<ul>
+<li><b>The read:</b> every morning at 08:00 London (TF2's time), over the last 7 days. Unanswered lines expire at the next read. A read offers <b>at most one Move or Cut</b>.</li>
+<li><b>The measure is cost per attributed purchase only</b>, never checkouts, landing-page views or registrations. A tier with spend and no purchase counts as dearest once its spend passes the cheapest tier's cost per attributed purchase.</li>
+<li><b>Frequency is how a pool's size shows up.</b> The same budget on a smaller pool raises it. A tier's <b>room</b> is the daily budget that would bring its 7-day frequency to 4: its average daily spend × 4 ÷ its frequency. A tier at frequency 4 or more has no room.</li>
+<li><b>Move:</b>
+<ul>
+<li>The <b>receiver</b> is the cheapest tier with at least 3 attributed purchases in the 7 days and frequency under 4.</li>
+<li>The <b>giver</b> is the dearest tier.</li>
+<li>It moves only when the receiver costs no more than 0.75 × the giver (C9's 0.75, here tier against tier).</li>
+<li>The <b>amount</b> is half the giver's average daily spend, rounded down to the penny. It's capped three ways: the giver keeps £1.00 a day, the receiver stays within its room, and R5's 20 % cap applies. The total doesn't change.</li>
+</ul></li>
+<li><b>Hold:</b> when the cheapest tier is at frequency 4 or more, it isn't fed. The read shows a note, with nothing to accept, and the next tier in line can receive instead.</li>
+<li><b>Cut:</b> at frequency 6 or more, the tier's budget is cut to the budget × 4 ÷ its frequency (rounded down to the penny, never under £1.00). What's freed goes to the cheapest tier that could receive. If none can, it goes back to the plan.</li>
+<li><b>Too little to rank:</b> with no tier at 3 attributed purchases, the read says "No move today: no tier has 3 attributed purchases in 7 days."</li>
+<li><b>The words.</b> Each line says why, using cost per attributed purchase, pool and frequency:
+<ul>
+<li><b>Move</b> · "{giver} → {receiver}" · "£{c1} per attributed purchase ({n1}) to £{c2} ({n2}) · {receiver} frequency {f} on {pool} · £{x} a day" · "Ad-set budget write, both sides"</li>
+<li><b>Hold</b> · "{tier} held" · "Cheapest at £{c} per attributed purchase, but frequency {f} on {pool}. It gets no more until frequency falls under 4."</li>
+<li><b>Cut</b> · "{tier} → {receiver}" · "Frequency {f} on {pool} · £{a} → £{b} a day, back to frequency 4 · £{x} a day to {receiver} (£{c} per attributed purchase, frequency {f2})" · "Ad-set budget write, both sides". With no receiver, the end reads "£{x} a day back to the plan".</li>
+</ul></li>
+<li><b>Phone:</b> Move "£{c1} → £{c2} per attributed purchase · £{x} a day"; Hold "{tier} held · frequency {f}"; Cut "Frequency {f} · £{a} → £{b} a day".</li>
+</ul></td></tr>
+
+<tr><td>RT6 · Step-ups at payday and in the run-in</td><td>
+<ul>
+<li><b>The payday stretch</b> is the code's payday window (<code>isInPaydayWindow</code>): 18 days from the Thursday before payday. Payday is the last Friday of the month (<code>lib/creative-lab/payday.ts</code>), moved by A8 around bank holidays and Christmas.</li>
+<li><b>The run-in</b> has three steps, counted with <code>daysUntilEvent</code>: the <b>final month</b> from 30 days out, the <b>final two weeks</b> from 14, and the <b>final week</b> from 7. Each one replaces the last. None of them steps down before the show.</li>
+<li><b>How high each step goes is open for Matas.</b> Until he sets it, the step lines are drawn with a slot and steps stay switched off.</li>
+<li><b>Overlaps don't compound.</b> Where the payday stretch and a run-in step overlap, the higher of the two applies.</li>
+<li><b>Split by room.</b> A step raises each tier in proportion to its budget, but only up to its room. A tier at frequency 4 or more doesn't rise, and money no tier can take isn't raised.</li>
+<li><b>Money</b> (Matas, 17 Nov): first plan headroom, then a move out of the show's on-sale campaigns, inside R5's 20 % cap. Each step is a line to accept and names its source.</li>
+<li><b>The write</b> is a Meta budget schedule on each tier ad set for the step's dates, so Meta returns to the base budget by itself when a payday stretch ends. The build probes the budget-schedule endpoint read-only before writing one.</li>
+<li><b>The line:</b> <b>Step up</b> · "{Payday · Final month · Final two weeks · Final week} · {Ddd d Mon} – {Ddd d Mon}" · "£{total} a day × {step} · tiers rise by room, {tier} doesn't (frequency {f})" · "{from plan headroom | £{x} a day from {campaign}}". The panel's footer shows the next step, for example "Next step: payday from Thu 26 Nov".</li>
+</ul></td></tr>
+
+<tr><td>RT7 · Show week</td><td>
+<ul>
+<li>The on-sale refresh stops from show week's Monday. The Retargeting panel doesn't: its 08:00 read, its moves, holds and cuts, and the final-week step carry on until the show day.</li>
+<li>J2's best week was show week, with 35 % of the tiers' purchases (audit §1.4). The operator doubled two tiers on the Wednesday, which is the move the refresh couldn't make.</li>
+</ul></td></tr>
+
+<tr><td>RT8 · Empty and missing states</td><td>
+<p>None of these blocks Create. Each one is a line under the tier it affects, in brick, with its action.</p>
+<ul>
+<li><b>No signup list yet:</b> "No signup list yet, so Bottom runs on ticket-link visitors and checkout starters only." Action: "Upload the signup list" (the client page's wizard, role Signups). No similar list adds no line.</li>
+<li><b>A lineup page with no role:</b> "{page} isn't in Mid: your Facebook user has no role on the page. Granting ADVERTISE on it adds it at the next read." On a phone: "{page}: no page role, not in Mid." Several pages give one line naming them all. With no usable page and no video views, Mid can't be built: "Mid has no audience yet: no page with a role and no video views." Its 25 % then goes to Bottom and Mid Bottom, 2 to 1.</li>
+<li><b>No ticketing connection:</b> "No ticketing connection, so buyers aren't left out and will keep seeing these ads." Actions: "Connect ticketing" (client page) and "Upload a buyers list".
+<ul>
+<li>With a list uploaded by hand: "Buyers list uploaded {d Mon} · {n} days old".</li>
+<li>From 7 days old: "… · {n} days old: upload it again so new buyers drop out". Melodic's list was ten weeks stale (audit §3.3, point 5).</li>
+</ul></li>
+<li><b>Not proposed.</b> Each of these replaces the Create line:
+<ul>
+<li>"Retargeting starts when the show goes on sale ({Ddd d Mon})."</li>
+<li>"No Retargeting campaign: these ads have no pixel to optimise on."</li>
+<li>"No Retargeting campaign: this pixel mostly sells on {host} ({pct} % of {n} purchases in 28 days), not on {platform}." (T2's guard)</li>
+<li>"Retargeting not proposed: purchases couldn't be read this run. The next run tries again." (T6)</li>
+</ul></li>
+</ul></td></tr>
+
+<tr><td>RT9 · No more "Retargeting missing" on the show's other campaigns</td><td>
+<ul>
+<li><b>The check moves from campaign to show.</b> The refresh's Retargeting standing default ("This campaign has no retargeting ad set.", rules.ts:553) is no longer proposed on any of the show's campaigns when any of these holds:
+<ul>
+<li>the show has a <code>{code} · Retargeting</code> campaign, whatever its status;</li>
+<li>its Create line is proposed (open, accepted or rejected);</li>
+<li>it's in the "couldn't be read" state.</li>
+</ul></li>
+<li><b>The on-sale panel</b> shows one note in place of those lines: "Retargeting runs in its own campaign, {code} · Retargeting." (frame RD).</li>
+<li><b>When the campaign is off:</b> one line on the Retargeting panel, "{code} · Retargeting is off.", never a line per campaign.</li>
+<li><b>The standing default stays as today</b> only for shows that can't take this campaign: no pixel, or a pixel that mostly sells elsewhere. Before the on-sale date, nothing changes.</li>
+<li><b>Legacy ad sets:</b> a delivering ad set with "retarget" in its name in any of the show's campaigns doesn't stop the Create line. The line says "{n} retargeting ad set(s) already run in {campaign}: pause them once this is live." Nothing pauses them automatically, because drops skip "retarget" (rules.ts:571).</li>
+<li><b>The Purchase campaign's retargeting pick</b> (purchase-campaign.ts:370) never copies from <code>{code} · Retargeting</code>, and P4's "Copy into Purchase" lines skip its ad sets. Its tiers stay in their own campaign.</li>
+</ul></td></tr>
+
+<tr><td>RT10 · Phone and words</td><td>
+<ul>
+<li><b>At 393</b> each tier is a card:
+<ul>
+<li>"{tier} · £{b} a day";</li>
+<li>"£{c} per attributed purchase · {n}";</li>
+<li>"Pool {pool} · frequency {f}";</li>
+<li>"Leaves out {…}";</li>
+<li>then the audiences, then any RT8 line.</li>
+</ul>
+Lines stack as on the refresh panel, with the kind above the target and Accept and Reject under the evidence.</li>
+<li><b>Never on the panel:</b> ABO, CBO, IC, LPV, "cost per sale" (T3), CAPI, Events API, advertiser ID, dataset. Say "budgets on each tier", "checkout starters", "page visitors" and "cost per attributed purchase".</li>
+</ul></td></tr>
+</table>
+
+<h2>Frames</h2>
+
+<div class="frame">
+<figure><figcaption>RA · 1280 · event page · the panel, read Tue 17 Nov, with a hold and a move</figcaption>
+<div class="vp wide">
+<div class="h">XMPL-WHSE · Retargeting</div>
+<div class="fs">£24.00 a day · 10 % of current daily spend · Running since Tue 10 Nov · ends Sat 19 Dec, 23:59</div>
+<div class="fs">Attributed purchases on the Warehouse Skiddle pixel, shared with its other shows' sales</div>
+<table class="tier">
+<tr><th style="width:84px">Tier</th><th>Audiences</th><th style="width:120px">Pool</th><th class="r" style="width:62px">Frequency</th><th style="width:116px">Leaves out</th><th class="r" style="width:96px">Budget</th><th class="r" style="width:84px">Cost per attributed purchase</th><th class="r" style="width:66px">Purchases</th></tr>
+<tr><td><b>Bottom</b></td><td class="src">Ticket-link visitors · checkout starters · 30 days<br>Signup list · 2 similar lists</td><td>3,900–4,600</td><td class="r" style="color:var(--brick)">4.3</td><td>Buyers</td><td class="r">£12.00 a day</td><td class="r">£5.15</td><td class="r">16</td></tr>
+<tr><td><b>Mid Bottom</b></td><td class="src">Page visitors · checkout starters · 60 days</td><td>6,300–7,400</td><td class="r">2.2</td><td>Bottom · buyers</td><td class="r">£6.00 a day</td><td class="r">£8.32</td><td class="r">5</td></tr>
+<tr><td><b>Mid</b></td><td class="src">Video viewers 75 % · 365 days<br>Page and Instagram engagers · 180 days · 4 pages</td><td>180,000–212,000</td><td class="r">1.6</td><td>Mid Bottom · Bottom · buyers</td><td class="r">£6.00 a day</td><td class="r">£20.95</td><td class="r">2</td></tr>
+<tr class="tot"><td>Last 7 days</td><td class="src" style="font-weight:400">£165.90 spent</td><td></td><td></td><td></td><td class="r">£24.00 a day</td><td class="r">£7.21</td><td class="r">23</td></tr>
+</table>
+<div class="line note"><span class="kind">Hold</span><span class="t">Bottom held</span>
+<div class="d">Cheapest at £5.15 per attributed purchase, but frequency 4.3 on 3,900–4,600. It gets no more until frequency falls under 4.</div></div>
+<div class="line"><span class="acts">Accept · Reject</span><span class="kind">Move</span><span class="t">Mid → Mid Bottom</span>
+<div class="d">£20.95 per attributed purchase (2) to £8.32 (5) · Mid Bottom frequency 2.2 on 6,300–7,400 · £2.99 a day</div>
+<div class="w">Ad-set budget write, both sides</div></div>
+<div class="fs">Next step: final month from Thu 19 Nov · payday from Thu 26 Nov · <span class="slot">step heights: Matas</span></div>
+</div></figure>
+<figure><figcaption>RA · 393 · the same panel</figcaption>
+<div class="vp w393">
+<div class="h">XMPL-WHSE · Retargeting</div>
+<div class="fs">£24.00 a day · 10 % of current daily spend<br>Ends Sat 19 Dec, 23:59 · Warehouse Skiddle pixel, shared with its other shows</div>
+<div class="card">
+<div class="top"><span>Bottom</span><span>£12.00 a day</span></div>
+<div class="fs">£5.15 per attributed purchase · 16</div>
+<div class="fs">Pool 3,900–4,600 · <span style="color:var(--brick)">frequency 4.3</span></div>
+<div class="fs">Leaves out buyers</div>
+<div class="src">Ticket-link visitors · checkout starters · 30 days · signup list · 2 similar lists</div></div>
+<div class="card">
+<div class="top"><span>Mid Bottom</span><span>£6.00 a day</span></div>
+<div class="fs">£8.32 per attributed purchase · 5</div>
+<div class="fs">Pool 6,300–7,400 · frequency 2.2</div>
+<div class="fs">Leaves out Bottom · buyers</div>
+<div class="src">Page visitors · checkout starters · 60 days</div></div>
+<div class="card">
+<div class="top"><span>Mid</span><span>£6.00 a day</span></div>
+<div class="fs">£20.95 per attributed purchase · 2</div>
+<div class="fs">Pool 180,000–212,000 · frequency 1.6</div>
+<div class="fs">Leaves out Mid Bottom · Bottom · buyers</div>
+<div class="src">Video viewers 75 % · 365 days · page and Instagram engagers · 180 days · 4 pages</div></div>
+<div class="line note"><span class="kind">Hold</span>
+<div class="t">Bottom held · frequency 4.3</div></div>
+<div class="line"><span class="kind">Move</span>
+<div class="t">Mid → Mid Bottom</div>
+<div class="d">£20.95 → £8.32 per attributed purchase · £2.99 a day</div>
+<div style="margin-top:6px"><span class="btn">Accept</span> <span class="btn ghost">Reject</span></div></div>
+</div></figure>
+</div>
+
+<div class="frame">
+<figure><figcaption>RB · 1280 · a new show · the Create line, with all three missing states</figcaption>
+<div class="vp wide">
+<div class="h">XMPL-ROOF · Retargeting</div>
+<div class="line"><span class="acts">Accept · Reject</span><span class="kind">Create</span><span class="t">XMPL-ROOF · Retargeting</span>
+<div class="d">£5.80 a day · <span class="seg"><span class="on">10 %</span><span>15 %</span><span>20 %</span></span> of current daily spend · Bottom £2.90 · Mid Bottom £1.45 · Mid £1.45</div>
+<div class="d">£185.60 to the show (32 days) · from plan headroom</div>
+<div class="d">1 retargeting ad set already runs in XMPL-ROOF · Tickets: pause it once this is live.</div>
+<div class="w">New campaign, audiences and ad sets through the Purchase create path · goes in live</div></div>
+<table class="tier">
+<tr><th style="width:84px">Tier</th><th>Audiences</th><th style="width:120px">Pool</th><th class="r" style="width:62px">Frequency</th><th style="width:116px">Leaves out</th><th class="r" style="width:96px">Budget</th><th class="r" style="width:84px">Cost per attributed purchase</th><th class="r" style="width:66px">Purchases</th></tr>
+<tr><td><b>Bottom</b></td><td class="src">Ticket-link visitors · checkout starters · 30 days<div class="miss">No signup list yet, so Bottom runs on ticket-link visitors and checkout starters only. <a href="#">Upload the signup list</a></div></td><td>Below 1,000</td><td class="r">—</td><td>—</td><td class="r">£2.90 a day</td><td class="r">—</td><td class="r">—</td></tr>
+<tr><td><b>Mid Bottom</b></td><td class="src">Page visitors · checkout starters · 60 days</td><td>1,600–1,900</td><td class="r">—</td><td>Bottom</td><td class="r">£1.45 a day</td><td class="r">—</td><td class="r">—</td></tr>
+<tr><td><b>Mid</b></td><td class="src">Video viewers 75 % · 365 days<br>Page and Instagram engagers · 180 days · 3 of 4 pages<div class="miss">Mira Vale isn't in Mid: your Facebook user has no role on the page. Granting ADVERTISE on it adds it at the next read.</div></td><td>41,000–48,000</td><td class="r">—</td><td>Mid Bottom · Bottom</td><td class="r">£1.45 a day</td><td class="r">—</td><td class="r">—</td></tr>
+</table>
+<div class="miss" style="font-size:12px">No ticketing connection, so buyers aren't left out and will keep seeing these ads. <a href="#">Connect ticketing</a> · <a href="#">Upload a buyers list</a></div>
+</div></figure>
+<figure><figcaption>RB · 393 · the same</figcaption>
+<div class="vp w393">
+<div class="h">XMPL-ROOF · Retargeting</div>
+<div class="line"><span class="kind">Create</span>
+<div class="t">XMPL-ROOF · Retargeting</div>
+<div class="d">£5.80 a day · <span class="seg"><span class="on">10 %</span><span>15 %</span><span>20 %</span></span></div>
+<div class="d">Bottom £2.90 · Mid Bottom £1.45 · Mid £1.45</div>
+<div class="d">£185.60 to the show (32 days) · from plan headroom</div>
+<div class="d">1 retargeting ad set already runs in XMPL-ROOF · Tickets: pause it once this is live.</div>
+<div style="margin-top:6px"><span class="btn">Accept</span> <span class="btn ghost">Reject</span></div></div>
+<div class="card">
+<div class="top"><span>Bottom</span><span>£2.90 a day</span></div>
+<div class="fs">Pool below 1,000</div>
+<div class="src">Ticket-link visitors · checkout starters · 30 days</div>
+<div class="miss">No signup list yet, so Bottom runs on ticket-link visitors and checkout starters only. <a href="#">Upload the signup list</a></div></div>
+<div class="card">
+<div class="top"><span>Mid Bottom</span><span>£1.45 a day</span></div>
+<div class="fs">Pool 1,600–1,900 · leaves out Bottom</div>
+<div class="src">Page visitors · checkout starters · 60 days</div></div>
+<div class="card">
+<div class="top"><span>Mid</span><span>£1.45 a day</span></div>
+<div class="fs">Pool 41,000–48,000 · leaves out Mid Bottom · Bottom</div>
+<div class="src">Video viewers 75 % · 365 days · page and Instagram engagers · 180 days · 3 of 4 pages</div>
+<div class="miss">Mira Vale: no page role, not in Mid.</div></div>
+<div class="miss">No ticketing connection, so buyers aren't left out and will keep seeing these ads. <a href="#">Connect ticketing</a> · <a href="#">Upload a buyers list</a></div>
+</div></figure>
+</div>
+
+<div class="frame">
+<figure><figcaption>RC · 1280 · RA's show, read Thu 19 Nov · the final-month step and a cut for frequency</figcaption>
+<div class="vp wide">
+<div class="h">XMPL-WHSE · Retargeting</div>
+<div class="fs">£24.00 a day · 10 % of current daily spend · Running since Tue 10 Nov · ends Sat 19 Dec, 23:59</div>
+<table class="tier">
+<tr><th style="width:84px">Tier</th><th style="width:120px">Pool</th><th class="r" style="width:62px">Frequency</th><th class="r" style="width:96px">Budget</th><th class="r" style="width:84px">Cost per attributed purchase</th><th class="r" style="width:66px">Purchases</th></tr>
+<tr><td><b>Bottom</b></td><td>3,900–4,600</td><td class="r" style="color:var(--brick)">6.4</td><td class="r">£12.00 a day</td><td class="r">£6.39</td><td class="r">13</td></tr>
+<tr><td><b>Mid Bottom</b></td><td>6,300–7,400</td><td class="r">2.3</td><td class="r">£8.99 a day</td><td class="r">£9.22</td><td class="r">6</td></tr>
+<tr><td><b>Mid</b></td><td>180,000–212,000</td><td class="r">1.9</td><td class="r">£3.01 a day</td><td class="r">£30.80</td><td class="r">1</td></tr>
+</table>
+<div class="line"><span class="acts">Accept · Reject</span><span class="kind">Cut</span><span class="t">Bottom → Mid Bottom</span>
+<div class="d">Frequency 6.4 on 3,900–4,600 · £12.00 → £7.50 a day, back to frequency 4 · £4.50 a day to Mid Bottom (£9.22 per attributed purchase, frequency 2.3)</div>
+<div class="w">Ad-set budget write, both sides</div></div>
+<div class="line"><span class="acts"><span style="opacity:.4">Accept</span> · Reject</span><span class="kind">Step up</span><span class="t">Final month · Thu 19 Nov – Sat 19 Dec</span>
+<div class="d">£24.00 a day × <span class="slot">final-month step: Matas</span> · tiers rise by room, Bottom doesn't (frequency 6.4)</div>
+<div class="w">Budget schedule on each tier ad set · from plan headroom</div></div>
+<div class="fs">Next step: payday from Thu 26 Nov · the higher of payday and final month applies while they overlap</div>
+</div></figure>
+<figure><figcaption>RC · 393 · the same two lines</figcaption>
+<div class="vp w393">
+<div class="line"><span class="kind">Cut</span>
+<div class="t">Bottom → Mid Bottom</div>
+<div class="d">Frequency 6.4 · £12.00 → £7.50 a day</div>
+<div style="margin-top:6px"><span class="btn">Accept</span> <span class="btn ghost">Reject</span></div></div>
+<div class="line"><span class="kind">Step up</span>
+<div class="t">Final month · Thu 19 Nov – Sat 19 Dec</div>
+<div class="d">£24.00 a day × <span class="slot">step: Matas</span> · from plan headroom</div>
+<div style="margin-top:6px"><span class="btn dis">Accept</span> <span class="btn ghost">Reject</span></div></div>
+</div></figure>
+</div>
+
+<div class="frame">
+<figure><figcaption>RD · 1280 · the on-sale panel of RA's show · no "Retargeting" standing default, one note</figcaption>
+<div class="vp wide">
+<div class="h">On-sale refresh · XMPL-WHSE · Tickets</div>
+<div class="line"><span class="acts">Accept · Reject</span><span class="kind">Standing default</span><span class="t">Registrations lookalike</span>
+<div class="d">The registrations lookalike isn't in its own ad set.</div>
+<div class="w">New audience and ad set through the launch path</div></div>
+<div class="line note"><span class="t">Retargeting runs in its own campaign, XMPL-WHSE · Retargeting.</span></div>
+</div></figure>
+<figure><figcaption>RD · 393 · not-proposed states, one per show</figcaption>
+<div class="vp w393">
+<div class="card">Retargeting starts when the show goes on sale (Fri 20 Nov).</div>
+<div class="card">No Retargeting campaign: these ads have no pixel to optimise on.</div>
+<div class="card">No Retargeting campaign: this pixel mostly sells on universe.com (74 % of 512 purchases in 28 days), not on Skiddle.</div>
+<div class="card">Retargeting not proposed: purchases couldn't be read this run. The next run tries again.</div>
+<div class="card">No spend in the last 7 days to size a budget from.</div>
+</div></figure>
+</div>
+
+<h2>Expected figures</h2>
+<ul class="notes">
+<li><b>RA budget:</b> current daily spend £240. 10 % is £24.00, split £12.00 / £6.00 / £6.00. £24 ÷ £240 = 10 %.</li>
+<li><b>RA tiers (10–16 Nov):</b> Bottom £82.40 ÷ 16 = £5.15. Mid Bottom £41.60 ÷ 5 = £8.32. Mid £41.90 ÷ 2 = £20.95. Total £165.90 ÷ 23 = £7.21.</li>
+<li><b>RA hold:</b> Bottom is cheapest with 16 purchases, but its frequency is 4.3 (4 or more), so it's held.</li>
+<li><b>RA move:</b> the receiver is Mid Bottom (next cheapest, 5 purchases, frequency 2.2). The giver is Mid (dearest). £8.32 ≤ 0.75 × £20.95 = £15.71.
+<ul>
+<li>Amount: half of Mid's £41.90 ÷ 7 = £5.99 a day, which is £2.99 a day, rounded down.</li>
+<li>Mid keeps £6.00 − £2.99 = £3.01, which is above £1.00.</li>
+<li>Mid Bottom's room is £41.60 ÷ 7 × 4 ÷ 2.2 = £10.80, and £6.00 + £2.99 = £8.99 is within it.</li>
+<li>The total stays £24.00.</li>
+</ul></li>
+<li><b>RB budget:</b> current daily spend £58.00. 10 % is £5.80, split £2.90 / £1.45 / £1.45, all above £1.00. Tue 17 Nov to Fri 18 Dec, both days included, is 32 days. £5.80 × 32 = £185.60.</li>
+<li><b>RC (12–18 Nov):</b> budgets after RA's move: £12.00 / £8.99 / £3.01. Bottom £83.10 ÷ 13 = £6.39. Mid Bottom £55.30 ÷ 6 = £9.22. Mid £30.80 ÷ 1 = £30.80.</li>
+<li><b>RC cut:</b> Bottom's frequency 6.4 is 6 or more. £12.00 × 4 ÷ 6.4 = £7.50, which frees £4.50.
+<ul>
+<li>The receiver is Mid Bottom (6 purchases, frequency 2.3). Its room is £55.30 ÷ 7 × 4 ÷ 2.3 = £13.73, and £8.99 + £4.50 = £13.49 is within it.</li>
+<li>That's the read's one budget line, so no move is offered on 19 Nov.</li>
+</ul></li>
+<li><b>RC step:</b> Thu 19 Nov is 30 days before Sat 19 Dec, so the final month begins. The height is a slot, and Accept is disabled until Matas sets it.</li>
+<li><b>Payday:</b> Fri 27 Nov is the last Friday of November. The window runs from Thu 26 Nov to Sun 13 Dec (18 days).</li>
+</ul>
+
+<h2>Acceptance</h2>
+<ul class="notes">
+<li>One <code>{code} · Retargeting</code> campaign per show, with budgets on the ad sets, three tier ad sets named per RT1, created through the Purchase create path, ending 23:59 London on the show day.</li>
+<li>The audience sets follow RT2. One source set feeds every window, each tier leaves out everything in the hotter tiers plus buyers, and a test asserts no person can match two tiers' include-minus-exclude sets for one source set.</li>
+<li>The starting budget follows RT4 exactly, including the 10 / 15 / 20 % choice, the penny split and the £1 floor taken out of Bottom.</li>
+<li>Moves, holds and cuts follow RT5. The measure is cost per attributed purchase only, there's at most one Move or Cut per read, and room is computed as written.</li>
+<li>Steps follow RT6 and stay switched off until Matas sets the heights.</li>
+<li>RT8's strings are exact, and none of them blocks Create.</li>
+<li>RT9: no "This campaign has no retargeting ad set." on a show with the campaign, its Create line or "couldn't be read". The note shows instead.</li>
+<li>Frames RA, RB and RC at 1280 and 393, and RD at both, from fixtures with these figures.</li>
+</ul>
+
+<h2>Hand-back</h2>
+<table class="t">
+<tr><th style="width:190px">Piece</th><th>Build</th></tr>
+<tr><td>HR1 · Source set and audiences</td><td>A per-show source set (pages with a role, Instagram accounts, the show's videos, page and ticket URLs). The three audience sets from it: pixel URL and Initiate Checkout at 30 and 60 days, video 75 % at 365, page and IG engagement at 180. Exclusions written per tier (<code>excluded_custom_audiences</code>). Behind the audience-write gate.</td></tr>
+<tr><td>HR2 · List roles and buyers</td><td>The customer-audience wizard takes a role (Signups, Similar, Buyers) and a show, and writes a <code>meta_custom_audiences</code> row. Buyers from a ticketing connection are uploaded at create and refreshed daily. The hand-uploaded age shows per RT8.</td></tr>
+<tr><td>HR3 · Create</td><td>The Purchase create path with daily budgets on the ad sets (<code>buildCampaignPayload</code> already writes that when the level isn't campaign), RT4's budget and hold, the Create line and its 10 / 15 / 20 % choice.</td></tr>
+<tr><td>HR4 · The daily read</td><td>08:00 London to the show day, 7-day spend, attributed purchases, frequency and the delivery estimate per tier. Move, Hold and Cut per RT5 through the ad-set budget write. Lines expire at the next read. Learning (R6) scores these moves like any other.</td></tr>
+<tr><td>HR5 · Steps</td><td>Payday stretch and run-in dates per RT6, written as Meta budget schedules. A read-only probe of the endpoint comes first. Heights come from config, empty, so steps stay off until Matas sets them.</td></tr>
+<tr><td>HR6 · The refresh</td><td>The Retargeting standing default checked per show per RT9, the note on the on-sale panel, and the Purchase campaign's pick and copy lines skipping the Retargeting campaign.</td></tr>
+<tr><td>HR7 · Panel and frames</td><td>The panel in the event page's tokens. Plan frames RA–RD from a fixture with today = Tue 17 Nov 2026 (RC: Thu 19 Nov). Baselines go in after design-pass.</td></tr>
+</table>
+
+<h2>Invented here</h2>
+<ul class="notes">
+<li>The 10 % default with a 10 / 15 / 20 % choice (Matas gave "10–20%"), the penny split, and the floor taken out of Bottom.</li>
+<li>Frequency 4 for a hold and for room, frequency 6 for a cut, cutting back to frequency 4, and room as average daily spend × 4 ÷ frequency.</li>
+<li>3 attributed purchases for a receiver (TF2's 3), the tier-against-tier 0.75, half the giver's average daily spend, and one Move or Cut per read.</li>
+<li>The source windows: 30 and 60 days on the pixel, 180 on engagement, 365 on video (from audit §3.1, re-sliced to Matas's tiers).</li>
+<li>The run-in thresholds of 30, 14 and 7 days, the higher step winning in an overlap, splitting a step by room, and writing it as a Meta budget schedule.</li>
+<li>Mid's 25 % going 2 to 1 to Bottom and Mid Bottom when Mid can't be built, and the 7-day staleness on a hand-uploaded buyers list.</li>
+<li>Every string in RT3–RT10, the XMPL shows and Mira Vale.</li>
+</ul>
+
+</div>
+</body>
+</html>
