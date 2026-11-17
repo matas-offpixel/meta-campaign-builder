@@ -26,7 +26,8 @@ export const AUDIO_RULE_EXCEPTIONS: readonly AudioRuleException[] = [
     eventCode: "P26-BDAY",
     driveFileId: "1hjPhhFAEJ0eBsgfpuiCj2pDMqtUQ5rNU",
     fileName: "Cant Decide - Max Dean Luke Dean Locky.mp3",
-    minMp3Kbps: 120,
+    // Matas's ruling names 125 kbps, the file's measured bitrate (ffprobe); the floor is no lower than that.
+    minMp3Kbps: 125,
     ruledBy: "Matas",
     ruledOn: "2026-11-17",
     ruling: "Can't Decide at 125 kbps is allowed for Luke Dean's P26-BDAY snippet static (Matas lowered the bar for these downloads).",

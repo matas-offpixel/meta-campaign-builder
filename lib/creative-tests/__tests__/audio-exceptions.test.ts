@@ -9,9 +9,9 @@ const CANT_DECIDE = "1hjPhhFAEJ0eBsgfpuiCj2pDMqtUQ5rNU";
 const mp3 = (kbps: number): ProbedAudio => ({ codec: "mp3", container: "mp3", bitrateKbps: kbps, durationS: 175.4, sampleRate: 44100 }) as unknown as ProbedAudio;
 
 describe("AU1 per-asset allowance (Can't Decide on P26-BDAY)", () => {
-  it("covers one file on one event, ruled by Matas on 17 Nov, at 120 kbps", () => {
+  it("covers one file on one event, ruled by Matas on 17 Nov, at 125 kbps (the ruling, no lower)", () => {
     const hit = audioRuleException(P26, CANT_DECIDE);
-    assert.equal(hit?.minMp3Kbps, 120);
+    assert.equal(hit?.minMp3Kbps, 125);
     assert.equal(hit?.ruledBy, "Matas");
     assert.equal(hit?.ruledOn, "2026-11-17");
     assert.equal(AUDIO_RULE_EXCEPTIONS.length, 1);
@@ -24,7 +24,7 @@ describe("AU1 per-asset allowance (Can't Decide on P26-BDAY)", () => {
     assert.equal(unusableReason(mp3(125), name), REASON_MP3_LOW);
     assert.equal(unusableReason(mp3(125), name, { minMp3Kbps: audioRuleException(P26, CANT_DECIDE)?.minMp3Kbps }), null);
     assert.equal(unusableReason(mp3(125), name, { minMp3Kbps: audioRuleException(P26, "another-file")?.minMp3Kbps }), REASON_MP3_LOW);
-    assert.equal(unusableReason(mp3(119), name, { minMp3Kbps: 120 }), REASON_MP3_LOW);
+    assert.equal(unusableReason(mp3(124), name, { minMp3Kbps: audioRuleException(P26, CANT_DECIDE)?.minMp3Kbps }), REASON_MP3_LOW);
     assert.equal(unusableReason(mp3(128), "other.mp3"), null);
   });
 });
