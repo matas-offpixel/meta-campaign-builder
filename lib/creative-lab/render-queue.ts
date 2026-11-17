@@ -11,13 +11,13 @@
  * Archived clients are skipped. The row stays queued.
  *
  * A clip whose face check failed fails its renders with
- * FACE_CHECK_FAILED_RENDER, and their round ads become render_failed, so the
+ * FACE_CHECK_FAILED, and their round ads become render_failed, so the
  * round settles. Left queued, a render on that clip waited forever: the claim
  * loop only takes clips whose samples are ready.
  */
 
 import { loadArchivedClientScope } from "../db/client-status.ts";
-import { FACE_CHECK_FAILED_RENDER, faceSampleState, readFaceSamples } from "./caption-placement.ts";
+import { FACE_CHECK_FAILED, faceSampleState, readFaceSamples } from "./caption-placement.ts";
 import { MAX_LAB_RENDERS_AT_ONCE } from "./lambda.ts";
 import type { ServiceRoleDb } from "./load.ts";
 import { isSamplesPending, renderCaptionOnClip } from "./render.ts";
@@ -159,13 +159,13 @@ export async function runRenderTick(
     if (faceFailed) {
       const fail = await db
         .from("creative_lab_renders")
-        .update({ status: "failed", error: FACE_CHECK_FAILED_RENDER })
+        .update({ status: "failed", error: FACE_CHECK_FAILED })
         .eq("id", row.id)
         .eq("status", "queued")
         .select("id");
       if (fail.error) throw new Error(`creative_lab_renders face check: ${fail.error.message}`);
       if (!((fail.data ?? []) as unknown[]).length) continue;
-      settled.push(...(await markAds(db, String(row.id), "render_failed", FACE_CHECK_FAILED_RENDER)));
+      settled.push(...(await markAds(db, String(row.id), "render_failed", FACE_CHECK_FAILED)));
       faceCheckFailed += 1;
       continue;
     }

@@ -12,7 +12,7 @@
 
 import { styleVersion } from "../../src/remotion/caption-style/profile.ts";
 import { crowdBlock, normaliseCaption } from "./caption-facts.ts";
-import { FACE_CHECK_FAILED_RENDER, readFaceSamples } from "./caption-placement.ts";
+import { FACE_CHECK_FAILED, readFaceSamples } from "./caption-placement.ts";
 import { captionAllowsClip } from "./footage-owner.ts";
 import { nextRoundPlan, type RoundPlanInput } from "./judge.ts";
 import type { ServiceRoleDb } from "./load.ts";
@@ -762,7 +762,7 @@ export async function retryRender(db: ServiceRoleDb, args: { renderId: string; u
     throw new RenderRetryError(409, "This round has moved on — propose the round again.");
   }
 
-  if (error === FACE_CHECK_FAILED_RENDER) {
+  if (error === FACE_CHECK_FAILED) {
     const faces = await db.from("creative_lab_clips").select("id, face_samples").eq("id", String(render.clip_id)).maybeSingle();
     if (faces.error) throw new Error(`creative_lab_clips: ${faces.error.message}`);
     // Only a stored failure is cleared: samples a later check got right stay.

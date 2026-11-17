@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { FACE_CHECK_FAILED_RENDER } from "../caption-placement.ts";
+import { FACE_CHECK_FAILED } from "../caption-placement.ts";
 import type { ServiceRoleDb } from "../load.ts";
 import { runRenderTick } from "../render-queue.ts";
 import { renderFailureLine, renderRefusalSentence, renderRetryable } from "../surface.ts";
@@ -185,17 +185,19 @@ describe("runRenderTick", () => {
     assert.equal(result.faceCheckFailed, 1);
     const failed = fake.tables.creative_lab_renders.find((row) => row.id === "on-failed")!;
     assert.equal(failed.status, "failed");
-    assert.equal(failed.error, FACE_CHECK_FAILED_RENDER);
+    assert.equal(failed.error, FACE_CHECK_FAILED);
     const ad = fake.tables.creative_lab_round_ads.find((row) => row.id === "ad-failed")!;
     assert.equal(ad.launch_state, "render_failed");
-    assert.equal(ad.launch_error, FACE_CHECK_FAILED_RENDER);
+    assert.equal(ad.launch_error, FACE_CHECK_FAILED);
     assert.equal(fake.tables.creative_lab_rounds[0].status, "draft");
   });
 
   it("the failed row says so in one plain sentence and links its retry", () => {
-    assert.equal(renderRefusalSentence(FACE_CHECK_FAILED_RENDER), FACE_CHECK_FAILED_RENDER);
-    assert.equal(renderRetryable(FACE_CHECK_FAILED_RENDER), true);
-    assert.deepEqual(renderFailureLine(FACE_CHECK_FAILED_RENDER, true), { lead: "Couldn't check this clip for faces — ", link: "try it again", tail: "." });
+    assert.equal(renderRefusalSentence(FACE_CHECK_FAILED), FACE_CHECK_FAILED);
+    assert.equal(renderRetryable(FACE_CHECK_FAILED), true);
+    assert.equal(FACE_CHECK_FAILED, "Couldn't check this clip for faces — try again.", "the words already on main; a change needs a design record");
+    assert.deepEqual(renderFailureLine(FACE_CHECK_FAILED, true), { lead: "Couldn't check this clip for faces — ", link: "try again", tail: "." });
+    assert.deepEqual(renderFailureLine(FACE_CHECK_FAILED, false), { lead: "Couldn't check this clip for faces — propose the round again.", link: null, tail: "" });
   });
 
   it("settles a failed check even when every render slot is taken by this tick's claims", async () => {

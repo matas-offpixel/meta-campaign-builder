@@ -23,14 +23,14 @@ export const PLACE_REFUSAL = {
 export const QUOTE_TOO_LONG = "This quote is too long — drop a sentence from the start or end.";
 export const OLD_QUOTE_STYLE = "Old quote style — render again";
 export const FACE_CHECKING = "Checking the clip for faces…";
-export const FACE_CHECK_FAILED = "Couldn't check this clip for faces — try again.";
 /**
- * The error on a render whose clip's face check failed. The render tick fails
- * the render with it instead of leaving it queued, so its round settles; the
- * failed row's "try it again" (surface.ts RETRY_SENTENCES) clears the stored
- * failure and queues the render, and the next tick checks the clip again.
+ * Also the error on a render whose clip's face check failed: the render tick
+ * fails the render with it instead of leaving it queued, so its round
+ * settles. On the failed row "try again" is the retry link (surface.ts
+ * RETRY_SENTENCES); the retry clears the stored failure and queues the
+ * render, and the next tick checks the clip again.
  */
-export const FACE_CHECK_FAILED_RENDER = "Couldn't check this clip for faces — try it again.";
+export const FACE_CHECK_FAILED = "Couldn't check this clip for faces — try again.";
 
 export type StoredFaceRect = { left: number; top: number; width: number; height: number };
 

@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { before, describe, it } from "node:test";
 
 import { styleVersion } from "../../../src/remotion/caption-style/profile.ts";
-import { FACE_CHECK_FAILED_RENDER } from "../caption-placement.ts";
+import { FACE_CHECK_FAILED } from "../caption-placement.ts";
 import type { ServiceRoleDb } from "../load.ts";
 import { TRIPLE_FIT_NOT_PAIRED } from "../import-quality.ts";
 import { audioMode, loadLabRender, renderCaptionOnClip, renderMadeTripleFit, renderStoragePath, type CaptionRenderRequest, type RenderDeps } from "../render.ts";
@@ -345,12 +345,12 @@ describe("renderCaptionOnClip", () => {
     });
     await assert.rejects(
       renderCaptionOnClip(db(fake), { renderId: "render-1", userId: "op", deps: d }),
-      (err: unknown) => err instanceof Error && err.name !== "SamplesPending" && err.message === FACE_CHECK_FAILED_RENDER,
+      (err: unknown) => err instanceof Error && err.name !== "SamplesPending" && err.message === FACE_CHECK_FAILED,
     );
     assert.equal(rendered, false);
     const row = fake.tables.creative_lab_renders[0]!;
     assert.equal(row.status, "failed");
-    assert.equal(row.error, FACE_CHECK_FAILED_RENDER);
+    assert.equal(row.error, FACE_CHECK_FAILED);
   });
 
   it("rejects a caption whose style version is not the bundled profile, before rendering", async () => {

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
-import { FACE_CHECK_FAILED_RENDER } from "../caption-placement.ts";
+import { FACE_CHECK_FAILED } from "../caption-placement.ts";
 import type { ServiceRoleDb } from "../load.ts";
 import { RenderRetryError, retryRender } from "../propose.ts";
 import { renderFailureLine, renderRetryable, renderRoundOpen } from "../surface.ts";
@@ -100,7 +100,7 @@ describe("retry on a failed render row", () => {
   });
 
   it("a render failed on its clip's face check clears that stored failure, so the next tick checks the clip again", async () => {
-    const fake = world("draft", FACE_CHECK_FAILED_RENDER);
+    const fake = world("draft", FACE_CHECK_FAILED);
     const base = { detector: "ssd_mobilenet_v1", fps: 5, cropFocusX: 0.5, cropFocusY: 0.5, inS: null, outS: null };
     fake.tables.creative_lab_clips = [
       { id: "clip-1", creative_asset_id: null, triple_fit_source_id: null, face_samples: { ...base, error: "Cannot find module as expression is too dynamic" }, face_samples_at: "2026-11-13T10:00:00Z" },
@@ -117,7 +117,7 @@ describe("retry on a failed render row", () => {
   });
 
   it("samples a later check got right are kept when that render is tried again", async () => {
-    const fake = world("rendering", FACE_CHECK_FAILED_RENDER);
+    const fake = world("rendering", FACE_CHECK_FAILED);
     const ready = { detector: "ssd_mobilenet_v1", fps: 5, cropFocusX: 0.5, cropFocusY: 0.5, inS: null, outS: null, samples: [{ t: 0, faces: [] }] };
     fake.tables.creative_lab_clips = [{ id: "clip-1", creative_asset_id: null, triple_fit_source_id: null, face_samples: ready }];
     await retryRender(fake as unknown as ServiceRoleDb, { renderId: "r1", userId: OP });

@@ -3,7 +3,7 @@
  * read the rows that are already stored. Nothing here calls Meta.
  */
 
-import { FACE_CHECK_FAILED_RENDER } from "./caption-placement.ts";
+import { FACE_CHECK_FAILED } from "./caption-placement.ts";
 import { captionAllowsClip } from "./footage-owner.ts";
 import {
   LANDSCAPE_TRIPLE_FIT_ONLY,
@@ -284,7 +284,7 @@ export function renderRefusalSentence(error: string | null | undefined, kind: "c
   const value = (error ?? "").trim();
   if (!value || isSupersededRender(value)) return null;
   if (value === "This quote is too long — drop a sentence from the start or end.") return value;
-  if (value === FACE_CHECK_FAILED_RENDER) return value;
+  if (value === FACE_CHECK_FAILED) return value;
   const lower = value.toLowerCase();
   if (lower.includes("9:16 only") || lower.includes("isn't vertical") || lower.includes("is not rendered")) {
     return "This clip isn't vertical — use a 9:16 file.";
@@ -313,9 +313,10 @@ const RETRY_SENTENCES = new Set([
   "The renderer failed — try it again.",
   "The render timed out — try it again.",
   "The finished render didn't save — try it again.",
-  FACE_CHECK_FAILED_RENDER,
+  FACE_CHECK_FAILED,
 ]);
-const RETRY_TAIL = " — try it again.";
+/** The link words each retry sentence ends with, after " — ". */
+const RETRY_LINKS = ["try it again", "try again"] as const;
 
 /** True when the render failed for a reason a fresh try can fix. */
 export function renderRetryable(error: string | null | undefined): boolean {
@@ -333,15 +334,17 @@ export function renderRoundOpen(roundStatuses: readonly string[]): boolean {
 }
 
 /**
- * The failed row's sentence, split so "try it again" can be the link itself.
- * With the round past rendering the sentence ends "— propose the round again"
- * and has no link. Other sentences come back whole.
+ * The failed row's sentence, split so its "try it again" (or the face
+ * check's "try again") can be the link itself. With the round past rendering
+ * the sentence ends "— propose the round again" and has no link. Other
+ * sentences come back whole.
  */
 export function renderFailureLine(sentence: string, roundOpen: boolean): { lead: string; link: string | null; tail: string } {
-  if (!RETRY_SENTENCES.has(sentence)) return { lead: sentence, link: null, tail: "" };
-  const head = sentence.slice(0, -RETRY_TAIL.length);
+  const link = RETRY_SENTENCES.has(sentence) ? RETRY_LINKS.find((words) => sentence.endsWith(` — ${words}.`)) : undefined;
+  if (!link) return { lead: sentence, link: null, tail: "" };
+  const head = sentence.slice(0, -` — ${link}.`.length);
   if (!roundOpen) return { lead: `${head} — propose the round again.`, link: null, tail: "" };
-  return { lead: `${head} — `, link: "try it again", tail: "." };
+  return { lead: `${head} — `, link, tail: "." };
 }
 
 /** The render rows the clip section lists. A superseded row is kept for the record and not shown. */
