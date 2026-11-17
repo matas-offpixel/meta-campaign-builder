@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Overlay templates 17 — artist framing — 17 Nov 2026</title>
+<style>
+:root{
+  --sand:#F0C9A8; --card:#e8d4c0; --edit:#f6ebe0; --paper:#fff8f0; --ink:#1e1810; --ink-2:#4a3d30; --ink-3:#6f6052;
+  --border:rgba(30,24,16,.10); --border-strong:rgba(30,24,16,.18); --muted:rgba(30,24,16,.06);
+  --olive:#4f5a1f; --ochre:#8a560c; --brick:#8f3424;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--sand);color:var(--ink);font:14px/1.5 var(--sans);font-feature-settings:"calt" 0}
+.wrap{max-width:1360px;margin:0 auto;padding:40px 24px 120px}
+h1{font-size:24px;font-weight:600;margin:0 0 6px}
+h2{font-size:20px;font-weight:600;margin:56px 0 8px}
+h3{font-size:13px;font-weight:600;margin:20px 0 6px}
+p{margin:0 0 10px;max-width:86ch}
+.lead{font-size:13px;color:var(--ink-2)}
+.k{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+code{font:12px var(--mono);background:var(--muted);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+figure{margin:0;min-width:0;max-width:100%}
+figcaption{font:700 9px/1.5 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+table.t{border-collapse:collapse;width:100%;font-size:12.5px;margin:10px 0 22px;background:var(--card);border-radius:8px;overflow:hidden;table-layout:fixed}
+table.t th,table.t td{text-align:left;vertical-align:top;padding:8px 12px;border-bottom:1px solid var(--border);overflow-wrap:anywhere}
+table.t th{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.t td:first-child{font-weight:600;width:190px}
+table.t ul{margin:4px 0 0 16px;padding:0}table.t li{margin:0 0 4px}
+.open{background:#f3e3c8;border:1px dashed var(--ochre);border-radius:8px;padding:10px 14px;font-size:12.5px;margin:10px 0 16px}
+.notes{font-size:12.5px;color:var(--ink-2)}.notes li{margin:0 0 6px;max-width:96ch}
+.frame{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start;margin:12px 0 24px}
+.vp{background:var(--paper);border:1px solid var(--border-strong);border-radius:8px;overflow:hidden;max-width:100%;padding:16px;font-size:13px}
+.vp.wide{width:760px}.vp.w393{width:393px}
+.ph{font:700 9px/1.4 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+.h{font-weight:600;font-size:14px;margin:0 0 4px}
+.sub{font-size:12px;color:var(--ink-2);margin:0 0 10px}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 10px}
+.chip{border:1px solid var(--border-strong);border-radius:999px;padding:3px 10px;font-size:12px;background:#fff}
+.chip.on{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.mono{font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase}
+.row{display:grid;grid-template-columns:22px 26px 1fr auto;gap:8px;align-items:center;padding:7px 0;border-top:1px solid var(--border)}
+.row .n{color:var(--ink-3);font:12px var(--mono)}
+.box{width:16px;height:16px;border:1.5px solid var(--ink);border-radius:3px;display:inline-block}
+.box.on{background:var(--ink)}
+.box.off{border-color:var(--ink-3);opacity:.45}
+.fs{font-size:11.5px;color:var(--ink-2)}
+.fs.warn{color:var(--brick)}
+.ok{color:var(--olive)}
+.btn{display:inline-block;border:1px solid var(--ink);border-radius:4px;padding:5px 10px;font:700 10px var(--mono);letter-spacing:.1em;text-transform:uppercase;background:var(--ink);color:var(--paper)}
+.btn.ghost{background:transparent;color:var(--ink)}
+.btn.dis{opacity:.4}
+.wave{position:relative;height:64px;background:repeating-linear-gradient(90deg,var(--ink-3) 0 2px,transparent 2px 5px);border-radius:4px;margin:26px 0 4px;opacity:.9}
+.wave .win{position:absolute;top:-4px;bottom:-4px;border:2px solid var(--ink);background:rgba(232,212,192,.55);border-radius:4px}
+.wave .drop{position:absolute;top:-10px;bottom:-10px;width:2px;background:var(--brick)}
+.wave .drop span{position:absolute;top:-16px;left:-20px;font:700 9px var(--mono);letter-spacing:.1em;color:var(--brick);white-space:nowrap}
+.tl{display:flex;justify-content:space-between;font:11px var(--mono);color:var(--ink-3)}
+.pv{width:150px;height:267px;background:#222;border-radius:6px;position:relative;flex:none;display:flex;align-items:center;justify-content:center;color:#fff;font:700 9px var(--mono);letter-spacing:.12em}
+.pv .play{position:absolute;bottom:10px;left:10px;width:28px;height:28px;border-radius:50%;background:#fff}
+.split{display:flex;gap:16px;align-items:flex-start}
+table.v{border-collapse:collapse;width:100%;font-size:12px;margin:6px 0}
+table.v th{font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);text-align:left;padding:4px 6px;border-bottom:1px solid var(--border-strong)}
+table.v td{padding:6px;border-bottom:1px solid var(--border)}
+table.v td.r,table.v th.r{text-align:right}
+.st{display:inline-block;border:1px solid var(--border-strong);border-radius:10px;padding:2px 8px;font:700 9px/1.5 var(--mono);letter-spacing:.1em;text-transform:uppercase}
+.st.run{border-style:dashed}
+.st.win{background:var(--olive);color:#fff;border-color:var(--olive)}
+.test{border:1px solid var(--border);border-radius:6px;padding:10px 12px;margin:8px 0;background:#fff}
+.test.dim{opacity:.55}
+.line{background:var(--card);border-radius:6px;padding:8px 10px;margin:6px 0;font-size:12px}
+.inv{text-decoration:underline dotted var(--brick);text-decoration-thickness:1.5px;text-underline-offset:3px}
+table.t table.t td:first-child{width:auto;font-weight:400}
+@media (max-width:560px){table.t th[style]{width:100px!important}table.t td:first-child{width:100px}}
+.st.fail{border-color:var(--brick);color:var(--brick)}
+.line .acts{float:right;font:700 9px var(--mono);letter-spacing:.1em;text-transform:uppercase}
+.line.wait{opacity:.6}
+.line.failed{border:1px solid var(--brick);background:#f6e3dc}
+.tick{display:inline-block;width:11px;height:11px;border:1.5px solid var(--ink);border-radius:2px;margin-right:6px;vertical-align:-1px}
+.tick.on{background:var(--ink)}
+.bar{display:inline-block;height:8px;background:var(--ink-3);border-radius:2px;vertical-align:middle;margin-right:6px}
+.sbar{position:relative;display:inline-block;width:100px;height:8px;background:var(--muted);border-radius:2px;vertical-align:middle;margin-right:8px}
+.sbar i{position:absolute;left:0;top:0;bottom:0;background:var(--ink-3);border-radius:2px}
+.sbar i.lead{background:var(--olive)}
+.sbar b{position:absolute;left:60px;top:-3px;bottom:-3px;width:1px;background:var(--ink)}
+.sbar s{position:absolute;left:10px;top:-3px;bottom:-3px;width:1px;background:var(--ink-3);opacity:.6}
+.sk{position:relative;background:linear-gradient(180deg,#8b8378,#6e675e);border-radius:4px;overflow:hidden}
+.sk .b{position:absolute;box-sizing:border-box;display:flex;align-items:center;justify-content:center;font:700 8px var(--mono);letter-spacing:.08em;text-transform:uppercase}
+.sk .t{background:rgba(255,255,255,.9);color:var(--ink);border-radius:2px}
+.sk .t.big{font-size:10px}
+.sk .t.clm{background:#fff;box-shadow:inset 0 3px 0 #e2453c}
+.sk .face{border:2px solid #fff8f0;border-radius:45%;background:rgba(240,201,168,.35)}
+.sk .head{border:2px dashed #fff8f0;border-radius:45%;color:#fff8f0}
+.sk .body{background:rgba(30,24,16,.35);border-radius:40% 40% 0 0}
+.sk .feed{border:1.5px dashed rgba(255,248,240,.8)}
+.sk .eyes{position:absolute;left:0;right:0;height:0;border-top:1.5px solid #e2453c;z-index:2}
+.sk .cx{position:absolute;top:0;bottom:0;left:50%;border-left:1px dashed rgba(255,248,240,.85)}
+.frame figure{flex:none}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<p class="k">Off/Pixel · design record · overlay templates · issue 17 · 17 November 2026</p>
+<h1>The artist in the middle: framing for 4:5, 1:1 and clips</h1>
+<p class="lead">Luke Dean's management (17 Nov, P26-BDAY) found the 1:1 and 4:5 framing awkward, with the artist pushed aside to make room for the event data, and asked for the artist to be centred. This record rules where the artist sits, where the data goes, and that this is the new default. It amends O1's re-sit and the "4:5 as its pure centre crop" for artist cards (O18, O23), and O97's claim place on clips. O19, O20, O25, O39, O63, O95 and O96 stand. Positions marked "measured" were read from the renders in Drive. The rest are ruled here.</p>
+
+<h2>What management saw</h2>
+<table class="t">
+<tr><th style="width:190px">Render</th><th>Measured</th></tr>
+<tr><td>Artist card 2, 4:5<br><span class="fs">P26-BDAY_luke-dean_artist-card-2-roll-call_on-sale_4x5.png</span></td><td>The eyes' midpoint is at 0.497 W, so the card is already centred left to right. Top to bottom it isn't: the head starts at 0.556 H, the eyes are at 0.685 H and the chin is at 0.815 H. The lockup, the name and the three info lines fill 0.056–0.50 H above him, and the claim's red line starts at 0.84 H, at the chin. The artist sits in the bottom third, under a poster's worth of type.</td></tr>
+<tr><td>Artist card 1, 4:5</td><td>The same: the eyes are at 0.493 W and 0.685 H, and the chin is at 0.82 H.</td></tr>
+<tr><td>Artist card 2, 1:1</td><td>The same layout scaled down by 0.8 (O1's re-sit): the eyes are at 0.505 W and 0.68 H, the chin is at 0.805 H, and the claim starts at 0.83 H.</td></tr>
+<tr><td>T1 on a clip<br><span class="fs">P26-BDAY_luke-dean-34_t1-roll-call-on-sale_r1_9x16.mp4</span></td><td>Luke is shot from behind at the decks. His head sits at 0.41 W at 2 s and 0.72 W at 5 s, and at 0.53–0.67 H. The claim, on O97's 1238 baseline, covers 0.565–0.645 H, which puts it over his head. O39's face test passed because no face was detected: it was the back of his head.</td></tr>
+</table>
+<p class="lead">So the complaint is two problems. On the cards, the artist is centred left to right but sits low, with the data stacked above. On the clips, the artist is off-centre left to right and the claim can sit on his head. Both are ruled below.</p>
+
+<h2>Rulings</h2>
+<table class="t">
+<tr><th style="width:190px">#</th><th>Ruling</th></tr>
+
+<tr><td>O117 · Cards get their own 4:5 and 1:1</td><td>
+<ul>
+<li>The artist card's 4:5 is no longer the 9:16's centre crop, and its 1:1 is no longer O1's 0.8× re-sit. Each is placed on its own from the same photo and the same pieces, by the slot tables in O118.</li>
+<li><b>The artist is centred both ways.</b> The eyes' midpoint sits at 0.50 W (within 0.01 W). Top to bottom, the eyes sit at 0.43 H in the 4:5 (band 0.40–0.46) and 0.445 H in the 1:1 (band 0.42–0.47). With the shoulders below, the head and shoulders read as the middle of the frame.</li>
+<li><b>Face bands:</b>
+<ul>
+<li>4:5: top of head ≥ 0.27 H, chin ≤ 0.60 H;</li>
+<li>1:1: top of head ≥ 0.29 H, chin ≤ 0.60 H.</li>
+</ul>
+O19's other photo rules stand: one face, a face box at least 0.25 W, eyes measurable, no upscaling. A bigger face is scaled down (never below cover) to meet the chin limit.</li>
+<li><b>The 9:16 card doesn't change.</b> Management's note was about 1:1 and 4:5, and the 9:16's face band (0.53–0.76 H) already reads as centred on a phone screen.</li>
+</ul></td></tr>
+
+<tr><td>O118 · Where the data goes</td><td>
+<p>The data splits around the face: the brand and name above it, the facts and claim below the chin. The insets stay at 7 % W (76 px) from the top and bottom edges.</p>
+<table class="t" style="margin:6px 0 10px">
+<tr><th style="width:120px">Piece</th><th>4:5 (1080 × 1350)</th><th>1:1 (1080 × 1080)</th></tr>
+<tr><td>Lockup</td><td>top at 76 px (0.056 H), 0.24 W wide</td><td>top at 76 px (0.07 H), 0.22 W wide</td></tr>
+<tr><td>Name</td><td>20 px under the lockup, cap 0.12 H, O3's steps down to fit 0.80 W, floor 0.07 H</td><td>18 px under the lockup, cap 0.11 H, the same steps, floor 0.065 H</td></tr>
+<tr><td>Face</td><td>head top ≥ 0.27 H, eyes 0.43 H, chin ≤ 0.60 H</td><td>head top ≥ 0.29 H, eyes 0.445 H, chin ≤ 0.60 H</td></tr>
+<tr><td>Info (the PSD's three lines)</td><td colspan="2">cap 0.030 H, pitch 0.042 H; the first line's top is 0.03 H under the chin, and never above 0.62 H</td></tr>
+<tr><td>Claim (O23)</td><td>bottom on 1274 px (0.944 H)</td><td>bottom on 1004 px (0.93 H)</td></tr>
+</table>
+<ul>
+<li><b>Nothing covers the face.</b> No text pixel falls inside the face box (head top to chin, ear to ear, hair and hat included) grown by 0.02 H on every side. The check runs on the placed pieces, and a card that fails it isn't made.</li>
+<li><b>The claim keeps its distance.</b> The claim's top must sit at least 0.02 H under the last info line. When it doesn't, O23's size steps apply, as they do today.</li>
+<li><b>Bands:</b> O25's bottom band starts at 0.62 H on these two formats (from 0.70), so the info lines over the shoulders get the same 20 % shade the claim gets. The top band runs to 0.30 H. O19's contrast test runs on both text zones.</li>
+<li>Pieces are still placed by their ink box at a uniform scale, never stretched or enlarged past their own pixels, with the kit's one shadow (O6).</li>
+</ul></td></tr>
+
+<tr><td>O119 · When the photo runs out</td><td>
+<ul>
+<li><b>At the sides:</b> to centre the eyes, the photo may be extended at either side by up to 0.12 W, under O20's plainness tests. The card reports it with the existing line, "photo extended … by {n} px".</li>
+<li>When the eyes still can't reach 0.50 W ± 0.01, the card is made and reports <b>"Framed {n} px off centre: the photo ends at the {left | right}"</b>.</li>
+<li><b>Below the chin:</b> O20 never extends the bottom. When the photo ends too close under the chin to lift the eyes to the band, the eyes go as high as the photo allows. If that still misses the band, the card is skipped like any photo that fails a band, with <b>"Face too low for {4:5 | 1:1}: the photo ends {n} px below the chin"</b>.</li>
+<li>One format can be skipped while the others are made. The 9:16 is judged on its own bands, as today.</li>
+</ul></td></tr>
+
+<tr><td>O120 · Clips: the crop finds the artist</td><td>
+<ul>
+<li><b>Where the head is.</b> The Lab finds the artist's head on the same sampled frames O39 already uses. It's the face box when a face is found. Otherwise it's the top of the person mask (<code>segment.ts</code>), the top 0.18 of the mask's height. So the back of a head counts.</li>
+<li><b>Horizontal centring.</b> The 9:16 crop window's position (crop focus x) is set so that the head's median x over the render window lands at 0.50 W.
+<ul>
+<li>It moves only when the median is more than 0.05 W off centre.</li>
+<li>It stays within O63: the window is at least 675 px wide, so the footage is scaled up 1.6× at most.</li>
+<li>Meta's Feed shows the centre 4:5 of the 9:16 (O96), so centring the 9:16 centres Feed as well.</li>
+</ul></li>
+<li>One crop per clip, with no panning. When the artist moves across the shot, the crop goes to where the head spends the most time. The render row reads <b>"Framed on the artist: crop moved {n} px {left | right}"</b>.</li>
+<li><b>No text on the head.</b> O39's limits (10 % of the window, 0.5 s in a row) now apply to the head box as well as the face, for the name, the date and the claim.
+<ul>
+<li>When the claim on its O97 baseline (1238) breaks them, it moves up into the top block, one date pitch under the date line.</li>
+<li>If the top block then breaks them too, the clip is refused for T1 with <b>"The artist's head is where the text goes — choose another clip"</b>.</li>
+</ul></li>
+<li><b>There's no 1:1 or 4:5 video.</b> O95 stands: video is one 9:16, and Feed's 4:5 is Meta's centre crop of it. Frame AF-C shows that band. A separate 1:1 or 4:5 video would be a re-ruling of O95.</li>
+</ul></td></tr>
+
+<tr><td>O121 · The default, for every artist</td><td>
+<ul>
+<li><b>This is the new default for every artist card and every T1 clip.</b> It isn't a per-event or per-artist choice. One layout is easier to judge and to test, and the old placement had no reason to stay: it put the artist under the type by default, not by anyone's request. If another artist's team asks for the old look, that's a re-ruling, not a toggle.</li>
+<li><b>Existing renders aren't replaced.</b> Approved finals stay as they are.
+<ul>
+<li>P26-BDAY's Luke Dean cards (artist cards 1 and 2, roll-call, 4:5 and 1:1) are re-rendered once on merge as new draft versions, for approval.</li>
+<li>His T1 clips are offered a re-run. Other events' cards are offered "Re-render with centred framing" on their render rows.</li>
+</ul></li>
+<li>Nothing about the claim's words, the lockup or the roll-call changes.</li>
+</ul></td></tr>
+</table>
+
+<h2>Frames</h2>
+<p class="lead">Schematics. Grey is the photo, the outlined oval is the face box, the line marks the eyes, and the dashed vertical marks 0.50 W. "Before" boxes are measured from the Drive renders above; "after" boxes are O117–O120's positions for the same photo at the same scale.</p>
+<div class="frame">
+<figure><figcaption>AF-A · 4:5 · before (measured)</figcaption>
+<div class="sk" style="width:240px;height:300px">
+<div class="b t" style="top:5.6%;height:6.4%;left:38.0%;width:24.0%">lockup</div>
+<div class="b t big" style="top:14.8%;height:15.6%;left:27.0%;width:46.0%">LUKE DEAN</div>
+<div class="b t" style="top:33.5%;height:16.5%;left:31.0%;width:38.0%">3 info lines</div>
+<div class="b t clm" style="top:84.0%;height:10.5%;left:20.0%;width:60.0%">claim</div>
+<div class="b face" style="top:55.6%;height:25.9%;left:37.2%;width:25.0%"></div>
+<div class="eyes" style="top:68.5%"></div>
+<div class="cx"></div></div></figure>
+<figure><figcaption>AF-A · 4:5 · after</figcaption>
+<div class="sk" style="width:240px;height:300px">
+<div class="b t" style="top:5.6%;height:5.5%;left:38.0%;width:24.0%">lockup</div>
+<div class="b t big" style="top:12.6%;height:12.0%;left:27.0%;width:46.0%">LUKE DEAN</div>
+<div class="b t" style="top:62.0%;height:8.4%;left:31.0%;width:38.0%">3 info lines</div>
+<div class="b t clm" style="top:84.0%;height:10.4%;left:20.0%;width:60.0%">claim</div>
+<div class="b face" style="top:30.0%;height:26.0%;left:37.5%;width:25.0%"></div>
+<div class="eyes" style="top:43.0%"></div>
+<div class="cx"></div></div></figure>
+<figure><figcaption>AF-B · 1:1 · before (measured)</figcaption>
+<div class="sk" style="width:240px;height:240px">
+<div class="b t" style="top:5.5%;height:5.5%;left:38.0%;width:24.0%">lockup</div>
+<div class="b t big" style="top:14.0%;height:16.0%;left:27.0%;width:46.0%">LUKE DEAN</div>
+<div class="b t" style="top:33.5%;height:16.5%;left:31.0%;width:38.0%">3 info lines</div>
+<div class="b t clm" style="top:83.0%;height:10.0%;left:20.0%;width:60.0%">claim</div>
+<div class="b face" style="top:55.5%;height:25.0%;left:39.5%;width:22.0%"></div>
+<div class="eyes" style="top:68.0%"></div>
+<div class="cx"></div></div></figure>
+<figure><figcaption>AF-B · 1:1 · after</figcaption>
+<div class="sk" style="width:240px;height:240px">
+<div class="b t" style="top:7.0%;height:7.2%;left:38.0%;width:24.0%">lockup</div>
+<div class="b t big" style="top:15.8%;height:11.0%;left:27.0%;width:46.0%">LUKE DEAN</div>
+<div class="b t" style="top:62.0%;height:8.4%;left:31.0%;width:38.0%">3 info lines</div>
+<div class="b t clm" style="top:82.6%;height:10.4%;left:20.0%;width:60.0%">claim</div>
+<div class="b face" style="top:32.0%;height:25.0%;left:39.0%;width:22.0%"></div>
+<div class="eyes" style="top:44.5%"></div>
+<div class="cx"></div></div></figure>
+</div>
+<div class="frame">
+<figure><figcaption>AF-C · 9:16 clip at 2 s · before (measured)</figcaption>
+<div class="sk" style="width:180px;height:320px">
+<div class="b feed" style="top:14.8%;height:70.4%;left:0.0%;width:100.0%"></div>
+<div class="b t" style="top:18.4%;height:3.1%;left:38.0%;width:24.0%">lockup</div>
+<div class="b t big" style="top:23.5%;height:7.5%;left:30.0%;width:40.0%">LUKE DEAN</div>
+<div class="b t" style="top:33.0%;height:2.6%;left:33.0%;width:34.0%">date</div>
+<div class="b t clm" style="top:56.5%;height:8.0%;left:20.0%;width:60.0%">claim</div>
+<div class="b head" style="top:53.0%;height:14.0%;left:30.0%;width:22.0%">head</div>
+<div class="cx"></div>
+<div class="b body" style="top:67.0%;height:33.0%;left:17.0%;width:48.0%"></div></div></figure>
+<figure><figcaption>AF-C · 9:16 clip at 2 s · after</figcaption>
+<div class="sk" style="width:180px;height:320px">
+<div class="b feed" style="top:14.8%;height:70.4%;left:0.0%;width:100.0%"></div>
+<div class="b t" style="top:18.4%;height:3.1%;left:38.0%;width:24.0%">lockup</div>
+<div class="b t big" style="top:23.5%;height:7.5%;left:30.0%;width:40.0%">LUKE DEAN</div>
+<div class="b t" style="top:33.0%;height:2.6%;left:33.0%;width:34.0%">date</div>
+<div class="b t clm" style="top:38.5%;height:6.5%;left:20.0%;width:60.0%">claim</div>
+<div class="b head" style="top:53.0%;height:14.0%;left:39.0%;width:22.0%">head</div>
+<div class="cx"></div>
+<div class="b body" style="top:67.0%;height:33.0%;left:26.0%;width:48.0%"></div></div></figure>
+</div>
+<p class="lead">In AF-C the dashed inner rectangle is Feed's centre 4:5 (0.148–0.852 H). Before, the head is at 0.41 W and the claim covers it. After, the crop moves the head to 0.50 W and the claim moves up under the date.</p>
+
+<h2>Expected figures</h2>
+<ul class="notes">
+<li><b>AF-A, 4:5:</b> the face box measured on the before render is 0.259 H tall (head top 0.556, chin 0.815), with the eyes 0.129 H below the head top. At the same scale, with the eyes on 0.43 H, the head top lands at 0.301 H (≥ 0.27) and the chin at 0.560 H (≤ 0.60). The info starts at max(0.560 + 0.03, 0.62) = 0.62 H and ends at 0.62 + 2 × 0.042 + 0.030 = 0.704 H. The claim, 0.104 H tall, spans 0.840–0.944 H, 0.136 H clear of the info.</li>
+<li><b>AF-A, name:</b> the lockup ends at about 0.111 H, so the name sits at 0.126–0.246 H. That's 0.055 H above the head top.</li>
+<li><b>AF-B, 1:1:</b> the face box is 0.25 H tall, with the eyes 0.125 H below the head top. With the eyes on 0.445 H, the head top is at 0.32 H and the chin at 0.57 H. The info spans 0.62–0.704 H, and the claim (0.104 H) spans 0.826–0.93 H. The name spans 0.158–0.268 H, 0.052 H above the head.</li>
+<li><b>AF-C:</b> the head's median at 0.41 W is 0.09 W off centre (more than 0.05), so the crop moves 0.09 × 1080 ≈ 97 px. To move 97 px from the centre, the window narrows to at most 1080 − 2 × 97 = 886 px, a 1.22× scale-up. That's inside O63's 675 px floor and 1.6× cap. The claim moves from 0.565–0.645 H to 0.385–0.45 H: one date pitch under the date line, which ends at 0.356 H. That's 0.08 H clear of the head top (0.53 H).</li>
+</ul>
+
+<h2>Acceptance</h2>
+<ul class="notes">
+<li>The 4:5 and 1:1 artist cards are placed by O118's tables, not cropped from the 9:16. The eyes are at 0.50 W ± 0.01, and in the format's band top to bottom.</li>
+<li>A test asserts that no text pixel falls inside the grown face box on any card format, and that the claim sits at least 0.02 H under the info.</li>
+<li>O119's strings are exact. A skipped format doesn't block the others.</li>
+<li>On clips, the head comes from the face box or the person mask. Crop focus x follows O120's rule, and the claim's move and the refusal string are exact.</li>
+<li>The 9:16 artist card is pixel-identical to its baseline.</li>
+<li>CI frames AF-A (4:5) and AF-B (1:1) from the Luke Dean fixture photo, and AF-C (9:16 with Feed's 4:5 marked) from a fixture clip shot from behind, each as a before and after pair.</li>
+</ul>
+
+<h2>Hand-back</h2>
+<table class="t">
+<tr><th style="width:190px">Piece</th><th>Build</th></tr>
+<tr><td>H107 · Card slot tables</td><td>4:5 and 1:1 slot tables and face bands in <code>artist-card.ts</code> beside the 9:16's. <code>photoCrop</code> takes the format's band and centres the eyes at 0.50 W. The 1:1 re-sit and the 4:5 centre crop are retired for artist cards only.</td></tr>
+<tr><td>H108 · Face clear zone</td><td>The grown face-box check over every placed piece, failing the format with the O118 rule. O25's bottom band from 0.62 H on 4:5 and 1:1.</td></tr>
+<tr><td>H109 · Photo fallbacks</td><td>The side extension for centring under O20, and O119's two strings through <code>extensionLabel</code>'s neighbours.</td></tr>
+<tr><td>H110 · Clip head and crop</td><td>A head box from the face or the person mask on O39's samples. Crop focus x from the median, within O63. The render row string.</td></tr>
+<tr><td>H111 · Claim on clips</td><td>O39's limits on the head box. The claim's move into the top block, and the refusal string.</td></tr>
+<tr><td>H112 · Re-renders</td><td>P26-BDAY Luke Dean cards re-rendered once as new draft versions. "Re-render with centred framing" on other events' card rows. Nothing approved is replaced.</td></tr>
+</table>
+
+<h2>Invented here</h2>
+<ul class="notes">
+<li>The eye targets (0.43 H and 0.445 H) and their bands, the head-top and chin limits, the ±0.01 W centring tolerance.</li>
+<li>The 4:5 and 1:1 slot tables: lockup widths, name caps 0.12 / 0.11 H and floors, info cap and pitch, the 0.03 H under the chin and the 0.62 H floor.</li>
+<li>The 0.02 H growth of the face box and the 0.02 H claim gap. O25's bottom band from 0.62 H on these formats.</li>
+<li>The head as the top 0.18 of the person mask, the 0.05 W threshold before the crop moves, and "most time" as the median.</li>
+<li>Every string in O119 and O120.</li>
+</ul>
+
+</div>
+</body>
+</html>
