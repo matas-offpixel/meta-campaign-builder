@@ -51,6 +51,20 @@ const nextConfig: NextConfig = {
       "./node_modules/ffmpeg-static/package.json",
       "./node_modules/@vladmandic/face-api/dist/face-api.esm.js",
       "./node_modules/@vladmandic/face-api/model/**/*",
+      // The face check's timing samples (lib/creative-lab/face-detect-bench.ts) run the wasm backend in a
+      // child process, lib/creative-lab/face-bench-child.cjs, which no import reaches: its script and every
+      // file it loads (about 9 MB). scripts/check-face-detect-bundle.mts loads it from the traced files alone.
+      "./lib/creative-lab/face-bench-child.cjs",
+      "./node_modules/@vladmandic/face-api/package.json",
+      "./node_modules/@vladmandic/face-api/dist/face-api.node-wasm.js",
+      "./node_modules/@tensorflow/tfjs*/package.json",
+      "./node_modules/@tensorflow/tfjs*/dist/*.node.js",
+      "./node_modules/@tensorflow/tfjs-backend-wasm/dist/*.wasm",
+      "./node_modules/long/package.json",
+      "./node_modules/long/src/long.js",
+      "./node_modules/seedrandom/package.json",
+      "./node_modules/seedrandom/*.js",
+      "./node_modules/seedrandom/lib/*.js",
     ],
   },
   // render-caption renders on Remotion Lambda from REMOTION_LAMBDA_SERVE_URL
