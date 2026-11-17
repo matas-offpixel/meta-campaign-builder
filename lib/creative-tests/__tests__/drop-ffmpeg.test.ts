@@ -70,6 +70,9 @@ describe("ffmpeg: arguments and parsing", () => {
     assert.match(args, /loudnorm=I=-14:TP=-1:LRA=11:measured_I=-20.1:measured_TP=-3.2:measured_LRA=6.0:measured_thresh=-30.4:offset=0.2:linear=true/);
     assert.match(args, /-ss 54 -t 16 -i \/tmp\/a.wav/);
     assert.match(args, /-c:a aac -b:a 256k/);
+    // Audio only: an MP3's embedded cover art is a video stream ffmpeg would otherwise try to write.
+    assert.match(args, /-i \/tmp\/a.wav -vn /);
+    assert.match(loudnessMeasureArgs("/tmp/a.mp3", { startS: 54, lengthS: 16 }).join(" "), /-i \/tmp\/a.mp3 -vn /);
   });
 
   it("muxes without re-encoding", () => {
@@ -131,6 +134,32 @@ describe("ffmpeg: the real pipeline", { skip: existsSync(FFMPEG) ? false : "ffmp
       assert.ok(a.equals(b), "the muxed audio differs from the cut");
       const info = await runFfmpegArgs(["-hide_banner", "-i", snippet, "-t", "0", "-f", "null", "-"]);
       assert.match(info, /1080x1920/);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("cuts an MP3 that carries embedded cover art: the picture isn't a video stream in the cut", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "snippet-art-"));
+    try {
+      // Every one of Luke Dean's MP3s has an attached picture, which ffmpeg reads as a video stream.
+      const cover = path.join(dir, "cover.png");
+      execFileSync(FFMPEG, ["-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "color=c=red:s=300x300:d=1", "-frames:v", "1", cover]);
+      const track = path.join(dir, "track.mp3");
+      execFileSync(FFMPEG, [
+        "-hide_banner", "-loglevel", "error", "-y",
+        "-f", "lavfi", "-i", "sine=f=220:d=30:r=44100",
+        "-i", cover,
+        "-map", "0:a", "-map", "1:v", "-c:a", "libmp3lame", "-b:a", "192k", "-ac", "2",
+        "-c:v", "png", "-disposition:v", "attached_pic", "-id3v2_version", "3", track,
+      ]);
+      const art = await runFfmpegArgs(["-hide_banner", "-i", track, "-t", "0", "-f", "null", "-"]);
+      assert.match(art, /Video: png[^\n]*\(attached pic\)/, "the fixture has cover art");
+      const cut = path.join(dir, "cut.m4a");
+      await cutSnippet(track, cut, { startS: 6, lengthS: 16 });
+      const out = await runFfmpegArgs(["-hide_banner", "-i", cut, "-t", "0", "-f", "null", "-"]);
+      assert.doesNotMatch(out, /Video:/);
+      assert.equal((await probeAudio(cut))?.codec, "aac");
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

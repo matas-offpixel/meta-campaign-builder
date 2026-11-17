@@ -61,7 +61,7 @@ const LOUDNORM = `loudnorm=I=${SNIPPET.lufs}:TP=${SNIPPET.truePeak}:LRA=11`;
 
 /** Loudness pass 1: measures the faded window. */
 export function loudnessMeasureArgs(input: string, win: CutWindow): string[] {
-  return ["-hide_banner", "-nostats", "-ss", String(win.startS), "-t", String(win.lengthS), "-i", input, "-af", `${fadeFilter(win.lengthS)},${LOUDNORM}:print_format=json`, "-f", "null", "-"];
+  return ["-hide_banner", "-nostats", "-ss", String(win.startS), "-t", String(win.lengthS), "-i", input, "-vn", "-af", `${fadeFilter(win.lengthS)},${LOUDNORM}:print_format=json`, "-f", "null", "-"];
 }
 
 export type LoudnessMeasure = { input_i: string; input_tp: string; input_lra: string; input_thresh: string; target_offset: string };
@@ -81,11 +81,14 @@ export function parseLoudness(stderr: string): LoudnessMeasure | null {
   }
 }
 
-/** Loudness pass 2: the cut, faded, normalised to −14 LUFS and −1 dBTP from pass 1's measures, AAC 256 kbps (CT1). */
+/**
+ * Loudness pass 2: the cut, faded, normalised to −14 LUFS and −1 dBTP from pass 1's measures, AAC 256 kbps (CT1).
+ * -vn: an MP3's embedded cover art is a video stream, and without it ffmpeg tries to write that picture into the .m4a.
+ */
 export function cutArgs(input: string, output: string, win: CutWindow, m: LoudnessMeasure): string[] {
   const loud = `${LOUDNORM}:measured_I=${m.input_i}:measured_TP=${m.input_tp}:measured_LRA=${m.input_lra}:measured_thresh=${m.input_thresh}:offset=${m.target_offset}:linear=true`;
   return [
-    "-hide_banner", "-nostats", "-y", "-ss", String(win.startS), "-t", String(win.lengthS), "-i", input,
+    "-hide_banner", "-nostats", "-y", "-ss", String(win.startS), "-t", String(win.lengthS), "-i", input, "-vn",
     "-af", `${fadeFilter(win.lengthS)},${loud}`,
     "-ar", "48000", "-ac", "2", "-c:a", "aac", "-b:a", `${SNIPPET.audioBitrateK}k`, "-movflags", "+faststart", output,
   ];
