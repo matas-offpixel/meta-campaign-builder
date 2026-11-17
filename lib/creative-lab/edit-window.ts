@@ -5,9 +5,16 @@
  * creative_lab_clips.drops (migration 258). The window a render reads is
  * the clip's in_s / out_s, which detection and the picker write from here,
  * so T1, T2, captions, quotes and the triple-fit all cut the same one.
+ *
+ * VW7–VW8 (2026-11-17-creative-lab-video-window-2.html) re-rule the main
+ * drop: a candidate is major when its rise is within 3 dB of the clip's
+ * largest rise, or its 2 s after are within 3 dB of the clip's loudest
+ * 2 s; the main drop is the last major candidate that fits VW2. With none
+ * fitting, VW3 refuses naming the latest major candidate. "Use the drop
+ * at" offers the latest candidate that fits, major or minor.
  */
 
-import type { DropCandidate } from "./clip-drops.ts";
+import { DROP_RULE, type DropCandidate } from "./clip-drops.ts";
 
 export const WINDOW_RULE = {
   /** VW2: the default window, seconds, and where the drop sits in it. */
@@ -181,14 +188,38 @@ export type WindowState =
   | { kind: "refused"; refusal: RefusalKind; chip: string; sentence: string; useDrop: DropCandidate | null; drops: StoredDrops }
   | { kind: "ok"; window: EditWindow; detected: EditWindow | null; byHand: boolean; drops: Extract<StoredDrops, { status: "ok" }> };
 
-/** VW3's "Use the drop at": the fitting candidate other than the main drop with the largest rise, the earlier on a tie. */
-function anotherDrop(drops: Extract<StoredDrops, { status: "ok" }>, mainS: number): DropCandidate | null {
-  const fits = drops.candidates.filter((c) => Math.abs(c.tS - mainS) > 1e-6 && dropFits(c.tS, drops.durationS));
-  fits.sort((a, b) => b.riseDb - a.riseDb || a.tS - b.tS);
-  return fits[0] ?? null;
+type OkStoredDrops = Extract<StoredDrops, { status: "ok" }>;
+
+/** VW7: major when the rise is within 3 dB of the clip's largest, or the 2 s after are within 3 dB of its loudest 2 s. */
+export function isMajor(candidate: DropCandidate, candidates: readonly DropCandidate[]): boolean {
+  if (!candidates.length) return false;
+  const top = Math.max(...candidates.map((c) => c.riseDb));
+  if (candidate.riseDb >= top - DROP_RULE.majorRiseMarginDb - 1e-9) return true;
+  return candidate.afterDb != null && candidate.afterDb >= -DROP_RULE.majorLevelMarginDb - 1e-9;
 }
 
-/** VW3's checks, in order, on the main drop. Null when the main drop makes an edit. */
+/** VW7: the main drop, the last major candidate that fits VW2 (3 s or more before, 10 s or more after). Null when none fits. */
+export function mainDropOf(drops: Pick<OkStoredDrops, "candidates" | "durationS">): DropCandidate | null {
+  const fitting = drops.candidates.filter((c) => isMajor(c, drops.candidates) && dropFits(c.tS, drops.durationS));
+  return fitting.sort((a, b) => b.tS - a.tS)[0] ?? null;
+}
+
+/** VW7: the latest major candidate, which a refusal names. */
+export function latestMajor(drops: Pick<OkStoredDrops, "candidates">): DropCandidate | null {
+  return drops.candidates.filter((c) => isMajor(c, drops.candidates)).sort((a, b) => b.tS - a.tS)[0] ?? null;
+}
+
+/** VW8's "Use the drop at": the latest candidate that fits, major or minor. */
+function latestFitting(drops: OkStoredDrops, except: number): DropCandidate | null {
+  return drops.candidates.filter((c) => Math.abs(c.tS - except) > 1e-6 && dropFits(c.tS, drops.durationS)).sort((a, b) => b.tS - a.tS)[0] ?? null;
+}
+
+/**
+ * VW3's checks, in order. Null when a major candidate fits (VW7's main
+ * drop). With none fitting, the refusal names the latest major candidate:
+ * under 10 s after it is "Too little after the drop", otherwise "Drop too
+ * soon".
+ */
 export function refusalOf(drops: StoredDrops): Extract<WindowState, { kind: "refused" }> | null {
   const refuse = (refusal: RefusalKind, sentence: string, useDrop: DropCandidate | null = null) =>
     ({ kind: "refused", refusal, chip: VW_LINES.chip[refusal], sentence, useDrop, drops }) as const;
@@ -196,12 +227,12 @@ export function refusalOf(drops: StoredDrops): Extract<WindowState, { kind: "ref
   if (drops.status === "failed") return refuse("noDrop", VW_LINES.noDrop);
   if (!drops.hasSound) return refuse("noSound", VW_LINES.noSound);
   if (drops.durationS + 1e-9 < WINDOW_RULE.minLengthS) return refuse("tooShort", VW_LINES.tooShort(drops.durationS));
-  const main = drops.mainS == null ? null : drops.candidates.find((c) => Math.abs(c.tS - drops.mainS!) < 1e-6) ?? null;
-  if (!main) return refuse("noDrop", VW_LINES.noDrop);
-  if (main.tS + 1e-9 < WINDOW_RULE.minDropInS) return refuse("tooSoon", VW_LINES.tooSoon(main.tS), anotherDrop(drops, main.tS));
-  const after = drops.durationS - main.tS;
-  if (after + 1e-9 < MIN_AFTER_S) return refuse("tooLittleAfter", VW_LINES.tooLittleAfter(after, main.tS), anotherDrop(drops, main.tS));
-  return null;
+  if (!drops.candidates.length) return refuse("noDrop", VW_LINES.noDrop);
+  if (mainDropOf(drops)) return null;
+  const named = latestMajor(drops)!;
+  const after = drops.durationS - named.tS;
+  if (after + 1e-9 < MIN_AFTER_S) return refuse("tooLittleAfter", VW_LINES.tooLittleAfter(after, named.tS), latestFitting(drops, named.tS));
+  return refuse("tooSoon", VW_LINES.tooSoon(named.tS), latestFitting(drops, named.tS));
 }
 
 /** Reads creative_lab_clips.drops; anything else is "not checked". */
@@ -215,11 +246,18 @@ export function parseStoredDrops(value: unknown): StoredDrops | null {
   if (!Number.isFinite(durationS)) return null;
   const candidates = Array.isArray(v.candidates)
     ? v.candidates
-      .map((c) => ({ tS: Number((c as Record<string, unknown>)?.tS), riseDb: Number((c as Record<string, unknown>)?.riseDb) }))
+      .map((c) => {
+        const row = (c ?? {}) as Record<string, unknown>;
+        const candidate: DropCandidate = { tS: Number(row.tS), riseDb: Number(row.riseDb) };
+        if (row.afterDb != null && Number.isFinite(Number(row.afterDb))) candidate.afterDb = Number(row.afterDb);
+        if (row.onsetS !== undefined) candidate.onsetS = row.onsetS == null || !Number.isFinite(Number(row.onsetS)) ? null : Number(row.onsetS);
+        return candidate;
+      })
       .filter((c) => Number.isFinite(c.tS) && Number.isFinite(c.riseDb))
       .sort((a, b) => a.tS - b.tS)
     : [];
-  const mainS = v.mainS == null || !Number.isFinite(Number(v.mainS)) ? null : Number(v.mainS);
+  // VW7: the main drop is always worked out again from the candidates, never trusted from the row.
+  const mainS = mainDropOf({ candidates, durationS })?.tS ?? null;
   return {
     v: 1,
     status: "ok",
@@ -243,9 +281,10 @@ export function windowState(drops: StoredDrops | null, choice: WindowChoice): Wi
   if (!drops) return { kind: "pending" };
   const refused = refusalOf(drops);
   if (drops.status !== "ok") return refused!;
-  const detected = refused ? null : defaultWindow(drops.mainS!, drops.durationS);
+  const main = mainDropOf(drops);
+  const detected = main ? defaultWindow(main.tS, drops.durationS) : null;
   const chosen = choice.dropS == null ? null : drops.candidates.find((c) => Math.abs(c.tS - choice.dropS!) < 0.0005 && dropFits(c.tS, drops.durationS)) ?? null;
-  const dropS = chosen?.tS ?? (refused ? null : drops.mainS);
+  const dropS = chosen?.tS ?? main?.tS ?? null;
   if (dropS == null) return refused!;
   const stored = choice.inS != null && choice.outS != null ? { inS: choice.inS, outS: choice.outS, dropS } : null;
   const window = stored && withinLimits(stored, drops.durationS)
@@ -268,13 +307,14 @@ export function windowChip(state: WindowState): string | null {
 
 export type DropLine = { tS: number; label: string; rises: string; main: boolean; inUse: boolean; fits: boolean };
 
-/** VW5's drop lines, the main drop first, then the rest in time order. */
+/** VW5 / VW8's drop lines: every candidate, major and minor, the main drop first, then the rest in time order. */
 export function dropLines(state: WindowState): DropLine[] {
   if (state.kind === "pending" || state.drops.status !== "ok") return [];
   const drops = state.drops;
   const inUse = state.kind === "ok" ? state.window.dropS : null;
+  const mainS = mainDropOf(drops)?.tS ?? null;
   const lines = drops.candidates.map((c) => {
-    const main = drops.mainS != null && Math.abs(c.tS - drops.mainS) < 1e-6;
+    const main = mainS != null && Math.abs(c.tS - mainS) < 1e-6;
     return {
       tS: c.tS,
       label: main ? VW_LINES.mainDrop(c) : VW_LINES.otherDrop(c),
@@ -312,9 +352,9 @@ export function applyWindowRequest(
   request: WindowRequest,
 ): { ok: true; columns: { window_drop_s: number | null; window_by_hand: boolean; in_s: number | null; out_s: number | null } } | { ok: false; error: string } {
   if (!drops || drops.status !== "ok") return { ok: false, error: "This clip's sound hasn't been checked yet." };
-  const main = drops.mainS;
+  const main = mainDropOf(drops)?.tS ?? null;
   if (request.action === "reset") {
-    const detected = refusalOf(drops) ? null : defaultWindow(main!, drops.durationS);
+    const detected = main == null ? null : defaultWindow(main, drops.durationS);
     return { ok: true, columns: { window_drop_s: null, window_by_hand: false, in_s: detected?.inS ?? null, out_s: detected?.outS ?? null } };
   }
   const candidate = drops.candidates.find((c) => Math.abs(c.tS - request.dropS) < 0.0005);
@@ -324,8 +364,8 @@ export function applyWindowRequest(
     ? defaultWindow(candidate.tS, drops.durationS)
     : nudgedWindow(candidate.tS, request.dropInS, request.lengthS, drops.durationS);
   if (!window) return { ok: false, error: "That window is outside 15–20 s with the drop 3.0–5.0 s in." };
-  const isMain = main != null && Math.abs(candidate.tS - main) < 1e-6;
-  return { ok: true, columns: { window_drop_s: isMain ? null : candidate.tS, window_by_hand: true, in_s: window.inS, out_s: window.outS } };
+  // VW9: the drop a hand-set window is built on is always stored, so a later re-rule of the main drop never moves it.
+  return { ok: true, columns: { window_drop_s: candidate.tS, window_by_hand: true, in_s: window.inS, out_s: window.outS } };
 }
 
 const numOrNull = (v: unknown): number | null => (v == null || v === "" || !Number.isFinite(Number(v)) ? null : Number(v));

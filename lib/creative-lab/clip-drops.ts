@@ -8,14 +8,18 @@
  *   - onset strength: spectral flux, how sharply the spectrum changes from
  *     one step to the next (a kick, a snare or the bass coming in).
  *
- * A candidate is a moment where the 2 s after it are at least 6 dB louder
- * than the 2 s before it, with an onset peak within 0.1 s of it. The drop's
- * time is that onset peak. Candidates closer than 4 s are one, the larger
- * rise kept. The main drop is the largest rise; two within 1 dB, the
- * earlier wins.
+ * VW7 (docs/design-record/2026-11-17-creative-lab-video-window-2.html)
+ * re-rules the candidate and the main drop. A candidate is any rise of 6 dB
+ * or more over 2 s (the 2 s after against the 2 s before), merged within
+ * 4 s. Its time is its rise point: the 50 ms step where that rise is
+ * largest. There is no onset gate: the distance to the nearest onset peak
+ * is stored with the candidate as data and never decides. Each candidate
+ * also stores its after-level: its 2 s after against the clip's loudest
+ * 2 s. Major or minor and the main drop (the last major candidate that
+ * fits VW2) are edit-window.ts's, because they need VW2's fit.
  *
- * Every figure is in DROP_RULE. The record lists them as the build's
- * starting values for Matas to tune on real clips. The ones it doesn't name
+ * Every figure is in DROP_RULE. The records list them as the build's
+ * starting values for Matas to tune on real clips. The ones they don't name
  * (the onset peak's height, the least of the 2 s a side may be cut by the
  * clip's start or end) are marked "build's own" below.
  */
@@ -27,12 +31,14 @@ export const DROP_RULE = {
   sideS: 2,
   /** VW1: the least rise, dB, the 2 s after over the 2 s before. */
   minRiseDb: 6,
-  /** VW1: an onset peak this close to the moment, seconds. */
-  onsetWithinS: 0.1,
+  /** Build's own: an onset peak is the highest flux within this either side, seconds. Data only since VW7. */
+  onsetPeakReachS: 0.1,
   /** VW1: candidates closer than this are one, seconds. */
   mergeS: 4,
-  /** VW1: two candidates within this of each other, dB: the earlier is the main drop. */
-  tieDb: 1,
+  /** VW7: a candidate is major when its rise is within this of the clip's largest rise, dB. */
+  majorRiseMarginDb: 3,
+  /** VW7: …or when its 2 s after are within this of the clip's loudest 2 s, dB. */
+  majorLevelMarginDb: 3,
   /** VW3: the whole clip under this is no sound, LUFS. */
   silenceLufs: -50,
   /** Build's own: a side cut by the clip's start or end still needs this much sound, seconds. */
@@ -51,7 +57,16 @@ export const DROP_RULE = {
   peaks: 240,
 } as const;
 
-export type DropCandidate = { tS: number; riseDb: number };
+export type DropCandidate = {
+  /** The rise point, seconds. */
+  tS: number;
+  /** The 2 s after over the 2 s before, dB. */
+  riseDb: number;
+  /** VW7: the 2 s after against the clip's loudest 2 s, dB (0 is the loudest; negative is quieter). Absent on a hand-written fixture that doesn't need it. */
+  afterDb?: number;
+  /** VW7: seconds to the nearest onset peak, or null with none. Data only: it never decides. */
+  onsetS?: number | null;
+};
 
 export type SoundAnalysis = {
   /** Integrated loudness (BS.1770, gated) of the mono mix, or null when every block is under the absolute gate. */
@@ -60,8 +75,6 @@ export type SoundAnalysis = {
   hasSound: boolean;
   /** Every candidate, in time order. */
   candidates: DropCandidate[];
-  /** The main drop's time, or null with no candidate. */
-  mainS: number | null;
   /** Waveform peaks 0..1 over the whole decoded sound. */
   peaks: number[];
   /** The decoded sound's length, seconds. */
@@ -193,7 +206,7 @@ function median(values: ArrayLike<number>): number {
 
 /** The steps that are onset peaks: a local maximum within ±0.1 s, at least twice the clip's median flux. */
 export function onsetPeaks(flux: ArrayLike<number>): number[] {
-  const reach = Math.round(DROP_RULE.onsetWithinS / DROP_RULE.frameS);
+  const reach = Math.round(DROP_RULE.onsetPeakReachS / DROP_RULE.frameS);
   const floor = median(flux) * DROP_RULE.onsetOverMedian;
   const peaks: number[] = [];
   for (let t = 1; t < flux.length; t += 1) {
@@ -232,30 +245,42 @@ export function riseSteps(db: ArrayLike<number>): Float64Array {
   return out;
 }
 
+/** The loudest 2 s in the clip: the highest mean level over any whole 2 s, dB. */
+export function loudestTwoSeconds(db: ArrayLike<number>): number {
+  const side = Math.round(DROP_RULE.sideS / DROP_RULE.frameS);
+  if (db.length <= side) return sideMean(db, 0, db.length) ?? DROP_RULE.floorDb;
+  let sum = 0;
+  for (let i = 0; i < side; i += 1) sum += db[i]!;
+  let best = sum;
+  for (let i = side; i < db.length; i += 1) {
+    sum += db[i]! - db[i - side]!;
+    best = Math.max(best, sum);
+  }
+  return best / side;
+}
+
 /**
- * VW1's candidates from the two measures: each moment rising 6 dB with an
- * onset peak within 0.1 s gives a candidate at that peak with that rise
- * (the largest rise when several moments share a peak), then candidates
- * closer than 4 s are merged, the larger rise kept (the earlier on a tie).
+ * VW7's candidates: every peak of the rise curve (the 2 s after over the
+ * 2 s before) of 6 dB or more, merged within 4 s, the larger rise kept (the
+ * earlier on a tie). A candidate's time is that peak, its rise point. Each keeps its rise, its after-level
+ * against the loudest 2 s and, as data, the distance to the nearest onset
+ * peak. No onset gate.
  */
-export function dropCandidates(db: ArrayLike<number>, flux: ArrayLike<number>): DropCandidate[] {
+export function dropCandidates(db: ArrayLike<number>, flux?: ArrayLike<number>): DropCandidate[] {
   const rise = riseSteps(db);
-  const peaks = onsetPeaks(flux);
-  const reach = Math.round(DROP_RULE.onsetWithinS / DROP_RULE.frameS);
-  const byPeak = new Map<number, number>();
+  const side = Math.round(DROP_RULE.sideS / DROP_RULE.frameS);
+  const loudest = loudestTwoSeconds(db);
+  const raw: { step: number; riseDb: number }[] = [];
   for (let t = 0; t < rise.length; t += 1) {
     const r = rise[t]!;
     // A hundredth of a dB of slack: frame RMS of an exact 6 dB step must not fail on float rounding.
     if (!(r >= DROP_RULE.minRiseDb - 0.01)) continue;
-    let nearest = -1;
-    for (const p of peaks) {
-      if (Math.abs(p - t) > reach) continue;
-      if (nearest < 0 || Math.abs(p - t) < Math.abs(nearest - t)) nearest = p;
-    }
-    if (nearest < 0) continue;
-    byPeak.set(nearest, Math.max(byPeak.get(nearest) ?? -Infinity, r));
+    // A moment is a peak of the rise curve (a plateau's first step), so the shoulder of one rise is never a second candidate.
+    const before = t > 0 ? rise[t - 1]! : Number.NaN;
+    const after = t + 1 < rise.length ? rise[t + 1]! : Number.NaN;
+    if (!(Number.isNaN(before) || r > before) || !(Number.isNaN(after) || r >= after)) continue;
+    raw.push({ step: t, riseDb: r });
   }
-  const raw = [...byPeak.entries()].map(([step, r]) => ({ step, riseDb: r }));
   raw.sort((a, b) => b.riseDb - a.riseDb || a.step - b.step);
   const merge = DROP_RULE.mergeS / DROP_RULE.frameS;
   const kept: typeof raw = [];
@@ -263,16 +288,19 @@ export function dropCandidates(db: ArrayLike<number>, flux: ArrayLike<number>): 
     if (kept.some((k) => Math.abs(k.step - c.step) < merge - 1e-9)) continue;
     kept.push(c);
   }
+  const peaks = flux ? onsetPeaks(flux) : [];
   return kept
     .sort((a, b) => a.step - b.step)
-    .map((c) => ({ tS: round(c.step * DROP_RULE.frameS, 3), riseDb: round(c.riseDb, 1) }));
-}
-
-/** VW1's main drop: the largest rise; any within 1 dB of it, the earliest. */
-export function mainDrop(candidates: readonly DropCandidate[]): DropCandidate | null {
-  if (!candidates.length) return null;
-  const top = Math.max(...candidates.map((c) => c.riseDb));
-  return [...candidates].filter((c) => c.riseDb >= top - DROP_RULE.tieDb - 1e-9).sort((a, b) => a.tS - b.tS)[0] ?? null;
+    .map((c) => {
+      const after = sideMean(db, c.step, c.step + side) ?? DROP_RULE.floorDb;
+      const nearest = peaks.length ? Math.min(...peaks.map((p) => Math.abs(p - c.step))) : null;
+      return {
+        tS: round(c.step * DROP_RULE.frameS, 3),
+        riseDb: round(c.riseDb, 1),
+        afterDb: round(Math.min(0, after - loudest), 1) || 0,
+        onsetS: nearest == null ? null : round(nearest * DROP_RULE.frameS, 3),
+      };
+    });
 }
 
 // ─── Loudness for "no sound" (VW3): ITU-R BS.1770 K-weighting, gated ─────────
@@ -365,14 +393,13 @@ export function waveformPeaks(db: ArrayLike<number>, buckets: number = DROP_RULE
   return top > 0 ? out.map((p) => round(p / top, 2)) : out.map(() => 0);
 }
 
-/** VW1 over a decoded clip: loudness, onsets, candidates, the main drop, and the waveform. */
+/** VW1 / VW7 over a decoded clip: loudness, onsets, candidates and the waveform. The main drop needs the clip's length: edit-window.ts mainDropOf. */
 export function analyseClipSound(samples: Float32Array, sampleRate: number = DROP_RULE.sampleRate): SoundAnalysis {
   const db = loudnessSteps(samples, sampleRate);
   const lufs = integratedLufs(samples, sampleRate);
   const hasSound = lufs != null && lufs >= DROP_RULE.silenceLufs;
   const soundS = round(samples.length / sampleRate, 3);
-  if (!hasSound) return { lufs, hasSound, candidates: [], mainS: null, peaks: waveformPeaks(db), soundS };
+  if (!hasSound) return { lufs, hasSound, candidates: [], peaks: waveformPeaks(db), soundS };
   const flux = onsetSteps(samples, sampleRate, db.length);
-  const candidates = dropCandidates(db, flux);
-  return { lufs, hasSound, candidates, mainS: mainDrop(candidates)?.tS ?? null, peaks: waveformPeaks(db), soundS };
+  return { lufs, hasSound, candidates: dropCandidates(db, flux), peaks: waveformPeaks(db), soundS };
 }

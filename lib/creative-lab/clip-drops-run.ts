@@ -19,7 +19,7 @@ import { spawn } from "node:child_process";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 
 import { DROP_RULE, analyseClipSound, pcmSamples } from "./clip-drops.ts";
-import { parseStoredDrops, windowState, type StoredDrops } from "./edit-window.ts";
+import { mainDropOf, parseStoredDrops, windowState, type StoredDrops } from "./edit-window.ts";
 import type { ServiceRoleDb } from "./load.ts";
 import { ffmpegFailure, redactSecrets } from "./render-proxy.ts";
 import { renderSourceAsset } from "./render-source.ts";
@@ -106,7 +106,9 @@ export function storedFromSound(decoded: DecodedSound, assetId: string): StoredD
   }
   const sound = analyseClipSound(pcmSamples(decoded.pcm));
   const durationS = Math.round((banner ?? sound.soundS) * 1000) / 1000;
-  return { v: 1, status: "ok", assetId, durationS, hasSound: sound.hasSound, lufs: sound.lufs, candidates: sound.candidates, mainS: sound.mainS, peaks: sound.peaks };
+  // VW7: the main drop is the last major candidate that fits VW2 on the clip's own length.
+  const mainS = sound.hasSound ? mainDropOf({ candidates: sound.candidates, durationS })?.tS ?? null : null;
+  return { v: 1, status: "ok", assetId, durationS, hasSound: sound.hasSound, lufs: sound.lufs, candidates: sound.candidates, mainS, peaks: sound.peaks };
 }
 
 /** The columns a detection writes: the drops, and VW2's window unless a hand-set one still fits. */
@@ -121,12 +123,12 @@ export function columnsAfterDetection(drops: StoredDrops, clip: Row, now: Date):
   });
   const base: Row = { drops, drops_at: now.toISOString() };
   if (state.kind !== "ok") return { ...base, window_drop_s: null, window_by_hand: false };
-  const main = drops.status === "ok" ? drops.mainS : null;
+  // VW9: a window set by hand that still fits is kept with its drop; a detected one follows VW7's main drop.
   return {
     ...base,
     in_s: state.window.inS,
     out_s: state.window.outS,
-    window_drop_s: main != null && Math.abs(state.window.dropS - main) < 1e-6 ? null : state.window.dropS,
+    window_drop_s: state.byHand ? state.window.dropS : null,
     window_by_hand: state.byHand,
   };
 }

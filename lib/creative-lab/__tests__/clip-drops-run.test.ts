@@ -136,30 +136,31 @@ describe("what a detection stores", () => {
     assert.deepEqual(drops, { v: 1, status: "ok", assetId: "a", durationS: 42, hasSound: false, lufs: null, candidates: [], mainS: null, peaks: [] });
   });
 
-  it("writes VW2's window into in_s / out_s, the main drop clearing the choice", () => {
-    const drops = { v: 1 as const, status: "ok" as const, assetId: "a", durationS: 42, hasSound: true, lufs: -12, candidates: [{ tS: 16.4, riseDb: 11 }, { tS: 31.2, riseDb: 8 }], mainS: 16.4, peaks: [] };
+  it("writes VW2's window on VW7's main drop into in_s / out_s; a hand-set window that still fits is kept with its drop (VW9)", () => {
+    const drops = { v: 1 as const, status: "ok" as const, assetId: "a", durationS: 42, hasSound: true, lufs: -12, candidates: [{ tS: 16.4, riseDb: 11 }, { tS: 31.2, riseDb: 8 }], mainS: 31.2, peaks: [] };
     const now = new Date("2026-11-17T12:00:00Z");
     assert.deepEqual(columnsAfterDetection(drops, { in_s: 0, out_s: 30, window_by_hand: false }, now), {
       drops,
       drops_at: "2026-11-17T12:00:00.000Z",
-      in_s: 12.4,
-      out_s: 28.4,
+      in_s: 27,
+      out_s: 42,
       window_drop_s: null,
       window_by_hand: false,
     });
-    // A hand-set window that still fits is kept.
-    const other = columnsAfterDetection(drops, { in_s: 26.7, out_s: 41.7, window_by_hand: true, window_drop_s: 31.2 }, now);
-    assert.deepEqual([other.in_s, other.out_s, other.window_drop_s, other.window_by_hand], [26.7, 41.7, 31.2, true]);
-    // One that no longer fits the clip falls back to that drop's default.
-    assert.equal(columnsAfterDetection(drops, { in_s: 27.7, out_s: 45, window_by_hand: true, window_drop_s: 31.2 }, now).in_s, 27);
-    assert.deepEqual(columnsAfterDetection(drops, { in_s: 12.9, out_s: 30.9, window_by_hand: true }, now), {
+    // A hand-set window on 0:16.4 is kept, with its drop, though the main drop is now 0:31.2.
+    assert.deepEqual(columnsAfterDetection(drops, { in_s: 12.9, out_s: 30.9, window_by_hand: true, window_drop_s: 16.4 }, now), {
       drops,
       drops_at: "2026-11-17T12:00:00.000Z",
       in_s: 12.9,
       out_s: 30.9,
-      window_drop_s: null,
+      window_drop_s: 16.4,
       window_by_hand: true,
     });
+    const onMain = columnsAfterDetection(drops, { in_s: 26.7, out_s: 41.7, window_by_hand: true, window_drop_s: 31.2 }, now);
+    assert.deepEqual([onMain.in_s, onMain.out_s, onMain.window_drop_s, onMain.window_by_hand], [26.7, 41.7, 31.2, true]);
+    // One that no longer fits the clip falls back to that drop's default, which is the detected window.
+    const stale = columnsAfterDetection(drops, { in_s: 27.7, out_s: 45, window_by_hand: true, window_drop_s: 31.2 }, now);
+    assert.deepEqual([stale.in_s, stale.out_s, stale.window_drop_s, stale.window_by_hand], [27, 42, null, false]);
   });
 
   it("a refused clip keeps its stored in/out and loses any choice", () => {

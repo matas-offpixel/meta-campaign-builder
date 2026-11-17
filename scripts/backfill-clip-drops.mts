@@ -1,7 +1,8 @@
 /**
  * VW1's backfill (docs/design-record/2026-11-17-creative-lab-video-window.html,
  * VW3 "Existing clips are checked once, by a backfill"): finds the drops in
- * every Lab clip's own sound and VW2's window, or VW3's refusal.
+ * every Lab clip's own sound and VW2's window, or VW3's refusal. The main
+ * drop is VW7's (…-video-window-2.html): the last major candidate that fits.
  *
  *   node --experimental-strip-types --env-file=.env.local scripts/backfill-clip-drops.mts
  *   node --experimental-strip-types --env-file=.env.local scripts/backfill-clip-drops.mts --event P26-BDAY
@@ -16,7 +17,9 @@
  *                it renders (VW6), and approved renders are never touched.
  *   --event CODE only that event's clips (repeatable): its lineup artists'
  *                clips, its promoter clips, and clips filmed at it.
- *   --recheck    every clip, not only the unchecked, failed and stale ones.
+ *   --recheck    every clip, not only the unchecked, failed and stale ones
+ *                (VW9: detected windows are recomputed; a window set by hand
+ *                that still fits is kept).
  *   --limit N    stop after N clips.
  *
  * Streams: ffmpeg reads each render copy (else original) from a signed URL
@@ -31,7 +34,7 @@
 import { createClient } from "@supabase/supabase-js";
 
 import { detectClipDrops, dropsNeedCheck, failedDrops, writeClipDrops } from "../lib/creative-lab/clip-drops-run.ts";
-import { VW_LINES, clock, refusalOf, windowState, type StoredDrops } from "../lib/creative-lab/edit-window.ts";
+import { VW_LINES, clock, dropFits, isMajor, refusalOf, windowState, type StoredDrops } from "../lib/creative-lab/edit-window.ts";
 import type { ServiceRoleDb } from "../lib/creative-lab/load.ts";
 import { renderSourceAsset } from "../lib/creative-lab/render-source.ts";
 
@@ -97,7 +100,10 @@ function describe(drops: StoredDrops): string[] {
   lines.push(`  ${drops.durationS.toFixed(1)} s · ${drops.hasSound ? `${drops.lufs ?? "?"} LUFS` : "no sound"} · ${drops.candidates.length} drop${drops.candidates.length === 1 ? "" : "s"}`);
   for (const c of drops.candidates) {
     const main = drops.mainS != null && Math.abs(c.tS - drops.mainS) < 1e-6;
-    lines.push(`    ${main ? "main " : "     "}${clock(c.tS)} · rises ${c.riseDb.toFixed(1)} dB`);
+    const after = c.afterDb == null ? "after ?" : `after ${c.afterDb.toFixed(1)} dB vs loudest`;
+    const onset = c.onsetS == null ? "no onset" : `onset ${c.onsetS.toFixed(2)} s away`;
+    const fit = dropFits(c.tS, drops.durationS) ? "fits" : "doesn't fit";
+    lines.push(`    ${main ? "main " : "     "}${clock(c.tS)} · rises ${c.riseDb.toFixed(1)} dB · ${after} · ${isMajor(c, drops.candidates) ? "major" : "minor"} · ${fit} · ${onset}`);
   }
   const refused = refusalOf(drops);
   if (refused) {
