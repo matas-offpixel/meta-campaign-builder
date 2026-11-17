@@ -207,6 +207,26 @@ export type CopyTestResult = {
   writes: number;
 };
 
+/**
+ * One run per test at a time. meta_write_idempotency is not a lock: a step whose
+ * row is still `pending` runs again, so two runs of the same test that overlap
+ * each make the object (17 Nov: P26-BDAY got two ad sets, each with an A and a B,
+ * from a P26-only run started while a combined run was mid-test). The lock is
+ * taken before the first read and released at the end, whatever happens.
+ */
+export type CopyTestLock = {
+  /** True when this run holds the test; false when another run does. Must fail closed. */
+  acquire(): Promise<boolean>;
+  release(): Promise<void>;
+};
+
+export const LOCK_STALE_MINUTES = 15;
+
+/** The PostgREST or-filter that claims the test: no run recorded, or the recorded run is older than the stale cutoff. */
+export function copyTestLockFilter(staleBeforeIso: string): string {
+  return `draft_json->copyTestRun.is.null,draft_json->copyTestRun->>at.lt."${staleBeforeIso}"`;
+}
+
 export class CopyTestStop extends Error {
   constructor(message: string) {
     super(message);
@@ -225,6 +245,18 @@ export function copyTestWriteCount(spec: Pick<CopyTestSpec, "ads">): number {
  * from the ledger. The budget is checked against the account's minimum before any write.
  */
 export async function createCopyTest(
+  deps: { meta: CopyTestMeta; ledger: MetaWriteContext; record: CopyTestRecorders; lock: CopyTestLock; now?: Date },
+  spec: CopyTestSpec,
+): Promise<CopyTestResult> {
+  if (!(await deps.lock.acquire())) throw new CopyTestStop(`Another run of ${spec.campaignName} is in progress, so this run made nothing`);
+  try {
+    return await createCopyTestLocked(deps, spec);
+  } finally {
+    await deps.lock.release();
+  }
+}
+
+async function createCopyTestLocked(
   deps: { meta: CopyTestMeta; ledger: MetaWriteContext; record: CopyTestRecorders; now?: Date },
   spec: CopyTestSpec,
 ): Promise<CopyTestResult> {

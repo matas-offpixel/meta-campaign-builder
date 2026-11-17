@@ -9,6 +9,7 @@ import {
   copyTestCardPayload,
   copyTestCreativePayload,
   copyTestEndTime,
+  copyTestLockFilter,
   copyTestName,
   copyTestWriteCount,
   createCopyTest,
@@ -187,7 +188,9 @@ function setup() {
     adSet: async (row: { metaAdsetId: string }) => void recorded.push(`adset ${row.metaAdsetId}`),
     ad: async (row: { metaAdId: string }) => void recorded.push(`ad ${row.metaAdId}`),
   };
-  return { mem, recorded, deps: (meta: CopyTestMeta) => ({ meta, ledger: { supabase: mem.db, userId: "u1", draftId: "d1", eventId: "e1" }, record, now: new Date("2026-11-17T15:00:00Z") }) };
+  let held = false;
+  const lock = { acquire: async () => (held ? false : (held = true)), release: async () => void (held = false) };
+  return { mem, recorded, lock, deps: (meta: CopyTestMeta) => ({ meta, ledger: { supabase: mem.db, userId: "u1", draftId: "d1", eventId: "e1" }, record, lock, now: new Date("2026-11-17T15:00:00Z") }) };
 }
 
 describe("createCopyTest", () => {
@@ -241,7 +244,7 @@ describe("createCopyTest", () => {
 
   it("without the ledger nothing is sent", async () => {
     const { meta, calls } = fakeMeta();
-    await assert.rejects(createCopyTest({ meta, ledger: { supabase: setup().mem.db, userId: "u1", draftId: "", eventId: null }, record: { adSet: async () => {}, ad: async () => {} } }, SPEC), /ledger is required/);
+    await assert.rejects(createCopyTest({ meta, ledger: { supabase: setup().mem.db, userId: "u1", draftId: "", eventId: null }, record: { adSet: async () => {}, ad: async () => {} }, lock: setup().lock }, SPEC), /ledger is required/);
     assert.deepEqual(calls, []);
   });
 
@@ -255,5 +258,32 @@ describe("createCopyTest", () => {
     assert.equal(out.writes, 14);
     assert.equal(copyTestWriteCount(cards), 14);
     assert.deepEqual(calls.slice(2, 5), ["image Kream.jpg", "creative [CARD] Kream", "ad PAUSED set2"]);
+  });
+
+  it("two overlapping runs of one test: the second makes nothing (the 17 Nov P26 duplicate)", async () => {
+    let releaseFirst!: () => void;
+    const gate = new Promise<void>((resolve) => (releaseFirst = resolve));
+    const { meta, calls } = fakeMeta();
+    const slow = { ...meta, createAdSet: async (a: string, p: Record<string, unknown>) => { await gate; return meta.createAdSet(a, p); } };
+    const s = setup();
+    const first = createCopyTest(s.deps(slow), SPEC);
+    await new Promise((resolve) => setImmediate(resolve));
+    await assert.rejects(createCopyTest(s.deps(slow), SPEC), (err: unknown) => err instanceof CopyTestStop && /Another run of NX26-DOD · AB copy test is in progress/.test(err.message));
+    releaseFirst();
+    const out = await first;
+    assert.equal(calls.filter((c) => c.startsWith("adset")).length, 1);
+    assert.equal(calls.filter((c) => c.startsWith("ad ")).length, 2);
+    assert.equal(out.writes, 6);
+  });
+
+  it("the lock is released after a failed run, so a rerun can pick up", async () => {
+    const { meta } = fakeMeta({ readAdSet: async () => null });
+    const s = setup();
+    await assert.rejects(createCopyTest(s.deps(meta), SPEC), CopyTestStop);
+    assert.equal(await s.lock.acquire(), true);
+  });
+
+  it("the lock filter claims a test with no run, or a run older than the cutoff", () => {
+    assert.equal(copyTestLockFilter("2026-11-17T11:40:00.000Z"), 'draft_json->copyTestRun.is.null,draft_json->copyTestRun->>at.lt."2026-11-17T11:40:00.000Z"');
   });
 });

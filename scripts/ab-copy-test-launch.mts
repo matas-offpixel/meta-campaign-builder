@@ -18,7 +18,9 @@
  * rerun is the same draft), then makes the campaign, ad set, creatives and ads
  * through meta_write_idempotency (required), writes launched_ad_sets and
  * launched_ads rows, and marks the draft published. A rerun returns the ids
- * already made. It acts as the operator, on META_ACCESS_TOKEN, which the app only
+ * already made. Only one run of a test may go at a time: a second run that starts while
+ * the first holds the test stops before any read or write (the 17 Nov P26 duplicate).
+ * It acts as the operator, on META_ACCESS_TOKEN, which the app only
  * allows an operator (mayUseAgencyMetaToken).
  */
 
@@ -40,9 +42,12 @@ import {
   copyTestCardPayload,
   copyTestCreativePayload,
   copyTestEndTime,
+  copyTestLockFilter,
   copyTestWriteCount,
+  LOCK_STALE_MINUTES,
   createCopyTest,
   type CopyTestAdSpec,
+  type CopyTestLock,
   type CopyTestMeta,
   type CopyTestSpec,
 } from "../lib/meta/copy-test-campaign.ts";
@@ -192,6 +197,36 @@ function draftRow(t: Test, status: "draft" | "published") {
   return { id: t.draftId, user_id: OPERATOR_USER_ID, name: t.campaignName, objective: "purchase", ad_account_id: t.adAccountId, status, client_id: t.clientId, event_id: t.eventId, draft_json: draftJson };
 }
 
+/**
+ * One run per test: an atomic conditional UPDATE on the test's own campaign_drafts row
+ * claims it (draft_json.copyTestRun), and fails closed — an error or no row updated means
+ * another run holds it. A run older than LOCK_STALE_MINUTES is taken over. Marking the
+ * draft published rewrites draft_json, which also clears the claim.
+ */
+function draftLock(t: Test, runId: string): CopyTestLock {
+  return {
+    async acquire() {
+      const current = await db!.from("campaign_drafts").select("status").eq("id", t.draftId).maybeSingle();
+      if (current.error || !current.data) return false;
+      const status = (current.data as { status: string }).status === "published" ? "published" : "draft";
+      const staleBefore = new Date(Date.now() - LOCK_STALE_MINUTES * 60_000).toISOString();
+      const claimed = await db!
+        .from("campaign_drafts")
+        .update({ draft_json: { ...draftRow(t, status).draft_json, copyTestRun: { id: runId, at: new Date().toISOString() } } })
+        .eq("id", t.draftId)
+        .or(copyTestLockFilter(staleBefore))
+        .select("id");
+      if (claimed.error) console.error(`  lock: ${claimed.error.message}`);
+      return !claimed.error && (claimed.data ?? []).length === 1;
+    },
+    async release() {
+      const current = await db!.from("campaign_drafts").select("status").eq("id", t.draftId).maybeSingle();
+      const status = (current.data as { status?: string } | null)?.status === "published" ? "published" : "draft";
+      await db!.from("campaign_drafts").update({ draft_json: draftRow(t, status).draft_json }).eq("id", t.draftId).eq("draft_json->copyTestRun->>id", runId);
+    },
+  };
+}
+
 const results: Record<string, unknown>[] = [];
 let failed = false;
 for (const t of selected) {
@@ -222,6 +257,7 @@ for (const t of selected) {
       {
         meta,
         ledger: { supabase: db!, userId: OPERATOR_USER_ID, draftId: t.draftId, eventId: t.eventId },
+        lock: draftLock(t, launchRunId),
         record: {
           adSet: (row) =>
             recordLaunchedAdSet(db!, {
