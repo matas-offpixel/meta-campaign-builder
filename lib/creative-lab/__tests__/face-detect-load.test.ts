@@ -1,12 +1,14 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
 
 import sharp from "sharp";
 
 import { faceSampleState, isDetectorLoadError } from "../caption-placement.ts";
-import { detectFaces, FACE_API_MAIN, faceApiMain } from "../face-detect.ts";
+import { detectFaces, FACE_API_MAIN, faceApiEsmPath, faceApiMain } from "../face-detect.ts";
 
 const SOURCE = readFileSync(new URL("../face-detect.ts", import.meta.url), "utf8")
   .replace(/\/\*(?!\s*webpackIgnore)[\s\S]*?\*\//g, "")
@@ -30,6 +32,27 @@ describe("face-detect.ts loads face-api the way the production bundle can", () =
     assert.ok(main.endsWith(join("@vladmandic", "face-api", "dist", "face-api.esm.js")), main);
   });
 
+  it("imports face-api from an .mjs copy, so no loader reads it as CommonJS", () => {
+    const dir = mkdtempSync(join(tmpdir(), "face-api-esm-"));
+    const main = faceApiMain();
+    const esm = faceApiEsmPath(main, dir);
+    assert.ok(esm.startsWith(dir) && esm.endsWith(".mjs"), esm);
+    assert.ok(readFileSync(esm).equals(readFileSync(main)));
+    assert.equal(faceApiEsmPath(main, dir), esm);
+    // With syntax detection off, the package's .js is read as CommonJS and fails
+    // (production: "Unexpected token 'export'"); the .mjs copy loads.
+    const probe = join(dir, "probe.cjs");
+    writeFileSync(probe, [
+      'const { pathToFileURL } = require("node:url");',
+      "const versions = process.versions;",
+      'Object.defineProperty(process, "versions", { value: { ...versions, node: undefined }, configurable: true, writable: true });',
+      'import(pathToFileURL(process.argv[2]).href).then(() => console.log("loaded"), (e) => console.log("failed: " + e.message.split("\\n")[0]));',
+    ].join("\n"));
+    const run = (target: string) => execFileSync(process.execPath, ["--no-experimental-detect-module", probe, target], { encoding: "utf8" }).trim();
+    assert.equal(run(esm), "loaded");
+    assert.match(run(main), /^failed: /);
+  });
+
   it("loads face-api and its models through that path and runs a detection", async () => {
     const blank = await sharp({ create: { width: 64, height: 64, channels: 3, background: "#808080" } }).png().toBuffer();
     const faces = await detectFaces(blank);
@@ -44,6 +67,8 @@ describe("a detector that failed to load is tried again (faceSampleState)", () =
   it("reads production's stored bundler error (17 Nov 2026) as checking, so the render tick re-detects", () => {
     assert.equal(faceSampleState(stored({ error: "Cannot find module as expression is too dynamic" }), clip), "checking");
     assert.equal(isDetectorLoadError("Cannot find module '@vladmandic/face-api'"), true);
+    // Production after #1302: face-api's ESM read as CommonJS.
+    assert.equal(faceSampleState(stored({ error: "Unexpected token 'export'" }), clip), "checking");
   });
 
   it("keeps a real detection failure failed, and good samples ready", () => {
