@@ -15,6 +15,7 @@ import type { ServiceRoleDb } from "./load.ts";
 import { assertArtistCleared, type LabArtist } from "./rounds.ts";
 import { assignCaptionStyleTag, isCaptionStyle, type CaptionStyle } from "./tags.ts";
 import { OLD_QUOTE_STYLE } from "./caption-placement.ts";
+import { pageRefusal } from "./page-guard.ts";
 import { quoteStyleVersion } from "../../src/remotion/caption-style/quote-profile.ts";
 
 export class LabLaunchError extends Error {
@@ -259,6 +260,25 @@ export async function launchApprovedRound(roundId: string, deps: LaunchRoundDeps
     }
     ready.push({ ad, caption, asset, style, pageId: text(round, "page_id"), instagramActorId: promoterInstagramId });
   }
+
+  // The page each ad would post as is checked against the event's page rules
+  // (page-guard.ts) before anything is uploaded or sent.
+  const allowed: typeof ready = [];
+  for (const item of ready) {
+    const refusal = pageRefusal({
+      eventCode: text(event, "event_code"),
+      labArtistId: text(round, "artist_id"),
+      pageId: item.pageId,
+      instagramActorId: item.instagramActorId,
+    });
+    if (!refusal) {
+      allowed.push(item);
+      continue;
+    }
+    errors.push({ roundAdId: text(item.ad, "id"), adName: text(item.ad, "ad_name"), error: refusal });
+    await mark(deps.db, text(item.ad, "id"), "launch_failed", refusal);
+  }
+  ready.splice(0, ready.length, ...allowed);
 
   const result: LaunchRoundResult = { roundId, status: "approved", launched: [], skipped, errors };
   if (!ready.length) return result;

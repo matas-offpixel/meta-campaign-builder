@@ -20,6 +20,13 @@ import {
   combineDateAndTime,
   extractTimeFromIso,
 } from "@/lib/dashboard/format";
+import { GenreField } from "@/components/dashboard/events/genre-field";
+import {
+  genreFamilyForSave,
+  splitGenreTags,
+  suggestGenreFamily,
+  type GenreFamilyKey,
+} from "@/lib/learning/genre/families";
 
 type Mode = "create" | "edit";
 
@@ -35,6 +42,11 @@ interface Props {
    * stored date is never overwritten.
    */
   initialDate?: string;
+  /**
+   * The lineup's genres (artists.genres through event_artists), read at
+   * render time for the Genre suggestion (GK2). Never written.
+   */
+  lineupGenres?: string[];
 }
 
 const STATUS_OPTIONS = EVENT_STATUSES.map((s) => ({
@@ -66,6 +78,7 @@ export function EventForm({
   initial,
   defaultClientId,
   initialDate,
+  lineupGenres,
 }: Props) {
   const router = useRouter();
   const [userId, setUserId] = useState<string | null>(null);
@@ -84,6 +97,14 @@ export function EventForm({
     initial?.capacity != null ? String(initial.capacity) : "",
   );
   const [genres, setGenres] = useState((initial?.genres ?? []).join(", "));
+  // GK2: starts at the stored family, or "Not set" (null). Never a suggestion.
+  const [genreFamily, setGenreFamily] = useState<GenreFamilyKey | null>(
+    genreFamilyForSave(initial?.genre_family),
+  );
+  const genreSuggestion = useMemo(
+    () => suggestGenreFamily({ tags: splitGenreTags(genres), lineupGenres }),
+    [genres, lineupGenres],
+  );
   const [venueName, setVenueName] = useState(initial?.venue_name ?? "");
   const [venueCity, setVenueCity] = useState(initial?.venue_city ?? "");
   const [venueCountry, setVenueCountry] = useState(initial?.venue_country ?? "");
@@ -175,10 +196,9 @@ export function EventForm({
       ...(mode === "create"
         ? { capacity: capacity ? Number.parseInt(capacity, 10) : null }
         : {}),
-      genres: genres
-        .split(",")
-        .map((g) => g.trim())
-        .filter(Boolean),
+      genres: splitGenreTags(genres),
+      // Migration 253. Only what the operator chose for this event; Not set is null.
+      genre_family: genreFamilyForSave(genreFamily),
       venue_name: venueName || null,
       venue_city: venueCity || null,
       venue_country: venueCountry || null,
@@ -397,6 +417,12 @@ export function EventForm({
           value={genres}
           onChange={(e) => setGenres(e.target.value)}
           placeholder="melodic techno, afro house"
+        />
+
+        <GenreField
+          value={genreFamily}
+          onChange={setGenreFamily}
+          suggestion={genreSuggestion}
         />
       </section>
 

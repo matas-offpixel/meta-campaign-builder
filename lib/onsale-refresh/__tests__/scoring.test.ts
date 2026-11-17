@@ -358,18 +358,18 @@ function learningInputs(): LearningInputs {
 describe("P5 learning-refresh: the scoring job", () => {
   const db = () => fakeDb((call) => (call.table === "interest_clusters" ? { data: [{ id: "k1", name: "One", interests: [{ id: "1" }] }], error: null } : { data: [], error: null })).db;
 
-  it("off: not run, no entry, the seven jobs as today", async () => {
+  it("off: not run, no entry, the seven jobs and the genre shadow as today", async () => {
     let called = 0;
     const result = await runLearningRefresh({ env: { ENABLE_LEARNING_REFRESH: "1" }, db: db(), now: NOW, operatorUserId: "op", inputs: learningInputs(), confirm: null, scoreRefresh: async () => ((called += 1), { scored: 0, right: 0, wrong: 0, unknown: 0, due: 0, latestDay: null, rows: [] }) });
     if ("skippedReason" in result) throw new Error("on");
     assert.equal(called, 0);
-    assert.deepEqual(Object.keys(result.jobs), [...LEARNING_JOBS]);
+    assert.deepEqual(Object.keys(result.jobs), [...LEARNING_JOBS, "genre_shadow"]);
   });
 
   it("on: runs after the others and logs its rows", async () => {
     const result = await runLearningRefresh({ env: { ENABLE_LEARNING_REFRESH: "1", ENABLE_ONSALE_REFRESH_SCORING: "1" }, db: db(), now: NOW, operatorUserId: "op", inputs: learningInputs(), confirm: null, scoreRefresh: async () => ({ scored: 3, right: 1, wrong: 1, unknown: 1, due: 3, latestDay: "2026-11-22", rows: [] }) });
     if ("skippedReason" in result) throw new Error("on");
-    assert.deepEqual(Object.keys(result.jobs), [...LEARNING_JOBS, "onsale_refresh_scoring"]);
+    assert.deepEqual(Object.keys(result.jobs), [...LEARNING_JOBS, "genre_shadow", "onsale_refresh_scoring"]);
     assert.deepEqual(result.jobs.onsale_refresh_scoring, { ok: true, rows: 3, detail: { due: 3, right: 1, wrong: 1, unknown: 1, latestDay: "2026-11-22" } });
   });
 

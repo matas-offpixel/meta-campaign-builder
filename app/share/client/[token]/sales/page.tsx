@@ -3,6 +3,7 @@ import { Suspense } from "react";
 
 import { AudiencePanelsUrl } from "@/components/dashboard/audience-panels/audience-panels";
 import { CreativeSectionUrl } from "@/components/dashboard/creative-section/creative-panel";
+import { SignupsPanelUrl } from "@/components/dashboard/page-audience/signups-panel";
 import { ObjectiveBudgetPanel } from "@/components/dashboard/objective-budget-panel/panel";
 import { PresalePanel } from "@/components/dashboard/presale-panel/presale-panel";
 import { loadShareSalesPanels } from "@/lib/dashboard/he-panels/server";
@@ -10,6 +11,7 @@ import { SalesDashboardUrl } from "@/components/dashboard/sales/sales-dashboard-
 import { initialFromQuery } from "@/components/dashboard/sales/venue-query";
 import { loadShareAudiencePanels } from "@/lib/dashboard/audience-panels-server";
 import { loadShareCreativeSection } from "@/lib/dashboard/creative-section-server";
+import { loadSharePageAudiencePanels } from "@/lib/dashboard/page-audience-panel/server";
 import { resolveShareByToken } from "@/lib/db/report-shares";
 import { dashboardV2Enabled } from "@/lib/dashboard/sales-calc/gate";
 import { pickPeriod } from "@/lib/dashboard/sales-calc/query";
@@ -44,6 +46,8 @@ export default async function ShareSalesPage({ params, searchParams }: Props) {
   const panels = clientId ? await loadShareAudiencePanels(clientId, result.model) : null;
   const he = clientId ? await loadShareSalesPanels(clientId, initial.showId) : null;
   const creatives = clientId ? await loadShareCreativeSection(clientId, result.model) : null;
+  // HE2: CIRQLIN page audience, stored rows only.
+  const audience = clientId ? await loadSharePageAudiencePanels(clientId, result.model) : null;
   return (
     <Suspense>
       <SalesDashboardUrl
@@ -53,7 +57,8 @@ export default async function ShareSalesPage({ params, searchParams }: Props) {
         initialPeriod={pickPeriod(query.period)}
         initialVenueKey={initial.venueKey}
       />
-      {panels ? <AudiencePanelsUrl byView={panels} initialViewId={initial.showId} /> : null}
+      {panels ? <AudiencePanelsUrl byView={panels} initialViewId={initial.showId} geographyByView={audience?.geography} /> : null}
+      {audience ? <SignupsPanelUrl byView={audience.signups} initialViewId={initial.showId} initialPeriod={pickPeriod(query.period) ?? result.model.initialPeriod} /> : null}
       {he?.presale ? <PresalePanel model={he.presale} /> : null}
       {creatives ? <CreativeSectionUrl byView={creatives} initialViewId={initial.showId} /> : null}
       {he?.budget ? <ObjectiveBudgetPanel model={he.budget} /> : null}
