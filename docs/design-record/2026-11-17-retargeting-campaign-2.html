@@ -1,0 +1,496 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Retargeting campaign 2 — 17 Nov 2026</title>
+<style>
+:root{
+  --sand:#F0C9A8; --card:#e8d4c0; --edit:#f6ebe0; --paper:#fff8f0; --ink:#1e1810; --ink-2:#4a3d30; --ink-3:#6f6052;
+  --border:rgba(30,24,16,.10); --border-strong:rgba(30,24,16,.18); --muted:rgba(30,24,16,.06);
+  --olive:#4f5a1f; --ochre:#8a560c; --brick:#8f3424;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--sand);color:var(--ink);font:14px/1.5 var(--sans);font-feature-settings:"calt" 0}
+.wrap{max-width:1360px;margin:0 auto;padding:40px 24px 120px}
+h1{font-size:24px;font-weight:600;margin:0 0 6px}
+h2{font-size:20px;font-weight:600;margin:56px 0 8px}
+h3{font-size:13px;font-weight:600;margin:20px 0 6px}
+p{margin:0 0 10px;max-width:86ch}
+.lead{font-size:13px;color:var(--ink-2)}
+.k{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+code{font:12px var(--mono);background:var(--muted);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+figure{margin:0;min-width:0;max-width:100%}
+figcaption{font:700 9px/1.5 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+table.t{border-collapse:collapse;width:100%;font-size:12.5px;margin:10px 0 22px;background:var(--card);border-radius:8px;overflow:hidden;table-layout:fixed}
+table.t th,table.t td{text-align:left;vertical-align:top;padding:8px 12px;border-bottom:1px solid var(--border);overflow-wrap:anywhere}
+table.t th{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.t td:first-child{font-weight:600;width:190px}
+table.t ul{margin:4px 0 0 16px;padding:0}table.t li{margin:0 0 4px}
+.open{background:#f3e3c8;border:1px dashed var(--ochre);border-radius:8px;padding:10px 14px;font-size:12.5px;margin:10px 0 16px}
+.notes{font-size:12.5px;color:var(--ink-2)}.notes li{margin:0 0 6px;max-width:96ch}
+.frame{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start;margin:12px 0 24px}
+.vp{background:var(--paper);border:1px solid var(--border-strong);border-radius:8px;overflow:hidden;max-width:100%;padding:16px;font-size:13px}
+.vp.wide{width:760px}.vp.w393{width:393px}
+.ph{font:700 9px/1.4 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+.h{font-weight:600;font-size:14px;margin:0 0 4px}
+.sub{font-size:12px;color:var(--ink-2);margin:0 0 10px}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 10px}
+.chip{border:1px solid var(--border-strong);border-radius:999px;padding:3px 10px;font-size:12px;background:#fff}
+.chip.on{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.mono{font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase}
+.row{display:grid;grid-template-columns:22px 26px 1fr auto;gap:8px;align-items:center;padding:7px 0;border-top:1px solid var(--border)}
+.row .n{color:var(--ink-3);font:12px var(--mono)}
+.box{width:16px;height:16px;border:1.5px solid var(--ink);border-radius:3px;display:inline-block}
+.box.on{background:var(--ink)}
+.box.off{border-color:var(--ink-3);opacity:.45}
+.fs{font-size:11.5px;color:var(--ink-2)}
+.fs.warn{color:var(--brick)}
+.ok{color:var(--olive)}
+.btn{display:inline-block;border:1px solid var(--ink);border-radius:4px;padding:5px 10px;font:700 10px var(--mono);letter-spacing:.1em;text-transform:uppercase;background:var(--ink);color:var(--paper)}
+.btn.ghost{background:transparent;color:var(--ink)}
+.btn.dis{opacity:.4}
+.wave{position:relative;height:64px;background:repeating-linear-gradient(90deg,var(--ink-3) 0 2px,transparent 2px 5px);border-radius:4px;margin:26px 0 4px;opacity:.9}
+.wave .win{position:absolute;top:-4px;bottom:-4px;border:2px solid var(--ink);background:rgba(232,212,192,.55);border-radius:4px}
+.wave .drop{position:absolute;top:-10px;bottom:-10px;width:2px;background:var(--brick)}
+.wave .drop span{position:absolute;top:-16px;left:-20px;font:700 9px var(--mono);letter-spacing:.1em;color:var(--brick);white-space:nowrap}
+.tl{display:flex;justify-content:space-between;font:11px var(--mono);color:var(--ink-3)}
+.pv{width:150px;height:267px;background:#222;border-radius:6px;position:relative;flex:none;display:flex;align-items:center;justify-content:center;color:#fff;font:700 9px var(--mono);letter-spacing:.12em}
+.pv .play{position:absolute;bottom:10px;left:10px;width:28px;height:28px;border-radius:50%;background:#fff}
+.split{display:flex;gap:16px;align-items:flex-start}
+table.v{border-collapse:collapse;width:100%;font-size:12px;margin:6px 0}
+table.v th{font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);text-align:left;padding:4px 6px;border-bottom:1px solid var(--border-strong)}
+table.v td{padding:6px;border-bottom:1px solid var(--border)}
+table.v td.r,table.v th.r{text-align:right}
+.st{display:inline-block;border:1px solid var(--border-strong);border-radius:10px;padding:2px 8px;font:700 9px/1.5 var(--mono);letter-spacing:.1em;text-transform:uppercase}
+.st.run{border-style:dashed}
+.st.win{background:var(--olive);color:#fff;border-color:var(--olive)}
+.test{border:1px solid var(--border);border-radius:6px;padding:10px 12px;margin:8px 0;background:#fff}
+.test.dim{opacity:.55}
+.line{background:var(--card);border-radius:6px;padding:8px 10px;margin:6px 0;font-size:12px}
+.inv{text-decoration:underline dotted var(--brick);text-decoration-thickness:1.5px;text-underline-offset:3px}
+table.t table.t td:first-child{width:auto;font-weight:400}
+@media (max-width:560px){table.t th[style]{width:100px!important}table.t td:first-child{width:100px}}
+.st.fail{border-color:var(--brick);color:var(--brick)}
+.line .acts{float:right;font:700 9px var(--mono);letter-spacing:.1em;text-transform:uppercase}
+.line.wait{opacity:.6}
+.line.failed{border:1px solid var(--brick);background:#f6e3dc}
+.tick{display:inline-block;width:11px;height:11px;border:1.5px solid var(--ink);border-radius:2px;margin-right:6px;vertical-align:-1px}
+.tick.on{background:var(--ink)}
+.bar{display:inline-block;height:8px;background:var(--ink-3);border-radius:2px;vertical-align:middle;margin-right:6px}
+.sbar{position:relative;display:inline-block;width:100px;height:8px;background:var(--muted);border-radius:2px;vertical-align:middle;margin-right:8px}
+.sbar i{position:absolute;left:0;top:0;bottom:0;background:var(--ink-3);border-radius:2px}
+.sbar i.lead{background:var(--olive)}
+.sbar b{position:absolute;left:60px;top:-3px;bottom:-3px;width:1px;background:var(--ink)}
+.sbar s{position:absolute;left:10px;top:-3px;bottom:-3px;width:1px;background:var(--ink-3);opacity:.6}
+.vp.wide{width:860px}
+table.tier{border-collapse:collapse;width:100%;font-size:12px;margin:8px 0 6px;table-layout:fixed}
+table.tier th{font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);text-align:left;padding:4px 6px;border-bottom:1px solid var(--border-strong);vertical-align:bottom}
+table.tier td{padding:7px 6px;border-bottom:1px solid var(--border);vertical-align:top}
+table.tier td.r,table.tier th.r{text-align:right}
+table.tier tr.tot td{font-weight:600;border-bottom:0}
+.src{font-size:11.5px;color:var(--ink-2);line-height:1.45}
+.miss{font-size:11.5px;color:var(--brick);margin-top:3px}
+.miss a,.fs a{color:inherit}
+.kind{display:inline-block;min-width:62px;font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);margin-right:6px}
+.line .t{font-weight:600}
+.line .d{color:var(--ink-2);margin-top:2px}
+.line .w{color:var(--ink-3);font-size:11px;margin-top:2px}
+.line.note{background:transparent;border:1px dashed var(--border-strong)}
+.slot{display:inline-block;border:1px dashed var(--ochre);background:#f3e3c8;border-radius:4px;padding:0 5px;font:700 10px var(--mono);letter-spacing:.06em;color:var(--ochre)}
+.card{border:1px solid var(--border);border-radius:6px;padding:9px 11px;margin:8px 0;background:#fff;font-size:12px}
+.card .top{display:flex;justify-content:space-between;gap:8px;font-weight:600}
+.card .fs{margin-top:3px}
+.seg{display:inline-flex;border:1px solid var(--ink);border-radius:4px;overflow:hidden;vertical-align:middle}
+.seg span{padding:2px 8px;font:700 10px var(--mono);letter-spacing:.06em}
+.seg span.on{background:var(--ink);color:var(--paper)}
+.hr{border:0;border-top:1px solid var(--border);margin:12px 0}
+table.tier td:nth-last-child(-n+3){white-space:nowrap}
+.links{font-size:11.5px;color:var(--ink-3);margin-top:3px}
+</style>
+</head>
+<body>
+<div class="wrap">
+<p class="k">Off/Pixel · design record · retargeting · issue 2 · 17 November 2026</p>
+<h1>Retargeting: step heights, buyers from ticketing, the show's own links</h1>
+<p class="lead">Matas's rulings of 17 Nov on the Retargeting record (<code>2026-11-17-retargeting-campaign.html</code>, merged in #1299), and the links read from CIRQLIN's partner read. It closes both open items there: step heights (RT6) and buyers from ticketing (RT2).</p>
+<ul class="notes">
+<li><b>Replaced:</b> RT4's 10 / 15 / 20 % choice and RT6's height slot (RT11). RT2's link sources and single windows (RT13, RT14). RT2's "Checkout starters are the pixel's Initiate Checkout", which now counts on the show's ticket links only (RT13).</li>
+<li><b>Amended:</b> RT8's signup and buyers lines (RT12, RT15), and its not-proposed sentences, which gain two (RT13).</li>
+<li><b>Stands:</b> everything else in RT1–RT10, and R1–R6, C2–C9, E1–E4 and T1–T6.</li>
+<li><b>Frames:</b> RA, RB and RC are redrawn under the same ids. RD-393 gains two sentences. RF is new.</li>
+</ul>
+<p class="lead">The example figures, the XMPL shows and their clients are <span class="inv">invented</span>.</p>
+
+<h2>Rulings</h2>
+<table class="t">
+<tr><th style="width:190px">#</th><th>Ruling</th></tr>
+
+<tr><td>RT11 · Step heights</td><td>
+<p>The campaign's total is a share of current daily spend (RT4's: the show's 7-day average Meta spend per day, Tests and Retargeting left out). The share depends on the stretch (Matas, 17 Nov):</p>
+<table class="t" style="margin:6px 0 10px">
+<tr><th style="width:190px">Stretch</th><th>Share of current daily spend</th></tr>
+<tr><td>Normally</td><td>10 %</td></tr>
+<tr><td>Payday stretch</td><td>15 % (RT6's window: 18 days from the Thursday before payday)</td></tr>
+<tr><td>Final month</td><td>15 % (from 30 days out)</td></tr>
+<tr><td>Final two weeks</td><td>20 % (from 14 days out)</td></tr>
+<tr><td>Final week</td><td>25 % (from 7 days out, to the show day)</td></tr>
+</table>
+<ul>
+<li><b>Overlaps:</b> the higher share applies; they never add up. A payday stretch inside a run-in step at 15 % or more adds nothing.</li>
+<li><b>Holds and cuts still apply</b> (Matas). RT5's frequency 4 hold and frequency 6 cut work during a step as at any other time.</li>
+<li><b>Create starts at today's share.</b> RT4's 10 / 15 / 20 % choice is withdrawn: a show 10 days out starts at 20 %. RT4's split, floor, money and no-budget sentences stand.</li>
+<li><b>Each step is a line,</b> proposed at the read the day before it starts, so it can be accepted before the day. Its target is the share × current daily spend at that read. The rise is the target minus today's total. There's no line when today's total is already at or above the target.</li>
+<li><b>Splitting the rise</b> (sharpens RT6's "split by room"):
+<ul>
+<li>A tier at frequency 4 or more doesn't rise.</li>
+<li>The rise is split among the other tiers in proportion to their budgets.</li>
+<li>A tier that reaches its room stops there, and what's left is split again among the rest.</li>
+<li>Money no tier can take isn't raised.</li>
+</ul></li>
+<li><b>Dates:</b> a step runs from its first day to the day before the next higher share begins. The final week runs to the show day. A payday stretch outside the run-in ends on its last day, and Meta's budget schedule returns the tiers to their budgets.</li>
+<li><b>Money:</b> RT6's order stands. A step holds the rise × its days against the plan when it's accepted, from headroom first, then on-sale campaigns, inside R5's 20 % cap.</li>
+<li><b>Steps are switched on</b> behind the same gates as the rest of the panel.</li>
+</ul>
+<p><b>Words.</b></p>
+<ul>
+<li>Create line, first line: "£{total} a day · {share} % of current daily spend · Bottom £{b} · Mid Bottom £{mb} · Mid £{m}". Inside a step, the share reads "{share} % of current daily spend, {stretch}".</li>
+<li>Create line, new third line, listing only steps still to come: "Steps: {share} % from {Ddd d Mon} · … · each held when it's accepted".</li>
+<li>Step line: Step up · "{Payday | Final month | Final two weeks | Final week} · {Ddd d Mon} – {Ddd d Mon}" · "£{from} → £{to} a day · {share} % of current daily spend (£{spend}) · {tier} £{a} → £{b}[, its room] · … · {tier} doesn't rise (frequency {f})" · "Budget schedule on each tier ad set · £{hold} to {Ddd d Mon} · {from plan headroom | £{x} a day from {campaign}}".</li>
+<li>Step line on a phone: "{stretch} · {Ddd d} – {Ddd d Mon}" · "£{from} → £{to} a day · {share} % · {from}".</li>
+<li>When no tier can rise, a note with nothing to accept: "{stretch} step held: every tier is at frequency 4 or more, so nothing rises."</li>
+<li>Panel header inside a step: "£{total} a day · {stretch}: {share} % of daily spend on {Ddd d Mon}" (the day the step began). Outside a step, RT3's "{pct} % of current daily spend" stands.</li>
+<li>Footer: "Next steps: {share} % from {Ddd d Mon}, {stretch} · …". A payday stretch is listed only where it's the higher share.</li>
+</ul></td></tr>
+
+<tr><td>RT12 · Buyers from ticketing</td><td>
+<p><b>Yes, per client</b> (Matas). It's switched on only once that client confirms their privacy notice or ticketing terms cover advertising use. Until then, buyers come only from hand-uploaded Buyers lists.</p>
+<ul>
+<li><b>The setting:</b> "Buyers from ticketing" on the client page (frame RF). It's off for every client. Turning it on needs four fields:
+<ul>
+<li>Covered by: Privacy notice or Ticketing terms;</li>
+<li>Where it says so: a link or the document's name;</li>
+<li>Confirmed by: name and role at the client;</li>
+<li>Confirmed on: the date.</li>
+</ul>
+Only Matas can switch it on. The fields are kept with who entered them and when.</li>
+<li><b>Its words:</b> "Off · {client} hasn't confirmed their privacy notice or ticketing terms cover advertising use." with no fields filled; "Off · confirmation recorded, ready to switch on." with all four; "On since {Ddd d Mon}" with the fields and "Entered by {name} · {Ddd d Mon}, {HH:mm}" under it. "Switch on" is disabled until all four fields are filled, with "Only Matas can switch this on."</li>
+<li><b>What it does:</b> every day before the 08:00 read, it takes each of the show's ticketing connections that can list a show's buyers and uploads those buyers to one customer list per show: <code>{code} · Buyers · ticketing</code>, role Buyers, email and phone only. Every tier leaves it out, alongside any hand-uploaded Buyers list.</li>
+<li><b>Switching it off</b> stops the uploads. At the next read the ticketing list is taken out of every tier's leave-outs and deleted from the ad account. Hand-uploaded lists stay.</li>
+<li><b>Gates:</b> the client's setting, plus the audience-write gate.</li>
+</ul>
+<p><b>Buyers lines</b> (amends RT8), under the tier table:</p>
+<ul>
+<li>Off, client has a ticketing connection: RT8's "No buyers list yet, so buyers aren't left out and will keep seeing these ads." with "Upload a buyers list", then in ink-3: "Buyers from {connection} can be left out automatically once {client} confirms their privacy notice or ticketing terms cover advertising use." Action: "Record the confirmation" (the client page).</li>
+<li>Off, no connection: RT8 as it stands.</li>
+<li>On and updated: "Buyers from {connection} · {n} sent · updated {Ddd d Mon}, {HH:mm}". The tier rows' leave-outs say "buyers".</li>
+<li>On, but the connection can't list buyers: "{connection} can't list this show's buyers, so upload a buyers list by hand." with "Upload a buyers list".</li>
+<li>On, today's update failed: "Buyers from {connection} couldn't be updated {Ddd d Mon}: {reason}. The list from {Ddd d Mon} is still left out." From 7 days old, RT8's " · {n} days old" is added.</li>
+<li>A hand-uploaded list shows its own RT8 line beside any of these.</li>
+<li>Phone: "Buyers from {connection} · {n} · {Ddd d Mon}".</li>
+</ul></td></tr>
+
+<tr><td>RT13 · The show's own links, from CIRQLIN</td><td>
+<ul>
+<li><b>The source:</b> CIRQLIN's partner read, <code>GET /api/partner/page-links?crm_base_tag={tag}</code>, with the show's tag. It returns every published page for the tag, event pages and crowd pages alike. Each page carries its <code>landing_url</code> and <code>ticket_links[]</code> (<code>platform</code>, <code>url</code>, <code>label</code>, <code>shop_name</code>, <code>shown_first</code>), exactly as the public page shows them.</li>
+<li><b>Every link is a URL rule</b> (Matas): every page's <code>landing_url</code>, and every ticket link on every page, one rule per link.
+<ul>
+<li>Each rule is "URL contains" the link from its host to the end of its path, exactly as returned: no scheme or query string, no case-folding, nothing trimmed.</li>
+<li>For the Robbie Doherty show, that's robbiedoherty-newcastle.com plus a rule each for Skiddle, RA, Fatsoma, Fixr and DICE.</li>
+</ul></li>
+<li><b>Which audience each link feeds:</b>
+<ul>
+<li><b>Ticket links</b> feed ticket-link visitors and checkout starters. Checkout starters are the pixel's Initiate Checkout on a ticket link's rule, never pixel-wide, because a shared pixel's checkouts belong to other shows too.</li>
+<li><b>Landing pages</b> feed page visitors and registrations (RT15).</li>
+</ul></li>
+<li><b>Daily read:</b> the links are read again at every 08:00 read and compared exactly with the rules. Any difference rewrites that audience's rules (the audience-write gate), so an outlet switched off on CIRQLIN drops out at the next rebuild and a new one comes in. If the read fails on a running campaign, the rules stay as they were and the read tries again the next day.</li>
+<li><b>Has it sent visits?</b> A third-party ticket page counts visitors only when the promoter's pixel is on that platform. So for each link the panel checks whether the resolved pixel recorded a visit matching its rule in the last 28 days, read by URL.</li>
+<li><b>Names in the tier row</b> (Matas):
+<ul>
+<li>A ticket link is named by its <code>platform</code>, as CIRQLIN returns it (Skiddle, RA, Fatsoma, Fixr, DICE).</li>
+<li>Two links on one platform are told apart by their <code>shop_name</code>, else their <code>label</code>, in brackets: "Skiddle (Early bird)".</li>
+<li>A landing page is named by its host and path: "xmpl-whse.com", "crqln.com/xmpl-whse-crowd".</li>
+<li>The link shown first goes first, then the page's order.</li>
+</ul></li>
+<li><b>The line</b>, under the tier's audiences, in ink-3:
+<ul>
+<li>"Visits from {links}", with " · none from {links} in 28 days" when some have none.</li>
+<li>When any ticket link has none, a second line: "A ticket site sends visits only when your pixel is on it there."</li>
+<li>When no link of the tier has any: "No visits from {links} in 28 days".</li>
+<li>Phone: "Visits: {links} · none from {links}".</li>
+</ul>
+Bottom names its ticket links. Mid Bottom names its landing pages.</li>
+<li><b>Empty Bottom:</b> with no ticket-link visits, no checkout starters, no registrations and no signup list, Bottom can't be built: "Bottom has no audience yet: no visits, checkout starters, registrations or signup list." Its 50 % then goes to Mid Bottom and Mid, 1 to 1.</li>
+<li><b>Not proposed</b>, replacing the Create line (RD-393 adds both):
+<ul>
+<li>404 <code>no_page</code>: "Retargeting not proposed: this show's CIRQLIN page isn't published. It's proposed at the first read after it is."</li>
+<li>Any other failure: "Retargeting not proposed: the show's links couldn't be read from CIRQLIN this run. The next run tries again."</li>
+</ul></li>
+<li><b>No CIRQLIN tag:</b> a show without a <code>crm_base_tag</code> keeps RT2's two links, the event's page and its ticket URL, named the same way.</li>
+</ul></td></tr>
+
+<tr><td>RT14 · Several windows per tier</td><td>
+<p>Each pixel and engagement source is built at several windows, each one its own audience, in place of one window per tier.</p>
+<table class="t" style="margin:6px 0 10px">
+<tr><th style="width:190px">Tier</th><th>Source · windows</th></tr>
+<tr><td>Bottom</td><td>Ticket-link visitors · 7, 14 and 30 days<br>Checkout starters · 7, 14 and 30 days<br>Registrations · 30, 90 and 180 days (RT15)<br>Signups lists, no window</td></tr>
+<tr><td>Mid Bottom</td><td>Page visitors · 14, 30 and 60 days<br>Checkout starters · 60 days (its first 30 days are Bottom's)<br>Similar lists, no window</td></tr>
+<tr><td>Mid</td><td>Video viewers 75 % · 90, 180 and 365 days, one set per page<br>Page and Instagram engagers · 30, 90 and 180 days</td></tr>
+</table>
+<ul>
+<li><b>The longest window of each source is RT2's,</b> so who is in each tier doesn't change, registrations aside. A tier reaches everyone in its longest windows, so the shorter windows add no one. They're their own audiences so Ads Manager shows how recent each tier's people are.</li>
+<li><b>Leave-outs</b> take every window of the hotter tiers (RT2 stands).</li>
+<li><b>Names in Ads Manager:</b> "{code} · {source} · {n} days", for example "XMPL-WHSE · Ticket-link visitors · 7 days". A per-page video set adds the page: "{code} · Video viewers 75 % · {page} · 90 days".</li>
+<li><b>In the tier row,</b> sources with the same windows share a line, and the windows read as words: "Ticket-link visitors · checkout starters · 7, 14 and 30 days". At 393 the same lines join with " · ".</li>
+</ul></td></tr>
+
+<tr><td>RT15 · Registrations in Bottom</td><td>
+<ul>
+<li><b>Bottom gains registrations:</b> the pixel's CompleteRegistration on the show's landing pages (one rule per <code>landing_url</code>, RT13), at 30, 90 and 180 days, beside the hand-uploaded Signups lists (Matas). The two overlap, and that's fine: the list also holds people the pixel never saw.</li>
+<li><b>Row:</b> "Registrations · 30, 90 and 180 days".</li>
+<li><b>No registrations</b> reaching the pixel from any landing page in 28 days: a line in brick, "No registrations from {landing pages} reach the pixel in 28 days, so Bottom counts signups from the signup list only."</li>
+<li><b>RT8's signup line becomes</b> "No signup list yet, so Bottom runs on {sources} only.", where {sources} lists what Bottom has: ticket-link visitors, checkout starters, registrations.</li>
+</ul></td></tr>
+
+<tr><td>RT16 · Every active show</td><td>
+<ul>
+<li><b>Matas wants it on every active show once built.</b> Active means on sale, show day today or later, not cancelled, and able to take the campaign (RT8 and RT9's conditions).</li>
+<li><b>The first 08:00 read after the gates are on</b> proposes a Create line on every active show. The Retargeting panel is Live on every active show without arming each event. The rest of the refresh keeps R4's per-event arm.</li>
+<li><b>Nothing is built until Matas accepts and applies</b> each Create line.</li>
+<li><b>A show already in the run-in</b> starts at its stretch's share (RT11). RT9's line for legacy retargeting ad sets stands.</li>
+</ul></td></tr>
+</table>
+
+<h2>Frames</h2>
+
+<div class="frame">
+<figure><figcaption>RA · 1280 · event page · read Tue 17 Nov · windows, links and buyers from ticketing</figcaption>
+<div class="vp wide">
+<div class="h">XMPL-WHSE · Retargeting</div>
+<div class="fs">£24.00 a day · 10 % of current daily spend · Running since Tue 10 Nov · ends Sat 19 Dec, 23:59</div>
+<div class="fs">Attributed purchases on the Warehouse Skiddle pixel, shared with its other shows' sales</div>
+<table class="tier">
+<tr><th style="width:84px">Tier</th><th>Audiences</th><th style="width:120px">Pool</th><th class="r" style="width:62px">Frequency</th><th style="width:116px">Leaves out</th><th class="r" style="width:96px">Budget</th><th class="r" style="width:84px">Cost per attributed purchase</th><th class="r" style="width:66px">Purchases</th></tr>
+<tr><td><b>Bottom</b></td><td class="src">Ticket-link visitors · checkout starters · 7, 14 and 30 days<br>Registrations · 30, 90 and 180 days<br>Signup list<div class="links">Visits from Skiddle and RA · none from Fixr in 28 days<br>A ticket site sends visits only when your pixel is on it there.</div></td><td>3,900–4,600</td><td class="r" style="color:var(--brick)">4.3</td><td>Buyers</td><td class="r">£12.00 a day</td><td class="r">£5.15</td><td class="r">16</td></tr>
+<tr><td><b>Mid Bottom</b></td><td class="src">Page visitors · 14, 30 and 60 days<br>Checkout starters · 60 days<br>2 similar lists<div class="links">Visits from xmpl-whse.com</div></td><td>6,300–7,400</td><td class="r">2.2</td><td>Bottom · buyers</td><td class="r">£6.00 a day</td><td class="r">£8.32</td><td class="r">5</td></tr>
+<tr><td><b>Mid</b></td><td class="src">Video viewers 75 % · 90, 180 and 365 days<br>Page and Instagram engagers · 30, 90 and 180 days · 4 pages</td><td>180,000–212,000</td><td class="r">1.6</td><td>Mid Bottom · Bottom · buyers</td><td class="r">£6.00 a day</td><td class="r">£20.95</td><td class="r">2</td></tr>
+<tr class="tot"><td>Last 7 days</td><td class="src" style="font-weight:400">£165.90 spent</td><td></td><td></td><td></td><td class="r">£24.00 a day</td><td class="r">£7.21</td><td class="r">23</td></tr>
+</table>
+<div class="fs">Buyers from Skiddle · 412 sent · updated Tue 17 Nov, 07:40</div>
+<div class="line note"><span class="kind">Hold</span><span class="t">Bottom held</span>
+<div class="d">Cheapest at £5.15 per attributed purchase, but frequency 4.3 on 3,900–4,600. It gets no more until frequency falls under 4.</div></div>
+<div class="line"><span class="acts">Accept · Reject</span><span class="kind">Move</span><span class="t">Mid → Mid Bottom</span>
+<div class="d">£20.95 per attributed purchase (2) to £8.32 (5) · Mid Bottom frequency 2.2 on 6,300–7,400 · £2.99 a day</div>
+<div class="w">Ad-set budget write, both sides</div></div>
+<div class="fs">Next steps: 15 % from Thu 19 Nov, final month · 20 % from Sat 5 Dec, final two weeks · 25 % from Sat 12 Dec, final week</div>
+</div></figure>
+<figure><figcaption>RA · 393 · the same panel</figcaption>
+<div class="vp w393">
+<div class="h">XMPL-WHSE · Retargeting</div>
+<div class="fs">£24.00 a day · 10 % of current daily spend<br>Ends Sat 19 Dec, 23:59 · Warehouse Skiddle pixel, shared with its other shows</div>
+<div class="card">
+<div class="top"><span>Bottom</span><span>£12.00 a day</span></div>
+<div class="fs">£5.15 per attributed purchase · 16</div>
+<div class="fs">Pool 3,900–4,600 · <span style="color:var(--brick)">frequency 4.3</span></div>
+<div class="fs">Leaves out buyers</div>
+<div class="src">Ticket-link visitors · checkout starters · 7, 14 and 30 days · registrations · 30, 90 and 180 days · signup list</div>
+<div class="links">Visits: Skiddle, RA · none from Fixr</div></div>
+<div class="card">
+<div class="top"><span>Mid Bottom</span><span>£6.00 a day</span></div>
+<div class="fs">£8.32 per attributed purchase · 5</div>
+<div class="fs">Pool 6,300–7,400 · frequency 2.2</div>
+<div class="fs">Leaves out Bottom · buyers</div>
+<div class="src">Page visitors · 14, 30 and 60 days · checkout starters · 60 days · 2 similar lists</div>
+<div class="links">Visits: xmpl-whse.com</div></div>
+<div class="card">
+<div class="top"><span>Mid</span><span>£6.00 a day</span></div>
+<div class="fs">£20.95 per attributed purchase · 2</div>
+<div class="fs">Pool 180,000–212,000 · frequency 1.6</div>
+<div class="fs">Leaves out Mid Bottom · Bottom · buyers</div>
+<div class="src">Video viewers 75 % · 90, 180 and 365 days · page and Instagram engagers · 30, 90 and 180 days · 4 pages</div></div>
+<div class="fs">Buyers from Skiddle · 412 · Tue 17 Nov</div>
+<div class="line note"><span class="kind">Hold</span>
+<div class="t">Bottom held · frequency 4.3</div></div>
+<div class="line"><span class="kind">Move</span>
+<div class="t">Mid → Mid Bottom</div>
+<div class="d">£20.95 → £8.32 per attributed purchase · £2.99 a day</div>
+<div style="margin-top:6px"><span class="btn">Accept</span> <span class="btn ghost">Reject</span></div></div>
+</div></figure>
+</div>
+
+<div class="frame">
+<figure><figcaption>RB · 1280 · a new show · the Create line with its steps, before Apply</figcaption>
+<div class="vp wide">
+<div class="h">XMPL-ROOF · Retargeting</div>
+<div class="line"><span class="acts">Accept · Reject</span><span class="kind">Create</span><span class="t">XMPL-ROOF · Retargeting</span>
+<div class="d">£5.80 a day · 10 % of current daily spend · Bottom £2.90 · Mid Bottom £1.45 · Mid £1.45</div>
+<div class="d">£185.60 to the show (32 days) · from plan headroom</div>
+<div class="d">Steps: 15 % from Wed 18 Nov · 20 % from Fri 4 Dec · 25 % from Fri 11 Dec · each held when it's accepted</div>
+<div class="d">1 retargeting ad set already runs in XMPL-ROOF · Tickets: pause it once this is live.</div>
+<div class="w">New campaign, audiences and ad sets through the Purchase create path · goes in live</div></div>
+<table class="tier">
+<tr><th style="width:84px">Tier</th><th>Audiences</th><th style="width:120px">Pool</th><th class="r" style="width:62px">Frequency</th><th style="width:116px">Leaves out</th><th class="r" style="width:96px">Budget</th><th class="r" style="width:84px">Cost per attributed purchase</th><th class="r" style="width:66px">Purchases</th></tr>
+<tr><td><b>Bottom</b></td><td class="src">Ticket-link visitors · checkout starters · 7, 14 and 30 days<br>Registrations · 30, 90 and 180 days<div class="links">Visits from Skiddle · none from Fatsoma or DICE in 28 days<br>A ticket site sends visits only when your pixel is on it there.</div>
+<div class="miss">No signup list yet, so Bottom runs on ticket-link visitors, checkout starters and registrations only. <a href="#">Upload the signup list</a></div></td><td>Known after create</td><td class="r">—</td><td>—</td><td class="r">£2.90 a day</td><td class="r">—</td><td class="r">—</td></tr>
+<tr><td><b>Mid Bottom</b></td><td class="src">Page visitors · 14, 30 and 60 days<br>Checkout starters · 60 days<div class="links">Visits from xmpl-roof.com</div></td><td>Known after create</td><td class="r">—</td><td>Bottom</td><td class="r">£1.45 a day</td><td class="r">—</td><td class="r">—</td></tr>
+<tr><td><b>Mid</b></td><td class="src">Video viewers 75 % · 90, 180 and 365 days<br>Page and Instagram engagers · 30, 90 and 180 days · 3 of 4 pages<div class="miss">Mira Vale isn't in Mid: your Facebook user has no role on the page. Granting ADVERTISE on it adds it at the next read.</div></td><td>Known after create</td><td class="r">—</td><td>Mid Bottom · Bottom</td><td class="r">£1.45 a day</td><td class="r">—</td><td class="r">—</td></tr>
+</table>
+<div class="miss" style="font-size:12px">No buyers list yet, so buyers aren't left out and will keep seeing these ads. <a href="#">Upload a buyers list</a></div>
+<div class="links">Buyers from Skiddle can be left out automatically once Xmpl Rooftop confirms their privacy notice or ticketing terms cover advertising use. <a href="#" style="color:inherit">Record the confirmation</a></div>
+</div></figure>
+<figure><figcaption>RB · 393 · the same</figcaption>
+<div class="vp w393">
+<div class="h">XMPL-ROOF · Retargeting</div>
+<div class="line"><span class="kind">Create</span>
+<div class="t">XMPL-ROOF · Retargeting</div>
+<div class="d">£5.80 a day · 10 % of current daily spend</div>
+<div class="d">Bottom £2.90 · Mid Bottom £1.45 · Mid £1.45</div>
+<div class="d">£185.60 to the show (32 days) · from plan headroom</div>
+<div class="d">Steps: 15 % from Wed 18 Nov · 20 % from Fri 4 Dec · 25 % from Fri 11 Dec · each held when it's accepted</div>
+<div class="d">1 retargeting ad set already runs in XMPL-ROOF · Tickets: pause it once this is live.</div>
+<div style="margin-top:6px"><span class="btn">Accept</span> <span class="btn ghost">Reject</span></div></div>
+<div class="card">
+<div class="top"><span>Bottom</span><span>£2.90 a day</span></div>
+<div class="fs">Pool known after create</div>
+<div class="src">Ticket-link visitors · checkout starters · 7, 14 and 30 days · registrations · 30, 90 and 180 days</div>
+<div class="links">Visits: Skiddle · none from Fatsoma, DICE</div>
+<div class="miss">No signup list yet, so Bottom runs on ticket-link visitors, checkout starters and registrations only. <a href="#">Upload the signup list</a></div></div>
+<div class="card">
+<div class="top"><span>Mid Bottom</span><span>£1.45 a day</span></div>
+<div class="fs">Pool known after create · leaves out Bottom</div>
+<div class="src">Page visitors · 14, 30 and 60 days · checkout starters · 60 days</div>
+<div class="links">Visits: xmpl-roof.com</div></div>
+<div class="card">
+<div class="top"><span>Mid</span><span>£1.45 a day</span></div>
+<div class="fs">Pool known after create · leaves out Mid Bottom · Bottom</div>
+<div class="src">Video viewers 75 % · 90, 180 and 365 days · page and Instagram engagers · 30, 90 and 180 days · 3 of 4 pages</div>
+<div class="miss">Mira Vale: no page role, not in Mid.</div></div>
+<div class="miss">No buyers list yet, so buyers aren't left out and will keep seeing these ads. <a href="#">Upload a buyers list</a></div>
+<div class="links">Buyers from Skiddle can be left out automatically once Xmpl Rooftop confirms their privacy notice or ticketing terms cover advertising use. <a href="#" style="color:inherit">Record the confirmation</a></div>
+</div></figure>
+</div>
+
+<div class="frame">
+<figure><figcaption>RC · 1280 · RA's show, read Fri 4 Dec · the final-two-weeks step, Bottom held</figcaption>
+<div class="vp wide">
+<div class="h">XMPL-WHSE · Retargeting</div>
+<div class="fs">£36.00 a day · final month: 15 % of daily spend on Thu 19 Nov · Running since Tue 10 Nov · ends Sat 19 Dec, 23:59</div>
+<table class="tier">
+<tr><th style="width:84px">Tier</th><th style="width:120px">Pool</th><th class="r" style="width:62px">Frequency</th><th class="r" style="width:96px">Budget</th><th class="r" style="width:84px">Cost per attributed purchase</th><th class="r" style="width:66px">Purchases</th></tr>
+<tr><td><b>Bottom</b></td><td>4,400–5,200</td><td class="r" style="color:var(--brick)">4.2</td><td class="r">£13.50 a day</td><td class="r">£6.30</td><td class="r">15</td></tr>
+<tr><td><b>Mid Bottom</b></td><td>6,800–8,000</td><td class="r">2.4</td><td class="r">£13.50 a day</td><td class="r">£10.50</td><td class="r">9</td></tr>
+<tr><td><b>Mid</b></td><td>186,000–219,000</td><td class="r">1.7</td><td class="r">£9.00 a day</td><td class="r">£12.60</td><td class="r">5</td></tr>
+<tr class="tot"><td>Last 7 days</td><td></td><td></td><td class="r">£36.00 a day</td><td class="r">£8.69</td><td class="r">29</td></tr>
+</table>
+<div class="line note"><span class="kind">Hold</span><span class="t">Bottom held</span>
+<div class="d">Cheapest at £6.30 per attributed purchase, but frequency 4.2 on 4,400–5,200. It gets no more until frequency falls under 4.</div></div>
+<div class="line"><span class="acts">Accept · Reject</span><span class="kind">Step up</span><span class="t">Final two weeks · Sat 5 Dec – Fri 11 Dec</span>
+<div class="d">£36.00 → £52.00 a day · 20 % of current daily spend (£260.00) · Mid Bottom £13.50 → £22.50, its room · Mid £9.00 → £16.00 · Bottom doesn't rise (frequency 4.2)</div>
+<div class="w">Budget schedule on each tier ad set · £112.00 to Fri 11 Dec · from plan headroom</div></div>
+<div class="fs">Next steps: 25 % from Sat 12 Dec, final week</div>
+</div></figure>
+<figure><figcaption>RC · 393 · the same two lines</figcaption>
+<div class="vp w393">
+<div class="line note"><span class="kind">Hold</span>
+<div class="t">Bottom held · frequency 4.2</div></div>
+<div class="line"><span class="kind">Step up</span>
+<div class="t">Final two weeks · Sat 5 – Fri 11 Dec</div>
+<div class="d">£36.00 → £52.00 a day · 20 % · from plan headroom</div>
+<div style="margin-top:6px"><span class="btn">Accept</span> <span class="btn ghost">Reject</span></div></div>
+</div></figure>
+</div>
+
+<div class="frame">
+<figure><figcaption>RD · 393 · the two new not-proposed sentences (RD-393 shows all ten)</figcaption>
+<div class="vp w393">
+<div class="card">Retargeting not proposed: this show's CIRQLIN page isn't published. It's proposed at the first read after it is.</div>
+<div class="card">Retargeting not proposed: the show's links couldn't be read from CIRQLIN this run. The next run tries again.</div>
+</div></figure>
+</div>
+
+<div class="frame">
+<figure><figcaption>RF · 1280 · client page · Buyers from ticketing, off, with the confirmation filled in</figcaption>
+<div class="vp wide">
+<div class="h">Buyers from ticketing</div>
+<div class="fs">Off · confirmation recorded, ready to switch on.</div>
+<div class="fs" style="margin:6px 0 10px">When it's on, each show's buyers from Skiddle go to Meta every morning as a customer list (email and phone only), so Retargeting leaves them out. Switching it off stops the uploads and deletes the list at the next read.</div>
+<table class="v">
+<tr><td style="width:170px">Covered by</td><td><span class="seg"><span class="on">Privacy notice</span><span>Ticketing terms</span></span></td></tr>
+<tr><td>Where it says so</td><td>xmpl-rooftop.com/privacy · section 4</td></tr>
+<tr><td>Confirmed by</td><td>Head of Marketing, Xmpl Rooftop</td></tr>
+<tr><td>Confirmed on</td><td>Tue 17 Nov 2026</td></tr>
+</table>
+<div style="margin-top:10px"><span class="btn">Switch on</span> <span class="fs" style="margin-left:8px">Only Matas can switch this on.</span></div>
+</div></figure>
+<figure><figcaption>RF · 393 · on</figcaption>
+<div class="vp w393">
+<div class="h">Buyers from ticketing</div>
+<div class="fs ok">On since Tue 17 Nov</div>
+<div class="fs">Privacy notice · xmpl-rooftop.com/privacy · section 4</div>
+<div class="fs">Confirmed by Head of Marketing, Xmpl Rooftop · Tue 17 Nov</div>
+<div class="fs">Entered by Matas · Tue 17 Nov, 14:05</div>
+<div style="margin-top:8px"><span class="btn ghost">Switch off</span></div>
+</div></figure>
+</div>
+
+<h2>Expected figures</h2>
+<ul class="notes">
+<li><b>RA:</b> the figures of the first record stand. On Tue 17 Nov the show (Sat 19 Dec) is 32 days out, so the share is 10 %: £24.00 on £240.</li>
+<li><b>RA's steps:</b> final month from Thu 19 Nov (30 days out), final two weeks from Sat 5 Dec (14), final week from Sat 12 Dec (7). The payday stretch, Thu 26 Nov – Sun 13 Dec, falls inside steps of 15 % or more, so it adds nothing and isn't listed.</li>
+<li><b>RB:</b> show Fri 18 Dec. Tue 17 Nov is 31 days out, so 10 %: £5.80 on £58.00, split £2.90 / £1.45 / £1.45. £185.60 = £5.80 × 32 stands. Steps: final month from Wed 18 Nov, final two weeks from Fri 4 Dec, final week from Fri 11 Dec.</li>
+<li><b>RC header:</b> the final month began Thu 19 Nov at 15 % of £240 = £36.00.</li>
+<li><b>RC tiers (27 Nov – 3 Dec):</b> Bottom £94.50 ÷ 15 = £6.30. Mid Bottom £94.50 ÷ 9 = £10.50. Mid £63.00 ÷ 5 = £12.60. Total £252.00 ÷ 29 = £8.69.</li>
+<li><b>RC hold:</b> Bottom is cheapest, at frequency 4.2.</li>
+<li><b>RC, no move:</b> the receiver would be Mid Bottom (£10.50, 9 purchases, frequency 2.4) and the giver Mid (£12.60). £10.50 is more than 0.75 × £12.60 = £9.45, so no move.</li>
+<li><b>RC step:</b>
+<ul>
+<li>Current daily spend £260.00 × 20 % = £52.00. The rise is £52.00 − £36.00 = £16.00.</li>
+<li>Bottom doesn't rise (frequency 4.2).</li>
+<li>Split by budget, £13.50 : £9.00, gives Mid Bottom £9.60 and Mid £6.40.</li>
+<li>Mid Bottom's room is £94.50 ÷ 7 × 4 ÷ 2.4 = £22.50. £13.50 + £9.60 = £23.10 is over it, so Mid Bottom stops at £22.50 (+£9.00), and the £0.60 left goes to Mid.</li>
+<li>Mid: £9.00 + £7.00 = £16.00, within its room of £63.00 ÷ 7 × 4 ÷ 1.7 = £21.17.</li>
+<li>New total: £13.50 + £22.50 + £16.00 = £52.00.</li>
+<li>Held: £16.00 × 7 days (Sat 5 – Fri 11 Dec) = £112.00.</li>
+</ul></li>
+</ul>
+
+<h2>Acceptance</h2>
+<ul class="notes">
+<li><b>Shares:</b> the share follows RT11's table, with the higher share in an overlap. Create starts at today's share, with no 10 / 15 / 20 % choice. A step line is proposed the day before, split as RT11 says. Holds and cuts apply during steps. A test asserts RC's split to the penny.</li>
+<li><b>Buyers from ticketing:</b> runs only for a client whose setting is on, with all four fields, switched on by Matas. Off deletes the ticketing list at the next read. The buyers strings are exact.</li>
+<li><b>Links:</b> come from <code>page-links</code> by the show's tag. Every <code>landing_url</code> and ticket link is one URL rule, written exactly as returned (host to end of path). Checkout starters count only on ticket links. A change on the daily read rewrites the rules. A failed read keeps the last rules.</li>
+<li><b>Tier rows:</b> name each link by <code>platform</code> and say whether it sent visits in 28 days. 404 <code>no_page</code> and a failed read give RT13's sentences.</li>
+<li><b>Windows:</b> RT14's windows, each its own audience named as RT14 says. The longest windows equal RT2's, and leave-outs take every window.</li>
+<li><b>Registrations:</b> Bottom includes CompleteRegistration on the landing pages, and RT15's strings are exact.</li>
+<li><b>Rollout:</b> every active show gets its Create line at the first read after the gates are on, without per-event arming.</li>
+<li><b>Frames:</b> RA, RB and RC at 1280 and 393, RD-393 with ten sentences, and RF at both, from fixtures with these figures.</li>
+</ul>
+
+<h2>Hand-back</h2>
+<table class="t">
+<tr><th style="width:190px">Piece</th><th>Build</th></tr>
+<tr><td>HR8 · Shares and steps</td><td>RT11's shares in config. The day's share from the payday window and <code>daysUntilEvent</code>. Create at today's share. Step lines the day before, split by budget up to room, written as Meta budget schedules. The read-only probe of the budget-schedule endpoint (HR5) still comes first.</td></tr>
+<tr><td>HR9 · Buyers from ticketing</td><td>The client setting and its four fields, Matas-only. The daily upload to <code>{code} · Buyers · ticketing</code> from connections that can list buyers. The leave-outs. Deletion when switched off. The buyers lines.</td></tr>
+<tr><td>HR10 · Links</td><td>The <code>page-links</code> read per show tag at each read. One URL rule per link. Initiate Checkout scoped to ticket links. The per-link 28-day visit check by URL, with a read-only probe of the pixel's URL breakdown first: if Meta gives only domains, report back before shipping rather than guessing. The two not-proposed states. RT2's fallback for shows with no tag.</td></tr>
+<tr><td>HR11 · Windows</td><td>The audiences at RT14's windows, named "{code} · {source} · {n} days". Leave-outs over every window.</td></tr>
+<tr><td>HR12 · Registrations</td><td>CompleteRegistration on the landing pages at 30, 90 and 180 days in Bottom. The no-registrations line. RT8's signup line with its source list.</td></tr>
+<tr><td>HR13 · Rollout</td><td>The Retargeting panel Live on every active show, with no per-event arm.</td></tr>
+<tr><td>HR14 · Frames</td><td>RA, RB and RC redrawn, RD-393 at ten sentences, RF new. Fixture today = Tue 17 Nov 2026 (RC: Fri 4 Dec). Baselines after design-pass.</td></tr>
+</table>
+
+<h2>Invented here</h2>
+<ul class="notes">
+<li>Proposing a step the day before. Splitting the rise by budget among the tiers that can rise, then again up to room. The step's dates running to the day before the next higher share.</li>
+<li>Withdrawing the 10 / 15 / 20 % choice. The header "{stretch}: {share} % of daily spend on {Ddd d Mon}".</li>
+<li>The four confirmation fields, Matas-only, email and phone only, and deleting the ticketing list when switched off.</li>
+<li>The URL rule as host to end of path. Checkout starters scoped to ticket links. The 28-day visit check by URL. Telling same-platform links apart by <code>shop_name</code>, else <code>label</code>. Keeping the last rules when a read fails. RT2's links for shows with no tag.</li>
+<li>Every window in RT14 except the longest of each source. The Ads Manager names.</li>
+<li>Bottom's 50 % going 1 to 1 to Mid Bottom and Mid when Bottom can't be built. Registrations at 30, 90 and 180 days.</li>
+<li>Every string in RT11–RT16, Xmpl Rooftop, Robbie Doherty's links as Matas gave them, and RF's sample confirmation.</li>
+</ul>
+
+</div>
+</body>
+</html>
