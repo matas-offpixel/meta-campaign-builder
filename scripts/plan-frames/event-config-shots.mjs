@@ -10,6 +10,7 @@
 
 import { RETARGETING_SHOTS } from "./retargeting-shots.mjs";
 import { TEST_PLAN_SHOTS } from "./test-plan-shots.mjs";
+import { VIDEO_WINDOW_SHOTS } from "./video-window-shots.mjs";
 
 export const EVENT_CONFIG_FRAME_IDS = ["EC1", "EC2", "EC3", "EC4", "EC5", "EC6", "EC7"];
 export const EVENT_CONFIG_WIDTHS = [1280, 393];
@@ -28,4 +29,6 @@ export const EVENT_CONFIG_SHOTS = [
   ...TEST_PLAN_SHOTS,
   // The Retargeting campaign's PR A shots (RB, RD at 1280 and 393).
   ...RETARGETING_SHOTS,
+  // The Lab video window's shots (VW-A at 1280 and 393, VW-B at 393).
+  ...VIDEO_WINDOW_SHOTS,
 ];

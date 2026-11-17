@@ -16,6 +16,7 @@ import { captionAllowsClip } from "./footage-owner.ts";
 import { nextRoundPlan, type RoundPlanInput } from "./judge.ts";
 import type { ServiceRoleDb } from "./load.ts";
 import { sizesForClipFiles } from "./clip-preview.ts";
+import { windowStateOfRow } from "./edit-window.ts";
 import { LANDSCAPE_TRIPLE_FIT_ONLY, TOO_SMALL_FOR_916, TRIPLE_FIT_NOT_PAIRED, missingTripleFitColumn, tooSmallFor916, tripleFitSource } from "./import-quality.ts";
 import { noSelectedClipsSentence, selectedIdSet } from "./selection.ts";
 import { loadClipSelection } from "./selection-store.ts";
@@ -247,6 +248,12 @@ async function clipsForRound(clips: Clip[], assets: Map<string, Row>, skipped: {
   for (const clip of clips) {
     if (String(clip.triple_fit_source_id ?? "").trim()) {
       skipped.push({ reason: TRIPLE_FIT_NOT_PAIRED });
+      continue;
+    }
+    // VW3: a clip that can't make a 15–20 s edit leaves the pairing, as "Too small for 9:16" does.
+    const window = windowStateOfRow(clip);
+    if (window.kind === "refused") {
+      skipped.push({ reason: window.chip });
       continue;
     }
     const size = sizes.get(String(clip.id));

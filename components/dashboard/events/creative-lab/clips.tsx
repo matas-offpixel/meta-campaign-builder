@@ -20,6 +20,8 @@ import {
   type ClipSelection,
 } from "@/lib/creative-lab/selection";
 import { CropPicker } from "@/components/dashboard/events/creative-lab/crop-picker";
+import { EditWindowPicker } from "@/components/dashboard/events/creative-lab/edit-window";
+import { VW_LINES } from "@/lib/creative-lab/edit-window";
 import { RenderRows } from "@/components/dashboard/events/creative-lab/render-rows";
 import { VerdictChip } from "@/components/dashboard/events/creative-lab/verdict-chip";
 import { PosterVideo } from "@/components/dashboard/events/creative-lab/poster-video";
@@ -116,6 +118,11 @@ export function LabClips({
 }) {
   const groups = groupClips(lab.clips);
   const router = useRouter();
+  // VW4: the clip whose edit window is open, under the tiles.
+  const [windowClipId, setWindowClipId] = useState<string | null>(null);
+  const [savingWindow, setSavingWindow] = useState(false);
+  const windowClip = windowClipId ? lab.clips.find((clip) => clip.id === windowClipId && clip.drops) ?? null : null;
+  const onWindow = (clipId: string) => setWindowClipId((open) => (open === clipId ? null : clipId));
   const [working, setWorking] = useState(false);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [folderChoice, setFolderChoice] = useState<FolderChoice | null>(null);
@@ -266,14 +273,35 @@ export function LabClips({
           onSave={onSave}
           onFind={() => void findPromoter()}
           onAddHandle={() => { if (lab.clientId) router.push(`/clients/${lab.clientId}/edit`); }}
+          onWindow={onWindow}
         />
       ) : showTiles ? <>
-      <ClipGroup title="Keeping" hint="ran · cost per result" clips={groups.keeping} all={lab.clips} busy={busy} onSave={onSave} wide selected={selected} audibleClipId={audibleClipId} onToggle={(clipId) => void applySelection(selectionAfterToggle(selection, usableIds, clipId))} onCrop={(clipId, focus) => void fetch(`/api/creative-lab/clips/${clipId}/crop`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ cropFocusX: focus }) }).then(() => router.refresh())} />
-      <ClipGroup title="New" hint="untested" clips={groups.fresh} all={lab.clips} busy={busy} onSave={onSave} selected={selected} audibleClipId={audibleClipId} onToggle={(clipId) => void applySelection(selectionAfterToggle(selection, usableIds, clipId))} onCrop={(clipId, focus) => void fetch(`/api/creative-lab/clips/${clipId}/crop`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ cropFocusX: focus }) }).then(() => router.refresh())} />
-      <ClipGroup title="Triple-fit only" clips={groups.triple} all={lab.clips} busy={busy} onSave={onSave} audibleClipId={audibleClipId} onCrop={() => undefined} />
-      <ClipGroup title="Triple-fit" clips={groups.made} all={lab.clips} busy={busy} onSave={onSave} audibleClipId={audibleClipId} onCrop={() => undefined} />
-      <ClipGroup title="Can't run" clips={groups.cant} all={lab.clips} busy={busy} onSave={onSave} audibleClipId={audibleClipId} onCrop={() => undefined} />
+      <ClipGroup title="Keeping" hint="ran · cost per result" clips={groups.keeping} all={lab.clips} busy={busy} onSave={onSave} wide selected={selected} audibleClipId={audibleClipId} onWindow={onWindow} onToggle={(clipId) => void applySelection(selectionAfterToggle(selection, usableIds, clipId))} onCrop={(clipId, focus) => void fetch(`/api/creative-lab/clips/${clipId}/crop`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ cropFocusX: focus }) }).then(() => router.refresh())} />
+      <ClipGroup title="New" hint="untested" clips={groups.fresh} all={lab.clips} busy={busy} onSave={onSave} selected={selected} audibleClipId={audibleClipId} onWindow={onWindow} onToggle={(clipId) => void applySelection(selectionAfterToggle(selection, usableIds, clipId))} onCrop={(clipId, focus) => void fetch(`/api/creative-lab/clips/${clipId}/crop`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ cropFocusX: focus }) }).then(() => router.refresh())} />
+      <ClipGroup title="Triple-fit only" clips={groups.triple} all={lab.clips} busy={busy} onSave={onSave} audibleClipId={audibleClipId} onWindow={onWindow} onCrop={() => undefined} />
+      <ClipGroup title="Triple-fit" clips={groups.made} all={lab.clips} busy={busy} onSave={onSave} audibleClipId={audibleClipId} onWindow={onWindow} onCrop={() => undefined} />
+      <ClipGroup title="Can't run" clips={groups.cant} all={lab.clips} busy={busy} onSave={onSave} audibleClipId={audibleClipId} onWindow={onWindow} onCrop={() => undefined} />
       </> : null}
+      {showTiles && windowClip?.drops ? (
+        <EditWindowPicker
+          key={windowClip.id}
+          clipName={clipTileName(windowClip)}
+          drops={windowClip.drops}
+          choice={windowClip.windowChoice ?? { dropS: null, byHand: false, inS: windowClip.inS, outS: windowClip.outS }}
+          busy={busy || savingWindow}
+          onSave={(request) => {
+            setSavingWindow(true);
+            void fetch(`/api/creative-lab/clips/${windowClip.id}/window`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(request) })
+              .then(async (res) => {
+                const json = (await res.json().catch(() => ({}))) as { error?: string };
+                if (!res.ok) onError(json.error || "");
+                else router.refresh();
+              })
+              .catch((err) => onError(err instanceof Error ? err.message : ""))
+              .finally(() => setSavingWindow(false));
+          }}
+        />
+      ) : null}
       {intake ? (
         <>
           <label
@@ -377,6 +405,7 @@ function OwnerGroups({
   onSave,
   onFind,
   onAddHandle,
+  onWindow,
 }: {
   lab: CreativeLabCardData;
   selected: ReadonlySet<string>;
@@ -387,6 +416,7 @@ function OwnerGroups({
   onSave: Save;
   onFind: () => void;
   onAddHandle: () => void;
+  onWindow?: (clipId: string) => void;
 }) {
   const client = lab.clientName || "Client";
   const handle = lab.clientHandle || lab.voice?.promoter.handle || null;
@@ -428,6 +458,7 @@ function OwnerGroups({
                       selected={selected.has(clip.id)}
                       onToggle={cantRunReason(clip) || madeTripleFitSentence(clip) ? undefined : () => onToggle(clip.id)}
                       menu={<ClipMenu clip={clip} lab={lab} client={client} features onSave={onSave} />}
+                      onWindow={onWindow ? () => onWindow(clip.id) : undefined}
                     />
                   );
                 }}
@@ -469,6 +500,7 @@ function OwnerGroups({
                   selected={selected.has(clip.id)}
                   onToggle={cantRunReason(clip) || madeTripleFitSentence(clip) ? undefined : () => onToggle(clip.id)}
                   menu={<ClipMenu clip={clip} lab={lab} client={client} features={false} onSave={onSave} />}
+                  onWindow={onWindow ? () => onWindow(clip.id) : undefined}
                 />
               )}
             />
@@ -536,6 +568,7 @@ function ClipGroup({
   audibleClipId,
   onToggle,
   onCrop,
+  onWindow,
 }: {
   title: string;
   hint?: string;
@@ -548,6 +581,7 @@ function ClipGroup({
   audibleClipId?: string | null;
   onToggle?: (clipId: string) => void;
   onCrop: (clipId: string, focus: number) => void;
+  onWindow?: (clipId: string) => void;
 }) {
   if (clips.length === 0) return null;
   return (
@@ -555,7 +589,7 @@ function ClipGroup({
       <p className="mb-2 text-muted-foreground">{title} · {clips.length}{hint ? ` · ${hint}` : ""}</p>
       <div className={wide ? "grid grid-cols-2 gap-2 sm:grid-cols-5" : "flex gap-2 overflow-x-auto sm:grid sm:grid-cols-5"}>
         {clips.map((clip) => (
-          <ClipTile key={clip.id} clip={clip} clips={all} busy={busy} onSave={onSave} selected={selected?.has(clip.id) === true} audible={clip.id === audibleClipId} onToggle={onToggle ? () => onToggle(clip.id) : undefined} />
+          <ClipTile key={clip.id} clip={clip} clips={all} busy={busy} onSave={onSave} selected={selected?.has(clip.id) === true} audible={clip.id === audibleClipId} onToggle={onToggle ? () => onToggle(clip.id) : undefined} onWindow={onWindow ? () => onWindow(clip.id) : undefined} />
         ))}
       </div>
       {clips.filter((clip) => clip.cropOpen && !clip.tripleFitSourceId && !tripleFitOnlySentence(clip) && !tooSmall916Sentence(clip) && clip.sourceWidth != null && clip.sourceHeight != null && !isNative9x16(clip.sourceWidth, clip.sourceHeight)).map((clip) => (
@@ -583,6 +617,7 @@ function ClipTile({
   audible = false,
   onToggle,
   menu,
+  onWindow,
 }: {
   clip: CreativeLabCardData["clips"][number];
   clips?: CreativeLabCardData["clips"];
@@ -593,6 +628,8 @@ function ClipTile({
   audible?: boolean;
   onToggle?: () => void;
   menu?: ReactNode;
+  /** VW4: opens the clip's edit window under the tiles. Only a clip whose sound was checked has one. */
+  onWindow?: () => void;
 }) {
   const landscape = tripleFitOnlySentence(clip);
   const blocked = cantRunReason(clip);
@@ -620,6 +657,9 @@ function ClipTile({
         <p className="text-xs">{name}</p>
       )}
       {clip.audioMatch ? <p className="text-xs">Music match — mute or replace before launch</p> : null}
+      {onWindow && clip.drops ? (
+        <button type="button" className="text-xs underline" onClick={onWindow}>{VW_LINES.heading}</button>
+      ) : null}
       {wideFrame && !clip.cropOpen && !waiting && !landscape && !blocked ? <p className="text-xs text-muted-foreground">Crop to 9:16</p> : null}
       {waiting || landscape || blocked ? (
         <div className="space-y-1 text-xs">
