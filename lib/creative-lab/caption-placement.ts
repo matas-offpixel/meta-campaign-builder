@@ -8,6 +8,7 @@ import { captionCharEm, CAPTION_BAND_BOX, VIDEO_BAND } from "./video-band.ts";
 import { profile } from "../../src/remotion/caption-style/profile.ts";
 import type { Rect } from "./artist-card.ts";
 import { T1V_FACE, judgeFaceOverTime, type FaceSample } from "./t1-face.ts";
+import type { SamplingScheme } from "./face-sampling.ts";
 
 export const PLACEMENT_HOME = profile.verticalCenterPctOfSourceHeight * 1920;
 export const PLACEMENT_STEP = 0.02 * 1920;
@@ -44,14 +45,18 @@ export type StoredFaceSamples = {
 
 export const FACE_DETECTOR = "ssd_mobilenet_v1";
 /**
- * Face samples a second for caption placement. 5 took ~150 frames per clip,
- * about 500 s on an M-series Mac and past Vercel's 800 s limit; face-api's
- * pure-JS CPU backend costs ~3.3 s a frame. Below 5 fps placement counts each
- * hit as its full interval each side (coverInterval, t1-face.ts): at 2 a lone
- * hit is 1.0 s and fails the 0.5 s run limit, so the sparser sample only ever
- * moves captions off faces on the run rule, never onto them.
+ * When the face check samples a clip (face-sampling.ts). Gaps drawn from
+ * 0.3–0.4 s, seeded per clip: about 2.86 a second. No gap is over 0.4 s, so
+ * any face 5 fps would fail on a run (3 samples in a row, a 0.4 s span) is
+ * seen, and the jitter breaks the lock a fixed grid has on anything that
+ * repeats (a 2 fps grid and a 120 BPM head-bob: #1311 review). On the
+ * review's tracks against 50 fps truth: 0 worse than 5 fps on either rule
+ * (face-sample-rate.test.ts). 5 fps took ~150 frames, past Vercel's 800 s.
  */
-export const FACE_SAMPLE_FPS = 2;
+export const FACE_SAMPLING: SamplingScheme = { kind: "jitter", minGap: 0.3, maxGap: 0.4 };
+/** The scheme's mean rate, stored as StoredFaceSamples.fps (below 5, so placement uses coverInterval). */
+export const FACE_SAMPLE_FPS = Math.round((2 / (0.3 + 0.4)) * 100) / 100;
+
 /** A check that runs past this stores FACE_CHECK_TIMED_OUT instead of being killed by the function limit. */
 export const FACE_CHECK_BUDGET_MS = 600_000;
 

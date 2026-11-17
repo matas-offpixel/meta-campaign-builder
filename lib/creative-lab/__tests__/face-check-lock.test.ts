@@ -69,9 +69,9 @@ describe("face samples at FACE_SAMPLE_FPS (speed fix)", () => {
   const face = { left: 340, top: 250, width: 400, height: 400 };
   const samples = (hits: boolean[], fps: number) => hits.map((hit, i) => ({ tS: i / fps, faces: hit ? [face] : [] }));
 
-  it("reads the old 5 fps rows and the new 2 fps rows, and refuses nonsense", () => {
+  it("reads the old 5 fps rows and the new rows (FACE_SAMPLE_FPS), and refuses nonsense", () => {
     assert.equal(readFaceSamples({ ...meta, fps: 5, samples: [] })?.fps, 5);
-    assert.equal(readFaceSamples({ ...meta, fps: FACE_SAMPLE_FPS, samples: [] })?.fps, 2);
+    assert.equal(readFaceSamples({ ...meta, fps: FACE_SAMPLE_FPS, samples: [] })?.fps, FACE_SAMPLE_FPS);
     assert.equal(readFaceSamples({ ...meta, fps: 0 }), null);
     assert.equal(readFaceSamples({ ...meta, fps: 7 }), null);
   });

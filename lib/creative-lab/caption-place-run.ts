@@ -32,7 +32,8 @@ const run = promisify(execFile);
 /** The face check's frames are scaled to this on their long side before detection. */
 export const FACE_FRAME_SIDE = 640;
 export { FACE_DETECTOR } from "./caption-placement.ts";
-import { FACE_CHECK_BUDGET_MS, FACE_CHECK_TIMED_OUT, FACE_DETECTOR, FACE_SAMPLE_FPS } from "./caption-placement.ts";
+import { FACE_CHECK_BUDGET_MS, FACE_CHECK_TIMED_OUT, FACE_DETECTOR, FACE_SAMPLE_FPS, FACE_SAMPLING } from "./caption-placement.ts";
+import { faceSampleSeed, sampleTimes, snapToFrames } from "./face-sampling.ts";
 
 async function ffmpegPath(): Promise<string> {
   const mod = (await import("ffmpeg-static")) as { default?: string | null } | string;
@@ -62,13 +63,18 @@ export async function detectClipFaces(args: {
   sourceWidth: number;
   sourceHeight: number;
   cropFocusX: number;
-  /** Samples a second (FACE_SAMPLE_FPS). */
-  fps?: number;
+  /** The source's frame rate: sample times are picked as source frames. */
+  sourceFps: number;
+  /** Seconds from inS to sample (face-sampling.ts). */
+  times: readonly number[];
   /** Past this (ms since epoch) the check stops and throws FACE_CHECK_TIMED_OUT, before the function limit. */
   deadline?: number;
-}): Promise<StoredFaceRect[][]> {
+}): Promise<{ t: number; faces: StoredFaceRect[] }[]> {
   const { detectFaces } = await import("./face-detect.ts");
-  const fps = args.fps ?? FACE_SAMPLE_FPS;
+  // The scheme's times as source frames counted from inS (ffmpeg's n after the seek). Each sample keeps its real time.
+  const picks = snapToFrames(args.times, args.sourceFps);
+  if (!picks.length) return [];
+  const select = picks.map((p) => `eq(n,${p.frame})`).join("+");
   const dir = await mkdtemp(join(tmpdir(), "caption-place-"));
   try {
     const ffmpeg = await ffmpegPath();
@@ -79,7 +85,8 @@ export async function detectClipFaces(args: {
       "-i", args.url,
       // Frames at most FACE_FRAME_SIDE on the long side: the detector resizes to that anyway, and full-size 4K
       // PNGs cost ~21 s a frame to write, decode and re-encode (review of #1311) against ~3.5 s at 1080.
-      "-vf", `fps=${fps},scale=${FACE_FRAME_SIDE}:${FACE_FRAME_SIDE}:force_original_aspect_ratio=decrease`,
+      "-vf", `select='${select}',scale=${FACE_FRAME_SIDE}:${FACE_FRAME_SIDE}:force_original_aspect_ratio=decrease`,
+      "-fps_mode", "passthrough",
       join(dir, "s%04d.png"),
     ], {
       maxBuffer: 4 * 1024 * 1024,
@@ -89,8 +96,9 @@ export async function detectClipFaces(args: {
     const frames = (await readdir(dir)).filter((name) => name.endsWith(".png")).sort();
     const crop = cropWindow(args.sourceWidth, args.sourceHeight, args.cropFocusX);
     const k = 1080 / crop.width;
-    const faces: StoredFaceRect[][] = [];
-    for (const name of frames) {
+    const faces: { t: number; faces: StoredFaceRect[] }[] = [];
+    if (frames.length !== picks.length) throw new Error(`face check: ffmpeg gave ${frames.length} of ${picks.length} frames`);
+    for (const [index, name] of frames.entries()) {
       if (args.deadline != null && Date.now() > args.deadline) {
         throw new Error(`${FACE_CHECK_TIMED_OUT} (${faces.length} of ${frames.length} frames in ${Math.round(FACE_CHECK_BUDGET_MS / 1000)} s)`);
       }
@@ -99,12 +107,15 @@ export async function detectClipFaces(args: {
       const frameWidth = (await sharp(bytes).metadata()).width ?? args.sourceWidth;
       const toSource = args.sourceWidth / frameWidth;
       const found = await detectFaces(bytes, { minConfidence: 0.3 });
-      faces.push(found.map((box) => ({
-        left: (box.x * toSource - crop.left) * k,
-        top: (box.y * toSource - crop.top) * k,
-        width: box.width * toSource * k,
-        height: box.height * toSource * k,
-      })));
+      faces.push({
+        t: picks[index]!.t,
+        faces: found.map((box) => ({
+          left: (box.x * toSource - crop.left) * k,
+          top: (box.y * toSource - crop.top) * k,
+          width: box.width * toSource * k,
+          height: box.height * toSource * k,
+        })),
+      });
     }
     return faces;
   } finally {
@@ -154,16 +165,15 @@ export async function ensureClipFaces(db: ServiceRoleDb, clipId: string): Promis
       sourceWidth: meta.width,
       sourceHeight: meta.height,
       cropFocusX,
-      fps: FACE_SAMPLE_FPS,
+      sourceFps: meta.fps,
+      // Seeded by clip, crop and window: a re-check picks the same frames, a crop change new ones.
+      times: sampleTimes(Math.max(0, end - window.inS), FACE_SAMPLING, faceSampleSeed({ id: clipId, cropFocusX, cropFocusY, inS, outS })),
       deadline: started + FACE_CHECK_BUDGET_MS,
     });
     if (!frames.length) throw new Error("no frames");
     // Time per clip, for the function limit (17 Nov 2026: 5 fps never finished in 800 s).
-    console.log(`[creative-lab-face-check] clip ${clipId}: ${frames.length} frames at ${FACE_SAMPLE_FPS} fps in ${Date.now() - started} ms`);
-    const body: StoredFaceSamples = {
-      ...base,
-      samples: frames.map((faces, i) => ({ t: i / FACE_SAMPLE_FPS, faces })),
-    };
+    console.log(`[creative-lab-face-check] clip ${clipId}: ${frames.length} frames (${FACE_SAMPLING.kind}) in ${Date.now() - started} ms`);
+    const body: StoredFaceSamples = { ...base, samples: frames };
     const update = await db.from("creative_lab_clips").update({ face_samples: body, face_samples_at: stamp }).eq("id", clipId);
     if (update.error) throw new Error(`creative_lab_clips: ${update.error.message}`);
     return "ready";
