@@ -8,7 +8,10 @@
  *
  *   node --env-file=.env.local --experimental-strip-types scripts/t1-video-drafts.mts \
  *     --event P26-BDAY --kit <the static PSD's kit folder> --out .scratch/drafts/t1-video-2026-11-10 \
- *     --clip '<clip id>' [--clip …] [--seconds 8] [--lambda] [--local-from 2160] [--version v2-roll-call] [--format 9:16]
+ *     --clip '<clip id>' [--clip …] [--seconds 8] [--window '<clip id>=<start s>:<length s>' …] [--lambda] [--local-from 2160] [--version v2-roll-call] [--format 9:16]
+ *
+ * --window (repeatable) cuts that clip from <start s> of the source file for <length s> instead of the first
+ * --seconds from in_s (r3, 17 Nov: the drop lands 3–5 s in).
  *
  * --lambda (issue 7, O52/O53): the face comes from the private kit-fonts
  * bucket through a one-hour signed URL and its name is checked
@@ -87,7 +90,7 @@ import {
 import { applyBacking, backingLayer, checkFeather, type FeatherCheck } from "../lib/creative-lab/red-backing.ts";
 import { renderSourceAsset } from "../lib/creative-lab/render-source.ts";
 import { emptyTriedHeadings, triedSection } from "../lib/creative-lab/draft-report.ts";
-import { draftSound, draftVersions, releaseFromRow, type DraftVersion } from "../lib/creative-lab/draft-versions.ts";
+import { draftSound, draftVersions, draftWindow, parseDraftWindows, releaseFromRow, type DraftVersion } from "../lib/creative-lab/draft-versions.ts";
 import { MAX_KNEE_STEP, MAX_ROW_STEP, renderVideoBands, rowMeanLuma } from "../lib/creative-lab/video-bands.ts";
 import type { T1OnClipProps } from "../src/remotion/compositions/T1OnClip.tsx";
 
@@ -111,6 +114,14 @@ const kitDir = flag("--kit") ?? "";
 const outDir = resolve(flag("--out") ?? "");
 const clipIds = many("--clip");
 const seconds = Number(flag("--seconds") ?? "8");
+let windows: ReturnType<typeof parseDraftWindows> = new Map();
+try {
+  windows = parseDraftWindows(many("--window"));
+} catch (e) {
+  fail((e as Error).message);
+}
+const unknownWindows = [...windows.keys()].filter((id) => !clipIds.includes(id));
+if (unknownWindows.length) fail(`--window for a clip not in --clip: ${unknownWindows.join(", ")}`);
 if (!code || !kitDir || !flag("--out") || !clipIds.length) fail("--event, --kit, --out and --clip are required");
 if (argv.some((a) => ["--apply", "--export", "--upload"].includes(a))) fail("this script renders drafts only: it never files, exports or uploads");
 const onLambda = argv.includes("--lambda");
@@ -319,9 +330,13 @@ for (const clipId of clipIds) {
   writeFileSync(join(work, clipFile), Buffer.from(await file.data!.arrayBuffer()));
   const probe = JSON.parse(ff("ffprobe", ["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height,r_frame_rate:format=duration", "-of", "json", join(work, clipFile)])) as { streams: { width: number; height: number; r_frame_rate: string }[]; format: { duration: string } };
   const src = { width: probe.streams[0]!.width, height: probe.streams[0]!.height };
-  const inS = Number(clip.in_s ?? 0);
-  const full = Number(clip.out_s ?? probe.format.duration) - inS;
-  const dur = Math.min(seconds, full);
+  let win: ReturnType<typeof draftWindow> = { inS: 0, full: 0, dur: 0 };
+  try {
+    win = draftWindow(clip, Number(probe.format.duration), seconds, windows.get(clipId));
+  } catch (e) {
+    fail(`${clipId}: ${(e as Error).message}`);
+  }
+  const { inS, full, dur } = win;
   const fps = 30;
 
   // 5-a-second samples of the source, once.
@@ -651,7 +666,7 @@ if (lambdaCosts.length) {
   const total = lambdaCosts.reduce((a, c) => a + (c.costUsd ?? 0), 0);
   L.push(`Lambda: ${lambdaCosts.length} renders, ${lambdaCosts[0]!.functions} functions each (one orchestrator plus the chunks), $${(total / lambdaCosts.length).toFixed(4)} a render on average, $${total.toFixed(4)} in all.`);
 }
-L.push(`Each clip: its first ${seconds} s from in_s, with the clip's own sound (silent only when its audio_status is muted), H.264 CRF 18, AAC. Samples at ${T1V_FACE.fps} a second.`, "");
+L.push(`Each clip: ${windows.size ? `its --window where given (${[...windows].map(([id, w]) => `${id.slice(0, 8)} ${w.startS}–${w.startS + w.lengthS} s`).join(", ")}), else ` : ""}its first ${seconds} s from in_s, with the clip's own sound (silent only when its audio_status is muted), H.264 CRF 18, AAC. Samples at ${T1V_FACE.fps} a second.`, "");
 L.push(`The roll-call, from Puzzle's tiers (${tiers.map((t) => `${t.name} ${t.state}`).join(" · ")}): "${rollCall.claim!.replace("\n", " / ")}".`, "");
 L.push("| Clip | Version | Format | Arrangement | Crop | Scale (O63, ≤ 1.6×) | Face (O64): top / claim share · run | Top block p95 (≤ 10 %) | Lockup p95 (≤ 15 %) | Bottom block p95 (≤ 15 %) | Band steps (O57) | Red line p95 → result (O58) | Claim | Safe area | Result | Rendered | File |");
 L.push("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|");

@@ -86,3 +86,38 @@ export function draftSound(clip: { audio_status?: unknown; audio_match?: unknown
     audioStatus: typeof clip.audio_status === "string" ? clip.audio_status : null,
   });
 }
+
+/**
+ * `--window '<clip id>=<start s>:<length s>'` on the T1 draft script (Matas, 17 Nov: the r2 edits were 8 s and
+ * cut off before the drop). The start is in the source file's own seconds, not from in_s. Throws on a bad value.
+ */
+export function parseDraftWindows(values: readonly string[]): Map<string, { startS: number; lengthS: number }> {
+  const out = new Map<string, { startS: number; lengthS: number }>();
+  for (const v of values) {
+    const m = /^([^=\s]+)=(\d+(?:\.\d+)?):(\d+(?:\.\d+)?)$/.exec(v);
+    if (!m) throw new Error(`--window ${v}: expected <clip id>=<start s>:<length s>`);
+    const lengthS = Number(m[3]);
+    if (!(lengthS > 0)) throw new Error(`--window ${v}: the length must be over 0 s`);
+    if (out.has(m[1]!)) throw new Error(`--window ${v}: ${m[1]} has two windows`);
+    out.set(m[1]!, { startS: Number(m[2]), lengthS });
+  }
+  return out;
+}
+
+/** The draft's window: the --window override when there is one (it must fit the source), else the first `seconds` from in_s. */
+export function draftWindow(
+  clip: { in_s?: unknown; out_s?: unknown },
+  sourceDurationS: number,
+  seconds: number,
+  override?: { startS: number; lengthS: number },
+): { inS: number; full: number; dur: number } {
+  if (override) {
+    if (override.startS + override.lengthS > sourceDurationS + 1e-6) {
+      throw new Error(`the window ${override.startS}–${override.startS + override.lengthS} s runs past the source's ${sourceDurationS.toFixed(2)} s`);
+    }
+    return { inS: override.startS, full: override.lengthS, dur: override.lengthS };
+  }
+  const inS = Number(clip.in_s ?? 0);
+  const full = Number(clip.out_s ?? sourceDurationS) - inS;
+  return { inS, full, dur: Math.min(seconds, full) };
+}

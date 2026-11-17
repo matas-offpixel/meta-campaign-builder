@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
 import { WATERMARK, fixtureRelease as r, type WarningRow } from "../claim-approval.ts";
-import { draftSound, draftVersions, releaseFromRow } from "../draft-versions.ts";
+import { draftSound, draftVersions, draftWindow, parseDraftWindows, releaseFromRow } from "../draft-versions.ts";
 
 /** Puzzle 4th Birthday's tiers on 10 Nov. */
 const puzzle = [r(1, "Early bird", "sold_out"), r(2, "1st release", "sold_out"), r(3, "2nd release", "sold_out"), r(4, "3rd release", "selling_fast")];
@@ -61,5 +61,24 @@ describe("T1 draft sound (17 Nov 2026: the P26-BDAY edits went to Drive silent)"
     const hardMuted = src.split("\n").filter((line) => /muted:\s*true/.test(line));
     assert.ok(hardMuted.every((line) => /grey/i.test(line)), hardMuted.join("\n"));
     assert.equal((src.match(/muted: sound\.muted/g) ?? []).length, 3);
+  });
+});
+
+describe("T1 draft windows (17 Nov 2026: r3 re-cuts land the drop 3–5 s in)", () => {
+  it("parses <clip id>=<start>:<length> and refuses bad or repeated values", () => {
+    const w = parseDraftWindows(["a1=11.1:18.5", "b2=7.5:20"]);
+    assert.deepEqual(w.get("a1"), { startS: 11.1, lengthS: 18.5 });
+    assert.deepEqual(w.get("b2"), { startS: 7.5, lengthS: 20 });
+    assert.throws(() => parseDraftWindows(["a1=11.1"]));
+    assert.throws(() => parseDraftWindows(["a1=-1:5"]));
+    assert.throws(() => parseDraftWindows(["a1=1:0"]));
+    assert.throws(() => parseDraftWindows(["a1=1:5", "a1=2:5"]));
+  });
+
+  it("an override replaces in_s and the length; it must fit the source; without one, the first `seconds` from in_s", () => {
+    assert.deepEqual(draftWindow({ in_s: 0, out_s: 30 }, 46.8, 8, { startS: 11.1, lengthS: 18.5 }), { inS: 11.1, full: 18.5, dur: 18.5 });
+    assert.throws(() => draftWindow({ in_s: null, out_s: null }, 27.58, 8, { startS: 8, lengthS: 20 }));
+    assert.deepEqual(draftWindow({ in_s: 2, out_s: 30 }, 46.8, 8), { inS: 2, full: 28, dur: 8 });
+    assert.deepEqual(draftWindow({ in_s: null, out_s: null }, 6, 8), { inS: 0, full: 6, dur: 6 });
   });
 });
