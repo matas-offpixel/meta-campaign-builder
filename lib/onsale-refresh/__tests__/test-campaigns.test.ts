@@ -8,7 +8,9 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { buildEventInputs, type Aux, type EventRow, type InsightRow, type RawInsights } from "../load.ts";
+import { buildEventInputs, type Aux, type EventRow, type RawInsights } from "../load.ts";
+
+type InsightRow = RawInsights["rows"][number];
 import { ONSALE_PHASE } from "../phase-config.ts";
 import { buildProposal } from "../rules.ts";
 
