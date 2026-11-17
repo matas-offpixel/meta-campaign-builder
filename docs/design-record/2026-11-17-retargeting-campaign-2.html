@@ -114,13 +114,14 @@ table.tier td:nth-last-child(-n+3){white-space:nowrap}
 <body>
 <div class="wrap">
 <p class="k">Off/Pixel · design record · retargeting · issue 2 · 17 November 2026</p>
-<h1>Retargeting: step heights, buyers from ticketing, the show's own links</h1>
+<h1>Retargeting: step heights, buyers from ticketing, the show's own links, and a test of two layouts</h1>
 <p class="lead">Matas's rulings of 17 Nov on the Retargeting record (<code>2026-11-17-retargeting-campaign.html</code>, merged in #1299), and the links read from CIRQLIN's partner read. It closes both open items there: step heights (RT6) and buyers from ticketing (RT2).</p>
 <ul class="notes">
 <li><b>Replaced:</b> RT4's 10 / 15 / 20 % choice and RT6's height slot (RT11). RT2's link sources and single windows (RT13, RT14). RT2's "Checkout starters are the pixel's Initiate Checkout", which now counts on the show's ticket links only (RT13).</li>
 <li><b>Amended:</b> RT8's signup and buyers lines (RT12, RT15), and its not-proposed sentences, which gain two (RT13).</li>
 <li><b>Stands:</b> everything else in RT1–RT10, and R1–R6, C2–C9, E1–E4 and T1–T6.</li>
-<li><b>Frames:</b> RA, RB and RC are redrawn under the same ids. RD-393 gains two sentences. RF is new.</li>
+<li><b>Added before merge:</b> RT17, Matas's test of both layouts, with frame RG.</li>
+<li><b>Frames:</b> RA, RB and RC are redrawn under the same ids. RD-393 gains two sentences. RF and RG are new.</li>
 </ul>
 <p class="lead">The example figures, the XMPL shows and their clients are <span class="inv">invented</span>.</p>
 
@@ -244,6 +245,7 @@ Bottom names its ticket links. Mid Bottom names its landing pages.</li>
 <li><b>Leave-outs</b> take every window of the hotter tiers (RT2 stands).</li>
 <li><b>Names in Ads Manager:</b> "{code} · {source} · {n} days", for example "XMPL-WHSE · Ticket-link visitors · 7 days". A per-page video set adds the page: "{code} · Video viewers 75 % · {page} · 90 days".</li>
 <li><b>In the tier row,</b> sources with the same windows share a line, and the windows read as words: "Ticket-link visitors · checkout starters · 7, 14 and 30 days". At 393 the same lines join with " · ".</li>
+<li><b>Under test:</b> this is layout A in RT17's test.</li>
 </ul></td></tr>
 
 <tr><td>RT15 · Registrations in Bottom</td><td>
@@ -260,6 +262,68 @@ Bottom names its ticket links. Mid Bottom names its landing pages.</li>
 <li><b>The first 08:00 read after the gates are on</b> proposes a Create line on every active show. The Retargeting panel is Live on every active show without arming each event. The rest of the refresh keeps R4's per-event arm.</li>
 <li><b>Nothing is built until Matas accepts and applies</b> each Create line.</li>
 <li><b>A show already in the run-in</b> starts at its stretch's share (RT11). RT9's line for legacy retargeting ad sets stands.</li>
+</ul></td></tr>
+
+<tr><td>RT17 · Test both layouts</td><td>
+<p><b>Matas, 17 Nov: test both layouts and keep whichever performs best.</b> Each show runs two arms in a Meta A/B test, and the call is made once, across every show in the test.</p>
+<table class="t" style="margin:6px 0 10px">
+<tr><th style="width:190px">Arm</th><th>Tiers</th></tr>
+<tr><td>A · tiers by action</td><td>RT14 as written. Bottom = ticket-link visitors, checkout starters, registrations and Signups lists. Mid Bottom = page visitors, checkout starters 60 days and Similar lists. Mid = video viewers and engagers. The windows are labels.</td></tr>
+<tr><td>B · by recency (J2's layout)</td><td>Every source in every tier: ticket-link visitors, page visitors, checkout starters, registrations, video viewers 75 %, and page and Instagram engagers.
+<ul>
+<li><b>Bottom:</b> every source at 30 days, plus A's high-intent actions at A's windows (registrations to 180 days) and the Signups lists.</li>
+<li><b>Mid Bottom:</b> every source at 60 days, plus the Similar lists.</li>
+<li><b>Mid:</b> every source at 180 days.</li>
+</ul></td></tr>
+</table>
+<ul>
+<li><b>Shared rules.</b> In both arms each tier leaves out the hotter tiers and buyers (RT2, RT12). RT13's links, RT1's settings and the reused ads are the same in both, so only the layout differs.</li>
+<li><b>Two campaigns per show:</b> <code>{code} · Retargeting · A/B · A</code> and <code>{code} · Retargeting · A/B · B</code>, with ad sets <code>{code} · Retargeting · A/B · {A | B} · {tier}</code>.
+<ul>
+<li>One Meta A/B test (an ad study) per show, on the show's ad account, holds the two campaigns as its two cells at 50 % each. Meta splits people at random, so nobody is in both arms.</li>
+<li>The test runs from Apply to 23:59 London on the show day, unless the call ends it first.</li>
+<li>RT9 counts these campaigns as the show's Retargeting campaign.</li>
+</ul></li>
+<li><b>Money.</b> Each arm gets half of the show's total (RT11), split 50 / 25 / 25 inside the arm, with RT4's £1.00 floor per tier.
+<ul>
+<li>A show whose total is under £6.00 a day can't fund both arms. It isn't entered: it runs one <code>{code} · Retargeting</code> campaign on layout A until the call, then on the winner.</li>
+<li>The hold against the plan is the show's total, as before.</li>
+</ul></li>
+<li><b>Inside each arm, separately</b> (Matas): RT11's steps, and RT5's moves, holds and cuts.
+<ul>
+<li>A step raises each arm by half the rise.</li>
+<li>A read offers at most one Move or Cut per arm.</li>
+<li>Money never moves between arms.</li>
+</ul></li>
+<li><b>Who's in the test:</b> every active show (RT16) whose Create line is applied from the first read after the gates are on, until the call.</li>
+<li><b>The call.</b> It's on cost per attributed purchase, pooled across every show in the test: each arm's spend ÷ its attributed purchases, summed across shows, never averaged show by show. It's called only when all of these hold:
+<ul>
+<li>14 days since the first show's test began;</li>
+<li>at least 30 attributed purchases in each arm;</li>
+<li>at least 3 shows in the test;</li>
+<li>the cheaper arm is at least 15 % cheaper (CT7's margin).</li>
+</ul></li>
+<li><b>The line.</b> The call is one line for Matas, on the Retargeting panel of every show in the test. Accepting it once applies to all:
+<ul>
+<li>the losing arm's campaigns pause on every show;</li>
+<li>each show's Meta A/B test ends;</li>
+<li>each winning arm takes its show's whole total, split by budget up to room as a step is (RT11), with what no tier can take going back to the plan;</li>
+<li>every new show starts on the winner as one <code>{code} · Retargeting</code> campaign.</li>
+</ul>
+Rejecting leaves both arms running, and the line comes back at the next read.</li>
+<li><b>Too close.</b> When the margin is under 15 %, there's no call. From 28 days, still under 15 %: "No clear winner after 28 days: A £{a}, B £{b} per attributed purchase." with Accept and Reject, where accepting keeps A, the simpler layout.</li>
+<li><b>Words.</b>
+<ul>
+<li>Panel header: "{code} · Retargeting · A/B test". Under it, RT11's total line, then "£{half} a day to each arm · Meta splits people at random, so nobody sees both".</li>
+<li>Arm headings: "A · tiers by action" and "B · by recency".</li>
+<li>Arm B's audiences: "Every source · {30 | 60 | 180} days", with Bottom's second line "Registrations · 180 days · signup list".</li>
+<li>Pooled block, headed "The test, every show": columns Arm, Shows, Days, Spend, Attributed purchases, Cost per attributed purchase.</li>
+<li>Before the minimum: "Not called yet: day {d} of at least 14 · A {pa} and B {pb} attributed purchases, at least 30 each · {n} shows, at least 3".</li>
+<li>Under the margin: "Too close to call: A £{a}, B £{b} per attributed purchase, {p} % apart (15 % needed)."</li>
+<li>The call: Call · "Layout {X} wins the retargeting test" · "£{x} per attributed purchase ({nx}) against {Y}'s £{y} ({ny}) · {p} % cheaper · {n} shows · {d} days, {Ddd d} – {Ddd d Mon}" · "On accept: {Y} pauses on {n} shows and each show's {X} takes its whole retargeting budget. New shows start on {X}." · "Ends the Meta A/B test on {n} shows · pauses {n} campaigns · ad-set budget writes".</li>
+<li>A show not entered: "Too small to test: £{total} a day is under £6.00, so it runs layout A only." on its Create line.</li>
+<li>Phone: each arm is one card, headed by the arm and its budget, then "£{c} per attributed purchase · {n}", then one line per tier: "{tier} · £{b} a day · £{c} · {n} purchases · frequency {f}". The call reads "Layout {X} wins · £{x} vs £{y} · {p} % cheaper", then "{n} shows · {d} days", then Accept and Reject.</li>
+</ul></li>
 </ul></td></tr>
 </table>
 
@@ -321,13 +385,14 @@ Bottom names its ticket links. Mid Bottom names its landing pages.</li>
 </div>
 
 <div class="frame">
-<figure><figcaption>RB · 1280 · a new show · the Create line with its steps, before Apply</figcaption>
+<figure><figcaption>RB · 1280 · a new show · the Create line with its steps, too small for the test, before Apply</figcaption>
 <div class="vp wide">
 <div class="h">XMPL-ROOF · Retargeting</div>
 <div class="line"><span class="acts">Accept · Reject</span><span class="kind">Create</span><span class="t">XMPL-ROOF · Retargeting</span>
 <div class="d">£5.80 a day · 10 % of current daily spend · Bottom £2.90 · Mid Bottom £1.45 · Mid £1.45</div>
 <div class="d">£185.60 to the show (32 days) · from plan headroom</div>
 <div class="d">Steps: 15 % from Wed 18 Nov · 20 % from Fri 4 Dec · 25 % from Fri 11 Dec · each held when it's accepted</div>
+<div class="d">Too small to test: £5.80 a day is under £6.00, so it runs layout A only.</div>
 <div class="d">1 retargeting ad set already runs in XMPL-ROOF · Tickets: pause it once this is live.</div>
 <div class="w">New campaign, audiences and ad sets through the Purchase create path · goes in live</div></div>
 <table class="tier">
@@ -349,6 +414,7 @@ Bottom names its ticket links. Mid Bottom names its landing pages.</li>
 <div class="d">Bottom £2.90 · Mid Bottom £1.45 · Mid £1.45</div>
 <div class="d">£185.60 to the show (32 days) · from plan headroom</div>
 <div class="d">Steps: 15 % from Wed 18 Nov · 20 % from Fri 4 Dec · 25 % from Fri 11 Dec · each held when it's accepted</div>
+<div class="d">Too small to test: £5.80 a day is under £6.00, so it runs layout A only.</div>
 <div class="d">1 retargeting ad set already runs in XMPL-ROOF · Tickets: pause it once this is live.</div>
 <div style="margin-top:6px"><span class="btn">Accept</span> <span class="btn ghost">Reject</span></div></div>
 <div class="card">
@@ -435,6 +501,62 @@ Bottom names its ticket links. Mid Bottom names its landing pages.</li>
 </div></figure>
 </div>
 
+<div class="frame">
+<figure><figcaption>RG · 1280 · RA's show in the A/B test, read Tue 1 Dec · both arms and the call</figcaption>
+<div class="vp wide">
+<div class="h">XMPL-WHSE · Retargeting · A/B test</div>
+<div class="fs">£36.00 a day · final month: 15 % of daily spend on Thu 19 Nov · ends Sat 19 Dec, 23:59</div>
+<div class="fs">£18.00 a day to each arm · Meta splits people at random, so nobody sees both</div>
+<h3>A · tiers by action</h3>
+<table class="tier">
+<tr><th style="width:84px">Tier</th><th>Audiences</th><th style="width:120px">Pool</th><th class="r" style="width:62px">Frequency</th><th class="r" style="width:96px">Budget</th><th class="r" style="width:84px">Cost per attributed purchase</th><th class="r" style="width:66px">Purchases</th></tr>
+<tr><td><b>Bottom</b></td><td class="src">Ticket-link visitors · checkout starters · 7, 14 and 30 days<br>Registrations · 30, 90 and 180 days · signup list</td><td>4,100–4,800</td><td class="r">3.1</td><td class="r">£9.00 a day</td><td class="r">£7.00</td><td class="r">9</td></tr>
+<tr><td><b>Mid Bottom</b></td><td class="src">Page visitors · 14, 30 and 60 days · checkout starters · 60 days · 2 similar lists</td><td>6,600–7,800</td><td class="r">2.0</td><td class="r">£4.50 a day</td><td class="r">£7.88</td><td class="r">4</td></tr>
+<tr><td><b>Mid</b></td><td class="src">Video viewers 75 % · 90, 180 and 365 days<br>Page and Instagram engagers · 30, 90 and 180 days · 4 pages</td><td>184,000–216,000</td><td class="r">1.4</td><td class="r">£4.50 a day</td><td class="r">£7.88</td><td class="r">4</td></tr>
+<tr class="tot"><td>Last 7 days</td><td class="src" style="font-weight:400">£126.00 spent</td><td></td><td></td><td class="r">£18.00 a day</td><td class="r">£7.41</td><td class="r">17</td></tr>
+</table>
+<h3>B · by recency</h3>
+<table class="tier">
+<tr><th style="width:84px">Tier</th><th>Audiences</th><th style="width:120px">Pool</th><th class="r" style="width:62px">Frequency</th><th class="r" style="width:96px">Budget</th><th class="r" style="width:84px">Cost per attributed purchase</th><th class="r" style="width:66px">Purchases</th></tr>
+<tr><td><b>Bottom</b></td><td class="src">Every source · 30 days<br>Registrations · 180 days · signup list</td><td>38,000–45,000</td><td class="r">2.2</td><td class="r">£9.00 a day</td><td class="r">£9.00</td><td class="r">7</td></tr>
+<tr><td><b>Mid Bottom</b></td><td class="src">Every source · 60 days · 2 similar lists</td><td>52,000–61,000</td><td class="r">1.8</td><td class="r">£4.50 a day</td><td class="r">£10.50</td><td class="r">3</td></tr>
+<tr><td><b>Mid</b></td><td class="src">Every source · 180 days</td><td>141,000–166,000</td><td class="r">1.3</td><td class="r">£4.50 a day</td><td class="r">£10.50</td><td class="r">3</td></tr>
+<tr class="tot"><td>Last 7 days</td><td class="src" style="font-weight:400">£126.00 spent</td><td></td><td></td><td class="r">£18.00 a day</td><td class="r">£9.69</td><td class="r">13</td></tr>
+</table>
+<h3>The test, every show</h3>
+<table class="tier">
+<tr><th style="width:84px">Arm</th><th class="r">Shows</th><th class="r">Days</th><th class="r">Spend</th><th class="r">Attributed purchases</th><th class="r">Cost per attributed purchase</th></tr>
+<tr><td><b>A</b></td><td class="r">6</td><td class="r">14</td><td class="r">£2,184.00</td><td class="r">168</td><td class="r">£13.00</td></tr>
+<tr><td><b>B</b></td><td class="r">6</td><td class="r">14</td><td class="r">£2,179.40</td><td class="r">130</td><td class="r">£16.76</td></tr>
+</table>
+<div class="line"><span class="acts">Accept · Reject</span><span class="kind">Call</span><span class="t">Layout A wins the retargeting test</span>
+<div class="d">£13.00 per attributed purchase (168) against B's £16.76 (130) · 22 % cheaper · 6 shows · 14 days, Tue 17 – Mon 30 Nov</div>
+<div class="d">On accept: B pauses on 6 shows and each show's A takes its whole retargeting budget. New shows start on A.</div>
+<div class="w">Ends the Meta A/B test on 6 shows · pauses 6 campaigns · ad-set budget writes</div></div>
+</div></figure>
+<figure><figcaption>RG · 393 · the same</figcaption>
+<div class="vp w393">
+<div class="h">XMPL-WHSE · Retargeting · A/B test</div>
+<div class="fs">£36.00 a day · £18.00 to each arm<br>Meta splits people at random, so nobody sees both</div>
+<div class="card">
+<div class="top"><span>A · tiers by action</span><span>£18.00 a day</span></div>
+<div class="fs">£7.41 per attributed purchase · 17</div>
+<div class="src">Bottom · £9.00 a day · £7.00 · 9 purchases · frequency 3.1<br>Mid Bottom · £4.50 a day · £7.88 · 4 purchases · frequency 2.0<br>Mid · £4.50 a day · £7.88 · 4 purchases · frequency 1.4</div></div>
+<div class="card">
+<div class="top"><span>B · by recency</span><span>£18.00 a day</span></div>
+<div class="fs">£9.69 per attributed purchase · 13</div>
+<div class="src">Bottom · £9.00 a day · £9.00 · 7 purchases · frequency 2.2<br>Mid Bottom · £4.50 a day · £10.50 · 3 purchases · frequency 1.8<br>Mid · £4.50 a day · £10.50 · 3 purchases · frequency 1.3</div></div>
+<div class="card">
+<div class="top"><span>The test, every show</span><span>14 days</span></div>
+<div class="fs">A · 6 shows · £13.00 per attributed purchase · 168</div>
+<div class="fs">B · 6 shows · £16.76 per attributed purchase · 130</div></div>
+<div class="line"><span class="kind">Call</span>
+<div class="t">Layout A wins · £13.00 vs £16.76 · 22 % cheaper</div>
+<div class="d">6 shows · 14 days</div>
+<div style="margin-top:6px"><span class="btn">Accept</span> <span class="btn ghost">Reject</span></div></div>
+</div></figure>
+</div>
+
 <h2>Expected figures</h2>
 <ul class="notes">
 <li><b>RA:</b> the figures of the first record stand. On Tue 17 Nov the show (Sat 19 Dec) is 32 days out, so the share is 10 %: £24.00 on £240.</li>
@@ -454,6 +576,21 @@ Bottom names its ticket links. Mid Bottom names its landing pages.</li>
 <li>New total: £13.50 + £22.50 + £16.00 = £52.00.</li>
 <li>Held: £16.00 × 7 days (Sat 5 – Fri 11 Dec) = £112.00.</li>
 </ul></li>
+<li><b>RB and the test:</b> £5.80 a day is under £6.00, so XMPL-ROOF isn't entered and runs layout A only.</li>
+<li><b>RG, the show (24–30 Nov):</b> £36.00 a day (RC's header), £18.00 to each arm, split £9.00 / £4.50 / £4.50.
+<ul>
+<li>A: Bottom £63.00 ÷ 9 = £7.00. Mid Bottom £31.50 ÷ 4 = £7.88. Mid £31.50 ÷ 4 = £7.88. Total £126.00 ÷ 17 = £7.41.</li>
+<li>B: Bottom £63.00 ÷ 7 = £9.00. Mid Bottom £31.50 ÷ 3 = £10.50. Mid £31.50 ÷ 3 = £10.50. Total £126.00 ÷ 13 = £9.69.</li>
+<li>No move in either arm. A: £7.00 is more than 0.75 × £7.88 = £5.91. B: £9.00 is more than 0.75 × £10.50 = £7.88. Every frequency is under 4, so nothing is held or cut.</li>
+</ul></li>
+<li><b>RG, the test (Tue 17 – Mon 30 Nov, 14 days, 6 shows):</b>
+<ul>
+<li>A £2,184.00 ÷ 168 = £13.00.</li>
+<li>B £2,179.40 ÷ 130 = £16.76.</li>
+<li>1 − £13.00 ÷ £16.76 = 22 % (22.4 %, shown rounded down), over 15 %.</li>
+<li>14 days, 168 and 130 purchases (30 or more each), 6 shows (3 or more): the call is made.</li>
+<li>Accepting pauses B's campaign on each of the 6 shows (6 campaigns) and ends 6 Meta A/B tests.</li>
+</ul></li>
 </ul>
 
 <h2>Acceptance</h2>
@@ -465,7 +602,8 @@ Bottom names its ticket links. Mid Bottom names its landing pages.</li>
 <li><b>Windows:</b> RT14's windows, each its own audience named as RT14 says. The longest windows equal RT2's, and leave-outs take every window.</li>
 <li><b>Registrations:</b> Bottom includes CompleteRegistration on the landing pages, and RT15's strings are exact.</li>
 <li><b>Rollout:</b> every active show gets its Create line at the first read after the gates are on, without per-event arming.</li>
-<li><b>Frames:</b> RA, RB and RC at 1280 and 393, RD-393 with ten sentences, and RF at both, from fixtures with these figures.</li>
+<li><b>The test:</b> two campaigns per entered show under one Meta A/B test at 50 / 50, half the total to each arm, and steps, moves, holds and cuts per arm. Shows under £6.00 a day aren't entered. The call is pooled spend ÷ pooled attributed purchases, made only at 14 days, 30 purchases per arm, 3 shows and 15 %. Accepting it pauses the losers, ends the tests and starts new shows on the winner. A test asserts RG's figures.</li>
+<li><b>Frames:</b> RA, RB, RC and RG at 1280 and 393, RD-393 with ten sentences, and RF at both, from fixtures with these figures.</li>
 </ul>
 
 <h2>Hand-back</h2>
@@ -477,7 +615,8 @@ Bottom names its ticket links. Mid Bottom names its landing pages.</li>
 <tr><td>HR11 · Windows</td><td>The audiences at RT14's windows, named "{code} · {source} · {n} days". Leave-outs over every window.</td></tr>
 <tr><td>HR12 · Registrations</td><td>CompleteRegistration on the landing pages at 30, 90 and 180 days in Bottom. The no-registrations line. RT8's signup line with its source list.</td></tr>
 <tr><td>HR13 · Rollout</td><td>The Retargeting panel Live on every active show, with no per-event arm.</td></tr>
-<tr><td>HR14 · Frames</td><td>RA, RB and RC redrawn, RD-393 at ten sentences, RF new. Fixture today = Tue 17 Nov 2026 (RC: Fri 4 Dec). Baselines after design-pass.</td></tr>
+<tr><td>HR14 · Frames</td><td>RA, RB, RC and RG redrawn or new, RD-393 at ten sentences, RF new. Fixture today = Tue 17 Nov 2026 (RC: Fri 4 Dec; RG: Tue 1 Dec). Baselines after design-pass.</td></tr>
+<tr><td>HR15 · The layout test</td><td>Arm B's audiences. Two campaigns per show through the Purchase create path. One Meta A/B test (ad study) per show with the two campaigns as 50 % cells: a read-only probe of the ad-study endpoint first, and if it can't be created through the API, report back rather than fall back to an unsplit pair. Half the total per arm, with RT5 and RT11 run per arm. The pooled read across shows, the call line, and accepting it (pause, end test, budget to the winner, new shows on the winner). Behind the Purchase create's gates.</td></tr>
 </table>
 
 <h2>Invented here</h2>
@@ -488,7 +627,8 @@ Bottom names its ticket links. Mid Bottom names its landing pages.</li>
 <li>The URL rule as host to end of path. Checkout starters scoped to ticket links. The 28-day visit check by URL. Telling same-platform links apart by <code>shop_name</code>, else <code>label</code>. Keeping the last rules when a read fails. RT2's links for shows with no tag.</li>
 <li>Every window in RT14 except the longest of each source. The Ads Manager names.</li>
 <li>Bottom's 50 % going 1 to 1 to Mid Bottom and Mid when Bottom can't be built. Registrations at 30, 90 and 180 days.</li>
-<li>Every string in RT11–RT16, Xmpl Rooftop, Robbie Doherty's links as Matas gave them, and RF's sample confirmation.</li>
+<li>RT17's campaign names with " · A" and " · B", video at 75 % in every B tier, the £6.00 entry floor, 3 shows and CT7's 15 % for the call, the 28-day "no clear winner" keeping A, and money never moving between arms. RG's six shows and their figures.</li>
+<li>Every string in RT11–RT17, Xmpl Rooftop, Robbie Doherty's links as Matas gave them, and RF's sample confirmation.</li>
 </ul>
 
 </div>
