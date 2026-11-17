@@ -114,7 +114,7 @@ function newValues(def: string): string[] {
 describe("migration 256 on prod's live constraints", () => {
   it("the first 256's DO block pattern misses prod's subtype check, so its add failed", () => {
     const def = LIVE.meta_custom_audiences!.meta_custom_audiences_audience_subtype_check!;
-    assert.equal(/audience_subtype.*in/is.test(def), false);
+    assert.equal(/audience_subtype[\s\S]*in/i.test(def), false);
   });
 
   it("replays with no error: every check it adds was dropped by name first", () => {
