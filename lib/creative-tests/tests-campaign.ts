@@ -97,14 +97,11 @@ export function findTestsCampaign(rows: readonly CampaignRow[], eventCode: strin
 }
 
 /**
- * A new Tests campaign: no campaign budget (ad-set budgets, no sharing) and the given
- * status. `objective` is the app's (default purchase → OUTCOME_SALES); `metaObjective`,
- * when given, is a Meta objective copied as it is (the creative tests copy the main
- * campaign's).
+ * A new Tests campaign: objective Sales (TT8; `purchase` → OUTCOME_SALES), no campaign
+ * budget (ad-set budgets, no sharing) and the given status.
  */
-export function testsCampaignPayload(eventCode: string, input: { objective?: CampaignObjective; metaObjective?: string | null; status: "ACTIVE" | "PAUSED" }): Record<string, unknown> {
+export function testsCampaignPayload(eventCode: string, input: { objective?: CampaignObjective; status: "ACTIVE" | "PAUSED" }): Record<string, unknown> {
   const payload = buildCampaignPayload({ name: testsCampaignName(eventCode), objective: input.objective ?? "purchase", status: input.status }) as unknown as Record<string, unknown>;
-  if (input.metaObjective) payload.objective = input.metaObjective;
   if ("daily_budget" in payload || "lifetime_budget" in payload || payload.is_adset_budget_sharing_enabled !== false) throw new Error("A Tests campaign never carries a campaign budget");
   return payload;
 }
@@ -117,16 +114,26 @@ export function londonDayLabel(at: Date | string): string {
   return `${Number(day.slice(8, 10))} ${MONTHS[Number(day.slice(5, 7)) - 1]}`;
 }
 
+/** TT10's {kind}: Video or Statics for a creative test (by its format), AB copy, Artist cards. */
+export const TEST_AD_SET_KINDS = ["Video", "Statics", "AB copy", "Artist cards"] as const;
+export type TestAdSetKind = (typeof TEST_AD_SET_KINDS)[number];
+
+/** A creative test's {kind}, by its format. */
+export function creativeTestKind(format: "video" | "statics"): TestAdSetKind {
+  return format === "video" ? "Video" : "Statics";
+}
+
 /**
- * A test ad set's name in the show's Tests campaign (design, 17 Nov, TT8):
- * "{code} · Tests · {label} · {d Mon}", e.g. "P26-BDAY · Tests · Statics · 24 Nov", the
- * date the London day the ad set is made. `taken` is the campaign's ad set names: a
- * second one with the same label on the same day gets " · 2", a third " · 3".
- * The creative tests' labels are "Video" and "Statics".
+ * A test ad set's name in the show's Tests campaign (TT10, 2026-11-17-creative-testing-5):
+ * "{code} · Tests · {kind} · {d Mon}", e.g. "P26-BDAY · Tests · Statics · 24 Nov", the date
+ * the London day the ad set is made. `existingNames` is the campaign's ad set names: a
+ * same-day repeat of the same kind adds " · 2", then " · 3"; the first has no number.
+ * Names are for people reading Ads Manager: the app follows its ad sets by stored id.
  */
-export function testsAdSetName(eventCode: string, label: string, createdAt: Date | string, taken: readonly string[] = []): string {
-  const base = `${testsCampaignName(eventCode.trim())} · ${label} · ${londonDayLabel(createdAt)}`;
-  const names = new Set(taken.map((name) => name.trim()));
+export function testsAdSetName(eventCode: string, kind: TestAdSetKind, createdAt: Date | string, existingNames: readonly string[] = []): string {
+  if (!TEST_AD_SET_KINDS.includes(kind)) throw new Error(`Not a test ad set kind: ${String(kind)}`);
+  const base = `${testsCampaignName(eventCode.trim())} · ${kind} · ${londonDayLabel(createdAt)}`;
+  const names = new Set(existingNames.map((name) => name.trim()));
   if (!names.has(base)) return base;
   for (let n = 2; ; n += 1) if (!names.has(`${base} · ${n}`)) return `${base} · ${n}`;
 }

@@ -12,6 +12,8 @@ import {
   isTestsCampaign,
   londonDayLabel,
   londonEndOfDay,
+  TEST_AD_SET_KINDS,
+  creativeTestKind,
   testAdSetEndTime,
   testsAdSetName,
   testsCampaignPayload,
@@ -75,15 +77,44 @@ describe("a new Tests campaign", () => {
     }
   });
 
-  it("copies a Meta objective as it is when given one", () => {
-    const p = testsCampaignPayload("NX26-LOCKLEAD", { metaObjective: "OUTCOME_LEADS", status: "ACTIVE" });
-    assert.equal(p.objective, "OUTCOME_LEADS");
-    assert.equal("daily_budget" in p, false);
-    assert.equal(p.is_adset_budget_sharing_enabled, false);
+  it("is objective Sales (TT8)", () => {
+    assert.equal(testsCampaignPayload("NX26-LOCKLEAD", { status: "ACTIVE" }).objective, "OUTCOME_SALES");
   });
 });
 
-describe("a test ad set's name", () => {
+describe("a test ad set's name (TT10)", () => {
+  it("is the record's five example names, from fixture days", () => {
+    const nov17 = "2026-11-17T09:00:00Z";
+    const nov24 = "2026-11-24T09:00:00Z";
+    assert.equal(testsAdSetName("P26-BDAY", "Video", nov17), "P26-BDAY · Tests · Video · 17 Nov");
+    assert.equal(testsAdSetName("P26-BDAY", "Statics", nov24), "P26-BDAY · Tests · Statics · 24 Nov");
+    assert.equal(testsAdSetName("P26-BDAY", "Statics", nov24, ["P26-BDAY · Tests · Statics · 24 Nov"]), "P26-BDAY · Tests · Statics · 24 Nov · 2");
+    assert.equal(testsAdSetName("P26-BDAY", "AB copy", nov17), "P26-BDAY · Tests · AB copy · 17 Nov");
+    assert.equal(testsAdSetName("P26-BDAY", "Artist cards", nov17), "P26-BDAY · Tests · Artist cards · 17 Nov");
+  });
+
+  it("takes all four kinds, a creative test's by its format, and nothing else", () => {
+    assert.deepEqual(TEST_AD_SET_KINDS, ["Video", "Statics", "AB copy", "Artist cards"]);
+    assert.equal(creativeTestKind("video"), "Video");
+    assert.equal(creativeTestKind("statics"), "Statics");
+    assert.throws(() => testsAdSetName("P26-BDAY", "Copy" as never, "2026-11-17T09:00:00Z"));
+  });
+
+  it("counts a repeat per kind: another kind the same day doesn't make it \" · 2\"", () => {
+    const existing = ["EBR26-KREAM · Tests · AB copy · 17 Nov", "EBR26-KREAM · Tests · Artist cards · 17 Nov"];
+    assert.equal(testsAdSetName("EBR26-KREAM", "Artist cards", "2026-11-17T18:00:00Z", existing), "EBR26-KREAM · Tests · Artist cards · 17 Nov · 2");
+    assert.equal(testsAdSetName("EBR26-KREAM", "Video", "2026-11-17T18:00:00Z", existing), "EBR26-KREAM · Tests · Video · 17 Nov");
+  });
+
+  it("turns over at London midnight, not UTC", () => {
+    // 4 Dec 23:59 London (GMT) is still 4 Dec; 00:00 is 5 Dec.
+    assert.equal(testsAdSetName("P26-BDAY", "Video", "2026-12-04T23:59:00Z"), "P26-BDAY · Tests · Video · 4 Dec");
+    assert.equal(testsAdSetName("P26-BDAY", "Video", "2026-12-05T00:00:00Z"), "P26-BDAY · Tests · Video · 5 Dec");
+    // In BST, 23:00 UTC on 30 Jun is already 1 Jul in London.
+    assert.equal(testsAdSetName("P26-BDAY", "AB copy", "2027-06-30T23:00:00Z"), "P26-BDAY · Tests · AB copy · 1 Jul");
+    assert.equal(testsAdSetName("P26-BDAY", "AB copy", "2027-06-30T22:59:00Z"), "P26-BDAY · Tests · AB copy · 30 Jun");
+  });
+
   it("is \"{code} · Tests · {Video | Statics} · {d Mon}\", the London day it's made", () => {
     assert.equal(testsAdSetName("P26-BDAY", "Statics", "2026-11-24T10:00:00Z"), "P26-BDAY · Tests · Statics · 24 Nov");
     assert.equal(testsAdSetName("P26-BDAY", "Video", new Date("2026-11-17T08:00:00Z")), "P26-BDAY · Tests · Video · 17 Nov");
