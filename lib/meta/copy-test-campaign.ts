@@ -115,12 +115,13 @@ function labelsByName(value: unknown): unknown {
  * the one body replaced. The source's url_tags stay. Enhancements are the app's strict set
  * (sanitizeCreativeForStrictMode): Meta refuses most of the read-back feature keys on a create.
  */
-export function copyTestCreativePayload(src: Json, args: { name: string; message: string }): Json {
+export function copyTestCreativePayload(src: Json, args: { name: string; message: string; postAs?: PromoterIdentity }): Json {
   const oss = (src.object_story_spec ?? {}) as Json;
-  const pageId = oss.page_id;
+  const pageId = args.postAs?.pageId ?? oss.page_id;
   if (!pageId) throw new Error("The source creative has no page");
   const identity: Json = { page_id: pageId };
-  if (oss.instagram_user_id) identity.instagram_user_id = oss.instagram_user_id;
+  const instagram = args.postAs ? args.postAs.instagramId : oss.instagram_user_id;
+  if (instagram) identity.instagram_user_id = instagram;
   let payload: Json;
   if (oss.video_data) {
     const vd = oss.video_data as Json;
@@ -132,13 +133,22 @@ export function copyTestCreativePayload(src: Json, args: { name: string; message
     if (vd.title) video.title = vd.title;
     if (vd.link_description) video.link_description = vd.link_description;
     payload = { name: args.name, object_story_spec: { ...identity, video_data: video } };
+  } else if (oss.link_data) {
+    // A single-image creative (lineup artwork, a card): same image, link and button.
+    const ld = oss.link_data as Json;
+    if (!ld.image_hash || !ld.link) throw new Error("The source creative's image has no hash or link");
+    const link: Json = { image_hash: ld.image_hash, link: ld.link, message: args.message };
+    if (ld.call_to_action) link.call_to_action = ld.call_to_action;
+    if (ld.name) link.name = ld.name;
+    if (ld.description) link.description = ld.description;
+    payload = { name: args.name, object_story_spec: { ...identity, link_data: link } };
   } else if (src.asset_feed_spec) {
     const afs = labelsByName(src.asset_feed_spec) as Json;
     const bodies = afs.bodies as unknown[] | undefined;
     if (!Array.isArray(bodies) || bodies.length !== 1) throw new Error("The source creative's asset feed must have exactly one body");
     payload = { name: args.name, object_story_spec: identity, asset_feed_spec: { ...afs, bodies: [{ ...(bodies[0] as Json), text: args.message }] } };
   } else {
-    throw new Error("The source creative is neither a video nor a placement creative");
+    throw new Error("The source creative is not a video, image or placement creative");
   }
   if (typeof src.url_tags === "string" && src.url_tags) payload.url_tags = src.url_tags;
   sanitizeCreativeForStrictMode(payload as unknown as MetaCreativePayload);
@@ -298,6 +308,18 @@ export function assertPromoterIdentity(eventCode: string, payload: Json, identit
   }
 }
 
+/**
+ * A page Matas ruled for a test (17 Nov), added to the data's list: still refused when
+ * Meta calls it an artist page, or when the Instagram isn't the one linked to it.
+ */
+export function withRuledIdentity(identities: readonly PromoterIdentity[], ruled: PromoterIdentity, page: PageFacts | null): PromoterIdentity[] {
+  if (!page || page.id !== ruled.pageId) throw new CopyTestStop(`The ruled page ${ruled.pageId} can't be read`);
+  if (ARTIST_PAGE_CATEGORIES.has((page.category ?? "").trim().toLowerCase())) throw new CopyTestStop(`The ruled page ${ruled.pageId} is an artist page (${page.category}), so nothing was made`);
+  if (!page.linkedInstagramId) throw new CopyTestStop(`The ruled page ${ruled.pageId} has no linked Instagram account, so nothing was made`);
+  if (page.linkedInstagramId !== ruled.instagramId) throw new CopyTestStop(`Instagram ${ruled.instagramId} isn't the account linked to page ${ruled.pageId} (${page.linkedInstagramId}), so nothing was made`);
+  return identities.some((id) => id.pageId === ruled.pageId && id.instagramId === ruled.instagramId) ? [...identities] : [...identities, ruled];
+}
+
 /** Meta writes for a test: campaign, ad set, and per ad a creative and an ad (plus an image upload per card). */
 export function copyTestWriteCount(spec: Pick<CopyTestSpec, "ads">): number {
   return 2 + spec.ads.reduce((sum, ad) => sum + (ad.kind === "card" ? 3 : 2), 0);
@@ -380,31 +402,69 @@ export type RepointResult = {
 };
 
 /**
- * Moves a test's existing paused ads onto a promoter/venue creative: per ad, a new
- * creative from `spec.sourceCreativeId` with the ad's approved line, then the ad's
- * creative and name swapped (POST /{ad}; no status). If Meta refuses the swap, the old
- * ad is archived (never deleted) and a new paused ad made in the same ad set. An ad
- * already on a promoter creative with its line is left alone. Every creative and new
- * ad goes through the ledger; the swap itself is an idempotent update under the lock.
+ * One existing paused ad to move. "source": a new creative from `spec.sourceCreativeId`
+ * with the ad's approved line and name. "identity": the ad's own creative (a card) kept
+ * as it is, with only the page and Instagram changed.
+ */
+export type RepointRow = { label: string; adId: string; mode: "source" | "identity" };
+
+function creativeMessage(creative: Json | null): string | undefined {
+  const oss = (creative?.object_story_spec ?? {}) as Json;
+  const fromStory = ((oss.video_data as Json | undefined)?.message ?? (oss.link_data as Json | undefined)?.message) as string | undefined;
+  return fromStory ?? (((creative?.asset_feed_spec as Json | undefined)?.bodies as Json[] | undefined)?.[0]?.text as string | undefined);
+}
+
+/**
+ * Moves a test's existing paused ads onto the promoter/venue identity `postAs`: per ad,
+ * a new creative (from the new source, or the ad's own creative with only the page
+ * changed), then the ad's creative and name swapped (POST /{ad}; never a status). If
+ * Meta refuses the swap, the old ad is archived (never deleted) and a new paused ad made
+ * in the same ad set. An ad already posting as `postAs` with its line is left alone.
+ * Every creative and new ad goes through the ledger; the swap is an idempotent update
+ * under the run lock.
  */
 export async function repointCopyTestAds(
   deps: { meta: CopyTestMeta; ledger: MetaWriteContext; record: CopyTestRecorders; lock: CopyTestLock },
   spec: CopyTestSpec,
-  existing: readonly { label: string; adId: string }[],
+  existing: readonly RepointRow[],
+  postAs: PromoterIdentity,
 ): Promise<RepointResult> {
   const { meta, ledger, record } = deps;
   if (!meta.readAd || !meta.updateAd || !meta.archiveAd) throw new Error("repointCopyTestAds needs readAd, updateAd and archiveAd");
+  if (!spec.identities.some((id) => id.pageId === postAs.pageId && id.instagramId === postAs.instagramId)) {
+    throw new CopyTestStop(`Page ${postAs.pageId} / Instagram ${postAs.instagramId} isn't ${spec.eventCode}'s promoter or venue page, so nothing was made`);
+  }
   if (!(await deps.lock.acquire())) throw new CopyTestStop(`Another run of ${spec.campaignName} is in progress, so this run made nothing`);
   try {
-    const source = await meta.readCreative(spec.sourceCreativeId);
-    if (!source) throw new CopyTestStop(`The source creative ${spec.sourceCreativeId} can't be read`);
-    const plans = existing.map((row) => {
-      const ad = spec.ads.find((a) => a.label === row.label);
-      if (!ad || ad.kind !== "copy") throw new CopyTestStop(`${spec.campaignName} has no copy line ${row.label}`);
-      const payload = copyTestCreativePayload(source, { name: ad.adName, message: ad.message });
+    const source = existing.some((row) => row.mode === "source") ? await meta.readCreative(spec.sourceCreativeId) : null;
+    if (existing.some((row) => row.mode === "source") && !source) throw new CopyTestStop(`The source creative ${spec.sourceCreativeId} can't be read`);
+    // Read and build everything before the first write, so a bad ad stops the run with nothing sent.
+    const plans = [];
+    for (const row of existing) {
+      const live = await meta.readAd!(row.adId);
+      if (!live?.creativeId) throw new CopyTestStop(`Ad ${row.adId} can't be read`);
+      const current = await meta.readCreative(live.creativeId);
+      if (!current) throw new CopyTestStop(`Ad ${row.adId}'s creative ${live.creativeId} can't be read`);
+      let name: string;
+      let message: string;
+      let payload: Json;
+      if (row.mode === "source") {
+        const ad = spec.ads.find((a) => a.label === row.label);
+        if (!ad || ad.kind !== "copy") throw new CopyTestStop(`${spec.campaignName} has no copy line ${row.label}`);
+        name = ad.adName;
+        message = ad.message;
+        payload = copyTestCreativePayload(source!, { name, message, postAs });
+      } else {
+        name = live.name;
+        message = creativeMessage(current) ?? "";
+        if (!message) throw new CopyTestStop(`Ad ${row.adId}'s creative has no text to keep`);
+        payload = copyTestCreativePayload(current, { name, message, postAs });
+      }
       assertPromoterIdentity(spec.eventCode, payload, spec.identities);
-      return { row, ad, payload };
-    });
+      const now = creativeIdentity(current);
+      const already = now.pageId === postAs.pageId && now.instagramId === postAs.instagramId && creativeMessage(current) === message && live.name === name;
+      plans.push({ row, live, current, name, payload, already });
+    }
     let writes = 0;
     const once = (opKind: Parameters<typeof withMetaWriteIdempotency>[1], key: unknown, run: () => Promise<string>) =>
       withMetaWriteIdempotency(ledger, opKind, key, async () => {
@@ -412,32 +472,28 @@ export async function repointCopyTestAds(
         return run();
       }, { required: true });
     const out: RepointResult["ads"] = [];
-    for (const { row, ad, payload } of plans) {
-      const live = await meta.readAd!(row.adId);
-      if (!live) throw new CopyTestStop(`Ad ${row.adId} can't be read`);
-      if (live.creativeId) {
-        const current = await meta.readCreative(live.creativeId);
-        const onPromoter = current ? spec.identities.some((id) => id.pageId === creativeIdentity(current).pageId && id.instagramId === creativeIdentity(current).instagramId) : false;
-        const message = (((current?.object_story_spec as Json | undefined)?.video_data as Json | undefined)?.message ?? ((current?.asset_feed_spec as Json | undefined)?.bodies as Json[] | undefined)?.[0]?.text) as string | undefined;
-        if (onPromoter && message === ad.message && live.name === ad.adName) {
-          out.push({ label: row.label, adId: row.adId, creativeId: live.creativeId, action: "already" });
-          continue;
-        }
+    for (const { row, live, name, payload, already } of plans) {
+      if (already) {
+        out.push({ label: row.label, adId: row.adId, creativeId: live.creativeId!, action: "already" });
+        continue;
       }
-      const creativeId = await once("creative_upload", { test: spec.campaignName, creative: row.label, source_creative_id: spec.sourceCreativeId }, () => meta.createCreative(spec.adAccountId, payload));
+      const key = row.mode === "source"
+        ? { test: spec.campaignName, creative: row.label, source_creative_id: spec.sourceCreativeId, page: postAs.pageId }
+        : { test: spec.campaignName, creative: row.label, identity_of: live.creativeId, page: postAs.pageId };
+      const creativeId = await once("creative_upload", key, () => meta.createCreative(spec.adAccountId, payload));
       try {
         writes += 1;
-        await meta.updateAd!(row.adId, { creative: { creative_id: creativeId }, name: ad.adName });
-        await record.ad({ metaAdId: row.adId, metaCreativeId: creativeId, metaAdsetId: live.adsetId, metaCampaignId: live.campaignId, adName: ad.adName, creative: payload });
+        await meta.updateAd!(row.adId, { creative: { creative_id: creativeId }, name });
+        await record.ad({ metaAdId: row.adId, metaCreativeId: creativeId, metaAdsetId: live.adsetId, metaCampaignId: live.campaignId, adName: name, creative: payload });
         out.push({ label: row.label, adId: row.adId, creativeId, action: "repointed" });
       } catch (refused) {
         await once("ad_status_update", { test: spec.campaignName, ad_id: row.adId, status: "ARCHIVED" }, async () => {
           await meta.archiveAd!(row.adId);
           return row.adId;
         });
-        const adPayload = { name: ad.adName, adset_id: live.adsetId, creative: { creative_id: creativeId }, status: "PAUSED" };
+        const adPayload = { name, adset_id: live.adsetId, creative: { creative_id: creativeId }, status: "PAUSED" };
         const newAdId = await once("ad_create", { test: spec.campaignName, ad: row.label, replaces: row.adId }, () => meta.createAd(spec.adAccountId, adPayload));
-        await record.ad({ metaAdId: newAdId, metaCreativeId: creativeId, metaAdsetId: live.adsetId, metaCampaignId: live.campaignId, adName: ad.adName, creative: payload });
+        await record.ad({ metaAdId: newAdId, metaCreativeId: creativeId, metaAdsetId: live.adsetId, metaCampaignId: live.campaignId, adName: name, creative: payload });
         await record.archivedAd?.({ metaAdId: row.adId, replacedBy: newAdId });
         out.push({ label: row.label, adId: newAdId, creativeId, action: "replaced", archivedAdId: row.adId });
         console.warn(`[copy-test] ${row.adId} couldn't take the new creative (${refused instanceof Error ? refused.message : String(refused)}); archived and replaced by ${newAdId}`);
@@ -448,4 +504,3 @@ export async function repointCopyTestAds(
     await deps.lock.release();
   }
 }
-

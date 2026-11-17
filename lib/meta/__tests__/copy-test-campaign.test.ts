@@ -17,6 +17,7 @@ import {
   CopyTestStop,
   promoterIdentities,
   repointCopyTestAds,
+  withRuledIdentity,
   type CopyTestMeta,
   type CopyTestSpec,
 } from "../copy-test-campaign.ts";
@@ -348,11 +349,11 @@ describe("repointCopyTestAds", () => {
     return { meta, calls: base.calls };
   }
   const REPOINT: CopyTestSpec = { ...SPEC, sourceCreativeId: "promo", ads: [{ kind: "copy", label: "A", adName: "[AB-A] Promo Vid", message: "A\nTickets on sale now." }, { kind: "copy", label: "B", adName: "[AB-B] Promo Vid", message: "B\nTickets on sale now." }] };
-  const EXISTING = [{ label: "A", adId: "adA" }, { label: "B", adId: "adB" }];
+  const EXISTING = [{ label: "A", adId: "adA", mode: "source" as const }, { label: "B", adId: "adB", mode: "source" as const }];
 
   it("per ad: a promoter creative, then the ad swapped onto it with its new name; no status write; 4 writes", async () => {
     const { meta, calls } = repointMeta();
-    const out = await repointCopyTestAds(setup().deps(meta), REPOINT, EXISTING);
+    const out = await repointCopyTestAds(setup().deps(meta), REPOINT, EXISTING, NX_LOVES);
     assert.deepEqual(calls, ["creative [AB-A] Promo Vid", "update adA [AB-A] Promo Vid", "creative [AB-B] Promo Vid", "update adB [AB-B] Promo Vid"]);
     assert.deepEqual(out.ads.map((a) => a.action), ["repointed", "repointed"]);
     assert.equal(out.writes, 4);
@@ -360,9 +361,9 @@ describe("repointCopyTestAds", () => {
   it("a rerun leaves the swapped ads alone and sends nothing", async () => {
     const { meta, calls } = repointMeta();
     const s = setup();
-    await repointCopyTestAds(s.deps(meta), REPOINT, EXISTING);
+    await repointCopyTestAds(s.deps(meta), REPOINT, EXISTING, NX_LOVES);
     calls.length = 0;
-    const again = await repointCopyTestAds(s.deps(meta), REPOINT, EXISTING);
+    const again = await repointCopyTestAds(s.deps(meta), REPOINT, EXISTING, NX_LOVES);
     assert.deepEqual(calls, []);
     assert.deepEqual(again.ads.map((a) => a.action), ["already", "already"]);
   });
@@ -370,15 +371,62 @@ describe("repointCopyTestAds", () => {
     const archived: string[] = [];
     const { meta, calls } = repointMeta({ updateAd: async () => { throw new Error("Can't change the page of an existing ad"); } });
     const s = setup();
-    const out = await repointCopyTestAds({ ...s.deps(meta), record: { adSet: async () => {}, ad: async () => {}, archivedAd: async (r) => void archived.push(`${r.metaAdId}->${r.replacedBy}`) } }, REPOINT, EXISTING);
+    const out = await repointCopyTestAds({ ...s.deps(meta), record: { adSet: async () => {}, ad: async () => {}, archivedAd: async (r) => void archived.push(`${r.metaAdId}->${r.replacedBy}`) } }, REPOINT, EXISTING, NX_LOVES);
     assert.deepEqual(calls.filter((c) => c.startsWith("archive") || c.startsWith("ad ")), ["archive adA", "ad PAUSED set1", "archive adB", "ad PAUSED set1"]);
     assert.deepEqual(out.ads.map((a) => [a.action, a.archivedAdId]), [["replaced", "adA"], ["replaced", "adB"]]);
     assert.equal(archived.length, 2);
   });
-  it("an artist source: nothing is sent", async () => {
-    const { meta, calls } = repointMeta({ readCreative: async () => ARTIST_CREATIVE });
-    await assert.rejects(repointCopyTestAds(setup().deps(meta), REPOINT, EXISTING), CopyTestStop);
+  it("an artist source posts as the ruled promoter page, not the artist's", async () => {
+    const { meta } = repointMeta({ readCreative: async (id) => (id === "promo" ? ARTIST_CREATIVE : ARTIST_CREATIVE) });
+    const made: Record<string, unknown>[] = [];
+    const s = setup();
+    await repointCopyTestAds({ ...s.deps({ ...meta, createCreative: async (_a, p) => (made.push(p), `cr${made.length}`) }) }, REPOINT, EXISTING, NX_LOVES);
+    assert.deepEqual(made.map((p) => p.object_story_spec && { page: (p.object_story_spec as Record<string, unknown>).page_id, ig: (p.object_story_spec as Record<string, unknown>).instagram_user_id }), [{ page: NX_LOVES.pageId, ig: NX_LOVES.instagramId }, { page: NX_LOVES.pageId, ig: NX_LOVES.instagramId }]);
+  });
+  it("postAs an artist page: nothing is sent", async () => {
+    const { meta, calls } = repointMeta();
+    await assert.rejects(repointCopyTestAds(setup().deps(meta), REPOINT, EXISTING, { pageId: LOCKLEAD_ARTIST.page_id, instagramId: LOCKLEAD_ARTIST.instagram_user_id }), CopyTestStop);
     assert.deepEqual(calls, []);
+  });
+  it("identity mode (a card): same image, link, button, text and name; only the page and Instagram change", async () => {
+    const CARD = { object_story_spec: { page_id: "454884974621000", instagram_user_id: "17841402061405557", link_data: { image_hash: "h1", link: "https://www.kream-bristol.com/", message: "Kream line", call_to_action: { type: "BOOK_TRAVEL", value: { link: "https://www.kream-bristol.com/" } } } } };
+    const BRISTOL = { pageId: "1593045637629255", instagramId: "17841401923285132" };
+    const made: Record<string, unknown>[] = [];
+    const updates: string[] = [];
+    const meta = {
+      ...fakeMeta().meta,
+      readCreative: async () => CARD,
+      readAd: async (id: string) => ({ id, name: "[CARD-HEADLINER]", adsetId: "set1", campaignId: "cmp1", status: "PAUSED", creativeId: "old" }),
+      createCreative: async (_a: string, p: Record<string, unknown>) => (made.push(p), "new1"),
+      updateAd: async (id: string, f: { name: string }) => void updates.push(`${id} ${f.name}`),
+      archiveAd: async () => {},
+    };
+    const spec = { ...REPOINT, identities: [BRISTOL] };
+    const out = await repointCopyTestAds(setup().deps(meta), spec, [{ label: "headliner", adId: "card1", mode: "identity" }], BRISTOL);
+    assert.deepEqual((made[0].object_story_spec as Record<string, unknown>), { page_id: BRISTOL.pageId, instagram_user_id: BRISTOL.instagramId, link_data: CARD.object_story_spec.link_data });
+    assert.equal(made[0].name, "[CARD-HEADLINER]");
+    assert.deepEqual(updates, ["card1 [CARD-HEADLINER]"]);
+    assert.equal(out.writes, 2);
+  });
+});
+
+describe("single-image sources and ruled pages", () => {
+  it("a link_data source (lineup artwork): same image, link and button, the approved line, posted as the given page", () => {
+    const LINEUP = { object_story_spec: { page_id: LOCKLEAD_ARTIST.page_id, instagram_user_id: LOCKLEAD_ARTIST.instagram_user_id, link_data: { image_hash: "9625aa8f", link: "https://www.locklead-newcastle.com/", message: "Newcastle! Excited to be back soon.", call_to_action: { type: "BOOK_NOW", value: { link: "https://www.locklead-newcastle.com/" } } } } };
+    const p = copyTestCreativePayload(LINEUP, { name: "[AB-A] Artist - Static Lineup", message: "A line", postAs: NX_LOVES });
+    assert.deepEqual(p.object_story_spec, { page_id: NX_LOVES.pageId, instagram_user_id: NX_LOVES.instagramId, link_data: { image_hash: "9625aa8f", link: "https://www.locklead-newcastle.com/", message: "A line", call_to_action: LINEUP.object_story_spec.link_data.call_to_action } });
+  });
+  it("a ruled page is added when it's a venue page with its own Instagram", () => {
+    const BRISTOL = { pageId: "1593045637629255", instagramId: "17841401923285132" };
+    assert.deepEqual(withRuledIdentity([], BRISTOL, { id: BRISTOL.pageId, category: "Live music venue", linkedInstagramId: BRISTOL.instagramId }), [BRISTOL]);
+    assert.deepEqual(withRuledIdentity([NX_LOVES], NX_LOVES, { id: NX_LOVES.pageId, category: "Live music venue", linkedInstagramId: NX_LOVES.instagramId }), [NX_LOVES]);
+  });
+  it("a ruled artist page is still refused", () => {
+    assert.throws(() => withRuledIdentity([], { pageId: "454884974621000", instagramId: "17841402061405557" }, { id: "454884974621000", category: "Artist", linkedInstagramId: "17841402061405557" }), /is an artist page/);
+  });
+  it("a ruled page with someone else's Instagram, or none linked, is refused", () => {
+    assert.throws(() => withRuledIdentity([], { pageId: NX_LOVES.pageId, instagramId: "17841400834660844" }, { id: NX_LOVES.pageId, category: "Live music venue", linkedInstagramId: NX_LOVES.instagramId }), /isn't the account linked/);
+    assert.throws(() => withRuledIdentity([], NX_LOVES, { id: NX_LOVES.pageId, category: "Live music venue", linkedInstagramId: null }), /no linked Instagram/);
   });
 });
 

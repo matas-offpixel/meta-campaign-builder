@@ -52,6 +52,8 @@ import {
   creativeIdentity,
   promoterIdentities,
   repointCopyTestAds,
+  withRuledIdentity,
+  type RepointRow,
   type CopyTestRecorders,
   type PageFacts,
   type PromoterIdentity,
@@ -104,8 +106,8 @@ const TESTS: Test[] = [
   test({
     eventCode: "NX26-LOCKLEAD", campaignName: "NX26-LOCKLEAD · AB copy test", draftId: "5f0d6b0e-7a11-4c3e-9b52-1c4f0a2b9d01",
     eventId: "602f9e86-ee03-4ece-81e0-6b7a3b224ae6", clientId: ELECTRIC_BRIXTON, adAccountId: NX, dailyMinor: 300,
-    sourceAdSetId: "120252504502750755", sourceCreativeId: "1097820786572638", sourceAdName: "NX - Marlie Artist Card",
-    ads: ab("NX - Marlie Artist Card", "Locklead, Marlie & Paramida at NX Newcastle, Friday 11 December.", "In-demand house star Locklead lands at NX Newcastle, 11 December, with Marlie & Paramida."),
+    sourceAdSetId: "120252504502750755", sourceCreativeId: "1491622176394503", sourceAdName: "Artist - Static Lineup",
+    ads: ab("Artist - Static Lineup", "Locklead, Marlie & Paramida at NX Newcastle, Friday 11 December.", "In-demand house star Locklead lands at NX Newcastle, 11 December, with Marlie & Paramida."),
   }),
   test({
     eventCode: "NX26-DOD", campaignName: "NX26-DOD · AB copy test", draftId: "5f0d6b0e-7a11-4c3e-9b52-1c4f0a2b9d02",
@@ -116,8 +118,8 @@ const TESTS: Test[] = [
   test({
     eventCode: "NX26-ROBBIEDOHERTY", campaignName: "NX26-ROBBIEDOHERTY · AB copy test", draftId: "5f0d6b0e-7a11-4c3e-9b52-1c4f0a2b9d03",
     eventId: "6e629f57-ac3f-4c9e-b1e4-9b717b65c004", clientId: ELECTRIC_BRIXTON, adAccountId: NX, dailyMinor: 300,
-    sourceAdSetId: "120252129292810755", sourceCreativeId: "1761714991720171", sourceAdName: "Teaser Video (No Text)",
-    ads: ab("Teaser Video (No Text)", "Robbie Doherty at NX Newcastle, Friday 27 November.", "Newcastle, get ready to dance: Robbie Doherty brings house music to NX Newcastle, 27 November."),
+    sourceAdSetId: "120252129292810755", sourceCreativeId: "1433206562128815", sourceAdName: "Artwork Static – Lineup",
+    ads: ab("Artwork Static – Lineup", "Robbie Doherty at NX Newcastle, Friday 27 November.", "Newcastle, get ready to dance: Robbie Doherty brings house music to NX Newcastle, 27 November."),
   }),
   test({
     eventCode: "NX27-JULIANFIJMA", campaignName: "NX27-JULIANFIJMA · AB copy test", draftId: "5f0d6b0e-7a11-4c3e-9b52-1c4f0a2b9d04",
@@ -128,8 +130,8 @@ const TESTS: Test[] = [
   test({
     eventCode: "EBR26-KREAM", campaignName: "EBR26-KREAM · AB copy test", draftId: "5f0d6b0e-7a11-4c3e-9b52-1c4f0a2b9d05",
     eventId: "cd1035d1-1d5a-47ce-a37c-0750f9012b85", clientId: ELECTRIC_BRIXTON, adAccountId: "2011069725849568", dailyMinor: 200,
-    sourceAdSetId: "120250163686370716", sourceCreativeId: "906635865776611", sourceAdName: "Motion - New – Copy",
-    ads: ab("Motion - New – Copy", KREAM_A, "Norwegian house duo Kream headline Electric Bristol, 4 December, with Estiva, Leena Punks & Parts."),
+    sourceAdSetId: "120250163686370716", sourceCreativeId: "2188548768753745", sourceAdName: "Static",
+    ads: ab("Static", KREAM_A, "Norwegian house duo Kream headline Electric Bristol, 4 December, with Estiva, Leena Punks & Parts."),
   }),
   test({
     eventCode: "EBR26-KREAM", campaignName: "EBR26-KREAM · Artist cards test", draftId: "5f0d6b0e-7a11-4c3e-9b52-1c4f0a2b9d06",
@@ -146,14 +148,31 @@ const TESTS: Test[] = [
 ];
 
 /**
- * 17 Nov: the paused ads made on an artist page or Instagram, moved onto the
- * promoter/venue creative above with --repoint (Matas: copy tests are promoter copy).
- * Robbie Doherty and both Kream tests are not here: neither show has a promoter
- * or venue page in the data, so the guard refuses them until one is ruled.
+ * 17 Nov (Matas): copy tests post as the promoter or venue page, never an artist.
+ * --repoint moves the paused ads made on an artist identity onto the ruled page and
+ * its linked Instagram account. "source": a new creative from the test's promoter
+ * lineup artwork with the approved line. "identity": the ad's own creative (Kream's
+ * cards, promoter artwork) with only the page changed. The ruled page is checked at
+ * run time (withRuledIdentity): never an artist page, and the Instagram must be the
+ * account linked to it on Meta.
  */
-const REPOINT: Record<string, { label: string; adId: string }[]> = {
-  "NX26-LOCKLEAD · AB copy test": [{ label: "A", adId: "120252640393760755" }, { label: "B", adId: "120252640395850755" }],
-  "NX26-DOD · AB copy test": [{ label: "A", adId: "120252640400630755" }, { label: "B", adId: "120252640402570755" }],
+const NX_LOVES: PromoterIdentity = { pageId: "259905047197071", instagramId: "17841460869627228" };
+const ELECTRIC_BRISTOL: PromoterIdentity = { pageId: "1593045637629255", instagramId: "17841401923285132" };
+const ab2 = (a: string, b: string): RepointRow[] => [{ label: "A", adId: a, mode: "source" }, { label: "B", adId: b, mode: "source" }];
+const REPOINT: Record<string, { postAs: PromoterIdentity; rows: RepointRow[] }> = {
+  "NX26-LOCKLEAD · AB copy test": { postAs: NX_LOVES, rows: ab2("120252640393760755", "120252640395850755") },
+  "NX26-DOD · AB copy test": { postAs: NX_LOVES, rows: ab2("120252640400630755", "120252640402570755") },
+  "NX26-ROBBIEDOHERTY · AB copy test": { postAs: NX_LOVES, rows: ab2("120252640406780755", "120252640408200755") },
+  "EBR26-KREAM · AB copy test": { postAs: ELECTRIC_BRISTOL, rows: ab2("120250552877890716", "120250552884850716") },
+  "EBR26-KREAM · Artist cards test": {
+    postAs: ELECTRIC_BRISTOL,
+    rows: [
+      { label: "headliner", adId: "120250553057260716", mode: "identity" },
+      { label: "Estiva", adId: "120250553067990716", mode: "identity" },
+      { label: "LeenaPunks", adId: "120250553073120716", mode: "identity" },
+      { label: "Parts", adId: "120250553078180716", mode: "identity" },
+    ],
+  },
 };
 
 const token = process.env.META_ACCESS_TOKEN;
@@ -352,22 +371,43 @@ for (const t of selected) {
   t.identities = who.identities;
   console.log(`  promoter/venue: ${who.identities.length ? who.identities.map((id) => `page ${id.pageId} + Instagram ${id.instagramId}`).join("; ") : "NONE on record"} (client pages ${who.clientPageIds.join(",") || "none"}; show ad pages ${who.showAdPageIds.join(",")}; ${who.facts.map((f) => `${f.id}=${f.category}`).join(", ")})`);
   if (repoint) {
-    const existing = REPOINT[t.campaignName];
-    if (!existing) {
+    const plan = REPOINT[t.campaignName];
+    if (!plan) {
       console.log("  not a repoint test; skipped");
       continue;
     }
-    const creative = await meta.readCreative(t.sourceCreativeId);
-    for (const row of existing) {
-      const ad = t.ads.find((a) => a.label === row.label)!;
-      const payload = copyTestCreativePayload(creative!, { name: ad.adName, message: ad.kind === "copy" ? ad.message : "" });
-      console.log(`  ${row.label} ${row.adId} → ${JSON.stringify(creativeIdentity(payload))}: ${JSON.stringify(payload).slice(0, 400)}`);
+    const ruledPage = await get(`/${plan.postAs.pageId}`, "name,category,instagram_business_account{id,username}");
+    const ruledIg = ruledPage.instagram_business_account as { id?: string; username?: string } | undefined;
+    try {
+      t.identities = withRuledIdentity(t.identities, plan.postAs, { id: String(ruledPage.id), category: (ruledPage.category as string | undefined) ?? null, linkedInstagramId: ruledIg?.id ?? null });
+    } catch (err) {
+      console.error(`  STOPPED: ${err instanceof Error ? err.message : String(err)}`);
+      failed = true;
+      break;
     }
-    console.log(`  Meta writes: 4 (2 creatives, 2 ad updates; 2 archives + 2 new ads more only if Meta refuses a swap)`);
+    console.log(`  posts as: ${String(ruledPage.name).trim()} ${plan.postAs.pageId} (${String(ruledPage.category)}) + Instagram ${ruledIg?.username} ${plan.postAs.instagramId} (the page's linked account)`);
+    const source = plan.rows.some((row) => row.mode === "source") ? await meta.readCreative(t.sourceCreativeId) : null;
+    for (const row of plan.rows) {
+      const live = await meta.readAd!(row.adId);
+      const current = live?.creativeId ? await meta.readCreative(live.creativeId) : null;
+      const now = current ? creativeIdentity(current) : null;
+      let payload: Record<string, unknown>;
+      if (row.mode === "source") {
+        const ad = t.ads.find((a) => a.label === row.label)!;
+        payload = copyTestCreativePayload(source!, { name: ad.adName, message: ad.kind === "copy" ? ad.message : "", postAs: plan.postAs });
+      } else {
+        const oss = (current?.object_story_spec ?? {}) as Record<string, Record<string, unknown>>;
+        payload = copyTestCreativePayload(current!, { name: live!.name, message: String(oss.link_data?.message ?? oss.video_data?.message ?? ""), postAs: plan.postAs });
+      }
+      const done = now?.pageId === plan.postAs.pageId && now?.instagramId === plan.postAs.instagramId;
+      console.log(`  ${row.label} ad ${row.adId} (${live?.status}; now page ${now?.pageId} / IG ${now?.instagramId}, creative ${live?.creativeId}) → ${row.mode === "source" ? `new creative from ${t.sourceCreativeId}` : "its own creative, page changed"}${done ? " [already on the ruled page]" : ""}: ${JSON.stringify(payload).slice(0, 360)}`);
+    }
+    const toDo = plan.rows.length;
+    console.log(`  Meta writes: ${toDo * 2} (${toDo} creatives + ${toDo} in-place swaps, no status change; if Meta refuses a swap, +2 for that ad: archive, never delete, and a new paused ad)`);
     if (!apply) continue;
     const launchRunId = randomUUID();
     try {
-      const out = await repointCopyTestAds({ meta, ledger: { supabase: db!, userId: OPERATOR_USER_ID, draftId: t.draftId, eventId: t.eventId }, lock: draftLock(t, launchRunId), record: recorders(t, launchRunId) }, t, existing);
+      const out = await repointCopyTestAds({ meta, ledger: { supabase: db!, userId: OPERATOR_USER_ID, draftId: t.draftId, eventId: t.eventId }, lock: draftLock(t, launchRunId), record: recorders(t, launchRunId) }, t, plan.rows, plan.postAs);
       console.log(`  repointed: ${out.ads.map((a) => `${a.label} ${a.action} ad ${a.adId} creative ${a.creativeId}${a.archivedAdId ? ` (archived ${a.archivedAdId})` : ""}`).join("; ")}; writes ${out.writes}`);
       results.push({ test: t.campaignName, repoint: out });
     } catch (err) {
