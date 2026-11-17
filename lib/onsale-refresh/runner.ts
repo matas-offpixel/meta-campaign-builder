@@ -406,6 +406,8 @@ export async function postPendingProposals(args: {
     .from("onsale_refresh_proposals")
     .select("id, event_id, campaign_key, run_kind, run_day, cycle_monday, cycle_kind, window_start, window_end, mode, objective, why, blockers, enough_data, not_enough_data, campaign_summary, watch, notes, inputs, events:events!inner(id, name, event_code, event_date)")
     .is("slack_posted_at", null)
+    // RT1: the daily Retargeting proposals are the panel's, never posted as a refresh.
+    .neq("run_kind", "retargeting")
     .gte("run_day", sinceDay)
     .order("created_at", { ascending: true })
     .limit(200);
