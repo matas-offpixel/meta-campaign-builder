@@ -52,8 +52,16 @@ export type FaceVerdict = { ok: boolean; topShare: number; claimShare: number; l
  * the date in B) from frame 0, `claim` after 1.5 s. Shares are over the
  * samples in which that type is on screen; a run counts consecutive samples
  * touching any on-screen type, each sample 1 / fps seconds.
+ *
+ * `coverInterval` (caption placement below 5 fps): a hit sample counts as
+ * the full interval on each side, because the face may have been there for
+ * up to that long unseen, so k consecutive hits are a run of (k + 1) / fps.
+ * At 2 fps a lone hit is 1.0 s and fails the 0.5 s run limit. Sampled from
+ * the same start, any face 5 fps would fail on a run (3 hits spanning a
+ * 0.4 s stretch on its 0.2 s grid) covers a 2 fps sample, so this never
+ * passes a run 5 fps fails.
  */
-export function judgeFaceOverTime(samples: readonly FaceSample[], boxes: { always: readonly Rect[]; claim: Rect | null }, opts: { fps?: number; frameWidth?: number } = {}): FaceVerdict {
+export function judgeFaceOverTime(samples: readonly FaceSample[], boxes: { always: readonly Rect[]; claim: Rect | null }, opts: { fps?: number; frameWidth?: number; coverInterval?: boolean } = {}): FaceVerdict {
   const fps = opts.fps ?? T1V_FACE.fps;
   const W = opts.frameWidth ?? 1080;
   const always = boxes.always.map((b) => pad(b, T1V_FACE.pad));
@@ -76,7 +84,7 @@ export function judgeFaceOverTime(samples: readonly FaceSample[], boxes: { alway
   }
   const topShare = samples.length ? topHits / samples.length : 0;
   const claimShare = claimSamples ? claimHits / claimSamples : 0;
-  const longestRunS = longest / fps;
+  const longestRunS = (opts.coverInterval && longest > 0 ? longest + 1 : longest) / fps;
   const ok = topShare <= T1V_FACE.maxShare + 1e-9 && claimShare <= T1V_FACE.maxShare + 1e-9 && longestRunS <= T1V_FACE.maxRunS + 1e-9;
   const pct = Math.round(Math.max(topShare, claimShare) * 100);
   // O65: refused on the run alone, the line gives the run; otherwise the share.

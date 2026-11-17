@@ -7,7 +7,7 @@
 import { captionCharEm, CAPTION_BAND_BOX, VIDEO_BAND } from "./video-band.ts";
 import { profile } from "../../src/remotion/caption-style/profile.ts";
 import type { Rect } from "./artist-card.ts";
-import { judgeFaceOverTime, type FaceSample } from "./t1-face.ts";
+import { T1V_FACE, judgeFaceOverTime, type FaceSample } from "./t1-face.ts";
 
 export const PLACEMENT_HOME = profile.verticalCenterPctOfSourceHeight * 1920;
 export const PLACEMENT_STEP = 0.02 * 1920;
@@ -46,8 +46,10 @@ export const FACE_DETECTOR = "ssd_mobilenet_v1";
 /**
  * Face samples a second for caption placement. 5 took ~150 frames per clip,
  * about 500 s on an M-series Mac and past Vercel's 800 s limit; face-api's
- * pure-JS CPU backend costs ~3.3 s a frame whatever the frame size. At 2 a
- * lone hit is 0.5 s, inside T1V_FACE.maxRunS, as at 5.
+ * pure-JS CPU backend costs ~3.3 s a frame. Below 5 fps placement counts each
+ * hit as its full interval each side (coverInterval, t1-face.ts): at 2 a lone
+ * hit is 1.0 s and fails the 0.5 s run limit, so the sparser sample only ever
+ * moves captions off faces on the run rule, never onto them.
  */
 export const FACE_SAMPLE_FPS = 2;
 /** A check that runs past this stores FACE_CHECK_TIMED_OUT instead of being killed by the function limit. */
@@ -132,7 +134,9 @@ export function placeFromStoredSamples(args: {
       const slice = faces
         .filter((sample) => sample.tS >= origin - 1e-6)
         .map((sample) => ({ tS: sample.tS - origin, faces: sample.faces }));
-      const verdict = judgeFaceOverTime(slice, { always: boxes, claim: null }, { frameWidth: 1080, fps: args.fps });
+      // Below 5 fps each hit counts its full interval each side (t1-face.ts), so a sparser sample never passes a run 5 fps fails.
+      const fps = args.fps ?? T1V_FACE.fps;
+      const verdict = judgeFaceOverTime(slice, { always: boxes, claim: null }, { frameWidth: 1080, fps, coverInterval: fps < T1V_FACE.fps });
       return { ok: verdict.ok, topShare: verdict.topShare, longestRunS: verdict.longestRunS };
     },
   });

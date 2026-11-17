@@ -89,6 +89,8 @@ describe("face samples at FACE_SAMPLE_FPS (speed fix)", () => {
     const stored = readFaceSamples({ ...meta, fps: FACE_SAMPLE_FPS, error: `${FACE_CHECK_TIMED_OUT} (31 of 60 frames in 600 s)` });
     assert.equal(faceSampleState(stored, window), "failed");
     assert.ok(FACE_CHECK_BUDGET_MS < 800_000 && FACE_CHECK_LOCK_MS > 800_000);
+  });
+});
 
 /** Holds one clip's claim write (the marker update) until `release()`: a tick that is slow between its pre-check and its claim. */
 function gated(fake: ReturnType<typeof fakeDb>, holdId: string) {
@@ -224,5 +226,28 @@ describe("face check lock under concurrent ticks (review of #1309)", () => {
     finish();
     await Promise.all([first, second]);
     assert.equal(calls, 1);
+  });
+});
+
+describe("a tick that ran a face check starts no renders (review of #1311)", () => {
+  it("leaves the queue for the next tick", async () => {
+    const { runRenderTick } = await import("../render-queue.ts");
+    const fake = fakeDb({
+      creative_lab_clips: [clip("c1"), clip("c2", { face_samples: { detector: "ssd_mobilenet_v1", fps: 5, cropFocusX: 0.5, cropFocusY: 0.5, inS: 0, outS: 30, samples: [{ t: 0, faces: [] }] }, face_samples_at: "2026-11-17T10:00:00.000Z" })],
+      creative_lab_renders: [
+        { id: "r1", status: "queued", created_at: "2026-11-17T01", caption_id: "cap", clip_id: "c1", user_id: "op" },
+        { id: "r2", status: "queued", created_at: "2026-11-17T02", caption_id: "cap", clip_id: "c2", user_id: "op" },
+      ],
+      creative_lab_captions: [{ id: "cap", event_id: "evt" }],
+      creative_lab_round_ads: [],
+      creative_lab_rounds: [],
+    });
+    const rendered: string[] = [];
+    const result = await runRenderTick(fake as unknown as ServiceRoleDb, { now: NOW, archivedEventIds: new Set(), render: async (id: string) => void rendered.push(id), detect: async () => "ready" as const });
+    assert.equal(result.claimed, 0);
+    assert.equal(rendered.length, 0);
+    // The next tick, with no check to run, renders.
+    const next = await runRenderTick(fake as unknown as ServiceRoleDb, { now: at(60_000), archivedEventIds: new Set(), render: async (id: string) => void rendered.push(id), detect: async () => "ready" as const });
+    assert.ok(next.claimed >= 1);
   });
 });

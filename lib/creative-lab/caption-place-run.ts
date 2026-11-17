@@ -29,6 +29,8 @@ import { T1V_FACE } from "./t1-face.ts";
 import { nearestRank } from "./t1-video.ts";
 
 const run = promisify(execFile);
+/** The face check's frames are scaled to this on their long side before detection. */
+export const FACE_FRAME_SIDE = 640;
 export { FACE_DETECTOR } from "./caption-placement.ts";
 import { FACE_CHECK_BUDGET_MS, FACE_CHECK_TIMED_OUT, FACE_DETECTOR, FACE_SAMPLE_FPS } from "./caption-placement.ts";
 
@@ -75,9 +77,15 @@ export async function detectClipFaces(args: {
       "-ss", String(args.inS),
       "-t", String(Math.max(0, args.outS - args.inS)),
       "-i", args.url,
-      "-r", String(fps),
+      // Frames at most FACE_FRAME_SIDE on the long side: the detector resizes to that anyway, and full-size 4K
+      // PNGs cost ~21 s a frame to write, decode and re-encode (review of #1311) against ~3.5 s at 1080.
+      "-vf", `fps=${fps},scale=${FACE_FRAME_SIDE}:${FACE_FRAME_SIDE}:force_original_aspect_ratio=decrease`,
       join(dir, "s%04d.png"),
-    ], { maxBuffer: 4 * 1024 * 1024 });
+    ], {
+      maxBuffer: 4 * 1024 * 1024,
+      // A stalled extract over the signed URL stops inside the budget, not at the function's kill.
+      timeout: Math.max(1_000, (args.deadline ?? Date.now() + FACE_CHECK_BUDGET_MS) - Date.now()),
+    });
     const frames = (await readdir(dir)).filter((name) => name.endsWith(".png")).sort();
     const crop = cropWindow(args.sourceWidth, args.sourceHeight, args.cropFocusX);
     const k = 1080 / crop.width;
@@ -86,12 +94,16 @@ export async function detectClipFaces(args: {
       if (args.deadline != null && Date.now() > args.deadline) {
         throw new Error(`${FACE_CHECK_TIMED_OUT} (${faces.length} of ${frames.length} frames in ${Math.round(FACE_CHECK_BUDGET_MS / 1000)} s)`);
       }
-      const found = await detectFaces(await readFile(join(dir, name)), { minConfidence: 0.3 });
+      const bytes = await readFile(join(dir, name));
+      // Boxes come back in the scaled frame's pixels: back to the source's before the crop transform.
+      const frameWidth = (await sharp(bytes).metadata()).width ?? args.sourceWidth;
+      const toSource = args.sourceWidth / frameWidth;
+      const found = await detectFaces(bytes, { minConfidence: 0.3 });
       faces.push(found.map((box) => ({
-        left: (box.x - crop.left) * k,
-        top: (box.y - crop.top) * k,
-        width: box.width * k,
-        height: box.height * k,
+        left: (box.x * toSource - crop.left) * k,
+        top: (box.y * toSource - crop.top) * k,
+        width: box.width * toSource * k,
+        height: box.height * toSource * k,
       })));
     }
     return faces;
