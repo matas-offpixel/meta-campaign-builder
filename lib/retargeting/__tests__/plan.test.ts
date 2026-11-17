@@ -11,7 +11,7 @@ import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { rbView, rdStates } from "../../../scripts/plan-frames/retargeting-fixtures.ts";
-import { midBuildable, RT14, tierSpecs, tiersMatching, type SourceSet, type TierSpec } from "../audiences.ts";
+import { linkKey, midBuildable, RT14, tierSpecs, tiersMatching, type SourceSet, type TierSpec } from "../audiences.ts";
 import { urlRule } from "../links.ts";
 import { currentDailyMinor, daysToShow, fundHold, startingBudget } from "../budget.ts";
 import { pickedShare, planRetargeting, retargetingOnSaleDay, retargetingState, signalPath, tierRows } from "../plan.ts";
@@ -128,10 +128,14 @@ describe("RT2 / RT13 / RT14: the tiers and their audiences", () => {
     const bottom = specs.find((spec) => spec.tier === "bottom")!;
     const midBottom = specs.find((spec) => spec.tier === "mid_bottom")!;
     const mid = specs.find((spec) => spec.tier === "mid")!;
-    assert.deepEqual(bottom.includes.map((aud) => aud.key), [...keysOf(RT14.ticketVisitors, "bottom:ticket"), ...keysOf(RT14.checkout, "bottom:checkout"), ...keysOf(RT14.registrations, "bottom:registrations"), "list:sig"]);
+    // RT13 (revised): at the longest window each link is its own audience.
+    const skiddle = linkKey("www.skiddle.com/e/1");
+    const page = linkKey("show.example/page");
+    assert.deepEqual(bottom.includes.map((aud) => aud.key), ["bottom:ticket:7", "bottom:ticket:14", `bottom:ticket:30:${skiddle}`, ...keysOf(RT14.checkout, "bottom:checkout"), ...keysOf(RT14.registrations, "bottom:registrations"), "list:sig"]);
     assert.deepEqual(bottom.excludes.map((aud) => aud.key), ["list:buy"]);
     // Similar lists sit in Mid Bottom (Matas, 17 Nov); Mid leaves them out with the rest of Mid Bottom.
-    assert.deepEqual(midBottom.includes.map((aud) => aud.key), [...keysOf(RT14.pageVisitors, "mid_bottom:page"), "mid_bottom:checkout:60", "list:sim"]);
+    assert.deepEqual(midBottom.includes.map((aud) => aud.key), ["mid_bottom:page:14", "mid_bottom:page:30", `mid_bottom:page:60:${page}`, "mid_bottom:checkout:60", "list:sim"]);
+    assert.deepEqual(bottom.includes.find((aud) => aud.key === `bottom:ticket:30:${skiddle}`), { key: `bottom:ticket:30:${skiddle}`, kind: "pixel_url", label: "Ticket-link visitors · Skiddle", pixelId: "px", urlContains: ["www.skiddle.com/e/1"], retentionDays: 30, link: "Skiddle" });
     assert.deepEqual(midBottom.excludes.map((aud) => aud.key), [...bottom.includes.map((aud) => aud.key), "list:buy"]);
     assert.deepEqual(mid.includes.map((aud) => aud.key), [...keysOf(RT14.video, "mid:video:page1:1"), ...keysOf(RT14.engagement, "mid:fb:1"), ...keysOf(RT14.engagement, "mid:ig:1")]);
     assert.deepEqual(mid.excludes.map((aud) => aud.key), [...midBottom.includes.map((aud) => aud.key), ...bottom.includes.map((aud) => aud.key), "list:buy"]);
@@ -210,10 +214,12 @@ describe("RT1 / RT8: the states and the Create line", () => {
     // -2.html: RT14's windows, RT15's registrations and signup line, and the links (ops' ruling of 17 Nov on the words).
     assert.deepEqual(bottom!.audiences, ["Ticket-link visitors · checkout starters · 7, 14 and 30 days", "Registrations · 30, 90 and 180 days"]);
     assert.equal(bottom!.audiencesNarrow, "Ticket-link visitors · checkout starters · 7, 14 and 30 days · registrations · 30, 90 and 180 days");
-    assert.deepEqual(bottom!.links.wide, ["Links: Skiddle, Fatsoma and DICE · known after create", "Pixel on Skiddle: yes · Fatsoma: no · DICE: no", "A ticket site sends visits only when your pixel is on it there."]);
+    // RT13 (revised 17 Nov): the sizes before Apply, the pixel per platform, and the ticket-site line; at 393 the same lines.
+    assert.deepEqual(bottom!.links.wide, ["By link: known after create", "Pixel on Skiddle: yes · Fatsoma and DICE: no", "A ticket site counts visitors only when your pixel is on it there."]);
+    assert.deepEqual(bottom!.links.narrow, bottom!.links.wide);
     assert.deepEqual(bottom!.missing.map((line) => [line.text, line.actions.map((a) => [a.label, a.role])]), [["No signup list yet, so Bottom runs on ticket-link visitors, checkout starters and registrations only.", [["Upload the signup list", "signups"]]]]);
     assert.deepEqual(midBottom!.audiences, ["Page visitors · 14, 30 and 60 days", "Checkout starters · 60 days"]);
-    assert.deepEqual(midBottom!.links.wide, ["Links: xmpl-roof.com · known after create"]);
+    assert.deepEqual(midBottom!.links.wide, ["By link: known after create", "Pixel on xmpl-roof.com: yes"]);
     assert.deepEqual([bottom!.leavesOut, midBottom!.leavesOut, mid!.leavesOut], ["", "Bottom", "Mid Bottom · Bottom"]);
     assert.deepEqual(mid!.audiences, ["Video viewers 75 % · 90, 180 and 365 days", "Page and Instagram engagers · 30, 90 and 180 days · 3 of 4 pages"]);
     assert.deepEqual(mid!.missing.map((line) => [line.text, line.narrow]), [["Mira Vale isn't in Mid: your Facebook user has no role on the page. Granting ADVERTISE on it adds it at the next read.", "Mira Vale: no page role, not in Mid."]]);

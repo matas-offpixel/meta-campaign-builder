@@ -25,22 +25,24 @@
 
 import type { PurchaseRead } from "../onsale-refresh/purchases.ts";
 import { campaignFloor, shortCampaign } from "../onsale-refresh/purchase-campaign.ts";
-import { midBuildable, pagesWithoutRole, tierSpecs, usablePages, type SourceSet } from "./audiences.ts";
-import { firedOn, isSharedHost, landingLinks, pixelOnPlatforms, ticketLinks, type PixelHosts } from "./links.ts";
+import { midBuildable, pagesWithoutRole, perLinkAudiences, tierSpecs, usablePages, type SourceSet } from "./audiences.ts";
+import { firedOn, landingLinks, landingShared, pixelOnOwnDomains, pixelOnPlatforms, ticketLinks, type PixelHosts } from "./links.ts";
 import { shareOn, STRETCH_LABEL } from "./shares.ts";
 import { currentDailyMinor, daysToShow, fundHold, isShare, RT4, startingBudget, type Funding, type Share, type Starting } from "./budget.ts";
 import {
   audiencesNarrow,
   audiencesShort,
   BOTTOM_NOT_BUILT,
-  linksLine,
+  BY_LINK_BEFORE_CREATE,
+  sizeBand,
+  sizesLine,
+  pixelLine,
+  TICKET_SITE_COUNTS,
   LINKS_NO_PAGE,
   LINKS_NOT_READ,
   noRegistrations,
   noSignupList,
-  pixelOnLine,
   retargetingOff,
-  TICKET_SITE_PIXEL,
   buyersListAge,
   CREATE_WRITE,
   createLine,
@@ -168,6 +170,10 @@ export type RetargetingInput = {
   linksRead?: "ok" | "no_tag" | "no_page" | "failed";
   /** The pixel's hosts in 28 days, per event (aggregation=host); null when not read. */
   pixelHosts?: PixelHosts;
+  /** RT13 (revised): landing hosts other shows' pages use (no pixel line for them). */
+  otherLandingHosts?: string[];
+  /** RT13 (revised): a running campaign's per-link audience sizes by key (Meta's approximate count); null = not read. */
+  linkSizes?: Record<string, { lower: number; upper: number } | null>;
   /** Delivering ad sets with "retarget" in their name, per campaign of the show (not this one). */
   legacy: { campaign: string; adSets: number }[];
   budgetGbp: number | null;
@@ -253,21 +259,22 @@ function daysBetween(from: string, to: string): number {
  * known from the pixel's hosts (28 days); a shared landing host (crqln.com)
  * can't say whose registrations they are, so it counts as "might".
  */
-export function bottomSignals(sources: SourceSet, hosts: PixelHosts | undefined): { visits: boolean | null; checkouts: boolean | null; registrations: boolean | null; signups: boolean; empty: boolean } {
+export function bottomSignals(sources: SourceSet, hosts: PixelHosts | undefined, others: ReadonlySet<string> = new Set()): { visits: boolean | null; checkouts: boolean | null; registrations: boolean | null; signups: boolean; empty: boolean } {
   const tickets = ticketLinks(sources.links);
   const landing = landingLinks(sources.links);
   const signups = sources.lists.some((list) => list.role === "signups");
   if (!hosts) return { visits: null, checkouts: null, registrations: null, signups, empty: false };
   const visits = tickets.some((link) => firedOn(hosts.pageView, link.host));
   const checkouts = tickets.some((link) => firedOn(hosts.checkout, link.host));
-  const registrations = landing.some((link) => isSharedHost(link.host) || firedOn(hosts.registration, link.host));
+  const registrations = landing.some((link) => landingShared(link.host, others) || firedOn(hosts.registration, link.host));
   return { visits, checkouts, registrations, signups, empty: !visits && !checkouts && !registrations && !signups };
 }
 
 /** RT2 / RT8 / RT13–RT15: the tier rows for these budgets, with their links and missing lines. */
-export function tierRows(input: Pick<RetargetingInput, "sources" | "pixelHosts"> & { today?: string }, budgets: Record<Tier, number>): { rows: TierRow[]; notes: MissingLine[] } {
+export function tierRows(input: Pick<RetargetingInput, "sources" | "pixelHosts" | "otherLandingHosts" | "linkSizes"> & { today?: string; created?: boolean }, budgets: Record<Tier, number>): { rows: TierRow[]; notes: MissingLine[] } {
   const sources = input.sources;
-  const signals = bottomSignals(sources, input.pixelHosts);
+  const others = new Set(input.otherLandingHosts ?? []);
+  const signals = bottomSignals(sources, input.pixelHosts, others);
   const specs = tierSpecs(sources, { bottom: !signals.empty });
   const buyers = sources.lists.some((list) => list.role === "buyers");
   const signupLists = sources.lists.filter((list) => list.role === "signups").length;
@@ -281,6 +288,16 @@ export function tierRows(input: Pick<RetargetingInput, "sources" | "pixelHosts">
   const hasTickets = Boolean(sources.pixelId) && tickets.length > 0;
   const hasLanding = Boolean(sources.pixelId) && landing.length > 0;
   const platforms = pixelOnPlatforms(sources.links, input.pixelHosts ?? null);
+  const ownDomains = pixelOnOwnDomains(sources.links, input.pixelHosts ?? null, others);
+  // RT13 (revised): each link's audience size once created, else "By link: known after create".
+  const sizes = (tier: Tier) => {
+    if (!input.created) return BY_LINK_BEFORE_CREATE;
+    const perLink = perLinkAudiences(specs.find((row) => row.tier === tier));
+    return sizesLine(perLink.map((row) => {
+      const size = input.linkSizes?.[row.key];
+      return { name: row.name, band: size ? sizeBand(size.lower, size.upper) : null };
+    }));
+  };
   const rows: TierRow[] = [];
   for (const tier of TIERS) {
     const spec = specs.find((row) => row.tier === tier);
@@ -290,11 +307,10 @@ export function tierRows(input: Pick<RetargetingInput, "sources" | "pixelHosts">
       if (signals.empty) missing.push({ text: BOTTOM_NOT_BUILT, narrow: BOTTOM_NOT_BUILT, actions: [{ label: UPLOAD_SIGNUP_LIST, role: "signups" }] });
       else {
         if (hasTickets) {
-          links.wide.push(linksLine(tickets.map((link) => link.name)));
+          links.wide.push(sizes("bottom"));
           if (platforms?.length) {
-            links.wide.push(pixelOnLine(platforms));
-            if (platforms.some((row) => !row.on)) links.wide.push(TICKET_SITE_PIXEL);
-            links.narrow.push(pixelOnLine(platforms));
+            links.wide.push(pixelLine(platforms));
+            if (platforms.some((row) => !row.on)) links.wide.push(TICKET_SITE_COUNTS);
           }
         }
         // RT15: registrations reach the pixel from no landing page in 28 days (own hosts only; a shared host can't say).
@@ -309,7 +325,13 @@ export function tierRows(input: Pick<RetargetingInput, "sources" | "pixelHosts">
         }
       }
     }
-    if (tier === "mid_bottom" && hasLanding) links.wide.push(linksLine(landing.map((link) => link.name)));
+    if (tier === "mid_bottom" && hasLanding) {
+      links.wide.push(sizes("mid_bottom"));
+      // A pixel line only for a show's own domain, never a shared host.
+      if (ownDomains?.length) links.wide.push(pixelLine(ownDomains));
+    }
+    // RT13 (revised): on a phone, the same lines.
+    links.narrow = [...links.wide];
     if (tier === "mid" && noRole.length) {
       const names = noRole.map((page) => page.name);
       missing.push({ text: pagesNoRole(names), narrow: pagesNoRoleNarrow(names), actions: [] });
@@ -381,7 +403,7 @@ export function planRetargeting(input: RetargetingInput): RetargetingPlan {
   // The show already has the campaign: it runs (PR B reads its tiers).
   if (input.existing) {
     const tiers = { bottom: input.existing.tiers?.bottom ?? 0, mid_bottom: input.existing.tiers?.mid_bottom ?? 0, mid: input.existing.tiers?.mid ?? 0 };
-    const { rows, notes } = tierRows({ sources: input.sources, pixelHosts: input.pixelHosts, today: input.today ?? input.runDay }, tiers);
+    const { rows, notes } = tierRows({ sources: input.sources, pixelHosts: input.pixelHosts, otherLandingHosts: input.otherLandingHosts, linkSizes: input.linkSizes, created: true, today: input.today ?? input.runDay }, tiers);
     const read = input.read;
     const path = read ? signalPath(read) : null;
     const signal = read && (path === "own_domain" || path === "platform") ? { wide: signalLine(path, { pixelName: read.pixelName, domain: read.domain }), narrow: signalNarrow(path, { pixelName: read.pixelName, domain: read.domain }) } : null;
@@ -424,7 +446,7 @@ export function planRetargeting(input: RetargetingInput): RetargetingPlan {
   // RT11: Create starts at today's share; the 10 / 15 / 20 % choice is withdrawn.
   const today = shareOn(input.runDay, input.eventDate);
   const stretch = today.stretch ? STRETCH_LABEL[today.stretch] : null;
-  const bottomBuildable = !bottomSignals(input.sources, input.pixelHosts).empty;
+  const bottomBuildable = !bottomSignals(input.sources, input.pixelHosts, new Set(input.otherLandingHosts ?? [])).empty;
   const options: ShareOption[] = [];
   for (const share of [today.share as Share]) {
     const start = startingBudget({ currentDailyMinor: daily, share, minDailyMinor: input.minDailyMinor, midBuildable: buildable, bottomBuildable }) as Starting;
@@ -448,7 +470,7 @@ export function planRetargeting(input: RetargetingInput): RetargetingPlan {
   }
   const defaultShare: Share = today.share as Share;
   const chosen = options.find((option) => option.share === defaultShare)!;
-  const { rows, notes } = tierRows({ sources: input.sources, pixelHosts: input.pixelHosts, today: input.today ?? input.runDay }, chosen.tiers);
+  const { rows, notes } = tierRows({ sources: input.sources, pixelHosts: input.pixelHosts, otherLandingHosts: input.otherLandingHosts, today: input.today ?? input.runDay }, chosen.tiers);
   const legacy = input.legacy.filter((row) => row.adSets > 0).map((row) => legacyAdSets(row.adSets, shortCampaign(row.campaign)));
   const create: CreateCard = { title, defaultShare, options, legacy, writeText: CREATE_WRITE, days };
   const signal = { wide: signalLine(path, { pixelName: read.pixelName, domain: read.domain }), narrow: signalNarrow(path, { pixelName: read.pixelName, domain: read.domain }) };

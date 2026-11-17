@@ -28,7 +28,7 @@ import { committedGbpOf, type PcBudgets } from "../onsale-refresh/purchase-campa
 import { RETARGETING } from "../onsale-refresh/rules.ts";
 import { addDaysIso, planRun, todayLondon } from "../onsale-refresh/schedule.ts";
 import { pixelRules, ruleChanges, tierSpecs, type SourceList, type SourcePage, type SourceSet } from "./audiences.ts";
-import { linksFallback, linksFromPages, type PixelHosts, type ShowLink } from "./links.ts";
+import { linksFallback, linksFromPages, otherLandingHosts, type PixelHosts, type ShowLink } from "./links.ts";
 import { planRetargeting, retargetingOnSaleDay, type RetargetingInput, type RetargetingPlan } from "./plan.ts";
 import { isRetargetingCampaignName, isTestsCampaignName, retargetingCampaignName, TIERS, type Tier } from "./words.ts";
 
@@ -162,6 +162,8 @@ export function retargetingInput(args: {
   pixelHosts?: PixelHosts;
   /** RT9: the campaign's effective_status, when read. */
   campaignStatus?: string | null;
+  otherLandingHosts?: string[];
+  linkSizes?: RetargetingInput["linkSizes"];
 }): RetargetingInput {
   const { event, day } = args;
   const code = event.event_code ?? event.id;
@@ -224,6 +226,8 @@ export function retargetingInput(args: {
     today: day,
     linksRead: args.linksRead ?? "no_tag",
     pixelHosts: args.pixelHosts ?? null,
+    otherLandingHosts: args.otherLandingHosts ?? [],
+    linkSizes: args.linkSizes,
   };
 }
 
@@ -232,6 +236,8 @@ export async function showLinks(event: EventRow & { mailchimp_tag?: string | nul
   const tag = event.mailchimp_tag?.trim();
   if (!tag) return { links: linksFallback(event), linksRead: "no_tag", reason: null };
   const result = await read(tag);
+  // The response's shape only: never the bearer, never the body.
+  console.log(`[retargeting-read] page-links ${event.event_code ?? event.id} ${result.ok ? `ok pages=${result.pages.length} ticket_links=${result.pages.reduce((sum, page) => sum + page.ticket_links.length, 0)}` : `failed reason=${result.reason}${"status" in result && result.status ? ` status=${result.status}` : ""}`}`);
   if (result.ok) return { links: linksFromPages(result.pages), linksRead: "ok", reason: null };
   if (result.reason === "no_page") return { links: [], linksRead: "no_page", reason: "no_page" };
   return { links: [], linksRead: "failed", reason: result.reason };
@@ -239,11 +245,30 @@ export async function showLinks(event: EventRow & { mailchimp_tag?: string | nul
 
 /** RT13 / RT15: the pixel's hosts in 28 days for visits, checkouts and registrations; null when any read failed. */
 export async function pixelHostsOf(graph: RefreshGraph, pixelId: string, now: Date): Promise<{ hosts: PixelHosts; calls: number }> {
-  const [pageView, checkout, registration] = await Promise.all(["PageView", "InitiateCheckout", "CompleteRegistration"].map((event) => fetchEventHosts(graph.graphGet, pixelId, now, 28, event)));
-  const calls = pageView!.calls + checkout!.calls + registration!.calls;
-  if (pageView!.error || checkout!.error || registration!.error) return { hosts: null, calls };
+  // GET /{pixel}/stats?aggregation=host over 28 days: every event (RT13's pixel line), then PageView, InitiateCheckout, CompleteRegistration.
+  const [any, pageView, checkout, registration] = await Promise.all([null, "PageView", "InitiateCheckout", "CompleteRegistration"].map((event) => fetchEventHosts(graph.graphGet, pixelId, now, 28, event)));
+  const calls = any!.calls + pageView!.calls + checkout!.calls + registration!.calls;
+  if (any!.error || pageView!.error || checkout!.error || registration!.error) return { hosts: null, calls };
   const hostsOf = (rows: { host: string }[]) => [...new Set(rows.map((row) => row.host))];
-  return { hosts: { pageView: hostsOf(pageView!.rows), checkout: hostsOf(checkout!.rows), registration: hostsOf(registration!.rows) }, calls };
+  return { hosts: { any: hostsOf(any!.rows), pageView: hostsOf(pageView!.rows), checkout: hostsOf(checkout!.rows), registration: hostsOf(registration!.rows) }, calls };
+}
+
+/** RT13 (revised): a running campaign's per-link audiences' size bands, one GET each (approximate_count). */
+export async function linkSizesOf(graph: RefreshGraph, audiences: Record<string, string>): Promise<{ sizes: Record<string, { lower: number; upper: number } | null>; calls: number }> {
+  const perLink = Object.entries(audiences).filter(([key]) => /^(bottom:ticket:30|mid_bottom:page:60):[0-9a-f]{8}$/.test(key));
+  const sizes: Record<string, { lower: number; upper: number } | null> = {};
+  for (const [key, id] of perLink) {
+    const body = (await graph.graphGet(`/${id}`, { fields: "approximate_count_lower_bound,approximate_count_upper_bound" }).catch(() => null)) as { approximate_count_lower_bound?: number; approximate_count_upper_bound?: number } | null;
+    const lower = Number(body?.approximate_count_lower_bound);
+    const upper = Number(body?.approximate_count_upper_bound);
+    sizes[key] = Number.isFinite(lower) && Number.isFinite(upper) && upper > 0 ? { lower, upper } : null;
+  }
+  return { sizes, calls: perLink.length };
+}
+
+/** RT13: compare a running campaign's rules only when the links were read; a failed read keeps the last rules. */
+export function comparesRules(linksRead: RetargetingInput["linksRead"]): boolean {
+  return linksRead === "ok" || linksRead === "no_tag";
 }
 
 export async function runRetargetingRead(input: {
@@ -302,6 +327,13 @@ export async function runRetargetingRead(input: {
   const minDaily = new Map<string, number | null>();
   const hostsByPixel = new Map<string, PixelHosts>();
   const readLinks = input.pageLinks ?? ((tag: string) => fetchCirqlinPageLinks(tag));
+  // RT13: every show's links first, so a landing host another show uses gets no pixel line.
+  const linksByShow = new Map<string, Awaited<ReturnType<typeof showLinks>>>();
+  for (const event of events) {
+    const tagged = { ...event, mailchimp_tag: sourceRows.events.find((row) => row.id === event.id)?.mailchimp_tag ?? null };
+    linksByShow.set(event.id, await showLinks(tagged, readLinks));
+  }
+  const landingByShow = new Map([...linksByShow].map(([id, row]) => [id, row.links]));
   const records: RetargetingRecord[] = [];
   for (const event of events) {
     try {
@@ -310,8 +342,7 @@ export async function runRetargetingRead(input: {
       const rows = rowsForEvent(raw, event.id);
       const code = event.event_code!;
       const hasVideo = rows.some((row) => !isRetargetingCampaignName(row.campaign_name, code) && num(row.video_plays_3s) > 0);
-      const tagged = { ...event, mailchimp_tag: sourceRows.events.find((row) => row.id === event.id)?.mailchimp_tag ?? null };
-      const links = await showLinks(tagged, readLinks);
+      const links = linksByShow.get(event.id)!;
       if (links.reason) skipped.push({ eventCode: code, reason: `CIRQLIN links: ${links.reason}` });
       const sources = sourceSetFor({ event, rows: sourceRows, pixelId: read?.pixel?.id ?? null, roles: roles?.roles ?? null, hasVideo, links: links.links });
       const pixelId = read?.pixel?.id ?? null;
@@ -334,11 +365,19 @@ export async function runRetargetingRead(input: {
         metaCalls += 1;
         campaignStatus = await input.graph.graphGet(`/${campaignId}`, { fields: "effective_status" }).then((body) => (body as { effective_status?: string }).effective_status ?? null).catch(() => null);
       }
-      const plan = planRetargeting(retargetingInput({ event, day, rows, campaigns: inputs.campaigns, read, budgets: purchases.budgets, sources, appliedLine, minDailyMinor: account ? (minDaily.get(account) ?? null) : null, linksRead: links.linksRead, pixelHosts: pixelId ? (hostsByPixel.get(pixelId) ?? null) : null, campaignStatus }));
+      // RT13 (revised): a running campaign's per-link audience sizes.
+      const storedAudiences = ((appliedLine?.applied_result?.retargeting ?? null) as { audiences?: Record<string, string> } | null)?.audiences ?? null;
+      let linkSizes: RetargetingInput["linkSizes"];
+      if (campaignId && storedAudiences && input.graph) {
+        const sized = await linkSizesOf(input.graph, storedAudiences);
+        metaCalls += sized.calls;
+        linkSizes = sized.sizes;
+      }
+      const plan = planRetargeting(retargetingInput({ event, day, rows, campaigns: inputs.campaigns, read, budgets: purchases.budgets, sources, appliedLine, minDailyMinor: account ? (minDaily.get(account) ?? null) : null, linksRead: links.linksRead, pixelHosts: pixelId ? (hostsByPixel.get(pixelId) ?? null) : null, campaignStatus, otherLandingHosts: [...otherLandingHosts(landingByShow, event.id)], linkSizes }));
       const record: RetargetingRecord = { eventId: event.id, eventCode: event.event_code, plan, proposalId: null };
       // RT13: a running campaign's rules against today's links. A failed read keeps the last rules, so nothing is compared.
       const storedRules = ((appliedLine?.applied_result?.retargeting ?? null) as { rules?: Record<string, string[]> } | null)?.rules;
-      if (plan.state === "running" && storedRules && (links.linksRead === "ok" || links.linksRead === "no_tag")) {
+      if (plan.state === "running" && storedRules && comparesRules(links.linksRead)) {
         const changed = ruleChanges(storedRules, pixelRules(tierSpecs(sources)));
         if (changed.length) {
           record.ruleChanges = changed;

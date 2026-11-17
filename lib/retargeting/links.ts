@@ -9,16 +9,17 @@
  *   - Ticket links feed ticket-link visitors and checkout starters (the
  *     pixel's InitiateCheckout on a ticket link's rule, never pixel-wide).
  *     Landing pages feed page visitors and registrations (RT15).
- *   - A ticket link is named by its platform: Skiddle, RA, Fatsoma, Fixr,
- *     DICE, Eventbrite, Ticketmaster, See Tickets, else "Other ({host})".
- *     Two links on one platform are told apart by their shop_name, else
- *     their label, in brackets. A landing page is named by host and path.
- *     The link shown first goes first, then the page's order.
+ *   - A ticket link is named by its host (RT13, revised 17 Nov): Skiddle,
+ *     RA, Fatsoma, Fixr, DICE, Eventbrite, Ticketmaster, See Tickets, else
+ *     "Other ({host})". Two links on one platform are told apart by their
+ *     shop_name, else their label, in brackets. A landing page is named by
+ *     host and path. The link shown first goes first, then the page's order.
  *   - No CIRQLIN tag: RT2's two links, the event's page and its ticket URL,
  *     named the same way.
- *   - Ops (17 Nov): per third-party platform, whether the pixel fired on
- *     that host in 28 days ("Pixel on Skiddle: yes / no"); no host line for
- *     crqln.com or any other shared host.
+ *   - Meta's pixel stats give origins only, so the row says, per third-party
+ *     platform and a show's own domain, whether the resolved pixel recorded
+ *     any event from that host in 28 days. No line for crqln.com or any
+ *     landing host another show's pages share.
  *
  * Pure.
  */
@@ -53,7 +54,7 @@ export const PLATFORM_NAME: Record<string, string> = {
 /** Hosts many shows share: no per-host pixel line (ops, 17 Nov). */
 export const SHARED_HOSTS: readonly string[] = ["crqln.com", "app.cirqlin.com", "cirqlin.com"];
 
-/** For RT2's fallback (no tag): the platform behind a ticket URL's host. */
+/** RT13 (revised): a ticket link's platform, by its host. */
 const HOST_PLATFORM: [RegExp, string][] = [
   [/(^|\.)skiddle\.com$/i, "skiddle"],
   [/(^|\.)ra\.co$/i, "ra"],
@@ -87,7 +88,7 @@ export function platformName(slug: string | null, host: string): string {
   return (slug && PLATFORM_NAME[slug]) || `Other (${host.replace(/^www\./, "")})`;
 }
 
-/** RT2's fallback: the platform slug for a ticket URL's host, else "other". */
+/** The platform slug for a ticket URL's host, else "other". */
 export function platformOfHost(host: string): string {
   return HOST_PLATFORM.find(([pattern]) => pattern.test(host))?.[1] ?? "other";
 }
@@ -114,7 +115,9 @@ export function linksFromPages(pages: readonly PartnerPageLinks[]): ShowLink[] {
       const ticketHost = hostOf(ticket.url);
       if (!ticketRule || !ticketHost || seen.has(ticketRule)) continue;
       seen.add(ticketRule);
-      tickets.push({ link: { kind: "ticket", rule: ticketRule, host: ticketHost, name: platformName(ticket.platform, ticketHost), platform: ticket.platform }, first: ticket.shown_first, tell: ticket.shop_name?.trim() || ticket.label?.trim() || null });
+      // Named by its host (RT13, revised); CIRQLIN's slug is kept for the record.
+      const platform = platformOfHost(ticketHost);
+      tickets.push({ link: { kind: "ticket", rule: ticketRule, host: ticketHost, name: platformName(platform, ticketHost), platform }, first: ticket.shown_first, tell: ticket.shop_name?.trim() || ticket.label?.trim() || null });
     }
   }
   // The link shown first goes first; the rest keep the page's order.
@@ -144,8 +147,12 @@ export function linksFallback(event: { ticket_url?: string | null; signup_url?: 
 export const ticketLinks = (links: readonly ShowLink[]) => links.filter((link) => link.kind === "ticket");
 export const landingLinks = (links: readonly ShowLink[]) => links.filter((link) => link.kind === "landing");
 
-/** The hosts the pixel recorded events on in 28 days (aggregation=host), per event. Null when not read. */
-export type PixelHosts = { pageView: string[]; checkout: string[]; registration: string[] } | null;
+/**
+ * The hosts the pixel recorded events on in 28 days (aggregation=host): `any`
+ * is every event (no event filter), the rest per event for RT15 and the
+ * empty-Bottom check. Null when not read.
+ */
+export type PixelHosts = { any: string[]; pageView: string[]; checkout: string[]; registration: string[] } | null;
 
 /** The pixel fired on this host (www. and subdomains of the same site count). */
 export function firedOn(hosts: readonly string[] | undefined, host: string): boolean {
@@ -156,17 +163,46 @@ export function firedOn(hosts: readonly string[] | undefined, host: string): boo
   });
 }
 
-/** Ops' line: one entry per third-party platform host (not shared hosts), pixel on it yes / no. Null when the hosts weren't read. */
-export function pixelOnPlatforms(links: readonly ShowLink[], hosts: PixelHosts): { name: string; on: boolean }[] | null {
+const bare = (host: string) => host.toLowerCase().replace(/^www\./, "");
+
+/** RT13: a landing host with no pixel line — crqln.com, or one another show's pages use. */
+export function landingShared(host: string, otherShowsHosts: ReadonlySet<string>): boolean {
+  return isSharedHost(host) || otherShowsHosts.has(bare(host));
+}
+
+/** The landing hosts of every show but this one, for `landingShared`. */
+export function otherLandingHosts(byShow: ReadonlyMap<string, readonly ShowLink[]>, showId: string): Set<string> {
+  const out = new Set<string>();
+  for (const [id, links] of byShow) if (id !== showId) for (const link of landingLinks(links)) out.add(bare(link.host));
+  return out;
+}
+
+export type PixelEntry = { name: string; on: boolean };
+
+/** RT13: per third-party ticket platform (named by host), the pixel on it yes / no. Null when the hosts weren't read. */
+export function pixelOnPlatforms(links: readonly ShowLink[], hosts: PixelHosts): PixelEntry[] | null {
   if (!hosts) return null;
   const seen = new Set<string>();
-  const out: { name: string; on: boolean }[] = [];
+  const out: PixelEntry[] = [];
   for (const link of ticketLinks(links)) {
-    if (isSharedHost(link.host)) continue;
-    const base = PLATFORM_NAME[link.platform ?? ""] ?? platformName(link.platform, link.host);
-    if (seen.has(base)) continue;
-    seen.add(base);
-    out.push({ name: base, on: firedOn(hosts.pageView, link.host) });
+    const name = platformName(link.platform ?? platformOfHost(link.host), link.host);
+    if (seen.has(name)) continue;
+    seen.add(name);
+    out.push({ name, on: firedOn(hosts.any, link.host) });
+  }
+  return out;
+}
+
+/** RT13: per own landing domain (not shared), the pixel on it yes / no. Null when the hosts weren't read. */
+export function pixelOnOwnDomains(links: readonly ShowLink[], hosts: PixelHosts, otherShowsHosts: ReadonlySet<string>): PixelEntry[] | null {
+  if (!hosts) return null;
+  const seen = new Set<string>();
+  const out: PixelEntry[] = [];
+  for (const link of landingLinks(links)) {
+    const name = bare(link.host);
+    if (landingShared(link.host, otherShowsHosts) || seen.has(name)) continue;
+    seen.add(name);
+    out.push({ name, on: firedOn(hosts.any, link.host) });
   }
   return out;
 }

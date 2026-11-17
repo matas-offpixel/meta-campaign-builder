@@ -223,21 +223,31 @@ export function noRegistrations(pages: readonly string[]): string {
 /** RT13: Bottom can't be built; its 50 % goes to Mid Bottom and Mid, 1 to 1. */
 export const BOTTOM_NOT_BUILT = "Bottom has no audience yet: no visits, checkout starters, registrations or signup list.";
 
-/**
- * Ops (17 Nov), for design to confirm the words: per third-party platform,
- * whether the pixel fired on that host in 28 days.
- */
-export function pixelOnLine(entries: readonly { name: string; on: boolean }[]): string {
-  return entries.map((entry, index) => `${index === 0 ? "Pixel on " : ""}${entry.name}: ${entry.on ? "yes" : "no"}`).join(" · ");
+/** RT13 (revised): before Apply the links' audiences don't exist. */
+export const BY_LINK_BEFORE_CREATE = "By link: known after create";
+
+/** RT13 (revised): a link audience's size band, "2,100–2,500" or "below 1,000". */
+export function sizeBand(lower: number, upper: number): string {
+  if (!(upper >= 1000)) return "below 1,000";
+  return `${group(String(Math.round(lower)))}–${group(String(Math.round(upper)))}`;
 }
 
-/** RT13: under a ticket site the pixel isn't on. */
-export const TICKET_SITE_PIXEL = "A ticket site sends visits only when your pixel is on it there.";
-
-/** Ops (17 Nov): per link, the link audience's size from Meta after create; before it, as RT3's pools. Words for design. */
-export function linksLine(names: readonly string[]): string {
-  return `Links: ${joinNames(names)} · ${POOL_BEFORE_CREATE.toLowerCase()}`;
+/** RT13 (revised): "Skiddle 2,100–2,500 · RA 1,000–1,200 · Fixr below 1,000"; a size Meta didn't give reads "—". */
+export function sizesLine(entries: readonly { name: string; band: string | null }[]): string {
+  return entries.map((entry) => `${entry.name} ${entry.band ?? NO_FIGURE}`).join(" · ");
 }
+
+/** RT13 (revised): "Pixel on {names}: yes · {names}: no", or "Pixel on {names}: no" when all are no. */
+export function pixelLine(entries: readonly { name: string; on: boolean }[]): string {
+  const yes = entries.filter((entry) => entry.on).map((entry) => entry.name);
+  const no = entries.filter((entry) => !entry.on).map((entry) => entry.name);
+  if (!yes.length) return `Pixel on ${joinNames(no)}: no`;
+  return `Pixel on ${joinNames(yes)}: yes${no.length ? ` · ${joinNames(no)}: no` : ""}`;
+}
+
+/** RT13 (revised): under a ticket site the pixel isn't on. */
+export const TICKET_SITE_COUNTS = "A ticket site counts visitors only when your pixel is on it there.";
+
 export const UPLOAD_SIGNUP_LIST = "Upload the signup list";
 
 /** RT8: one line naming every lineup page with no role. */

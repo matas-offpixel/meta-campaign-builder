@@ -21,6 +21,11 @@
  * show in Ads Manager how recent each tier's people are. Leave-outs take
  * every window of the hotter tiers.
  *
+ * RT13 (revised 17 Nov): at its source's longest window each link is its own
+ * audience — a ticket link's visitors at 30 days, a landing page's at 60 —
+ * in place of one combined audience there, so Meta can size each link. The
+ * shorter windows stay one audience across the links.
+ *
  * A page-engagement audience takes at most 5 sources and a video audience
  * 200 videos (the builder's limits), so the sets are chunked here.
  *
@@ -28,6 +33,16 @@
  */
 
 import { landingLinks, ticketLinks, type ShowLink } from "./links.ts";
+
+/** A short stable key for a link's rule (FNV-1a, 32 bits), so a per-link audience's key survives a reorder. */
+export function linkKey(rule: string): string {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < rule.length; i += 1) {
+    hash ^= rule.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash.toString(16).padStart(8, "0");
+}
 import type { Tier } from "./words.ts";
 
 /** RT14's windows, in days. The longest of each source is RT2's. */
@@ -82,7 +97,8 @@ export type SourceSet = {
  * Ads Manager ("{code} · {label} · {n} days").
  */
 export type TierAudience =
-  | { key: string; kind: "pixel_url"; label: string; pixelId: string; urlContains: string[]; retentionDays: number }
+  /** `link`: a per-link audience (RT13, revised) names its link, for the size line. */
+  | { key: string; kind: "pixel_url"; label: string; pixelId: string; urlContains: string[]; retentionDays: number; link?: string }
   | { key: string; kind: "pixel_event"; label: string; pixelId: string; pixelEvent: "InitiateCheckout" | "CompleteRegistration"; urlContains: string[]; retentionDays: number }
   | { key: string; kind: "video"; label: string; contextId: string; videoIds: string[]; threshold: 75; retentionDays: number }
   | { key: string; kind: "page_fb"; label: string; pageIds: string[]; retentionDays: number }
@@ -132,17 +148,28 @@ export function tierSpecs(set: SourceSet, opts: { bottom?: boolean } = {}): Tier
   const bottom: TierAudience[] = [];
   const midBottom: TierAudience[] = [];
   const mid: TierAudience[] = [];
-  const tickets = ticketLinks(set.links).map((link) => link.rule);
-  const landing = landingLinks(set.links).map((link) => link.rule);
+  const ticketSet = ticketLinks(set.links);
+  const landingSet = landingLinks(set.links);
+  const tickets = ticketSet.map((link) => link.rule);
+  const landing = landingSet.map((link) => link.rule);
+  const longest = (days: readonly number[]) => days[days.length - 1]!;
   if (set.pixelId) {
     const pixelId = set.pixelId;
     if (tickets.length) {
-      for (const days of RT14.ticketVisitors) bottom.push({ key: `bottom:ticket:${days}`, kind: "pixel_url", label: "Ticket-link visitors", pixelId, urlContains: tickets, retentionDays: days });
+      for (const days of RT14.ticketVisitors) {
+        if (days !== longest(RT14.ticketVisitors)) bottom.push({ key: `bottom:ticket:${days}`, kind: "pixel_url", label: "Ticket-link visitors", pixelId, urlContains: tickets, retentionDays: days });
+        // RT13 (revised): each ticket link its own audience at 30 days.
+        else for (const link of ticketSet) bottom.push({ key: `bottom:ticket:${days}:${linkKey(link.rule)}`, kind: "pixel_url", label: `Ticket-link visitors · ${link.name}`, pixelId, urlContains: [link.rule], retentionDays: days, link: link.name });
+      }
       for (const days of RT14.checkout) bottom.push({ key: `bottom:checkout:${days}`, kind: "pixel_event", label: "Checkout starters", pixelId, pixelEvent: "InitiateCheckout", urlContains: tickets, retentionDays: days });
     }
     if (landing.length) {
       for (const days of RT14.registrations) bottom.push({ key: `bottom:registrations:${days}`, kind: "pixel_event", label: "Registrations", pixelId, pixelEvent: "CompleteRegistration", urlContains: landing, retentionDays: days });
-      for (const days of RT14.pageVisitors) midBottom.push({ key: `mid_bottom:page:${days}`, kind: "pixel_url", label: "Page visitors", pixelId, urlContains: landing, retentionDays: days });
+      for (const days of RT14.pageVisitors) {
+        if (days !== longest(RT14.pageVisitors)) midBottom.push({ key: `mid_bottom:page:${days}`, kind: "pixel_url", label: "Page visitors", pixelId, urlContains: landing, retentionDays: days });
+        // RT13 (revised): each landing page its own audience at 60 days.
+        else for (const link of landingSet) midBottom.push({ key: `mid_bottom:page:${days}:${linkKey(link.rule)}`, kind: "pixel_url", label: `Page visitors · ${link.name}`, pixelId, urlContains: [link.rule], retentionDays: days, link: link.name });
+      }
     }
     if (tickets.length) {
       for (const days of RT14.checkoutMidBottom) midBottom.push({ key: `mid_bottom:checkout:${days}`, kind: "pixel_event", label: "Checkout starters", pixelId, pixelEvent: "InitiateCheckout", urlContains: tickets, retentionDays: days });
@@ -235,4 +262,9 @@ export function pixelRules(specs: readonly TierSpec[]): Record<string, string[]>
 export function ruleChanges(stored: Record<string, string[]>, current: Record<string, string[]>): string[] {
   const same = (a: readonly string[], b: readonly string[]) => a.length === b.length && [...a].sort().every((value, index) => value === [...b].sort()[index]);
   return Object.keys(stored).filter((key) => !current[key] || !same(stored[key]!, current[key]!)).sort();
+}
+
+/** RT13 (revised): the per-link audiences of a tier, in the links' order — the size line's entries. */
+export function perLinkAudiences(spec: TierSpec | undefined): { key: string; name: string }[] {
+  return (spec?.includes ?? []).flatMap((aud) => (aud.kind === "pixel_url" && aud.link ? [{ key: aud.key, name: aud.link }] : []));
 }

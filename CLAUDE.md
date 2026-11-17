@@ -730,11 +730,16 @@ REMOTION_LAMBDA_SERVE_URL=
 > Every source is built at RT14's windows, each its own audience, named
 > "{code} · {source} · {n} days" (`lib/retargeting/audiences.ts`), with leave-outs
 > over every window. Bottom gains CompleteRegistration on the landing pages
-> (30, 90, 180 days). The pixel's 28-day hosts (`aggregation=host`, PageView,
-> InitiateCheckout, CompleteRegistration; Meta gives domains only, never paths)
-> give "Pixel on {platform}: yes / no" per third-party ticket site (never a
-> shared host such as crqln.com), RT15's no-registrations line and RT13's
-> empty Bottom. Create starts at today's share (`lib/retargeting/shares.ts`:
+> (30, 90, 180 days). RT13 (revised 17 Nov): at its source's longest window
+> each link is its own audience ("{code} · Ticket-link visitors · {name} · 30
+> days", "{code} · Page visitors · {name} · 60 days"), so the row shows Meta's
+> size band per link once created ("By link: known after create" before). The
+> pixel's 28-day hosts (`GET /{pixel}/stats?aggregation=host`: every event,
+> then PageView, InitiateCheckout, CompleteRegistration; Meta gives origins
+> only, never paths) give "Pixel on {names}: yes · {names}: no" per
+> third-party ticket platform (named by host) and per own domain, never for
+> crqln.com or a landing host another show's pages use; RT15's
+> no-registrations line and RT13's empty Bottom. Create starts at today's share (`lib/retargeting/shares.ts`:
 > 10 %, 15 % payday or final month, 20 % final two weeks, 25 % final week; the
 > 10 / 15 / 20 % choice is gone). RT16: Retargeting lines take
 > `retargetingGates` (the deployment's apply gate with the arm Live), so the

@@ -15,6 +15,12 @@
  *     Fatsoma, DICE; xmpl-roof.com), every source at RT14's windows,
  *     registrations in Bottom, and today's share with no choice (RT11).
  *     The pixel is on Skiddle only, so Fatsoma and DICE read "no".
+ * RA: XMPL-WHSE's running campaign, read Tue 17 Nov, with PR B's lines only
+ *     (-2.html: "Each build PR is judged only on the lines it builds"):
+ *     RT14's windows, the per-link sizes (Skiddle 2,100–2,500 · RA
+ *     1,000–1,200 · Fixr below 1,000; xmpl-whse.com 7,000–8,200) and the
+ *     pixel lines (Skiddle and RA yes, Fixr no; xmpl-whse.com yes). The
+ *     tiers' figures, the hold and the move are PR C's; the steps PR D's.
  * RD: RA's show (XMPL-WHSE) on the on-sale panel: its Registrations
  *     lookalike standing default, and the one note in place of the
  *     per-campaign Retargeting default (RT9). Under it, the ten
@@ -29,12 +35,13 @@ import type { PanelLine, PanelProposal } from "@/lib/onsale-refresh/read";
 import { ONSALE_PHASE } from "../../lib/onsale-refresh/phase-config.ts";
 import type { PurchaseRead } from "../../lib/onsale-refresh/purchases.ts";
 import type { PartnerPageLinks } from "../../lib/cirqlin/page-links.ts";
+import { linkKey } from "../../lib/retargeting/audiences.ts";
 import { linksFromPages, type PixelHosts } from "../../lib/retargeting/links.ts";
 import { planRetargeting, retargetingBeforeOnSale, type RetargetingInput, type RetargetingView } from "../../lib/retargeting/plan.ts";
 import { runsInOwnCampaign } from "../../lib/retargeting/words.ts";
 import { OR6_PROPOSALS } from "./refresh-fixtures.ts";
 
-export const RETARGETING_FRAME_IDS = ["RB", "RD"] as const;
+export const RETARGETING_FRAME_IDS = ["RA", "RB", "RD"] as const;
 
 const TODAY = "2026-11-17";
 
@@ -80,8 +87,8 @@ const ROOF_PAGES: PartnerPageLinks[] = [
   },
 ];
 
-/** The pixel's hosts in 28 days: visits and checkouts on Skiddle only, registrations on the show's own page. */
-const ROOF_HOSTS: PixelHosts = { pageView: ["www.skiddle.com", "xmpl-roof.com"], checkout: ["www.skiddle.com"], registration: ["xmpl-roof.com"] };
+/** The pixel's hosts in 28 days (GET /{pixel}/stats?aggregation=host): any event on Skiddle and the show's own domain, checkouts on Skiddle, registrations on its own page. */
+const ROOF_HOSTS: PixelHosts = { any: ["www.skiddle.com", "xmpl-roof.com"], pageView: ["www.skiddle.com", "xmpl-roof.com"], checkout: ["www.skiddle.com"], registration: ["xmpl-roof.com"] };
 
 function input(overrides: Partial<RetargetingInput>): RetargetingInput {
   return {
@@ -120,6 +127,64 @@ function input(overrides: Partial<RetargetingInput>): RetargetingInput {
     pixelHosts: ROOF_HOSTS,
     ...overrides,
   };
+}
+
+/** RA's page on CIRQLIN: xmpl-whse.com with Skiddle shown first, RA and Fixr. */
+const WHSE_PAGES: PartnerPageLinks[] = [
+  {
+    page_id: "pg-whse",
+    slug: "xmpl-whse",
+    crm_base_tag: "XMPL-WHSE",
+    title: "XMPL Warehouse",
+    landing_url: "https://xmpl-whse.com",
+    ticket_links: [
+      { platform: "skiddle", url: "https://www.skiddle.com/whats-on/London/XMPL-Warehouse/7654321/", label: "Tickets", shop_name: null, shown_first: true },
+      { platform: "ra", url: "https://ra.co/events/7654321", label: "Tickets", shop_name: null, shown_first: false },
+      { platform: "fixr", url: "https://fixr.co/event/xmpl-warehouse-7654321", label: "Tickets", shop_name: null, shown_first: false },
+    ],
+  },
+];
+
+/** RA: the running campaign's rows with PR B's lines. */
+export function raView(): RetargetingView {
+  const links = linksFromPages(WHSE_PAGES);
+  const size = (rule: string, lower: number, upper: number) => [rule, { lower, upper }] as const;
+  const [skiddle, ra, fixr, whse] = links.map((link) => link.rule);
+  const linkSizes = Object.fromEntries([
+    [`bottom:ticket:30:${linkKey(skiddle!)}`, size(skiddle!, 2100, 2500)[1]],
+    [`bottom:ticket:30:${linkKey(ra!)}`, size(ra!, 1000, 1200)[1]],
+    [`bottom:ticket:30:${linkKey(fixr!)}`, size(fixr!, 400, 800)[1]],
+    [`mid_bottom:page:60:${linkKey(whse!)}`, size(whse!, 7000, 8200)[1]],
+  ]);
+  return planRetargeting(
+    input({
+      eventId: "xmpl-whse",
+      eventCode: "XMPL-WHSE",
+      eventDate: "2026-12-19",
+      last7SpendGbp: 1680,
+      pixelHosts: { any: ["www.skiddle.com", "ra.co", "xmpl-whse.com"], pageView: ["www.skiddle.com", "ra.co", "xmpl-whse.com"], checkout: ["www.skiddle.com"], registration: ["xmpl-whse.com"] },
+      linkSizes,
+      sources: {
+        pixelId: "1067726194205285",
+        links,
+        videos: [{ contextId: "", videoIds: ["pending"] }],
+        pages: [
+          { id: "p1", name: "XMPL Promotions", igId: "ig1", kind: "promoter", hasRole: true },
+          { id: "p2", name: "The Warehouse", igId: "ig2", kind: "venue", hasRole: true },
+          { id: "p3", name: "Ada North", igId: "ig3", kind: "lineup", hasRole: true },
+          { id: "p4", name: "Mira Vale", igId: "ig4", kind: "lineup", hasRole: true },
+        ],
+        lists: [
+          { metaAudienceId: "l1", name: "XMPL-WHSE signups", role: "signups", uploadedAt: "2026-11-12T10:00:00Z" },
+          { metaAudienceId: "l2", name: "Tech house data", role: "similar", uploadedAt: "2026-11-09T10:00:00Z" },
+          { metaAudienceId: "l3", name: "House data", role: "similar", uploadedAt: "2026-11-09T10:00:00Z" },
+          { metaAudienceId: "l4", name: "XMPL-WHSE buyers", role: "buyers", uploadedAt: "2026-11-14T10:00:00Z" },
+        ],
+      },
+      existing: { campaignId: "120000000000000010", since: "2026-11-10", totalMinor: 2400, share: 10, tiers: { bottom: 1200, mid_bottom: 600, mid: 600 }, status: "ACTIVE" },
+      legacy: [],
+    }),
+  ).view;
 }
 
 /** RB: the Create line with all three missing states, before Apply. */
