@@ -201,6 +201,7 @@ ENABLE_AD_COPY_CAPTURE=
 ENABLE_LEARNING_REFRESH=
 ENABLE_GOOGLE_ADS_DAILY_INSIGHTS=
 ENABLE_ONSALE_REFRESH=
+ENABLE_RETARGETING_READ=
 REMOTION_AWS_ACCESS_KEY_ID=
 REMOTION_AWS_SECRET_ACCESS_KEY=
 REMOTION_AWS_REGION=
@@ -693,6 +694,29 @@ REMOTION_LAMBDA_SERVE_URL=
 > `--purchases` prints the per-event purchase table for every on-sale
 > event (`--also CODE` adds a show that isn't on sale).
 
+> **`ENABLE_RETARGETING_READ`** must be exactly `"1"` to activate
+> `/api/cron/retargeting-read`, the Retargeting campaign's daily read
+> (`docs/design-record/2026-11-17-retargeting-campaign.html`, PR A: RT1, RT2,
+> RT4, RT8, RT9; `lib/retargeting/`). Unset = 200 with `skippedReason:
+> "killswitch"`. vercel.json runs `"0 7,8 * * *"` and the read acts at 08:00
+> London. For every on-sale show to its show day (it carries on through show
+> week) it writes one `{code} · Retargeting` proposal (`run_kind
+> retargeting`, migration 256) with the Create line or the sentence that
+> replaces it: three tier ad sets (Bottom, Mid Bottom, Mid) with budgets on
+> the ad sets, 10 % of current daily spend (10 · 15 · 20 % on offer), split
+> 50 / 25 / 25 with a £1 floor per tier. Meta is read only (the purchase
+> read, `/me/accounts` page roles, min_daily_budget). Apply is the Purchase
+> create path with budgets on the ad sets (`lib/retargeting/apply.ts`):
+> behind `ONSALE_REFRESH_APPLY_ENABLED`, the Live arm,
+> `ONSALE_REFRESH_CAMPAIGN_CREATE_ENABLED` and
+> `OFFPIXEL_META_AUDIENCE_WRITES_ENABLED`, every ad set created paused and
+> switched on last, every write on `meta_write_idempotency`, a
+> `launched_ad_sets` row per tier. RT9: a show that takes this campaign no
+> longer gets the refresh's per-campaign Retargeting default; the on-sale
+> panel shows one note. Lists uploaded with a role (Signups, Similar,
+> Buyers) and a show are `meta_custom_audiences` rows (`customer_list`,
+> `list_role`, migration 256).
+
 > **`ENABLE_GOOGLE_ADS_DAILY_INSIGHTS`** must be exactly `"1"` to activate
 > `/api/cron/google-ads-daily-insights` (04:00 UTC). Unset = 200 with
 > `skippedReason: "killswitch"`. Read-only against Google Ads (GAQL search,
@@ -889,6 +913,8 @@ Notable recently-added tables / columns (dashboard-era, April 2026):
 - `/api/cron/google-ads-daily-insights` (04:00 UTC) — Google Ads campaign,
   search-term and location facts per day (see
   `ENABLE_GOOGLE_ADS_DAILY_INSIGHTS` above). Zero Google Ads mutates.
+- `/api/cron/retargeting-read` (08:00 London, `"0 7,8 * * *"`) — the Retargeting
+  campaign's daily read (see `ENABLE_RETARGETING_READ` above). Zero Meta writes.
 - `/api/cron/onsale-refresh` (Mondays 06:00 UTC) — the on-sale refresh,
   P1 shadow proposals (see `ENABLE_ONSALE_REFRESH` above). Zero Meta
   writes; Meta is read for the purchase line (ad-set pixels, the pixel's

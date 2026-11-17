@@ -103,8 +103,8 @@ describe("retry on a failed render row", () => {
     const fake = world("draft", FACE_CHECK_FAILED);
     const base = { detector: "ssd_mobilenet_v1", fps: 5, cropFocusX: 0.5, cropFocusY: 0.5, inS: null, outS: null };
     fake.tables.creative_lab_clips = [
-      { id: "clip-1", creative_asset_id: null, triple_fit_source_id: null, face_samples: { ...base, error: "no frames" }, face_samples_at: "2026-11-13T10:00:00Z" },
-      { id: "clip-2", creative_asset_id: null, triple_fit_source_id: null, face_samples: { ...base, error: "ffmpeg exited 1" }, face_samples_at: "2026-11-13T10:00:00Z" },
+      { id: "clip-1", user_id: OP, creative_asset_id: null, triple_fit_source_id: null, face_samples: { ...base, error: "no frames" }, face_samples_at: "2026-11-13T10:00:00Z" },
+      { id: "clip-2", user_id: OP, creative_asset_id: null, triple_fit_source_id: null, face_samples: { ...base, error: "ffmpeg exited 1" }, face_samples_at: "2026-11-13T10:00:00Z" },
     ];
     await retryRender(fake as unknown as ServiceRoleDb, { renderId: "r1", userId: OP });
     const clip1 = fake.tables.creative_lab_clips.find((row) => row.id === "clip-1")!;
@@ -119,10 +119,64 @@ describe("retry on a failed render row", () => {
   it("samples a later check got right are kept when that render is tried again", async () => {
     const fake = world("rendering", FACE_CHECK_FAILED);
     const ready = { detector: "ssd_mobilenet_v1", fps: 5, cropFocusX: 0.5, cropFocusY: 0.5, inS: null, outS: null, samples: [{ t: 0, faces: [] }] };
-    fake.tables.creative_lab_clips = [{ id: "clip-1", creative_asset_id: null, triple_fit_source_id: null, face_samples: ready }];
+    fake.tables.creative_lab_clips = [{ id: "clip-1", user_id: OP, creative_asset_id: null, triple_fit_source_id: null, face_samples: ready }];
     await retryRender(fake as unknown as ServiceRoleDb, { renderId: "r1", userId: OP });
     assert.deepEqual(fake.tables.creative_lab_clips[0]!.face_samples, ready);
     assert.equal(fake.tables.creative_lab_renders!.find((row) => row.id === "r1")!.status, "queued");
+  });
+
+  it("a clip whose face check is running keeps its lock: the retry says nothing and the render waits on that check", async () => {
+    const fake = world("draft", FACE_CHECK_FAILED);
+    const now = Date.now();
+    const running = {
+      detector: "ssd_mobilenet_v1", fps: 5, cropFocusX: 0.5, cropFocusY: 0.5, inS: null, outS: null,
+      running: { since: new Date(now - 60_000).toISOString(), until: new Date(now + 14 * 60_000).toISOString(), attempt: 1 },
+    };
+    const stamp = new Date(now - 60_000).toISOString();
+    fake.tables.creative_lab_clips = [{ id: "clip-1", user_id: OP, creative_asset_id: null, triple_fit_source_id: null, face_samples: running, face_samples_at: stamp }];
+    const result = await retryRender(fake as unknown as ServiceRoleDb, { renderId: "r1", userId: OP });
+    assert.deepEqual(result, { renderId: "r1" });
+    assert.deepEqual(fake.tables.creative_lab_clips[0]!.face_samples, running, "a live lock is never wiped");
+    assert.equal(fake.tables.creative_lab_clips[0]!.face_samples_at, stamp);
+    assert.equal(fake.writes.filter((w) => w.table === "creative_lab_clips").length, 0);
+    assert.equal(fake.tables.creative_lab_renders!.find((row) => row.id === "r1")!.status, "queued");
+    assert.equal(fake.tables.creative_lab_round_ads!.find((row) => row.id === "ad1")!.launch_state, "pending");
+  });
+
+  it("a tick that takes the lock after the retry read the failure keeps it: the clear never lands on a live lock", async () => {
+    const fake = world("draft", FACE_CHECK_FAILED);
+    const base = { detector: "ssd_mobilenet_v1", fps: 5, cropFocusX: 0.5, cropFocusY: 0.5, inS: null, outS: null };
+    fake.tables.creative_lab_clips = [{ id: "clip-1", user_id: OP, creative_asset_id: null, triple_fit_source_id: null, face_samples: { ...base, error: "no frames" }, face_samples_at: "2026-11-13T10:00:00Z" }];
+    const now = Date.now();
+    const lock = { ...base, running: { since: new Date(now).toISOString(), until: new Date(now + 15 * 60_000).toISOString(), attempt: 1 } };
+    // The render tick claims the clip right after retryRender has read its stored failure (the second clip read:
+    // the first is retryRender's 9:16 size check).
+    const realFrom = fake.from.bind(fake);
+    let clipReads = 0;
+    (fake as { from: (table: string) => unknown }).from = (table: string) => {
+      const builder = realFrom(table) as { maybeSingle: () => Promise<{ data: unknown; error: null }> };
+      if (table !== "creative_lab_clips") return builder;
+      const read = builder.maybeSingle;
+      builder.maybeSingle = async () => {
+        const result = await read();
+        clipReads += 1;
+        // A new row object: the fake hands out rows by reference, and the retry already holds the one it read.
+        if (clipReads === 2) fake.tables.creative_lab_clips![0] = { ...fake.tables.creative_lab_clips![0]!, face_samples: lock, face_samples_at: lock.running.since };
+        return result;
+      };
+      return builder;
+    };
+    await retryRender(fake as unknown as ServiceRoleDb, { renderId: "r1", userId: OP });
+    assert.deepEqual(fake.tables.creative_lab_clips![0]!.face_samples, lock, "the tick's lock survives the retry");
+    assert.equal(fake.tables.creative_lab_clips![0]!.face_samples_at, lock.running.since);
+    assert.equal(fake.tables.creative_lab_renders!.find((row) => row.id === "r1")!.status, "queued");
+  });
+
+  it("the retry clears through clearFaceSamples, never a bare write on the clip", () => {
+    const propose = read("lib/creative-lab/propose.ts");
+    const retry = propose.slice(propose.indexOf("export async function retryRender"), propose.indexOf("async function queueRender"));
+    assert.match(retry, /clearFaceSamples\(db, String\(render\.clip_id\), args\.userId\)/);
+    assert.doesNotMatch(retry, /from\("creative_lab_clips"\)\.update/);
   });
 
   it("a settled draft round reads as rendering again until the queue settles it", async () => {

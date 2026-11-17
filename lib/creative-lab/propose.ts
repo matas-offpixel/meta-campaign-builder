@@ -13,6 +13,7 @@
 import { styleVersion } from "../../src/remotion/caption-style/profile.ts";
 import { crowdBlock, normaliseCaption } from "./caption-facts.ts";
 import { FACE_CHECK_FAILED, readFaceSamples } from "./caption-placement.ts";
+import { clearFaceSamples } from "./face-samples.ts";
 import { captionAllowsClip } from "./footage-owner.ts";
 import { nextRoundPlan, type RoundPlanInput } from "./judge.ts";
 import type { ServiceRoleDb } from "./load.ts";
@@ -765,10 +766,11 @@ export async function retryRender(db: ServiceRoleDb, args: { renderId: string; u
   if (error === FACE_CHECK_FAILED) {
     const faces = await db.from("creative_lab_clips").select("id, face_samples").eq("id", String(render.clip_id)).maybeSingle();
     if (faces.error) throw new Error(`creative_lab_clips: ${faces.error.message}`);
-    // Only a stored failure is cleared: samples a later check got right stay.
+    // Only a stored failure is cleared: samples a later check got right stay. The clear is clearFaceSamples
+    // (face-samples.ts): conditional on the row it read, and never over a live lock. "running" means a check is
+    // already under way, which is what this retry asks for, so it says nothing and the render waits on that check.
     if (readFaceSamples((faces.data as Row | null)?.face_samples)?.error) {
-      const clear = await db.from("creative_lab_clips").update({ face_samples: null, face_samples_at: null }).eq("id", String(render.clip_id));
-      if (clear.error) throw new Error(`creative_lab_clips face retry: ${clear.error.message}`);
+      await clearFaceSamples(db, String(render.clip_id), args.userId);
     }
   }
 

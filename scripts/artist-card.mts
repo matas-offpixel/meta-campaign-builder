@@ -41,6 +41,7 @@ import { chooseVariant, describeGround, renderCutout, type CutoutResult } from "
 import { detectFaces, eyesMeasurable, faceGeometry, type FaceBox } from "../lib/creative-lab/face-detect.ts";
 import { refineAtSource, segmentPerson } from "../lib/creative-lab/segment.ts";
 import { APP_ID_KEY, APP_TAG_KEY, driveFromEnv } from "../lib/drive/client.ts";
+import { cardRuleException, exceptionLine } from "../lib/creative-lab/card-exceptions.ts";
 import type { DriveDb } from "../lib/drive/db.ts";
 import { ensureRouteFolder } from "../lib/drive/folders.ts";
 import { labArtistFolderName } from "../lib/drive/owner.ts";
@@ -294,7 +295,15 @@ for (const pick of picks) {
   const chosenB = j.variant === "B" ? j.b : null;
   const cc = j.b?.charcoal;
   say(`Disclosure: ${j.variant === "A" ? card.extensionLabel || "(none: the photo covers the frame)" : chosenB ? chosenB.disclosure : "–"}${cc ? ` · charcoal ${cc.used} (ruling); re-sampled: the panel's own pixels ${cc.panelOwn ?? "–"}, the panel as seen over the paint ${cc.panelSeen ?? "–"}` : ""}`);
-  if (j.variant === "skip") {
+  // A per-asset exception (lib/creative-lab/card-exceptions.ts) draws its variant although it fails.
+  const exception = j.variant === "skip" ? cardRuleException(code, pick.assetId) : null;
+  if (exception) {
+    const failed = exception.variant === "A" ? card.rules.filter((r) => !r.pass) : (j.b?.rules ?? []).filter((r) => !r.pass);
+    say(exceptionLine(exception, failed));
+    say(`Ruling: ${exception.ruling}`);
+  }
+  const variant = exception ? exception.variant : j.variant;
+  if (variant === "skip") {
     if (j.b?.master) {
       const held = join(outDir, `HELD-${artistSlug(pick.artist)}-${pick.card}-${String(assetRes.data.filename).replace(/[^A-Za-z0-9]+/g, "-")}B.png`);
       writeFileSync(held, j.b.master);
@@ -303,7 +312,9 @@ for (const pick of picks) {
     say("");
     continue;
   }
-  const chosen = j.variant === "A" ? { master: card.master, crop45: card.crop45, square: card.square } : { master: chosenB!.master!, crop45: chosenB!.crop45!, square: chosenB!.square! };
+  const pickedB = variant === "B" ? j.b : null;
+  if (variant === "B" && !pickedB?.master) fail(`${pick.assetId}: the exception names B, but B was not drawn`);
+  const chosen = variant === "A" ? { master: card.master, crop45: card.crop45, square: card.square } : { master: pickedB!.master!, crop45: pickedB!.crop45!, square: pickedB!.square! };
   const slug = artistSlug(pick.artist);
   const outputs: { format: CardFormat; bytes: Buffer }[] = [
     { format: "9x16", bytes: chosen.master },
@@ -311,6 +322,10 @@ for (const pick of picks) {
     { format: "1x1", bytes: chosen.square },
   ];
   for (const o of outputs) {
+    if (exception && !exception.formats.includes(o.format)) {
+      say(`- ${o.format}: not drawn (the exception covers ${exception.formats.join(", ")} only)`);
+      continue;
+    }
     const name = cardFileName({ eventCode: code, artistSlug: slug, pick: pick.card, stage, format: o.format, version });
     writeFileSync(join(outDir, name), o.bytes);
     let link = "";

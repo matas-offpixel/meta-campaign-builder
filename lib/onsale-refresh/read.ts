@@ -13,6 +13,7 @@ import { acceptBlock, liveBlockedReason, type BlockCtx } from "./decide.ts";
 import { displayState, type LineState } from "./line-states.ts";
 import { spendToDate } from "./plan-guard.ts";
 import type { PurchaseCard } from "./purchase-campaign.ts";
+import { retargetingBeforeOnSale, retargetingOnSaleDay, type RetargetingView } from "../retargeting/plan.ts";
 import type { AddCopy, LineKind, Proposal, WatchItem } from "./rules.ts";
 import { nextCycleAfter, todayLondon, weekLabel, type CycleKind, type RunKind } from "./schedule.ts";
 import { standingStops } from "./restart.ts";
@@ -53,6 +54,10 @@ export type PanelLine = {
   dailyGbp?: number | null;
   /** P4 PR C: a Purchase campaign line's show date (write.endDay), for F3's "judged on" sentence. */
   endDay?: string | null;
+  /** RT1–RT4: the Retargeting panel, stored on the Create line's evidence. */
+  retargeting?: RetargetingView | null;
+  /** RT4: the share picked on Accept (write.share). */
+  share?: number | null;
 };
 
 /** The panel's gates (R4): live only with the deployment gate and the event's arm. */
@@ -81,7 +86,8 @@ export type PanelProposal = {
   id: string;
   campaignKey: string;
   campaignSummary: string | null;
-  runKind: RunKind;
+  /** RT1: "retargeting" is the show's daily Retargeting read (migration 256). */
+  runKind: RunKind | "retargeting";
   runDay: string;
   cycleMonday: string;
   cycleKind: CycleKind;
@@ -106,7 +112,7 @@ type ProposalRow = {
   id: string;
   campaign_key: string;
   campaign_summary: string | null;
-  run_kind: RunKind;
+  run_kind: RunKind | "retargeting";
   run_day: string;
   cycle_monday: string;
   cycle_kind: CycleKind;
@@ -153,6 +159,7 @@ function panelLine(line: LineRow, budgetSet: boolean | null, carried: string | n
     ...(writeKind ? { writeKind } : {}),
     ...(line.target?.extra ? { extra: line.target.extra } : {}),
     ...((line.evidence?.trackRecord as { state?: string } | undefined)?.state === "low" ? { trackRecord: "low" as const } : {}),
+    ...(line.kind === "retargeting_campaign" && line.evidence?.view ? { retargeting: line.evidence.view as RetargetingView, share: typeof line.write?.share === "number" ? line.write.share : null } : {}),
     ...(line.kind === "purchase_campaign" && line.evidence?.card ? { card: line.evidence.card as PurchaseCard, dailyGbp: typeof line.write?.dailyGbp === "number" ? line.write.dailyGbp : null, endDay: typeof line.write?.endDay === "string" ? line.write.endDay : null } : {}),
   };
 }
@@ -267,10 +274,10 @@ export async function loadArm(db: Db, eventId: string): Promise<ArmMode> {
 }
 
 /** Everything the panel needs (P2): the proposals, and the gates that decide whether anything can be clicked. */
-export async function loadPanel(db: Db, eventId: string, env: Record<string, string | undefined>): Promise<{ proposals: PanelProposal[]; apply: PanelApply }> {
-  const [event, arm] = await Promise.all([db.from("events").select("budget_marketing, event_date, client_id").eq("id", eventId).maybeSingle(), loadArm(db, eventId)]);
+export async function loadPanel(db: Db, eventId: string, env: Record<string, string | undefined>): Promise<{ proposals: PanelProposal[]; apply: PanelApply; retargeting: RetargetingView | null; clientId: string | null }> {
+  const [event, arm] = await Promise.all([db.from("events").select("budget_marketing, event_date, client_id, event_code, presale_at, general_sale_at").eq("id", eventId).maybeSingle(), loadArm(db, eventId)]);
   if (event.error) throw new Error(`events: ${event.error.message}`);
-  const row = event.data as { budget_marketing?: number | string | null; event_date?: string | null; client_id?: string | null } | null;
+  const row = event.data as { budget_marketing?: number | string | null; event_date?: string | null; client_id?: string | null; event_code?: string | null; presale_at?: string | null; general_sale_at?: string | null } | null;
   const budgetSet = row?.budget_marketing != null && Number.isFinite(Number(row.budget_marketing));
   const budget = budgetSet ? Number(row!.budget_marketing) : null;
   const gates = applyGates(env, arm);
@@ -286,7 +293,10 @@ export async function loadPanel(db: Db, eventId: string, env: Record<string, str
     const stopped = standingStops(proposal.notes.stopped, clientId, proposal.createdAt, restarts);
     return { ...proposal, notes: { ...proposal.notes, stopped } };
   });
-  return { proposals, apply: { mode: gates.mode, arm: gates.arm, globalEnabled: gates.globalEnabled, pauseWritesEnabled: gates.pauseWritesEnabled, adsetStatusWritesEnabled: gates.adsetStatusWritesEnabled, budgetWritesEnabled: gates.budgetWritesEnabled, audienceWritesEnabled: gates.audienceWritesEnabled, campaignCreateEnabled: gates.campaignCreateEnabled, lifetimeBudgetWritesEnabled: gates.lifetimeBudgetWritesEnabled, budgetSet } };
+  // RT8: before the show's first on-sale date there is no read yet; the panel says when Retargeting starts.
+  const onSaleDay = row ? retargetingOnSaleDay(row) : null;
+  const retargeting = row?.event_code && !proposals.some((proposal) => proposal.runKind === "retargeting") && onSaleDay && onSaleDay > plan.today ? retargetingBeforeOnSale(row.event_code, onSaleDay) : null;
+  return { retargeting, clientId, proposals, apply: { mode: gates.mode, arm: gates.arm, globalEnabled: gates.globalEnabled, pauseWritesEnabled: gates.pauseWritesEnabled, adsetStatusWritesEnabled: gates.adsetStatusWritesEnabled, budgetWritesEnabled: gates.budgetWritesEnabled, audienceWritesEnabled: gates.audienceWritesEnabled, campaignCreateEnabled: gates.campaignCreateEnabled, lifetimeBudgetWritesEnabled: gates.lifetimeBudgetWritesEnabled, budgetSet } };
 }
 
 /** The canvas chip (R4): lines still To review on the event's latest proposals. */

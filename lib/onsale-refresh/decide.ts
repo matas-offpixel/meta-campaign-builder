@@ -29,6 +29,7 @@ import { NO_BUDGET_TO_START, decideFunding, type Giver } from "./new-adset.ts";
 import { MOVE_NEEDS_BUDGET, SPEND_NEEDS_BUDGET, appliedMovesGbp, moveGuard, spendLineBlock, spendToDate } from "./plan-guard.ts";
 import { RETARGETING, type LineKind } from "./rules.ts";
 import { todayLondon } from "./schedule.ts";
+import { pickedShare, type RetargetingView } from "../retargeting/plan.ts";
 
 export { SPEND_NEEDS_BUDGET };
 
@@ -85,7 +86,7 @@ export function acceptBlock(line: BlockLine, ctx: BlockCtx): string | null {
 
 type Db = Pick<SupabaseClient, "from">;
 
-export type Decision = { decision: "accept"; /** P4: the daily rate picked on a Purchase campaign card (PC3). */ dailyGbp?: number | null } | { decision: "reject"; reason?: RejectReason | null; note?: string | null };
+export type Decision = { decision: "accept"; /** P4: the daily rate picked on a Purchase campaign card (PC3). */ dailyGbp?: number | null; /** RT4: the share picked on the Retargeting Create line (10, 15 or 20). */ share?: number | null } | { decision: "reject"; reason?: RejectReason | null; note?: string | null };
 
 /** PC3: a Purchase campaign is accepted at £5 or £10 a day; £10 only when the card offered it (it fit the cap). Null = the card's default. */
 export function pickedRate(line: { kind: string; evidence?: Record<string, unknown> | null }, dailyGbp: number | null | undefined): { ok: true; rate: number | null } | { ok: false; error: string } {
@@ -174,6 +175,12 @@ export async function decideLine(args: { db: Db; eventId: string; userId: string
       const picked = pickedRate(line, args.decision.dailyGbp);
       if (!picked.ok) return { ok: false, status: 400, error: picked.error };
       if (picked.rate != null) writePatch = { ...(line.write ?? {}), dailyGbp: picked.rate };
+      // RT4: the Retargeting Create line's 10 · 15 · 20 % choice rides on its write, like the Purchase rate.
+      if (line.kind === "retargeting_campaign") {
+        const share = pickedShare(line.evidence?.view as RetargetingView | undefined, args.decision.share ?? null);
+        if (!share.ok) return { ok: false, status: 400, error: share.error };
+        writePatch = { ...(line.write ?? {}), share: share.share ?? (line.write?.defaultShare as number | undefined) ?? 10 };
+      }
       next = { state: "accepted", reason: null, reject_reason: null, reject_note: null };
     }
   } else {
