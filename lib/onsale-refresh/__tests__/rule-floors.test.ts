@@ -20,7 +20,7 @@ import { MIN_DAILY_BUDGET_MINOR as APPLY_FLOOR, applyAccepted, type AdSetNow, ty
 import { NO_PIXEL_NO_REGISTRATIONS, NO_PIXEL_NO_VIDEO, RETARGETING_VIDEO_ONLY, RETENTION } from "../new-adset.ts";
 import { ONSALE_PHASE } from "../phase-config.ts";
 import { MIN_DAILY_BUDGET_MINOR, maxWeeklyMoveGbp, moveDeltaMinor } from "../plan-guard.ts";
-import { audienceLines, type AdSetInput, type CampaignInput } from "../rules.ts";
+import { audienceLines, buildProposal, type AdSetInput, type CampaignInput } from "../rules.ts";
 import { planRun } from "../schedule.ts";
 import { memoryDb } from "./memory-db.ts";
 
@@ -219,5 +219,21 @@ describe("missing_default.retargeting says what Apply builds when the copied ad 
     assert.equal(defaultOf(trancoso(null), "registrations_lookalike").blockedReason, NO_PIXEL_NO_REGISTRATIONS);
     assert.equal(NO_PIXEL_NO_REGISTRATIONS, "The ad set it copies has no pixel, so there are no registrations to build from.");
     assert.equal(defaultOf(trancoso("645185673672763"), "registrations_lookalike").blockedReason, null);
+  });
+});
+
+describe("RT9 (2026-11-17-retargeting-campaign.html): the Retargeting default moves from campaign to show", () => {
+  const note = "Retargeting runs in its own campaign, DHB26-TRANCOSO · Retargeting.";
+  it("a show that takes its own Retargeting campaign gets no per-campaign Retargeting line, and the panel one note", () => {
+    const input = trancoso("645185673672763", { retargeting: { takes: true, note } });
+    assert.equal(defaultOf(input, "retargeting"), undefined);
+    assert.ok(defaultOf(input, "registrations_lookalike"), "the lookalike default stands");
+    assert.equal(buildProposal(input, ONSALE_PHASE).notes.retargeting, note);
+  });
+
+  it("a show that can't take it (no pixel, or a pixel that sells elsewhere) keeps the default as today, with no note", () => {
+    const input = trancoso("645185673672763", { retargeting: { takes: false, note: null } });
+    assert.ok(defaultOf(input, "retargeting"));
+    assert.equal(buildProposal(input, ONSALE_PHASE).notes.retargeting, undefined);
   });
 });

@@ -420,7 +420,7 @@ describe("ticket-platform purchases: which shows, and the count (T1, T2)", () =>
     const share = (skiddle: number, other: number) => readPurchases(platformInput({ attributed: credited(40), stats: { rows: hosts(["2026-11-03", "www.skiddle.com", skiddle], ["2026-11-03", "universe.com", other], ["2026-11-03", "ra.co", 1]) } }));
     const fails = share(49, 50);
     assert.equal(fails.state, "pixel_sells_elsewhere", "49 of 100 is under half, 40 credited or not");
-    assert.deepEqual(fails.platformShare, { purchases: 49, pixelPurchases: 100, share: 0.49, elsewhereHost: "universe.com" });
+    assert.deepEqual(fails.platformShare, { purchases: 49, pixelPurchases: 100, share: 0.49, elsewhereHost: "universe.com", elsewherePurchases: 50 });
     assert.equal(share(50, 49).state, "platform_proposed", "exactly half passes");
     assert.equal(ONSALE_PHASE.platformShareMin, 0.5);
     // Fever 105: its ads' pixel sells on universe.com while the show sells on Skiddle.
@@ -435,7 +435,7 @@ describe("ticket-platform purchases: which shows, and the count (T1, T2)", () =>
     for (const count of [0, 6, 15, 40, 400]) {
       const empty = readPurchases(platformInput({ attributed: credited(count), attributed14: count, stats: { rows: [] } }));
       assert.equal(empty.state, "platform_no_purchases", `${count} credited`);
-      assert.deepEqual(empty.platformShare, { purchases: 0, pixelPurchases: 0, share: null, elsewhereHost: null });
+      assert.deepEqual(empty.platformShare, { purchases: 0, pixelPurchases: 0, share: null, elsewhereHost: null, elsewherePurchases: 0 });
       const said = purchaseWhy(empty, false, ONSALE_PHASE);
       assert.ok(said.purchase.startsWith("Purchase campaign not proposed — ") && said.purchaseNarrow.startsWith("No Purchase campaign: "), "never the proposed form");
       assert.doesNotMatch(`${said.purchase} ${said.purchaseNarrow}`, /under 15|attributed/, "nor the under-the-bar form");
@@ -786,7 +786,7 @@ describe("per-event and ticket-platform purchases: the read across a run (HE1, H
     assert.deepEqual([read("locklead").attributedOnPixel!.count, read("locklead").attributedOnPixel!.fromDay, read("locklead").attributedOnPixel!.sinceOnSale], [8, "2026-11-06", true]);
     assert.deepEqual(read("locklead").attributedOnPixel!.total, { fromDay: "2026-11-06", purchases: 8, spend: 40, byCampaign: [{ campaign: "[locklead] On Sale", purchases: 8, spend: 40 }] });
     assert.deepEqual(read("locklead").attributedPurchases, { count: 21, scope: "any_show_on_pixel" }, "C2's figure is still the plain 14 days, labelled any show");
-    assert.deepEqual(read("locklead").platformShare, { purchases: 844, pixelPurchases: 844, share: 1, elsewhereHost: null });
+    assert.deepEqual(read("locklead").platformShare, { purchases: 844, pixelPurchases: 844, share: 1, elsewhereHost: null, elsewherePurchases: 0 });
     assert.equal(said("locklead").purchase, "Purchase campaign not proposed — 8 purchases attributed to these ads since 6 Nov, under 15. The signal is shared: Skiddle sells every show on this pixel.");
     assert.equal(said("locklead").context, "Skiddle took 100 % of this pixel's 844 purchases in 28 days.");
 
