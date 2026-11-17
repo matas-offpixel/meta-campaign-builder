@@ -20,6 +20,9 @@
  *   moved   — it places elsewhere, still clear by 640's samples;
  *   placed  — it places where 640 refused, clear by 640's samples;
  *   same    — the same place (scale, centre, in-point), or both refuse.
+ * And the other way round, safer: 640 px places the caption where the smaller size's samples fail it, and
+ * the smaller size places it elsewhere (it saw a face 640 missed). Each placement is worse, safer, both or
+ * neither, counted on its own.
  * Per frame: faces 640 sees that the size misses (lost), and the other way (added).
  *
  * --backend wasm (default) runs face-api's node-wasm build in this process,
@@ -162,7 +165,7 @@ const tally: Record<number, Record<string, number>> = {};
 const frameTally: Record<number, { frames: number; lost: number; added: number; withFace640: number }> = {};
 const worseCases: string[] = [];
 for (const side of SIZES.slice(1)) {
-  tally[side] = { same: 0, moved: 0, worse: 0, refused: 0, placed: 0 };
+  tally[side] = { same: 0, moved: 0, worse: 0, refused: 0, placed: 0, safer: 0 };
   frameTally[side] = { frames: 0, lost: 0, added: 0, withFace640: 0 };
 }
 
@@ -198,6 +201,7 @@ for (const file of FILES) {
         else outcome = p640.scale === pS.scale && p640.centre === pS.centre && p640.inS === pS.inS ? "same" : "moved";
         tally[side]![outcome]! += 1;
         if (outcome === "worse") worseCases.push(`${side} px · ${id} · ${c.name}`);
+        if (p640.ok && outcome !== "same" && !clearBy(mine, c.lines, p640, inS)) tally[side]!.safer! += 1;
       }
     }
     console.error(`${id}: ${res.frames.length} frames`);
