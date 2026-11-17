@@ -26,7 +26,7 @@
  * imports lib/meta/client.ts, so tests run on fakes.
  */
 
-import { findTestsCampaign, TEST_AD_SET_DAYS, testAdSetEndTime, testsCampaignPayload, TestsCampaignProblem, type CampaignRow } from "../creative-tests/tests-campaign.ts";
+import { findTestsCampaign, TEST_AD_SET_DAYS, testAdSetEndTime, testsAdSetName, testsCampaignPayload, TestsCampaignProblem, type CampaignRow, type TestAdSetKind } from "../creative-tests/tests-campaign.ts";
 import { sanitizeCreativeForStrictMode, type MetaCreativePayload } from "./creative.ts";
 import { withMetaWriteIdempotency, type MetaWriteContext } from "./write-idempotency.ts";
 
@@ -165,7 +165,14 @@ export type CopyTestSpec = {
   eventCode: string;
   /** The show's test campaign, "{code} · Tests" (testsCampaignName). The 17 Nov round used one campaign per test. */
   campaignName: string;
+  /**
+   * The test's key: its run lock and ledger name. For the 17 Nov round it is also the ad
+   * set's name on Meta. A new test's ad set is named at creation by TT10's shared namer
+   * (testsAdSetName: "{code} · Tests · {kind} · {d Mon}", " · 2" for a same-day repeat).
+   */
   adSetName: string;
+  /** TT10's kind for a new test's ad set: "AB copy" or "Artist cards". Required in a "{code} · Tests" campaign. */
+  kind?: Extract<TestAdSetKind, "AB copy" | "Artist cards">;
   adAccountId: string;
   /** The campaign's daily budget, minor units, as ruled. */
   dailyMinor: number;
@@ -185,6 +192,8 @@ export type CopyTestMeta = {
   readMinDailyBudget(adAccountId: string): Promise<number | null>;
   /** The ad account's campaigns whose name contains the event code (id, name, status, budgets), for findTestsCampaign. */
   listCampaigns?(adAccountId: string, eventCode: string): Promise<CampaignRow[]>;
+  /** The campaign's ad set names (any status), for testsAdSetName's same-day repeat. */
+  listAdSetNames?(campaignId: string): Promise<string[]>;
   createCampaign(adAccountId: string, payload: Json): Promise<string>;
   createAdSet(adAccountId: string, payload: Json): Promise<string>;
   /** POST /act_{id}/adimages. Returns the hash. */
@@ -200,7 +209,7 @@ export type CopyTestMeta = {
 };
 
 export type CopyTestRecorders = {
-  adSet(row: { metaAdsetId: string; metaCampaignId: string; source: Json; dailyMinor: number }): Promise<void>;
+  adSet(row: { metaAdsetId: string; metaCampaignId: string; name: string; source: Json; dailyMinor: number }): Promise<void>;
   ad(row: { metaAdId: string; metaCreativeId: string; metaAdsetId: string; metaCampaignId: string; adName: string; creative: Json }): Promise<void>;
   /** Keeps an archived ad's launched_ads row, marked. */
   archivedAd?(row: { metaAdId: string; replacedBy: string }): Promise<void>;
@@ -209,6 +218,8 @@ export type CopyTestRecorders = {
 export type CopyTestResult = {
   campaignId: string;
   adSetId: string;
+  /** The ad set's name as sent to Meta (TT10's for a new test). */
+  adSetName: string;
   endDay: string;
   endTime: string;
   ads: { label: string; adName: string; adId: string; creativeId: string; imageHash?: string }[];
@@ -377,10 +388,16 @@ async function createCopyTestLocked(
     throw new CopyTestStop(`${spec.campaignName} isn't ${spec.eventCode}'s Tests campaign name, so nothing was made`);
   }
 
-  const { day: endDay, endTime } = copyTestEndTime(deps.now ?? new Date());
+  if (!spec.kind) throw new CopyTestStop(`${spec.adSetName} has no TT10 kind ("AB copy" or "Artist cards"), so nothing was made`);
+  if (existing && !meta.listAdSetNames) throw new Error("createCopyTest needs listAdSetNames to name a test in an existing Tests campaign");
+
+  const now = deps.now ?? new Date();
+  const { day: endDay, endTime } = copyTestEndTime(now);
+  // TT10: "{code} · Tests · {kind} · {d Mon}", " · 2" for a same-day repeat in the campaign.
+  const adSetName = testsAdSetName(spec.eventCode, spec.kind, now, existing ? await meta.listAdSetNames!(existing.id) : []);
   // Build every payload before the first write, so a bad source stops the test with nothing made.
   const campaignPayload = testsCampaignPayload(spec.eventCode, { status });
-  copyTestAdSetPayload(source, { campaignId: "0", name: spec.adSetName, endTime, dailyMinor: spec.dailyMinor, status });
+  copyTestAdSetPayload(source, { campaignId: "0", name: adSetName, endTime, dailyMinor: spec.dailyMinor, status });
   for (const ad of spec.ads) {
     const payload = ad.kind === "copy" ? copyTestCreativePayload(creative, { name: ad.adName, message: ad.message }) : copyTestCardPayload(creative, { name: ad.adName, message: ad.message, imageHash: "0" });
     assertPromoterIdentity(spec.eventCode, payload, spec.identities);
@@ -396,9 +413,9 @@ async function createCopyTestLocked(
   // The show's Tests campaign: reused by exact name on the account, else made once (no campaign budget).
   // The ledger keys name the step, not the payload: an ad set or an ad is made once per test, whatever the end time.
   const campaignId = existing?.id ?? (await once("campaign_create", { tests_campaign: campaignPayload.name, ad_account: spec.adAccountId }, () => meta.createCampaign(spec.adAccountId, campaignPayload)));
-  const adSetPayload = copyTestAdSetPayload(source, { campaignId, name: spec.adSetName, endTime, dailyMinor: spec.dailyMinor, status });
+  const adSetPayload = copyTestAdSetPayload(source, { campaignId, name: adSetName, endTime, dailyMinor: spec.dailyMinor, status });
   const adSetId = await once("adset_create", { test: spec.adSetName, source_adset_id: spec.sourceAdSetId }, () => meta.createAdSet(spec.adAccountId, adSetPayload));
-  await record.adSet({ metaAdsetId: adSetId, metaCampaignId: campaignId, source, dailyMinor: spec.dailyMinor });
+  await record.adSet({ metaAdsetId: adSetId, metaCampaignId: campaignId, name: adSetName, source, dailyMinor: spec.dailyMinor });
 
   const ads: CopyTestResult["ads"] = [];
   for (const ad of spec.ads) {
@@ -416,7 +433,7 @@ async function createCopyTestLocked(
     await record.ad({ metaAdId: adId, metaCreativeId: creativeId, metaAdsetId: adSetId, metaCampaignId: campaignId, adName: ad.adName, creative: payload });
     ads.push({ label: ad.label, adName: ad.adName, adId, creativeId, ...(imageHash ? { imageHash } : {}) });
   }
-  return { campaignId, adSetId, endDay, endTime, ads, writes };
+  return { campaignId, adSetId, adSetName, endDay, endTime, ads, writes };
 }
 
 export type RepointResult = {

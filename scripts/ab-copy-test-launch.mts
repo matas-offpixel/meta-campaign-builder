@@ -35,7 +35,9 @@
  * budget, ending 23:59 London 4 days after it starts, created ACTIVE (--paused to
  * create it paused). The TESTS below are the 17 Nov round, one campaign per test; the
  * create path refuses them (their campaign isn't "{code} · Tests") and they stay as
- * built. A new test sets campaignName: testsCampaignName(code) and its own adSetName.
+ * built. A new test sets campaignName: testsCampaignName(code), a stable adSetName key
+ * and kind "AB copy" or "Artist cards"; its ad set is named by TT10's shared namer,
+ * testsAdSetName ("{code} · Tests · AB copy · 24 Nov", " · 2" for a same-day repeat).
  *
  *   npx tsx --env-file=.env.local scripts/ab-copy-test-launch.mts --activate-cards           # dry run
  *   npx tsx --env-file=.env.local scripts/ab-copy-test-launch.mts --activate-cards --apply
@@ -50,7 +52,7 @@ import { writeFileSync } from "node:fs";
 import { createClient } from "@supabase/supabase-js";
 
 import { createDefaultDraft } from "../lib/campaign-defaults.ts";
-import { findTestsCampaign, testsCampaignPayload } from "../lib/creative-tests/tests-campaign.ts";
+import { findTestsCampaign, testsAdSetName, testsCampaignPayload } from "../lib/creative-tests/tests-campaign.ts";
 import { withMetaWriteIdempotency } from "../lib/meta/write-idempotency.ts";
 import { driveFromEnv } from "../lib/drive/client.ts";
 import { recordLaunchedAdSet } from "../lib/launched-ad-sets/record.ts";
@@ -232,6 +234,7 @@ const meta: CopyTestMeta = {
   updateAd: async (id, fields) => {
     await graphPostWithToken(`/${id}`, { creative: fields.creative, name: fields.name }, token);
   },
+  listAdSetNames: async (campaignId) => (await getAll(`/${campaignId}/adsets`, { fields: "name" })).map((row) => String(row.name ?? "")),
   listCampaigns: async (account, eventCode) =>
     (await getAll(`/act_${account}/campaigns`, { fields: "id,name,status,daily_budget,lifetime_budget", filtering: JSON.stringify([{ field: "name", operator: "CONTAIN", value: eventCode }]) })).map((row) => ({
       id: String(row.id),
@@ -363,7 +366,7 @@ function recorders(t: Test, launchRunId: string): CopyTestRecorders {
               metaAdsetId: row.metaAdsetId, metaCampaignId: row.metaCampaignId, adAccountId: t.adAccountId, draftId: t.draftId, userId: OPERATOR_USER_ID,
               clientId: t.clientId, eventId: t.eventId, launchRunId, objective: "purchase", phaseAtLaunch: phaseAtLaunchFromObjective("purchase"), descriptorSource: "launch",
               suggestion: {
-                id: `copy-test-${t.sourceAdSetId}`, name: t.adSetName, sourceType: "custom_group", sourceId: t.sourceAdSetId, sourceName: `copy of ${t.sourceAdSetId}`,
+                id: `copy-test-${t.sourceAdSetId}`, name: row.name, sourceType: "custom_group", sourceId: t.sourceAdSetId, sourceName: `copy of ${t.sourceAdSetId}`,
                 ageMin: Number((row.source.targeting as Record<string, unknown>)?.age_min ?? 18), ageMax: Number((row.source.targeting as Record<string, unknown>)?.age_max ?? 65),
                 budgetPerDay: row.dailyMinor / 100, advantagePlus: ((row.source.targeting as Record<string, Record<string, unknown>>)?.targeting_automation?.advantage_audience ?? 0) === 1, enabled: true,
               } as never,
@@ -527,7 +530,8 @@ for (const t of selected) {
     const { day, endTime } = copyTestEndTime(new Date());
     console.log(`  account minimum: ${minimum}; budget ${t.dailyMinor} ${minimum != null && t.dailyMinor >= minimum ? "ok" : "UNDER THE MINIMUM"}; ends ${endTime} (${day})`);
     console.log("  campaign:", testsCampaign ? `reuses ${testsCampaign.name} ${testsCampaign.id} (${testsCampaign.status})` : JSON.stringify(testsCampaignPayload(t.eventCode, { status: t.status })));
-    console.log("  ad set:", JSON.stringify(copyTestAdSetPayload(source!, { campaignId: testsCampaign?.id ?? "{new Tests campaign}", name: t.adSetName, endTime, dailyMinor: t.dailyMinor, status: t.status })));
+    const adSetName = t.kind ? testsAdSetName(t.eventCode, t.kind, new Date(), testsCampaign ? await meta.listAdSetNames!(testsCampaign.id) : []) : `${t.adSetName} (no TT10 kind: refused)`;
+    console.log("  ad set:", JSON.stringify(copyTestAdSetPayload(source!, { campaignId: testsCampaign?.id ?? "{new Tests campaign}", name: adSetName, endTime, dailyMinor: t.dailyMinor, status: t.status })));
     for (const ad of t.ads) {
       const payload = ad.kind === "copy" ? copyTestCreativePayload(creative!, { name: ad.adName, message: ad.message }) : copyTestCardPayload(creative!, { name: ad.adName, message: ad.message, imageHash: "{hash}" });
       console.log(`  creative ${ad.label}:`, JSON.stringify(payload));

@@ -146,7 +146,7 @@ describe("the creatives: only the primary text changes", () => {
   });
 });
 
-function fakeMeta(over: Partial<CopyTestMeta> = {}, campaigns: { id: string; name: string; status?: string; daily_budget?: string; lifetime_budget?: string }[] = []) {
+function fakeMeta(over: Partial<CopyTestMeta> = {}, campaigns: { id: string; name: string; status?: string; daily_budget?: string; lifetime_budget?: string }[] = [], adSetNames: Record<string, string[]> = {}) {
   const calls: string[] = [];
   let n = 0;
   const meta: CopyTestMeta = {
@@ -154,13 +154,18 @@ function fakeMeta(over: Partial<CopyTestMeta> = {}, campaigns: { id: string; nam
     readCreative: async () => VIDEO_CREATIVE,
     readMinDailyBudget: async () => 76,
     listCampaigns: async () => campaigns,
+    listAdSetNames: async (campaignId) => adSetNames[campaignId] ?? [],
     createCampaign: async (_a, p) => {
       calls.push(`campaign ${p.status} ${"daily_budget" in p || "lifetime_budget" in p ? "with a budget" : "no budget"}`);
       const id = `cmp${++n}`;
       campaigns.push({ id, name: String(p.name), status: String(p.status) });
       return id;
     },
-    createAdSet: async (_a, p) => (calls.push(`adset ${p.status} ${p.campaign_id}`), `set${++n}`),
+    createAdSet: async (_a, p) => {
+      calls.push(`adset ${p.status} ${p.campaign_id}`);
+      (adSetNames[String(p.campaign_id)] ??= []).push(String(p.name));
+      return `set${++n}`;
+    },
     uploadImage: async (_a, img) => (calls.push(`image ${img.fileName}`), `hash${++n}`),
     createCreative: async (_a, p) => (calls.push(`creative ${p.name}`), `cr${++n}`),
     createAd: async (_a, p) => (calls.push(`ad ${p.status} ${p.adset_id}`), `ad${++n}`),
@@ -173,6 +178,7 @@ const SPEC: CopyTestSpec = {
   eventCode: "NX26-DOD",
   campaignName: "NX26-DOD · Tests",
   adSetName: "NX26-DOD · AB copy test",
+  kind: "AB copy",
   adAccountId: "606252931141334",
   dailyMinor: 76,
   sourceAdSetId: "120252309614100755",
@@ -513,6 +519,45 @@ describe("the show's one Tests campaign (Matas, 17 Nov, second set)", () => {
   it("a test named for its own campaign (the 17 Nov shape) is refused", async () => {
     const { meta, calls } = fakeMeta();
     await assert.rejects(createCopyTest(setup().deps(meta), { ...SPEC, campaignName: "NX26-DOD · AB copy test" }), /isn't NX26-DOD's Tests campaign name/);
+    assert.deepEqual(calls, []);
+  });
+});
+
+describe("TT10: a new test's ad set name, from the shared testsAdSetName", () => {
+  it("the first A/B copy test: '{code} · Tests · AB copy · {d Mon}', the London day it's made", async () => {
+    const { meta } = fakeMeta();
+    const out = await createCopyTest(setup().deps(meta), SPEC);
+    assert.equal(out.adSetName, "NX26-DOD · Tests · AB copy · 17 Nov");
+  });
+  it("a same-day repeat in the show's Tests campaign gets ' · 2', then ' · 3'", async () => {
+    const campaigns = [{ id: "tests1", name: "NX26-DOD · Tests" }];
+    const names = { tests1: ["NX26-DOD · Tests · AB copy · 17 Nov", "NX26-DOD · Tests · Video · 17 Nov"] };
+    const { meta } = fakeMeta({}, campaigns, names);
+    const second = await createCopyTest(setup().deps(meta), { ...SPEC, adSetName: "NX26-DOD · AB copy test 2" });
+    assert.equal(second.adSetName, "NX26-DOD · Tests · AB copy · 17 Nov · 2");
+    const third = await createCopyTest(setup().deps(meta), { ...SPEC, adSetName: "NX26-DOD · AB copy test 3" });
+    assert.equal(third.adSetName, "NX26-DOD · Tests · AB copy · 17 Nov · 3");
+  });
+  it("artist cards: '{code} · Tests · Artist cards · {d Mon}'; a different kind on the same day is no repeat", async () => {
+    const campaigns = [{ id: "tests1", name: "EBR26-KREAM · Tests" }];
+    const { meta } = fakeMeta({}, campaigns, { tests1: ["EBR26-KREAM · Tests · AB copy · 24 Nov"] });
+    const cards: CopyTestSpec = { ...SPEC, eventCode: "EBR26-KREAM", campaignName: "EBR26-KREAM · Tests", adSetName: "EBR26-KREAM · cards", kind: "Artist cards" };
+    const out = await createCopyTest({ ...setup().deps(meta), now: new Date("2026-11-24T10:00:00Z") }, cards);
+    assert.equal(out.adSetName, "EBR26-KREAM · Tests · Artist cards · 24 Nov");
+  });
+  it("the name sent to Meta and recorded is TT10's; the test's key stays its own", async () => {
+    const sent: string[] = [];
+    const { meta } = fakeMeta({ createAdSet: async (_a, p) => (sent.push(String(p.name)), "s1") });
+    const recorded: string[] = [];
+    const s = setup();
+    await createCopyTest({ ...s.deps(meta), record: { adSet: async (row) => void recorded.push(row.name), ad: async () => {} } }, SPEC);
+    assert.deepEqual(sent, ["NX26-DOD · Tests · AB copy · 17 Nov"]);
+    assert.deepEqual(recorded, ["NX26-DOD · Tests · AB copy · 17 Nov"]);
+  });
+  it("a test with no TT10 kind is refused with nothing made", async () => {
+    const { meta, calls } = fakeMeta();
+    const noKind: CopyTestSpec = { ...SPEC, kind: undefined };
+    await assert.rejects(createCopyTest(setup().deps(meta), noKind), /has no TT10 kind/);
     assert.deepEqual(calls, []);
   });
 });
