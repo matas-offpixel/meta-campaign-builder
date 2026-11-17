@@ -57,7 +57,16 @@ export interface CustomerAudienceWizardProps {
   clientName: string;
   /** From client.meta_ad_account_id server-side. Empty string = unconfigured. */
   adAccountId: string;
+  /** HR2: the client's upcoming shows, for a list's show (its Retargeting campaign reads the list by role). */
+  shows?: { id: string; label: string }[];
 }
+
+/** HR2 / RT2: a list's role for the show's Retargeting campaign. */
+const LIST_ROLES = [
+  { value: "signups", label: "Signups" },
+  { value: "similar", label: "Similar" },
+  { value: "buyers", label: "Buyers" },
+] as const;
 
 type Step = 0 | 1 | 2 | 3;
 type UploadMode = "create" | "append";
@@ -184,6 +193,7 @@ export function CustomerAudienceWizard({
   clientId,
   clientName,
   adAccountId,
+  shows = [],
 }: CustomerAudienceWizardProps) {
   const backHref = `/clients/${clientId}`;
 
@@ -195,6 +205,9 @@ export function CustomerAudienceWizard({
   const [audienceName, setAudienceName] = useState("");
   const [audienceDescription, setAudienceDescription] = useState("");
   const [retentionDays, setRetentionDays] = useState(180);
+  // HR2: both or neither — a role needs its show.
+  const [listRole, setListRole] = useState<string>("");
+  const [listShow, setListShow] = useState<string>("");
   const [existingAudiences, setExistingAudiences] = useState<ExistingAudience[]>([]);
   const [existingLoading, setExistingLoading] = useState(false);
   const [existingError, setExistingError] = useState<string | null>(null);
@@ -369,6 +382,7 @@ export function CustomerAudienceWizard({
           totalChunks: chunks.length,
           sessionId,
           estimatedTotal: data.length,
+          ...(listRole && listShow ? { listRole, eventId: listShow, clientId } : {}),
         };
 
         const res = await fetch("/api/meta/customer-audience-upload", {
@@ -595,8 +609,44 @@ export function CustomerAudienceWizard({
             )}
           </div>
 
+          <div className="space-y-3 rounded-md border border-border p-3" data-list-role>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <label className="text-xs font-medium text-foreground">Role</label>
+                <select
+                  value={listRole}
+                  onChange={(e) => setListRole(e.target.value)}
+                  className="mt-1 w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                >
+                  <option value="">None</option>
+                  {LIST_ROLES.map((role) => (
+                    <option key={role.value} value={role.value}>
+                      {role.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs font-medium text-foreground">Show</label>
+                <select
+                  value={listShow}
+                  onChange={(e) => setListShow(e.target.value)}
+                  disabled={!listRole}
+                  className="mt-1 w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
+                >
+                  <option value="">—</option>
+                  {shows.map((show) => (
+                    <option key={show.id} value={show.id}>
+                      {show.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          </div>
+
           <div className="flex justify-end">
-            <Button size="sm" onClick={() => setStep(1)} disabled={!step0Valid || !adAccountId}>
+            <Button size="sm" onClick={() => setStep(1)} disabled={!step0Valid || !adAccountId || (Boolean(listRole) && !listShow)}>
               Continue <ChevronRight className="ml-1 h-3.5 w-3.5" />
             </Button>
           </div>

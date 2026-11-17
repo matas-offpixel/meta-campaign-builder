@@ -8,6 +8,7 @@
  * design passes.
  */
 
+import { RETARGETING_SHOTS } from "./retargeting-shots.mjs";
 import { TEST_PLAN_SHOTS } from "./test-plan-shots.mjs";
 
 export const EVENT_CONFIG_FRAME_IDS = ["EC1", "EC2", "EC3", "EC4", "EC5", "EC6", "EC7"];
@@ -25,4 +26,6 @@ export const EVENT_CONFIG_SHOTS = [
   ),
   // Creative testing's Test plan shots (TF-A, TF-B, TT-D, TF-C), listed here while run.mjs sits in open PRs.
   ...TEST_PLAN_SHOTS,
+  // The Retargeting campaign's PR A shots (RB, RD at 1280 and 393).
+  ...RETARGETING_SHOTS,
 ];
