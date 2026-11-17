@@ -9,7 +9,7 @@ import type { SalesPeriod, SalesSurface } from "@/lib/dashboard/sales-vs-spend";
 export const DASHBOARD_V2_FRAME_IDS = [
   "DV1", "DV2", "DV3", "NV1", "NV2", "NV5", "NV6", "MBO", "MBS",
   "MBF375", "MBF390", "MBF430", "MBM", "MBA", "MBC", "MBH1", "MBH2", "MB14",
-  "NC1", "NC1S",
+  "NC1", "NC1S", "BR1", "BR1S",
 ] as const;
 
 export type DashboardV2FrameId = (typeof DASHBOARD_V2_FRAME_IDS)[number];
@@ -26,8 +26,9 @@ export const DASHBOARD_V2_FRAMES: Record<
     /**
      * "live": the live-like rows through the calc; "live-mixed": the same with mixed count days (the longest sentence);
      * "no-counts": the same with Electric Studios' one show (L.P Rhythm) not counted yet.
+     * "ironworks": Ironworks with its brand campaign (PH6), prod rows, today fixed at 25 Oct.
      */
-    fixture?: "live" | "live-mixed" | "no-counts";
+    fixture?: "live" | "live-mixed" | "no-counts" | "ironworks";
     /** The first-screen line: the record's budget for this width (MB2). */
     fold?: { width: number; height: number };
     moreOpen?: boolean;
@@ -66,4 +67,10 @@ export const DASHBOARD_V2_FRAMES: Record<
   /** NC1 / NC1S at 1280 and 393: a venue with no Internal Counts (countDay null, 0 of 1 shows counted), Since launch. */
   NC1: { surface: "internal", showId: "venue:electric studios", period: "launch", fixture: "no-counts", venueKey: "electric studios" },
   NC1S: { surface: "share", showId: "venue:electric studios", period: "launch", fixture: "no-counts", venueKey: "electric studios" },
+  /**
+   * BR1 / BR1S at 1280 and 393 (PH6): the client's view with a brand campaign in its total, internal and share,
+   * Since launch, with the spend breakdown pinned open. Reads "includes brand campaigns (£22,553)".
+   */
+  BR1: { surface: "internal", showId: "venue:ironworks", period: "launch", fixture: "ironworks", pinSpend: true },
+  BR1S: { surface: "share", showId: "venue:ironworks", period: "launch", fixture: "ironworks", pinSpend: true },
 };

@@ -19,6 +19,7 @@ import {
   type SalesTotal,
 } from "./sales-vs-spend.ts";
 import { buildSalesDashboard } from "./sales-calc/model.ts";
+import { IRONWORKS_INPUT } from "./sales-ironworks-input.ts";
 import { LIVE_LIKE_INPUT, LIVE_LIKE_MIXED_INPUT, NO_COUNTS_VENUE_INPUT } from "./sales-live-like-input.ts";
 
 const ESTIMATE = "Estimated between counts on 5 Nov and 12 Nov";
@@ -649,3 +650,6 @@ export const NX_SALES_LIVE_LIKE_MIXED: SalesDashboardModel = buildSalesDashboard
 
 /** NC1 / NC1S: Electric Studios with no Internal Counts (L.P Rhythm, 0 of 1 shows counted); the rest is the live-like rows. */
 export const NX_SALES_NO_COUNTS: SalesDashboardModel = buildSalesDashboard(NO_COUNTS_VENUE_INPUT).model;
+
+/** BR1 / BR1S (PH6): Ironworks with its brand campaign, prod rows, today 25 Oct (lib/dashboard/sales-ironworks-input.ts). */
+export const IRONWORKS_SALES: SalesDashboardModel = buildSalesDashboard(IRONWORKS_INPUT).model;

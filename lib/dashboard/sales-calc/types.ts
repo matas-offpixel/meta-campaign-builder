@@ -133,11 +133,27 @@ export interface LiftEntry {
   computedAt: string;
 }
 
+/**
+ * PH6 (record 2026-11-15-dashboard-v2-presale-creatives-budget): an undated
+ * brand campaign (events.kind = 'brand_campaign', no event_date). No show
+ * owns it, so it never has counts, signups or a chip. Its spend counts at
+ * client level only.
+ */
+export interface BrandCampaignInput {
+  eventId: string;
+  code: string;
+  name: string;
+  /** events.meta_campaign_id, split. A show's link to the same id wins (shows come first). */
+  linkedCampaignIds: string[];
+}
+
 export interface SalesCalcInput {
   client: { id: string; name: string };
   /** London today. Nothing on or after it is read: spend runs to yesterday. */
   today: string;
   shows: ShowInput[];
+  /** PH6: undated brand campaigns. Absent or empty → the client total is the shows' alone, as before. */
+  brandCampaigns?: BrandCampaignInput[];
   metaCampaignDays: MetaCampaignDay[];
   googleCampaignDays: GoogleCampaignDay[];
   rollups: RollupDay[];
