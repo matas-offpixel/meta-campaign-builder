@@ -63,12 +63,17 @@ export function sampleTimes(durationS: number, scheme: SamplingScheme, seed: num
   return out;
 }
 
-/** Times snapped to the source's frames (what ffmpeg can pick), duplicates dropped. */
-export function snapToFrames(times: readonly number[], sourceFps: number): { frame: number; t: number }[] {
+/**
+ * Times snapped to the source's frames (what ffmpeg can pick), duplicates dropped. With the window's length,
+ * a time in the final half-frame is clamped to the last frame, ceil(D·fps) − 1: rounding it up asks for a frame
+ * that doesn't exist (review of 7d4cca1).
+ */
+export function snapToFrames(times: readonly number[], sourceFps: number, durationS?: number): { frame: number; t: number }[] {
+  const last = durationS != null && durationS > 0 ? Math.max(0, Math.ceil(durationS * sourceFps - 1e-9) - 1) : Number.POSITIVE_INFINITY;
   const seen = new Set<number>();
   const out: { frame: number; t: number }[] = [];
   for (const t of times) {
-    const frame = Math.round(t * sourceFps);
+    const frame = Math.min(last, Math.max(0, Math.round(t * sourceFps)));
     if (seen.has(frame)) continue;
     seen.add(frame);
     out.push({ frame, t: frame / sourceFps });

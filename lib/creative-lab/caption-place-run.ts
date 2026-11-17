@@ -33,6 +33,7 @@ const run = promisify(execFile);
 export const FACE_FRAME_SIDE = 640;
 export { FACE_DETECTOR } from "./caption-placement.ts";
 import { FACE_CHECK_BUDGET_MS, FACE_CHECK_TIMED_OUT, FACE_DETECTOR, FACE_SAMPLE_FPS, FACE_SAMPLING } from "./caption-placement.ts";
+import { extractFaceFrames } from "./face-frames.ts";
 import { faceSampleSeed, sampleTimes, snapToFrames } from "./face-sampling.ts";
 
 async function ffmpegPath(): Promise<string> {
@@ -71,44 +72,37 @@ export async function detectClipFaces(args: {
   deadline?: number;
 }): Promise<{ t: number; faces: StoredFaceRect[] }[]> {
   const { detectFaces } = await import("./face-detect.ts");
-  // The scheme's times as source frames counted from inS (ffmpeg's n after the seek). Each sample keeps its real time.
-  const picks = snapToFrames(args.times, args.sourceFps);
+  // The scheme's times as source frames counted from inS (ffmpeg's n after the seek), clamped to the window's last frame.
+  const picks = snapToFrames(args.times, args.sourceFps, Math.max(0, args.outS - args.inS));
   if (!picks.length) return [];
-  const select = picks.map((p) => `eq(n,${p.frame})`).join("+");
   const dir = await mkdtemp(join(tmpdir(), "caption-place-"));
   try {
-    const ffmpeg = await ffmpegPath();
-    await run(ffmpeg, [
-      "-y", "-v", "error",
-      "-ss", String(args.inS),
-      "-t", String(Math.max(0, args.outS - args.inS)),
-      "-i", args.url,
-      // Frames at most FACE_FRAME_SIDE on the long side: the detector resizes to that anyway, and full-size 4K
-      // PNGs cost ~21 s a frame to write, decode and re-encode (review of #1311) against ~3.5 s at 1080.
-      "-vf", `select='${select}',scale=${FACE_FRAME_SIDE}:${FACE_FRAME_SIDE}:force_original_aspect_ratio=decrease`,
-      "-fps_mode", "passthrough",
-      join(dir, "s%04d.png"),
-    ], {
-      maxBuffer: 4 * 1024 * 1024,
+    // Each frame keeps the time ffmpeg reports for it; a short count (a variable-frame-rate clip) is kept, not an error.
+    const frames = await extractFaceFrames({
+      ffmpeg: await ffmpegPath(),
+      url: args.url,
+      inS: args.inS,
+      outS: args.outS,
+      frames: picks.map((p) => p.frame),
+      dir,
+      side: FACE_FRAME_SIDE,
       // A stalled extract over the signed URL stops inside the budget, not at the function's kill.
-      timeout: Math.max(1_000, (args.deadline ?? Date.now() + FACE_CHECK_BUDGET_MS) - Date.now()),
+      timeoutMs: (args.deadline ?? Date.now() + FACE_CHECK_BUDGET_MS) - Date.now(),
     });
-    const frames = (await readdir(dir)).filter((name) => name.endsWith(".png")).sort();
     const crop = cropWindow(args.sourceWidth, args.sourceHeight, args.cropFocusX);
     const k = 1080 / crop.width;
     const faces: { t: number; faces: StoredFaceRect[] }[] = [];
-    if (frames.length !== picks.length) throw new Error(`face check: ffmpeg gave ${frames.length} of ${picks.length} frames`);
-    for (const [index, name] of frames.entries()) {
+    for (const frame of frames) {
       if (args.deadline != null && Date.now() > args.deadline) {
         throw new Error(`${FACE_CHECK_TIMED_OUT} (${faces.length} of ${frames.length} frames in ${Math.round(FACE_CHECK_BUDGET_MS / 1000)} s)`);
       }
-      const bytes = await readFile(join(dir, name));
+      const bytes = await readFile(join(dir, frame.file));
       // Boxes come back in the scaled frame's pixels: back to the source's before the crop transform.
       const frameWidth = (await sharp(bytes).metadata()).width ?? args.sourceWidth;
       const toSource = args.sourceWidth / frameWidth;
       const found = await detectFaces(bytes, { minConfidence: 0.3 });
       faces.push({
-        t: picks[index]!.t,
+        t: frame.t,
         faces: found.map((box) => ({
           left: (box.x * toSource - crop.left) * k,
           top: (box.y * toSource - crop.top) * k,
