@@ -13,8 +13,8 @@
  *     (RT3, revised 17 Nov).
  * RD: RA's show (XMPL-WHSE) on the on-sale panel: its Registrations
  *     lookalike standing default, and the one note in place of the
- *     per-campaign Retargeting default (RT9). Under it, the not-proposed
- *     states, one per show.
+ *     per-campaign Retargeting default (RT9). Under it, the eight
+ *     not-proposed states, one per show.
  *
  * Show names are the record's XMPL shows and Mira Vale; the figures are
  * the record's invented ones. No fan or staff data.
@@ -162,5 +162,9 @@ export function rdStates(): RetargetingView[] {
     planRetargeting(input({ eventCode: "XMPL-UNIV", read: read({ state: "pixel_sells_elsewhere", platformShare: { purchases: 133, pixelPurchases: 512, share: 133 / 512, elsewhereHost: "universe.com", elsewherePurchases: 379 } }) })).view,
     planRetargeting(input({ eventCode: "XMPL-READ", read: read({ state: "not_read", notRead: "rate limited" }) })).view,
     planRetargeting(input({ eventCode: "XMPL-QUIET", last7SpendGbp: 0 })).view,
+    // #1299 6ec5353: three more shows that can't take the campaign.
+    planRetargeting(input({ eventCode: "XMPL-OWN", read: read({ state: "nothing_reaches", domain: "xmpl-roof.com", domainKind: "own", platform: null, platformShare: null, onDomain: { d14: 0, d28: 0, history: 0 }, pixelWide: { d14: 40, d28: 90, history: 90, topHost: "skiddle.com" } }) })).view,
+    planRetargeting(input({ eventCode: "XMPL-NONE", read: read({ state: "platform_no_purchases", platformShare: { purchases: 0, pixelPurchases: 0, share: null, elsewhereHost: null, elsewherePurchases: 0 } }) })).view,
+    planRetargeting(input({ eventCode: "XMPL-NOURL", read: read({ state: "no_url", platform: null, platformShare: null, domainKind: "no_url" }) })).view,
   ];
 }

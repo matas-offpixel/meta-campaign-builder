@@ -41,6 +41,9 @@ import {
   MID_NOT_BUILT,
   NO_FIGURE,
   NO_PIXEL,
+  NO_PIXEL_PURCHASES,
+  NO_PAGE_OR_TICKET,
+  nothingReaches,
   NO_SIGNUP_LIST,
   NO_SPEND,
   NO_BUYERS_LIST,
@@ -61,9 +64,8 @@ import {
   type Tier,
 } from "./words.ts";
 
-export type RetargetingState = "before_onsale" | "no_pixel" | "sells_elsewhere" | "not_read" | "no_signal" | "no_spend" | "proposed" | "running";
+export type RetargetingState = "before_onsale" | "no_pixel" | "sells_elsewhere" | "nothing_reaches" | "no_purchases" | "no_url" | "not_read" | "no_signal" | "no_spend" | "proposed" | "running";
 
-/** An RT8 line: the sentence (and its 393 form) with its actions. */
 /** An RT8 action opens the client page's customer-audience wizard with this role and this show chosen. */
 export type MissingLine = { text: string; narrow: string; actions: { label: string; role: "signups" | "buyers" }[] };
 
@@ -203,12 +205,19 @@ const PLATFORM_STATES = new Set<PurchaseRead["state"]>(["platform_proposed", "pl
 const OWN_STATES = new Set<PurchaseRead["state"]>(["proposed", "under_bar"]);
 
 /** RT1's signal: the own domain with a purchase in 28 days, else the platform path past T2's guard. */
-export function signalPath(read: PurchaseRead): "own_domain" | "platform" | "sells_elsewhere" | null {
+export function signalPath(read: PurchaseRead): "own_domain" | "platform" | "sells_elsewhere" | "nothing_reaches" | "no_purchases" | "no_url" | null {
   if (OWN_STATES.has(read.state) && read.domain && (read.onDomain?.d28 ?? 0) > 0) return "own_domain";
   if (PLATFORM_STATES.has(read.state)) return "platform";
   if (read.state === "pixel_sells_elsewhere") return "sells_elsewhere";
+  // RT8 / RT9 (#1299 6ec5353): three more shows that can't take the campaign.
+  if (read.state === "no_url") return "no_url";
+  if (read.state === "platform_no_purchases" || (read.state === "under_bar" && read.pixelWide != null && read.pixelWide.history === 0)) return "no_purchases";
+  if (read.domain && !read.platform && (read.state === "nothing_reaches" || OWN_STATES.has(read.state))) return "nothing_reaches";
   return null;
 }
+
+/** The not-proposed paths: none takes the campaign, so the refresh's per-campaign default stays (RT9). */
+const CANT_TAKE = new Set(["sells_elsewhere", "nothing_reaches", "no_purchases", "no_url"] as const);
 
 const NO_ADS = "No ad is live in the show's on-sale campaigns, so there's nothing to reuse.";
 const NOT_OURS = "Not one of this event's drafts on this account, so nothing is written to this campaign.";
@@ -285,7 +294,7 @@ export function retargetingState(input: { onSaleDay: string | null; runDay: stri
   if (!read || read.state === "not_read") return { state: "not_read", takes: true };
   if (read.state === "no_pixel" || !read.pixel) return { state: "no_pixel", takes: false };
   const path = signalPath(read);
-  if (path === "sells_elsewhere") return { state: "sells_elsewhere", takes: false };
+  if (path && (CANT_TAKE as Set<string>).has(path)) return { state: path as RetargetingState, takes: false };
   if (!path || !input.eventDate) return { state: "no_signal", takes: Boolean(input.storedLine) };
   if (!(currentDailyMinor(input.last7SpendGbp) > 0)) return { state: "no_spend", takes: true };
   return { state: "proposed", takes: true };
@@ -331,8 +340,12 @@ export function planRetargeting(input: RetargetingInput): RetargetingPlan {
     const pct = pixelPurchases > 0 ? Math.round(((share?.elsewherePurchases ?? elsewhere) / pixelPurchases) * 100) : 0;
     return none("sells_elsewhere", sellsElsewhere({ host, pct, purchases: pixelPurchases, platform: read.platform ?? "the ticket site" }), false);
   }
-  // Record silent (no own-domain purchase in 28 days and no platform path): not proposed, and the refresh's default stands.
-  if (!path || !input.eventDate) return none("no_signal", null, false);
+  if (path === "nothing_reaches") return none("nothing_reaches", nothingReaches(read.domain ?? "the show's domain"), false);
+  if (path === "no_purchases") return none("no_purchases", NO_PIXEL_PURCHASES, false);
+  if (path === "no_url") return none("no_url", NO_PAGE_OR_TICKET, false);
+  // Still silent in the record (a shared domain, no domain of its own, no ticket link stored): not proposed, and the refresh's default stands.
+  if (path !== "own_domain" && path !== "platform") return none("no_signal", null, false);
+  if (!input.eventDate) return none("no_signal", null, false);
   const daily = currentDailyMinor(input.last7SpendGbp);
   if (!(daily > 0)) return none("no_spend", NO_SPEND, true);
 

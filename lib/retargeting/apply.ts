@@ -38,6 +38,7 @@ import { campaignFloor, floorBracket } from "../onsale-refresh/purchase-campaign
 import { tierAudienceName, tierSpecs, type TierAudience } from "./audiences.ts";
 import { daysToShow, isShare, RT4, type Share } from "./budget.ts";
 import type { RetargetingBuild } from "./plan.ts";
+import { dayMonth } from "../onsale-refresh/schedule.ts";
 import { pence, pounds, tierAdSetName, type Tier } from "./words.ts";
 
 type Db = Pick<SupabaseClient, "from">;
@@ -47,7 +48,7 @@ export type RetargetingMeta = Pick<PurchaseMeta, "readCampaignBudget" | "readAd"
   readAdSetTargeting(adsetId: string): Promise<Record<string, unknown> | null>;
   /** An audience's state on Meta (operation_status). */
   audienceState(audienceId: string): Promise<"ready" | "building" | "too_small">;
-  /** Every video of the show's ads, by the page it ran from (the audience builder's campaign walk). */
+  /** Every video of the show's ads, grouped by the page each one ran from; a video with no page is left out (RT2). */
   listShowVideos(adAccountId: string, campaignIds: string[]): Promise<{ contextId: string; videoIds: string[] }[]>;
 };
 
@@ -169,9 +170,9 @@ export function failedBeforeLive(reason: string, progress: RetargetingProgress):
   return what ? `${said}. Created paused: ${what}.` : `${said}.`;
 }
 
-/** Applied ("Applied · " is the panel's). */
-export function appliedText(args: { tiers: number; ads: number; totalMinor: number; share: number; endDay: string }): string {
-  return `live · ${args.tiers} tier${args.tiers === 1 ? "" : "s"} · ${args.ads} ad${args.ads === 1 ? "" : "s"} · ${pence(args.totalMinor, { minor: true })} a day (${args.share} %) to the show`;
+/** RT1 (#1299 6ec5353): "live · {n} tiers · {m} ads · £{total} a day to {d Mon}" ("Applied · " is the panel's). */
+export function appliedText(args: { tiers: number; ads: number; totalMinor: number; endDay: string }): string {
+  return `live · ${args.tiers} tier${args.tiers === 1 ? "" : "s"} · ${args.ads} ad${args.ads === 1 ? "" : "s"} · ${pence(args.totalMinor, { minor: true })} a day to ${dayMonth(args.endDay)}`;
 }
 
 const round2 = (value: number) => Math.round(value * 100) / 100;
@@ -336,7 +337,7 @@ export async function applyRetargetingCampaign(deps: RetargetingDeps, line: Reta
     return { state: "failed", reason: `built and paused, not switched on: ${ctx.plainMetaReason(err)}. Retry switches it on.`, result: { retargeting: progress, error: err instanceof Error ? err.message : String(err), step: "switch_on" } };
   }
   progress.active = true;
-  return { state: "applied", reason: appliedText({ tiers: Object.keys(progress.adSets ?? {}).length, ads: build.ads?.length ?? 0, totalMinor: budgets.totalMinor, share, endDay: build.endDay }), result: { retargeting: progress } };
+  return { state: "applied", reason: appliedText({ tiers: Object.keys(progress.adSets ?? {}).length, ads: build.ads?.length ?? 0, totalMinor: budgets.totalMinor, endDay: build.endDay }), result: { retargeting: progress } };
 }
 
 /** HR3: each tier ad set is recorded like a launch (launched_ad_sets), so the learning loop joins its ads to the show. Never throws. */

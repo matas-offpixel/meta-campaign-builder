@@ -639,7 +639,7 @@ export function CustomerAudienceWizard({
                   disabled={!listRole}
                   className="mt-1 w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
                 >
-                  <option value="">—</option>
+                  <option value="">Choose a show</option>
                   {shows.map((show) => (
                     <option key={show.id} value={show.id}>
                       {show.label}

@@ -13,7 +13,7 @@ import { memoryDb } from "../../onsale-refresh/__tests__/memory-db.ts";
 import { writeGateOpen } from "../../onsale-refresh/line-states.ts";
 import { purchaseCampaignInput } from "../../onsale-refresh/purchase-campaign.ts";
 import { applyRetargetingCampaign, locationOf, RT_AUDIENCES_OFF, RT_CREATE_OFF, TIER_ATTRIBUTION, type RetargetingMeta } from "../apply.ts";
-import { tierAudienceName } from "../audiences.ts";
+import { groupVideosByPage, tierAudienceName } from "../audiences.ts";
 import { listRowPayload } from "../list-row.ts";
 import { planRetargeting } from "../plan.ts";
 
@@ -156,7 +156,7 @@ describe("RT1 / HR3: the steps, in order", () => {
     const { mem, deps, ctx, made } = setup();
     const out = await applyRetargetingCampaign(deps(fake.meta), buildLine(), ctx);
     assert.equal(out.state, "applied");
-    assert.equal(out.reason, "live · 3 tiers · 1 ad · £5.80 a day (10 %) to the show");
+    assert.equal(out.reason, "live · 3 tiers · 1 ad · £5.80 a day to 18 Dec");
     const order = fake.writes().map(([name]) => name);
     assert.deepEqual(order, ["createCampaign", "createAdSet", "createAdSet", "createAdSet", "createAd", "createAd", "createAd", "setAdSetActive", "setAdSetActive", "setAdSetActive", "updateCampaign"]);
     // The campaign: Sales, paused, budgets on the ad sets.
@@ -221,6 +221,10 @@ describe("RT1 / HR3: the steps, in order", () => {
     assert.equal(fake.calls.filter(([name]) => name === "createAdSet").length, 3);
     assert.equal(made.length, 7);
     assert.equal(mem.tables.launched_ad_sets!.length, 3);
+  });
+
+  it("RT2: one video audience per page the videos ran from; a video with no page is left out", () => {
+    assert.deepEqual(groupVideosByPage([{ id: "v1", pageId: "p2" }, { id: "v2", pageId: "p1" }, { id: "v3", pageId: "p2" }, { id: "v4" }]), [{ contextId: "p1", videoIds: ["v2"] }, { contextId: "p2", videoIds: ["v1", "v3"] }]);
   });
 
   it("the location copied is the on-sale ad set's, nothing else of its targeting", () => {

@@ -4,9 +4,10 @@
  *
  * | Tier       | Includes                                                         | Leaves out                     |
  * |------------|------------------------------------------------------------------|--------------------------------|
- * | Bottom     | ticket-link visitors and checkout starters, 30 days · signup and | buyers                         |
- * |            | similar lists                                                    |                                |
- * | Mid Bottom | page visitors and checkout starters, 60 days                     | every Bottom include · buyers  |
+ * | Bottom     | ticket-link visitors and checkout starters, 30 days · signup     | buyers                         |
+ * |            | lists                                                            |                                |
+ * | Mid Bottom | page visitors and checkout starters, 60 days · similar lists     | every Bottom include · buyers  |
+ * |            | (Matas, 17 Nov)                                                  |                                |
  * | Mid        | video viewers 75 %, 365 days (every video of the show's ads) ·   | every Mid Bottom and Bottom    |
  * |            | FB page and IG account engagers, 180 days (promoter, event or    | include · buyers               |
  * |            | venue, each lineup act; pages with a role only)                  |                                |
@@ -17,7 +18,7 @@
  * so the sets are chunked here and each chunk is one audience. Exclusions
  * are the hotter tiers' include ids plus buyers (excluded_custom_audiences).
  *
- * Signup lists go in Bottom only until Matas rules on Mid Bottom (RT2, open).
+ * Signup lists go in Bottom only; Similar lists go in Mid Bottom (Matas, 17 Nov), so Mid leaves them out with the rest of Mid Bottom.
  * Pure: no database, no Meta.
  */
 
@@ -116,9 +117,10 @@ export function tierSpecs(set: SourceSet): TierSpec[] {
     if (set.pageUrl) midBottom.push({ key: `mid_bottom:page:${RT2.midBottomDays}`, kind: "pixel_url", pixelId: set.pixelId, urlContains: [set.pageUrl], retentionDays: RT2.midBottomDays });
     midBottom.push({ key: `mid_bottom:checkout:${RT2.midBottomDays}`, kind: "pixel_event", pixelId: set.pixelId, pixelEvent: "InitiateCheckout", retentionDays: RT2.midBottomDays });
   }
-  // Lists: signups and similar in Bottom only (the colder tiers leave them out with the rest of Bottom); buyers left out everywhere.
+  // Lists: Signups in Bottom, Similar in Mid Bottom (Matas, 17 Nov); each colder tier leaves them out with the rest of the hotter tier. Buyers are left out everywhere.
   for (const list of set.lists) {
-    if (list.role === "signups" || list.role === "similar") bottom.push({ key: `list:${list.metaAudienceId}`, kind: "list", metaAudienceId: list.metaAudienceId, role: list.role });
+    if (list.role === "signups") bottom.push({ key: `list:${list.metaAudienceId}`, kind: "list", metaAudienceId: list.metaAudienceId, role: list.role });
+    if (list.role === "similar") midBottom.push({ key: `list:${list.metaAudienceId}`, kind: "list", metaAudienceId: list.metaAudienceId, role: list.role });
   }
   const buyers: TierAudience[] = set.lists.filter((list) => list.role === "buyers").map((list) => ({ key: `list:${list.metaAudienceId}`, kind: "list", metaAudienceId: list.metaAudienceId, role: "buyers" }));
   for (const group of set.videos) {
@@ -177,4 +179,16 @@ export function retargetingAudienceDraft(aud: Exclude<TierAudience, { kind: "lis
   if (aud.kind === "video") return { subtype: "video_views", retentionDays: aud.retentionDays, sourceId: aud.videoIds.join(","), sourceMeta: { subtype: "video_views", threshold: aud.threshold, videoIds: aud.videoIds, contextId: aud.contextId } };
   if (aud.kind === "page_fb") return { subtype: "page_engagement_fb", retentionDays: aud.retentionDays, sourceId: aud.pageIds.join(","), sourceMeta: { subtype: "page_engagement_fb", pageIds: aud.pageIds } };
   return { subtype: "page_engagement_ig", retentionDays: aud.retentionDays, sourceId: aud.pageIds.join(","), sourceMeta: { subtype: "page_engagement_ig", pageIds: aud.pageIds } };
+}
+
+/** RT2 (#1299 6ec5353): videos grouped by the page each one ran from, one audience per page; a video with no page is left out. */
+export function groupVideosByPage(videos: readonly { id: string; pageId?: string | null }[]): { contextId: string; videoIds: string[] }[] {
+  const byPage = new Map<string, string[]>();
+  for (const video of videos) {
+    if (!video.pageId) continue;
+    const list = byPage.get(video.pageId) ?? [];
+    if (!list.includes(video.id)) list.push(video.id);
+    byPage.set(video.pageId, list);
+  }
+  return [...byPage].sort((a, b) => a[0].localeCompare(b[0])).map(([contextId, videoIds]) => ({ contextId, videoIds }));
 }

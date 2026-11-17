@@ -99,9 +99,10 @@ describe("RT2: the tiers and their audiences", () => {
     const bottom = specs.find((spec) => spec.tier === "bottom")!;
     const midBottom = specs.find((spec) => spec.tier === "mid_bottom")!;
     const mid = specs.find((spec) => spec.tier === "mid")!;
-    assert.deepEqual(bottom.includes.map((aud) => aud.key), ["bottom:ticket:30", "bottom:checkout:30", "list:sig", "list:sim"]);
+    assert.deepEqual(bottom.includes.map((aud) => aud.key), ["bottom:ticket:30", "bottom:checkout:30", "list:sig"]);
     assert.deepEqual(bottom.excludes.map((aud) => aud.key), ["list:buy"]);
-    assert.deepEqual(midBottom.includes.map((aud) => aud.key), ["mid_bottom:page:60", "mid_bottom:checkout:60"]);
+    // Similar lists sit in Mid Bottom (Matas, 17 Nov); Mid leaves them out with the rest of Mid Bottom.
+    assert.deepEqual(midBottom.includes.map((aud) => aud.key), ["mid_bottom:page:60", "mid_bottom:checkout:60", "list:sim"]);
     assert.deepEqual(midBottom.excludes.map((aud) => aud.key), [...bottom.includes.map((aud) => aud.key), "list:buy"]);
     assert.deepEqual(mid.includes.map((aud) => aud.key), ["mid:video:page1:1", "mid:fb:1", "mid:ig:1"]);
     assert.deepEqual(mid.excludes.map((aud) => aud.key), [...midBottom.includes.map((aud) => aud.key), ...bottom.includes.map((aud) => aud.key), "list:buy"]);
@@ -120,11 +121,36 @@ describe("RT2: the tiers and their audiences", () => {
     }
   });
 
-  it("buyers are left out of every tier; signup and similar lists sit in Bottom only (RT2, open for Mid Bottom)", () => {
+  it("every list role: Signups in Bottom only, Similar in Mid Bottom only, Buyers in no tier and left out of all three", () => {
     const specs = tierSpecs(SET);
-    for (const spec of specs) assert.ok(spec.excludes.some((aud) => aud.key === "list:buy"), spec.tier);
+    const where = (key: string) => specs.filter((spec) => spec.includes.some((aud) => aud.key === key)).map((spec) => spec.tier);
+    const leftOut = (key: string) => specs.filter((spec) => spec.excludes.some((aud) => aud.key === key)).map((spec) => spec.tier);
+    assert.deepEqual([where("list:sig"), leftOut("list:sig")], [["bottom"], ["mid_bottom", "mid"]]);
+    assert.deepEqual([where("list:sim"), leftOut("list:sim")], [["mid_bottom"], ["mid"]]);
+    assert.deepEqual([where("list:buy"), leftOut("list:buy")], [[], ["bottom", "mid_bottom", "mid"]]);
+    // No audience source sits in two tiers' includes.
+    const included = specs.flatMap((spec) => spec.includes.map((aud) => aud.key));
+    assert.equal(new Set(included).size, included.length);
     assert.deepEqual(tiersMatching(specs, new Set(["list:sig", "mid_bottom:page:60"])), ["bottom"]);
+    assert.deepEqual(tiersMatching(specs, new Set(["list:sim", "mid:fb:1"])), ["mid_bottom"]);
     assert.deepEqual(tiersMatching(specs, new Set(["list:buy", "bottom:ticket:30"])), []);
+  });
+
+  it("no person in two tiers for each list role alone, and for several lists of every role", () => {
+    const base = { ...SET, lists: [] };
+    const sets: SourceSet[] = [
+      ...(["signups", "similar", "buyers"] as const).map((role) => ({ ...base, lists: [{ metaAudienceId: role, name: role, role, uploadedAt: "2026-11-10T09:00:00Z" }] })),
+      { ...base, lists: (["signups", "similar", "buyers"] as const).flatMap((role) => [1, 2].map((n) => ({ metaAudienceId: `${role}${n}`, name: role, role, uploadedAt: "2026-11-10T09:00:00Z" }))) },
+    ];
+    for (const set of sets) {
+      const specs = tierSpecs(set);
+      const keys = [...new Set(specs.flatMap((spec) => [...spec.includes, ...spec.excludes].map((aud) => aud.key)))];
+      assert.ok(keys.length <= 14, "small enough to walk every membership");
+      for (let mask = 0; mask < 1 << keys.length; mask += 1) {
+        const member = new Set(keys.filter((_, index) => mask & (1 << index)));
+        assert.ok(tiersMatching(specs, member).length <= 1, `in two tiers: ${[...member].join(", ")}`);
+      }
+    }
   });
 
   it("more than 5 pages are chunked into sibling audiences, 200 videos to an audience", () => {
@@ -166,7 +192,7 @@ describe("RT1 / RT8: the states and the Create line", () => {
     assert.equal(view.state, "proposed");
   });
 
-  it("RD 393: the not-proposed states, each replacing the Create line, in the record's words", () => {
+  it("RD 393: the eight not-proposed states, each replacing the Create line, in the record's words", () => {
     assert.deepEqual(
       rdStates().map((view) => [view.state, view.notProposed, view.create]),
       [
@@ -175,6 +201,9 @@ describe("RT1 / RT8: the states and the Create line", () => {
         ["sells_elsewhere", "No Retargeting campaign: this pixel mostly sells on universe.com (74 % of 512 purchases in 28 days), not on Skiddle.", null],
         ["not_read", "Retargeting not proposed: purchases couldn't be read this run. The next run tries again.", null],
         ["no_spend", "No spend in the last 7 days to size a budget from.", null],
+        ["nothing_reaches", "No Retargeting campaign: no purchase has reached xmpl-roof.com in 28 days, and the ticket link isn't on a ticket platform.", null],
+        ["no_purchases", "No Retargeting campaign: this pixel has had no purchases in 28 days.", null],
+        ["no_url", "No Retargeting campaign: this show has no page or ticket link to read purchases from.", null],
       ],
     );
   });
@@ -190,7 +219,9 @@ describe("RT1 / RT8: the states and the Create line", () => {
   it("RT1's signal: own domain with a purchase in 28 days, else the platform path past T2's guard", () => {
     const base = { domain: "show.example", onDomain: { d14: 0, d28: 1, history: 3 } } as never;
     assert.equal(signalPath({ ...(base as object), state: "under_bar" } as never), "own_domain");
-    assert.equal(signalPath({ ...(base as object), state: "under_bar", onDomain: { d14: 0, d28: 0, history: 3 } } as never), null);
+    // An own domain nothing reached in 28 days: with no platform path it can't take the campaign (#1299 6ec5353); with one, the record is silent.
+    assert.equal(signalPath({ ...(base as object), state: "under_bar", onDomain: { d14: 0, d28: 0, history: 3 } } as never), "nothing_reaches");
+    assert.equal(signalPath({ ...(base as object), state: "under_bar", onDomain: { d14: 0, d28: 0, history: 3 }, platform: "Skiddle" } as never), null);
     assert.equal(signalPath({ state: "platform_under_bar" } as never), "platform");
     assert.equal(signalPath({ state: "pixel_sells_elsewhere" } as never), "sells_elsewhere");
     assert.equal(words.signalLine("platform", { pixelName: "Warehouse Skiddle", domain: null }), "Attributed purchases on the Warehouse Skiddle pixel, shared with its other shows' sales");
@@ -213,6 +244,24 @@ describe("RT9: the check moves from campaign to show", () => {
     assert.deepEqual(at({ read: { state: "no_pixel", pixel: null } as never }), { state: "no_pixel", takes: false });
     assert.deepEqual(at({ read: { state: "pixel_sells_elsewhere", pixel: { id: "px" } } as never }), { state: "sells_elsewhere", takes: false });
     assert.deepEqual(at({ onSaleDay: "2026-11-20" }), { state: "before_onsale", takes: false });
+    // #1299 6ec5353: three more shows that can't take it keep the default.
+    assert.deepEqual(at({ read: { state: "nothing_reaches", pixel: { id: "px" }, domain: "show.example", platform: null } as never }), { state: "nothing_reaches", takes: false });
+    assert.deepEqual(at({ read: { state: "platform_no_purchases", pixel: { id: "px" } } as never }), { state: "no_purchases", takes: false });
+    assert.deepEqual(at({ read: { state: "no_url", pixel: { id: "px" } } as never }), { state: "no_url", takes: false });
+  });
+
+  it("RT8's several-pages line, past three names \"and {n} more\"", () => {
+    assert.equal(words.pagesNoRole(["Mira Vale", "Ada North"]), "Mira Vale and Ada North aren't in Mid: your Facebook user has no role on these pages. Granting ADVERTISE on them adds them at the next read.");
+    assert.equal(words.pagesNoRoleNarrow(["Mira Vale", "Ada North"]), "Mira Vale and Ada North: no page role, not in Mid.");
+    assert.equal(words.joinNames(["A", "B", "C", "D", "E"]), "A, B, C and 2 more");
+    assert.equal(words.joinNames(["A", "B", "C"]), "A, B and C");
+  });
+
+  it("RT4's money-held sentences", () => {
+    assert.equal(words.overCap(60000, 500, "plan", null), "No budget to start it: £600.00 to the show is over 20 % of the plan left (£500).");
+    assert.equal(words.overCap(60000, 412.5, "main", "Tickets"), "No budget to start it: £600.00 to the show is over 20 % of what Tickets has left (£412.50).");
+    assert.equal(words.noMoney("Tickets"), "No budget to start it: Tickets has no lifetime budget to move from.");
+    assert.equal(words.noMoney(null), "No budget to start it: this event has no budget and no campaign to move from.");
   });
 
   it("the note's words", () => {

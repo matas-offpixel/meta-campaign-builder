@@ -39,7 +39,7 @@ import { APPLY_SHADOW, applyAccepted, type DriveCopy, type RefreshMeta } from "@
 import { audienceDraftFields, type AudienceSpec, type NewAdSetDeps } from "@/lib/onsale-refresh/apply-adsets";
 import type { PurchaseMeta } from "@/lib/onsale-refresh/apply-purchase";
 import type { RetargetingDeps } from "@/lib/retargeting/apply";
-import { retargetingAudienceDraft } from "@/lib/retargeting/audiences";
+import { groupVideosByPage, retargetingAudienceDraft } from "@/lib/retargeting/audiences";
 
 import { ownedRefreshEvent } from "../_owned";
 
@@ -274,8 +274,9 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       readAdSetTargeting: (adsetId) => graphGetWithToken<{ targeting?: Record<string, unknown> }>(`/${adsetId}`, { fields: "targeting" }, token, { maxAttempts: 1 }).then((row) => row?.targeting ?? null),
       audienceState: (audienceId) => adsets.meta.audienceState(audienceId),
       async listShowVideos(adAccountId, campaignIds) {
+        // RT2: one video audience per page the videos ran from; a video with no page is left out.
         const videos = await fetchAudienceMultiCampaignVideos(adAccountId, campaignIds, token);
-        return videos.videos.length && videos.contextPageId ? [{ contextId: videos.contextPageId, videoIds: videos.videos.map((video) => video.id) }] : [];
+        return groupVideosByPage(videos.videos);
       },
     },
     async ensureAudience(aud, name, adAccountId) {

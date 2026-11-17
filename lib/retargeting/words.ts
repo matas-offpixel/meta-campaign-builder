@@ -106,13 +106,15 @@ export function leavesOut(tier: Tier, buyers: boolean): string {
 export function audiencesShort(tier: Tier, args: { signupLists: number; similarLists: number; pagesUsed: number; pagesTotal: number; hasVideo: boolean }): string[] {
   if (tier === "bottom") {
     const lines = ["Ticket-link visitors · checkout starters · 30 days"];
-    const lists: string[] = [];
-    if (args.signupLists) lists.push(args.signupLists === 1 ? "Signup list" : `${args.signupLists} signup lists`);
-    if (args.similarLists) lists.push(`${args.similarLists} similar list${args.similarLists === 1 ? "" : "s"}`);
-    if (lists.length) lines.push(lists.join(" · "));
+    if (args.signupLists) lines.push(args.signupLists === 1 ? "Signup list" : `${args.signupLists} signup lists`);
     return lines;
   }
-  if (tier === "mid_bottom") return ["Page visitors · checkout starters · 60 days"];
+  if (tier === "mid_bottom") {
+    // Similar lists sit in Mid Bottom (Matas, 17 Nov).
+    const lines = ["Page visitors · checkout starters · 60 days"];
+    if (args.similarLists) lines.push(args.similarLists === 1 ? "Similar list" : `${args.similarLists} similar lists`);
+    return lines;
+  }
   const lines: string[] = [];
   if (args.hasVideo) lines.push("Video viewers 75 % · 365 days");
   if (args.pagesUsed) {
@@ -223,6 +225,12 @@ export function sellsElsewhere(args: { host: string; pct: number; purchases: num
   return `No Retargeting campaign: this pixel mostly sells on ${args.host} (${args.pct} % of ${group(String(args.purchases))} purchases in 28 days), not on ${args.platform}.`;
 }
 export const NOT_READ = "Retargeting not proposed: purchases couldn't be read this run. The next run tries again.";
+/** RT8 (#1299 6ec5353): E2's "nothing reaches", with no platform path. */
+export function nothingReaches(domain: string): string {
+  return `No Retargeting campaign: no purchase has reached ${domain} in 28 days, and the ticket link isn't on a ticket platform.`;
+}
+export const NO_PIXEL_PURCHASES = "No Retargeting campaign: this pixel has had no purchases in 28 days.";
+export const NO_PAGE_OR_TICKET = "No Retargeting campaign: this show has no page or ticket link to read purchases from.";
 
 // ── RT9 ──────────────────────────────────────────────────────────────────────
 
@@ -236,7 +244,9 @@ export function legacyAdSets(n: number, campaign: string): string {
   return n === 1 ? `1 retargeting ad set already runs in ${campaign}: pause it once this is live.` : `${n} retargeting ad sets already run in ${campaign}: pause them once this is live.`;
 }
 
-function joinNames(names: readonly string[]): string {
+/** RT8: "{A} and {B}", "{A}, {B} and {C}", and past three "{A}, {B}, {C} and {n} more". */
+export function joinNames(names: readonly string[]): string {
   if (names.length <= 1) return names[0] ?? "";
+  if (names.length > 3) return `${names.slice(0, 3).join(", ")} and ${names.length - 3} more`;
   return `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
 }
