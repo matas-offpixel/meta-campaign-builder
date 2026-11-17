@@ -11,7 +11,8 @@ import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { rbView, rdStates } from "../../../scripts/plan-frames/retargeting-fixtures.ts";
-import { midBuildable, RT2, tierSpecs, tiersMatching, urlFragment, type SourceSet } from "../audiences.ts";
+import { midBuildable, RT14, tierSpecs, tiersMatching, type SourceSet, type TierSpec } from "../audiences.ts";
+import { urlRule } from "../links.ts";
 import { currentDailyMinor, daysToShow, fundHold, startingBudget } from "../budget.ts";
 import { pickedShare, planRetargeting, retargetingOnSaleDay, retargetingState, signalPath, tierRows } from "../plan.ts";
 import * as words from "../words.ts";
@@ -78,8 +79,10 @@ describe("RT4: the starting budget", () => {
 
 const SET: SourceSet = {
   pixelId: "px",
-  ticketUrl: "skiddle.com/e/1",
-  pageUrl: "show.example/page",
+  links: [
+    { kind: "ticket", rule: "www.skiddle.com/e/1", host: "www.skiddle.com", name: "Skiddle", platform: "skiddle" },
+    { kind: "landing", rule: "show.example/page", host: "show.example", name: "show.example/page", platform: null },
+  ],
   videos: [{ contextId: "page1", videoIds: ["v1", "v2"] }],
   pages: [
     { id: "p1", name: "Promoter", igId: "ig1", kind: "promoter", hasRole: true },
@@ -93,32 +96,58 @@ const SET: SourceSet = {
   ],
 };
 
-describe("RT2: the tiers and their audiences", () => {
-  it("one source set feeds every window: pixel 30 / 60, video 75 % 365, engagement 180", () => {
+/**
+ * Acceptance (RT2, RT14): no person can match two tiers. Proved for every
+ * membership at once: the tiers' includes are disjoint, and each tier
+ * leaves out every include of every hotter tier, so whoever matches a
+ * colder tier is in no hotter include. A seeded random walk checks the same.
+ */
+function assertOneTier(specs: readonly TierSpec[]) {
+  const included = specs.flatMap((spec) => spec.includes.map((aud) => aud.key));
+  assert.equal(new Set(included).size, included.length, "no audience in two tiers' includes");
+  for (let cold = 0; cold < specs.length; cold += 1) {
+    const excluded = new Set(specs[cold]!.excludes.map((aud) => aud.key));
+    for (let hot = 0; hot < cold; hot += 1) {
+      for (const aud of specs[hot]!.includes) assert.ok(excluded.has(aud.key), `${specs[cold]!.tier} leaves out ${aud.key}`);
+    }
+  }
+  const keys = [...new Set(specs.flatMap((spec) => [...spec.includes, ...spec.excludes].map((aud) => aud.key)))];
+  let seed = 17;
+  const next = () => ((seed = (seed * 1103515245 + 12345) % 2 ** 31), seed / 2 ** 31);
+  for (let walk = 0; walk < 5000; walk += 1) {
+    const member = new Set(keys.filter(() => next() < 0.3));
+    assert.ok(tiersMatching(specs, member).length <= 1, `in two tiers: ${[...member].join(", ")}`);
+  }
+}
+
+const keysOf = (days: readonly number[], prefix: string) => days.map((day) => `${prefix}:${day}`);
+
+describe("RT2 / RT13 / RT14: the tiers and their audiences", () => {
+  it("one source set feeds every window: RT14's windows, each its own audience; links' rules only", () => {
     const specs = tierSpecs(SET);
     const bottom = specs.find((spec) => spec.tier === "bottom")!;
     const midBottom = specs.find((spec) => spec.tier === "mid_bottom")!;
     const mid = specs.find((spec) => spec.tier === "mid")!;
-    assert.deepEqual(bottom.includes.map((aud) => aud.key), ["bottom:ticket:30", "bottom:checkout:30", "list:sig"]);
+    assert.deepEqual(bottom.includes.map((aud) => aud.key), [...keysOf(RT14.ticketVisitors, "bottom:ticket"), ...keysOf(RT14.checkout, "bottom:checkout"), ...keysOf(RT14.registrations, "bottom:registrations"), "list:sig"]);
     assert.deepEqual(bottom.excludes.map((aud) => aud.key), ["list:buy"]);
     // Similar lists sit in Mid Bottom (Matas, 17 Nov); Mid leaves them out with the rest of Mid Bottom.
-    assert.deepEqual(midBottom.includes.map((aud) => aud.key), ["mid_bottom:page:60", "mid_bottom:checkout:60", "list:sim"]);
+    assert.deepEqual(midBottom.includes.map((aud) => aud.key), [...keysOf(RT14.pageVisitors, "mid_bottom:page"), "mid_bottom:checkout:60", "list:sim"]);
     assert.deepEqual(midBottom.excludes.map((aud) => aud.key), [...bottom.includes.map((aud) => aud.key), "list:buy"]);
-    assert.deepEqual(mid.includes.map((aud) => aud.key), ["mid:video:page1:1", "mid:fb:1", "mid:ig:1"]);
+    assert.deepEqual(mid.includes.map((aud) => aud.key), [...keysOf(RT14.video, "mid:video:page1:1"), ...keysOf(RT14.engagement, "mid:fb:1"), ...keysOf(RT14.engagement, "mid:ig:1")]);
     assert.deepEqual(mid.excludes.map((aud) => aud.key), [...midBottom.includes.map((aud) => aud.key), ...bottom.includes.map((aud) => aud.key), "list:buy"]);
+    // The longest window of each source is RT2's.
+    assert.deepEqual([RT14.ticketVisitors.at(-1), RT14.checkout.at(-1), RT14.pageVisitors.at(-1), RT14.checkoutMidBottom.at(-1), RT14.video.at(-1), RT14.engagement.at(-1)], [30, 30, 60, 60, 365, 180]);
+    // RT13: checkout starters on the ticket links' rules, registrations on the landing pages', never pixel-wide.
+    const checkout = bottom.includes.find((aud) => aud.key === "bottom:checkout:7");
+    assert.deepEqual(checkout, { key: "bottom:checkout:7", kind: "pixel_event", label: "Checkout starters", pixelId: "px", pixelEvent: "InitiateCheckout", urlContains: ["www.skiddle.com/e/1"], retentionDays: 7 });
+    assert.deepEqual(bottom.includes.find((aud) => aud.key === "bottom:registrations:90"), { key: "bottom:registrations:90", kind: "pixel_event", label: "Registrations", pixelId: "px", pixelEvent: "CompleteRegistration", urlContains: ["show.example/page"], retentionDays: 90 });
     // Pages with a role only; IG engagement on the pages that have an Instagram account.
-    assert.deepEqual(mid.includes.find((aud) => aud.key === "mid:fb:1"), { key: "mid:fb:1", kind: "page_fb", pageIds: ["p1", "p2"], retentionDays: RT2.engagementDays });
-    assert.deepEqual(mid.includes.find((aud) => aud.key === "mid:ig:1"), { key: "mid:ig:1", kind: "page_ig", pageIds: ["p1"], retentionDays: RT2.engagementDays });
+    assert.deepEqual(mid.includes.find((aud) => aud.key === "mid:fb:1:30"), { key: "mid:fb:1:30", kind: "page_fb", label: "Page engagers", pageIds: ["p1", "p2"], retentionDays: 30 });
+    assert.deepEqual(mid.includes.find((aud) => aud.key === "mid:ig:1:180"), { key: "mid:ig:1:180", kind: "page_ig", label: "Instagram engagers", pageIds: ["p1"], retentionDays: 180 });
   });
 
   it("Acceptance: no person can match two tiers' include-minus-exclude sets for one source set", () => {
-    const specs = tierSpecs(SET);
-    const keys = [...new Set(specs.flatMap((spec) => [...spec.includes, ...spec.excludes].map((aud) => aud.key)))];
-    // Every subset of the audiences a person could be in (2^n, n = 10).
-    for (let mask = 0; mask < 1 << keys.length; mask += 1) {
-      const member = new Set(keys.filter((_, index) => mask & (1 << index)));
-      assert.ok(tiersMatching(specs, member).length <= 1, `in two tiers: ${[...member].join(", ")}`);
-    }
+    assertOneTier(tierSpecs(SET));
   });
 
   it("every list role: Signups in Bottom only, Similar in Mid Bottom only, Buyers in no tier and left out of all three", () => {
@@ -128,36 +157,31 @@ describe("RT2: the tiers and their audiences", () => {
     assert.deepEqual([where("list:sig"), leftOut("list:sig")], [["bottom"], ["mid_bottom", "mid"]]);
     assert.deepEqual([where("list:sim"), leftOut("list:sim")], [["mid_bottom"], ["mid"]]);
     assert.deepEqual([where("list:buy"), leftOut("list:buy")], [[], ["bottom", "mid_bottom", "mid"]]);
-    // No audience source sits in two tiers' includes.
-    const included = specs.flatMap((spec) => spec.includes.map((aud) => aud.key));
-    assert.equal(new Set(included).size, included.length);
     assert.deepEqual(tiersMatching(specs, new Set(["list:sig", "mid_bottom:page:60"])), ["bottom"]);
-    assert.deepEqual(tiersMatching(specs, new Set(["list:sim", "mid:fb:1"])), ["mid_bottom"]);
+    assert.deepEqual(tiersMatching(specs, new Set(["list:sim", "mid:fb:1:30"])), ["mid_bottom"]);
     assert.deepEqual(tiersMatching(specs, new Set(["list:buy", "bottom:ticket:30"])), []);
+    // A short window doesn't escape: someone in Bottom's 7-day checkout is left out of Mid Bottom's 60.
+    assert.deepEqual(tiersMatching(specs, new Set(["bottom:checkout:7", "mid_bottom:checkout:60"])), ["bottom"]);
   });
 
-  it("no person in two tiers for each list role alone, and for several lists of every role", () => {
+  it("no person in two tiers for each list role alone, for several lists of every role, and with Bottom empty", () => {
     const base = { ...SET, lists: [] };
     const sets: SourceSet[] = [
       ...(["signups", "similar", "buyers"] as const).map((role) => ({ ...base, lists: [{ metaAudienceId: role, name: role, role, uploadedAt: "2026-11-10T09:00:00Z" }] })),
       { ...base, lists: (["signups", "similar", "buyers"] as const).flatMap((role) => [1, 2].map((n) => ({ metaAudienceId: `${role}${n}`, name: role, role, uploadedAt: "2026-11-10T09:00:00Z" }))) },
     ];
-    for (const set of sets) {
-      const specs = tierSpecs(set);
-      const keys = [...new Set(specs.flatMap((spec) => [...spec.includes, ...spec.excludes].map((aud) => aud.key)))];
-      assert.ok(keys.length <= 14, "small enough to walk every membership");
-      for (let mask = 0; mask < 1 << keys.length; mask += 1) {
-        const member = new Set(keys.filter((_, index) => mask & (1 << index)));
-        assert.ok(tiersMatching(specs, member).length <= 1, `in two tiers: ${[...member].join(", ")}`);
-      }
-    }
+    for (const set of sets) assertOneTier(tierSpecs(set));
+    const noBottom = tierSpecs(SET, { bottom: false });
+    assert.deepEqual(noBottom.map((spec) => spec.tier), ["mid_bottom", "mid"]);
+    assertOneTier(noBottom);
   });
 
   it("more than 5 pages are chunked into sibling audiences, 200 videos to an audience", () => {
     const pages = Array.from({ length: 7 }, (_, i) => ({ id: `p${i}`, name: `P${i}`, igId: null, kind: "lineup" as const, hasRole: true }));
     const videos = [{ contextId: "c", videoIds: Array.from({ length: 201 }, (_, i) => `v${i}`) }];
     const mid = tierSpecs({ ...SET, pages, videos }).find((spec) => spec.tier === "mid")!;
-    assert.deepEqual(mid.includes.map((aud) => aud.key), ["mid:video:c:1", "mid:video:c:2", "mid:fb:1", "mid:fb:2"]);
+    assert.deepEqual(mid.includes.map((aud) => aud.key), [...keysOf(RT14.video, "mid:video:c:1"), ...keysOf(RT14.video, "mid:video:c:2"), ...keysOf(RT14.engagement, "mid:fb:1"), ...keysOf(RT14.engagement, "mid:fb:2")]);
+    assert.equal(mid.includes.find((aud) => aud.key === "mid:fb:2:30")!.kind === "page_fb" && (mid.includes.find((aud) => aud.key === "mid:fb:2:30") as { label: string }).label, "Page engagers · 2");
   });
 
   it("Mid can't be built with no page holding a role and no video", () => {
@@ -165,8 +189,10 @@ describe("RT2: the tiers and their audiences", () => {
     assert.equal(tierSpecs({ ...SET, pages: [], videos: [] }).some((spec) => spec.tier === "mid"), false);
   });
 
-  it("pixel URL rules are host and path", () => {
-    assert.equal(urlFragment("https://www.skiddle.com/whats-on/x/?utm=1"), "skiddle.com/whats-on/x");
+  it("RT13: a URL rule is host to the end of the path, exactly as returned", () => {
+    assert.equal(urlRule("https://www.skiddle.com/whats-on/London/X/1234567/?utm=1"), "www.skiddle.com/whats-on/London/X/1234567/");
+    assert.equal(urlRule("https://crqln.com/xmpl-whse-crowd"), "crqln.com/xmpl-whse-crowd");
+    assert.equal(urlRule("https://Xmpl-Whse.com/#tickets"), "Xmpl-Whse.com/");
   });
 });
 
@@ -181,10 +207,15 @@ describe("RT1 / RT8: the states and the Create line", () => {
     assert.deepEqual(view.create!.legacy, ["1 retargeting ad set already runs in XMPL-ROOF · Tickets: pause it once this is live."]);
     assert.equal(view.create!.writeText, "New campaign, audiences and ad sets through the Purchase create path · goes in live");
     const [bottom, midBottom, mid] = view.tiers;
-    assert.deepEqual(bottom!.audiences, ["Ticket-link visitors · checkout starters · 30 days"]);
-    assert.deepEqual(bottom!.missing.map((line) => [line.text, line.actions.map((a) => [a.label, a.role])]), [["No signup list yet, so Bottom runs on ticket-link visitors and checkout starters only.", [["Upload the signup list", "signups"]]]]);
+    // -2.html: RT14's windows, RT15's registrations and signup line, and the links (ops' ruling of 17 Nov on the words).
+    assert.deepEqual(bottom!.audiences, ["Ticket-link visitors · checkout starters · 7, 14 and 30 days", "Registrations · 30, 90 and 180 days"]);
+    assert.equal(bottom!.audiencesNarrow, "Ticket-link visitors · checkout starters · 7, 14 and 30 days · registrations · 30, 90 and 180 days");
+    assert.deepEqual(bottom!.links.wide, ["Links: Skiddle, Fatsoma and DICE · known after create", "Pixel on Skiddle: yes · Fatsoma: no · DICE: no", "A ticket site sends visits only when your pixel is on it there."]);
+    assert.deepEqual(bottom!.missing.map((line) => [line.text, line.actions.map((a) => [a.label, a.role])]), [["No signup list yet, so Bottom runs on ticket-link visitors, checkout starters and registrations only.", [["Upload the signup list", "signups"]]]]);
+    assert.deepEqual(midBottom!.audiences, ["Page visitors · 14, 30 and 60 days", "Checkout starters · 60 days"]);
+    assert.deepEqual(midBottom!.links.wide, ["Links: xmpl-roof.com · known after create"]);
     assert.deepEqual([bottom!.leavesOut, midBottom!.leavesOut, mid!.leavesOut], ["", "Bottom", "Mid Bottom · Bottom"]);
-    assert.deepEqual(mid!.audiences, ["Video viewers 75 % · 365 days", "Page and Instagram engagers · 180 days · 3 of 4 pages"]);
+    assert.deepEqual(mid!.audiences, ["Video viewers 75 % · 90, 180 and 365 days", "Page and Instagram engagers · 30, 90 and 180 days · 3 of 4 pages"]);
     assert.deepEqual(mid!.missing.map((line) => [line.text, line.narrow]), [["Mira Vale isn't in Mid: your Facebook user has no role on the page. Granting ADVERTISE on it adds it at the next read.", "Mira Vale: no page role, not in Mid."]]);
     assert.deepEqual(view.notes.map((line) => [line.text, line.actions.map((a) => [a.label, a.role])]), [["No buyers list yet, so buyers aren't left out and will keep seeing these ads.", [["Upload a buyers list", "buyers"]]]]);
     // RT3 (revised 17 Nov): before Apply no pool is read or carried; the panel says "Known after create".
@@ -192,7 +223,7 @@ describe("RT1 / RT8: the states and the Create line", () => {
     assert.equal(view.state, "proposed");
   });
 
-  it("RD 393: the eight not-proposed states, each replacing the Create line, in the record's words", () => {
+  it("RD 393: the ten not-proposed states, each replacing the Create line, in the record's words", () => {
     assert.deepEqual(
       rdStates().map((view) => [view.state, view.notProposed, view.create]),
       [
@@ -204,6 +235,9 @@ describe("RT1 / RT8: the states and the Create line", () => {
         ["nothing_reaches", "No Retargeting campaign: no purchase has reached xmpl-roof.com in 28 days, and the ticket link isn't on a ticket platform.", null],
         ["no_purchases", "No Retargeting campaign: this pixel has had no purchases in 28 days.", null],
         ["no_url", "No Retargeting campaign: this show has no page or ticket link to read purchases from.", null],
+        // -2.html RT13: CIRQLIN's 404 no_page, and any other failure.
+        ["links_no_page", "Retargeting not proposed: this show's CIRQLIN page isn't published. It's proposed at the first read after it is.", null],
+        ["links_failed", "Retargeting not proposed: the show's links couldn't be read from CIRQLIN this run. The next run tries again.", null],
       ],
     );
   });
@@ -211,8 +245,10 @@ describe("RT1 / RT8: the states and the Create line", () => {
   it("None of RT8's missing sources blocks Create; the hold over the cap holds Accept with its sentence", () => {
     const view = rbView();
     assert.equal(view.create!.options.find((row) => row.share === 10)!.blocked, null);
-    assert.deepEqual(pickedShare(view, 15), { ok: true, share: 15 });
-    assert.deepEqual(pickedShare(view, 12), { ok: false, error: "Pick 10 %, 15 % or 20 %." });
+    // RT11: one share, today's; the 10 / 15 / 20 % choice is withdrawn.
+    assert.deepEqual(view.create!.options.map((row) => row.share), [10]);
+    assert.deepEqual(pickedShare(view, 10), { ok: true, share: 10 });
+    assert.deepEqual(pickedShare(view, 15), { ok: false, error: "The Create line's share is today's; there's no other to pick." });
     assert.deepEqual(pickedShare(view, null), { ok: true, share: null });
   });
 

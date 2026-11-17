@@ -19,14 +19,16 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { applyGates, type ArmMode } from "../onsale-refresh/apply-gates.ts";
+import { applyGates, retargetingGates, type ArmMode } from "../onsale-refresh/apply-gates.ts";
 import { buildEventInputs, loadAll, loadAux, loadInsights, loadOnSaleEvents, rowsForEvent, type EventRow } from "../onsale-refresh/load.ts";
 import { ONSALE_PHASE } from "../onsale-refresh/phase-config.ts";
-import { loadPurchaseReads, type RefreshGraph } from "../onsale-refresh/purchase-read.ts";
+import { fetchEventHosts, loadPurchaseReads, type RefreshGraph } from "../onsale-refresh/purchase-read.ts";
+import { fetchCirqlinPageLinks, type PageLinksResult } from "../cirqlin/page-links.ts";
 import { committedGbpOf, type PcBudgets } from "../onsale-refresh/purchase-campaign.ts";
 import { RETARGETING } from "../onsale-refresh/rules.ts";
 import { addDaysIso, planRun, todayLondon } from "../onsale-refresh/schedule.ts";
-import { urlFragment, type SourceList, type SourcePage, type SourceSet } from "./audiences.ts";
+import { pixelRules, ruleChanges, tierSpecs, type SourceList, type SourcePage, type SourceSet } from "./audiences.ts";
+import { linksFallback, linksFromPages, type PixelHosts, type ShowLink } from "./links.ts";
 import { planRetargeting, retargetingOnSaleDay, type RetargetingInput, type RetargetingPlan } from "./plan.ts";
 import { isRetargetingCampaignName, isTestsCampaignName, retargetingCampaignName, TIERS, type Tier } from "./words.ts";
 
@@ -73,7 +75,7 @@ export async function pagesWithRole(graph: RefreshGraph | null): Promise<{ roles
 
 type SourceRows = {
   clients: { id: string; name: string | null; default_page_ids: string[] | null; default_instagram_actor_id: string | null }[];
-  events: { id: string; venue_id: string | null }[];
+  events: { id: string; venue_id: string | null; mailchimp_tag?: string | null }[];
   venues: { id: string; name: string | null; meta_page_id: string | null; meta_page_name: string | null }[];
   lineup: { event_id: string; artist_id: string; billing_order: number | null }[];
   artists: { id: string; name: string | null; meta_page_id: string | null; meta_page_name: string | null }[];
@@ -85,7 +87,7 @@ export async function loadSourceRows(db: Db, eventIds: readonly string[], client
   if (!eventIds.length) return { clients: [], events: [], venues: [], lineup: [], artists: [], lists: [] };
   const [clients, events, lineup, lists] = await Promise.all([
     loadAll<SourceRows["clients"][number]>(db, "clients", "id, name, default_page_ids, default_instagram_actor_id", ["id"], (q) => q.in("id", clientIds)),
-    loadAll<SourceRows["events"][number]>(db, "events", "id, venue_id", ["id"], (q) => q.in("id", eventIds)),
+    loadAll<SourceRows["events"][number]>(db, "events", "id, venue_id, mailchimp_tag", ["id"], (q) => q.in("id", eventIds)),
     loadAll<SourceRows["lineup"][number] & { id: string }>(db, "event_artists", "id, event_id, artist_id, billing_order", ["id"], (q) => q.in("event_id", eventIds)).catch(() => []),
     loadAll<SourceRows["lists"][number] & { id: string }>(db, "meta_custom_audiences", "id, event_id, name, list_role, meta_audience_id, status, source_meta, updated_at", ["id"], (q) => q.in("event_id", eventIds).eq("audience_subtype", "customer_list")).catch(() => []),
   ]);
@@ -99,7 +101,7 @@ export async function loadSourceRows(db: Db, eventIds: readonly string[], client
 }
 
 /** RT2's source set for one show: one set feeds every window. */
-export function sourceSetFor(args: { event: EventRow; rows: SourceRows; pixelId: string | null; roles: Map<string, string | null> | null; hasVideo: boolean }): SourceSet {
+export function sourceSetFor(args: { event: EventRow; rows: SourceRows; pixelId: string | null; roles: Map<string, string | null> | null; hasVideo: boolean; links?: ShowLink[] }): SourceSet {
   const { event, rows } = args;
   const pages: SourcePage[] = [];
   const add = (id: string | null | undefined, name: string, kind: SourcePage["kind"], igId: string | null = null) => {
@@ -122,8 +124,8 @@ export function sourceSetFor(args: { event: EventRow; rows: SourceRows; pixelId:
     .map((row) => ({ metaAudienceId: row.meta_audience_id!, name: row.name, role: row.list_role as SourceList["role"], uploadedAt: row.source_meta?.uploadedAt ?? row.updated_at }));
   return {
     pixelId: args.pixelId,
-    ticketUrl: urlFragment(event.ticket_url),
-    pageUrl: urlFragment(event.signup_url),
+    // RT13: CIRQLIN's links when read, else RT2's two (no tag).
+    links: args.links ?? linksFallback(event),
     // The show's videos are listed at Apply (one walk of its campaigns' ads); here, whether its ads have video at all.
     videos: args.hasVideo ? [{ contextId: "", videoIds: ["pending"] }] : [],
     pages,
@@ -131,7 +133,14 @@ export function sourceSetFor(args: { event: EventRow; rows: SourceRows; pixelId:
   };
 }
 
-export type RetargetingRecord = { eventId: string; eventCode: string | null; plan: RetargetingPlan; proposalId: string | null };
+export type RetargetingRecord = {
+  eventId: string;
+  eventCode: string | null;
+  plan: RetargetingPlan;
+  proposalId: string | null;
+  /** RT13: a running campaign's audiences whose rules differ from today's links (not rewritten here: see the PR's open item). */
+  ruleChanges?: string[];
+};
 
 export type RetargetingReadResult =
   | { ok: true; skippedReason: "killswitch" | "not_08_london" }
@@ -148,6 +157,11 @@ export function retargetingInput(args: {
   sources: SourceSet;
   appliedLine: { applied_result: Record<string, unknown> | null; write: Record<string, unknown> | null } | null;
   minDailyMinor: number | null;
+  /** RT13: how the links were read. */
+  linksRead?: RetargetingInput["linksRead"];
+  pixelHosts?: PixelHosts;
+  /** RT9: the campaign's effective_status, when read. */
+  campaignStatus?: string | null;
 }): RetargetingInput {
   const { event, day } = args;
   const code = event.event_code ?? event.id;
@@ -162,7 +176,7 @@ export function retargetingInput(args: {
   const firstDay = rows.filter((row) => isRetargetingCampaignName(row.campaign_name, code) && num(row.spend) > 0).map((row) => row.date).sort()[0] ?? null;
   const tiers = progress?.adSets ? Object.fromEntries(TIERS.map((tier) => [tier, progress.adSets?.[tier]?.dailyMinor ?? 0])) as Record<Tier, number> : undefined;
   const existing = named || progress?.campaignId
-    ? { campaignId: progress?.campaignId ?? named?.meta_campaign_id ?? null, since: firstDay, totalMinor: tiers ? TIERS.reduce((sum, tier) => sum + tiers[tier], 0) : null, share: progress?.share ?? null, ...(tiers ? { tiers } : {}) }
+    ? { campaignId: progress?.campaignId ?? named?.meta_campaign_id ?? null, since: firstDay, totalMinor: tiers ? TIERS.reduce((sum, tier) => sum + tiers[tier], 0) : null, share: progress?.share ?? null, ...(tiers ? { tiers } : {}), status: args.campaignStatus ?? null }
     : null;
   const campaigns = args.campaigns;
   const legacy = campaigns.map((campaign) => ({ campaign: campaign.campaignKey, adSets: campaign.adSets.filter((set) => set.delivering && RETARGETING.test(set.name)).length }));
@@ -208,7 +222,28 @@ export function retargetingInput(args: {
     where: { draftId: main?.draft?.draftId ?? null, adAccountId: main?.draft?.adAccountId ?? null, campaignIds: main?.campaignIds ?? [] },
     videoCampaignIds: [...new Set(campaigns.flatMap((campaign) => campaign.campaignIds))],
     today: day,
+    linksRead: args.linksRead ?? "no_tag",
+    pixelHosts: args.pixelHosts ?? null,
   };
+}
+
+/** RT13: the show's links — CIRQLIN's pages by its tag, RT2's two links with no tag; the two failures as states. */
+export async function showLinks(event: EventRow & { mailchimp_tag?: string | null }, read: (tag: string) => Promise<PageLinksResult>): Promise<{ links: ShowLink[]; linksRead: NonNullable<RetargetingInput["linksRead"]>; reason: string | null }> {
+  const tag = event.mailchimp_tag?.trim();
+  if (!tag) return { links: linksFallback(event), linksRead: "no_tag", reason: null };
+  const result = await read(tag);
+  if (result.ok) return { links: linksFromPages(result.pages), linksRead: "ok", reason: null };
+  if (result.reason === "no_page") return { links: [], linksRead: "no_page", reason: "no_page" };
+  return { links: [], linksRead: "failed", reason: result.reason };
+}
+
+/** RT13 / RT15: the pixel's hosts in 28 days for visits, checkouts and registrations; null when any read failed. */
+export async function pixelHostsOf(graph: RefreshGraph, pixelId: string, now: Date): Promise<{ hosts: PixelHosts; calls: number }> {
+  const [pageView, checkout, registration] = await Promise.all(["PageView", "InitiateCheckout", "CompleteRegistration"].map((event) => fetchEventHosts(graph.graphGet, pixelId, now, 28, event)));
+  const calls = pageView!.calls + checkout!.calls + registration!.calls;
+  if (pageView!.error || checkout!.error || registration!.error) return { hosts: null, calls };
+  const hostsOf = (rows: { host: string }[]) => [...new Set(rows.map((row) => row.host))];
+  return { hosts: { pageView: hostsOf(pageView!.rows), checkout: hostsOf(checkout!.rows), registration: hostsOf(registration!.rows) }, calls };
 }
 
 export async function runRetargetingRead(input: {
@@ -222,6 +257,8 @@ export async function runRetargetingRead(input: {
   graph?: RefreshGraph | null;
   graphReason?: string;
   userId?: string;
+  /** RT13: CIRQLIN's page-links read (injectable for tests). */
+  pageLinks?: (tag: string) => Promise<PageLinksResult>;
 }): Promise<RetargetingReadResult> {
   const dryRun = input.dryRun === true;
   if (!dryRun && !isRetargetingReadEnabled(input.env)) return { ok: true, skippedReason: "killswitch" };
@@ -263,6 +300,8 @@ export async function runRetargetingRead(input: {
   const arms = dryRun ? new Map<string, ArmMode>() : await loadArms(input.db, events.map((event) => event.id));
   const lines = await loadAll<{ id: string; state: string; write: Record<string, unknown> | null; applied_result: Record<string, unknown> | null; onsale_refresh_proposals: { event_id: string | null } | null }>(input.db, "onsale_refresh_lines", "id, state, write, applied_result, onsale_refresh_proposals!inner(event_id)", ["id"], (q) => q.eq("kind", "retargeting_campaign").in("onsale_refresh_proposals.event_id", events.map((event) => event.id))).catch(() => []);
   const minDaily = new Map<string, number | null>();
+  const hostsByPixel = new Map<string, PixelHosts>();
+  const readLinks = input.pageLinks ?? ((tag: string) => fetchCirqlinPageLinks(tag));
   const records: RetargetingRecord[] = [];
   for (const event of events) {
     try {
@@ -271,7 +310,16 @@ export async function runRetargetingRead(input: {
       const rows = rowsForEvent(raw, event.id);
       const code = event.event_code!;
       const hasVideo = rows.some((row) => !isRetargetingCampaignName(row.campaign_name, code) && num(row.video_plays_3s) > 0);
-      const sources = sourceSetFor({ event, rows: sourceRows, pixelId: read?.pixel?.id ?? null, roles: roles?.roles ?? null, hasVideo });
+      const tagged = { ...event, mailchimp_tag: sourceRows.events.find((row) => row.id === event.id)?.mailchimp_tag ?? null };
+      const links = await showLinks(tagged, readLinks);
+      if (links.reason) skipped.push({ eventCode: code, reason: `CIRQLIN links: ${links.reason}` });
+      const sources = sourceSetFor({ event, rows: sourceRows, pixelId: read?.pixel?.id ?? null, roles: roles?.roles ?? null, hasVideo, links: links.links });
+      const pixelId = read?.pixel?.id ?? null;
+      if (pixelId && input.graph && !hostsByPixel.has(pixelId)) {
+        const hosts = await pixelHostsOf(input.graph, pixelId, now);
+        metaCalls += hosts.calls;
+        hostsByPixel.set(pixelId, hosts.hosts);
+      }
       const mine = lines.filter((line) => line.onsale_refresh_proposals?.event_id === event.id);
       const appliedLine = mine.find((line) => (line.applied_result?.retargeting as { campaignId?: string } | undefined)?.campaignId) ?? null;
       const account = inputs.campaigns.find((campaign) => campaign.draft)?.draft?.adAccountId ?? null;
@@ -279,10 +327,26 @@ export async function runRetargetingRead(input: {
         metaCalls += 1;
         minDaily.set(account, await input.graph.graphGet(`/${account}`, { fields: "min_daily_budget" }).then((body) => num((body as { min_daily_budget?: unknown }).min_daily_budget) || null).catch(() => null));
       }
-      const plan = planRetargeting(retargetingInput({ event, day, rows, campaigns: inputs.campaigns, read, budgets: purchases.budgets, sources, appliedLine, minDailyMinor: account ? (minDaily.get(account) ?? null) : null }));
+      // RT9: a running campaign's status, so an off one says so (a running campaign keeps its last rules when the links read fails, RT13).
+      const campaignId = (appliedLine?.applied_result?.retargeting as { campaignId?: string } | undefined)?.campaignId ?? rows.find((row) => isRetargetingCampaignName(row.campaign_name, code) && row.meta_campaign_id)?.meta_campaign_id ?? null;
+      let campaignStatus: string | null = null;
+      if (campaignId && input.graph) {
+        metaCalls += 1;
+        campaignStatus = await input.graph.graphGet(`/${campaignId}`, { fields: "effective_status" }).then((body) => (body as { effective_status?: string }).effective_status ?? null).catch(() => null);
+      }
+      const plan = planRetargeting(retargetingInput({ event, day, rows, campaigns: inputs.campaigns, read, budgets: purchases.budgets, sources, appliedLine, minDailyMinor: account ? (minDaily.get(account) ?? null) : null, linksRead: links.linksRead, pixelHosts: pixelId ? (hostsByPixel.get(pixelId) ?? null) : null, campaignStatus }));
       const record: RetargetingRecord = { eventId: event.id, eventCode: event.event_code, plan, proposalId: null };
+      // RT13: a running campaign's rules against today's links. A failed read keeps the last rules, so nothing is compared.
+      const storedRules = ((appliedLine?.applied_result?.retargeting ?? null) as { rules?: Record<string, string[]> } | null)?.rules;
+      if (plan.state === "running" && storedRules && (links.linksRead === "ok" || links.linksRead === "no_tag")) {
+        const changed = ruleChanges(storedRules, pixelRules(tierSpecs(sources)));
+        if (changed.length) {
+          record.ruleChanges = changed;
+          skipped.push({ eventCode: code, reason: `Retargeting links changed for ${changed.length} audience${changed.length === 1 ? "" : "s"}; rules not rewritten` });
+        }
+      }
       if (!dryRun && plan.state !== "no_signal") {
-        record.proposalId = await writeRetargetingProposal(input.db, { event, day, plan, mode: applyGates(input.env, arms.get(event.id)).mode, userId: input.userId });
+        record.proposalId = await writeRetargetingProposal(input.db, { event, day, plan, mode: retargetingGates(applyGates(input.env, arms.get(event.id))).mode, userId: input.userId });
       }
       records.push(record);
     } catch (err) {
