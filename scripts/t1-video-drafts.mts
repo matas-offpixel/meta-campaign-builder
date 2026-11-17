@@ -86,6 +86,7 @@ import {
 } from "../lib/creative-lab/t1-video.ts";
 import { applyBacking, backingLayer, checkFeather, type FeatherCheck } from "../lib/creative-lab/red-backing.ts";
 import { renderSourceAsset } from "../lib/creative-lab/render-source.ts";
+import { tripleFitSound } from "../lib/creative-lab/triple-fit.ts";
 import { emptyTriedHeadings, triedSection } from "../lib/creative-lab/draft-report.ts";
 import { draftVersions, releaseFromRow, type DraftVersion } from "../lib/creative-lab/draft-versions.ts";
 import { MAX_KNEE_STEP, MAX_ROW_STEP, renderVideoBands, rowMeanLuma } from "../lib/creative-lab/video-bands.ts";
@@ -302,6 +303,9 @@ for (const clipId of clipIds) {
   const c = await db.from("creative_lab_clips").select("*").eq("id", clipId).maybeSingle();
   if (c.error || !c.data) fail(`clip ${clipId}`);
   const clip = c.data!;
+  // The clip's own sound unless the clip is marked muted (triple-fit's rule, tripleFitSound). Until 17 Nov 2026
+  // every draft was rendered muted, so the roll-call and no-CTA edits filed for P26-BDAY had no audio stream.
+  const sound = tripleFitSound({ hasAudio: true, audioMatch: clip.audio_match as boolean | null, audioStatus: clip.audio_status as string | null });
   const art = await db.from("creative_lab_artists").select("name").eq("id", clip.artist_id).maybeSingle();
   const artist = String(art.data?.name ?? "?");
   // O68 / migration 220: the clip's 1080 render copy (render_asset_id) when it has one, else the original (creative_asset_id).
@@ -496,7 +500,7 @@ for (const clipId of clipIds) {
         inS,
         fps,
         durationInSeconds: dur,
-        muted: true,
+        muted: sound.muted,
         bandsUrl: !here ? dataUri(bands) : `${base}/${id}-bands.png`,
         topUrl: !here ? dataUri(topWithStamp) : `${base}/${id}-top.png`,
         claimUrl: typeClaim ? (!here ? dataUri(typeClaim) : `${base}/${id}-claim.png`) : null,
@@ -517,7 +521,7 @@ for (const clipId of clipIds) {
         const nFrames = Math.round(dur * fps);
         const chunk = lambdaChunking(lambda.limit, nFrames);
         const started = Date.now();
-        const r = await renderMediaOnLambda({ region: REMOTION_REGION, functionName: lambda.functionName, serveUrl: lambda.serveUrl, composition: "T1OnClip", inputProps: props as unknown as Record<string, unknown>, codec: "h264", crf: 18, muted: true, framesPerLambda: chunk.framesPerLambda, concurrencyPerLambda: chunk.concurrencyPerLambda, privacy: "private", downloadBehavior: { type: "download", fileName: null } });
+        const r = await renderMediaOnLambda({ region: REMOTION_REGION, functionName: lambda.functionName, serveUrl: lambda.serveUrl, composition: "T1OnClip", inputProps: props as unknown as Record<string, unknown>, codec: "h264", crf: 18, muted: sound.muted, framesPerLambda: chunk.framesPerLambda, concurrencyPerLambda: chunk.concurrencyPerLambda, privacy: "private", downloadBehavior: { type: "download", fileName: null } });
         let progress = await getRenderProgress({ renderId: r.renderId, bucketName: r.bucketName, functionName: lambda.functionName, region: REMOTION_REGION });
         while (!progress.done && !progress.fatalErrorEncountered) {
           await new Promise((res) => setTimeout(res, 2000));
@@ -542,7 +546,7 @@ for (const clipId of clipIds) {
         console.log(`  lambda: ${functions} functions · $${(progress.costs?.accruedSoFar ?? 0).toFixed(4)} · ${((Date.now() - started) / 1000).toFixed(0)} s`);
       } else {
         const composition = await selectComposition({ serveUrl, id: "T1OnClip", inputProps: props as unknown as Record<string, unknown> });
-        await renderMedia({ composition, serveUrl, codec: "h264", crf: 18, outputLocation: out, inputProps: props as unknown as Record<string, unknown>, muted: true, logLevel: "error" });
+        await renderMedia({ composition, serveUrl, codec: "h264", crf: 18, outputLocation: out, inputProps: props as unknown as Record<string, unknown>, muted: sound.muted, logLevel: "error" });
       }
       contactRows.push({ label: `${id} · ${layout.arrangement}${refused ? " · REFUSED (flagged preview)" : ""}`, file: out });
       const fv = chosen?.face ?? bestFace!;
@@ -649,7 +653,7 @@ if (lambdaCosts.length) {
   const total = lambdaCosts.reduce((a, c) => a + (c.costUsd ?? 0), 0);
   L.push(`Lambda: ${lambdaCosts.length} renders, ${lambdaCosts[0]!.functions} functions each (one orchestrator plus the chunks), $${(total / lambdaCosts.length).toFixed(4)} a render on average, $${total.toFixed(4)} in all.`);
 }
-L.push(`Each clip: its first ${seconds} s from in_s, muted, H.264 CRF 18. Samples at ${T1V_FACE.fps} a second.`, "");
+L.push(`Each clip: its first ${seconds} s from in_s, with the clip's own sound (silent only when its audio_status is muted), H.264 CRF 18, AAC. Samples at ${T1V_FACE.fps} a second.`, "");
 L.push(`The roll-call, from Puzzle's tiers (${tiers.map((t) => `${t.name} ${t.state}`).join(" · ")}): "${rollCall.claim!.replace("\n", " / ")}".`, "");
 L.push("| Clip | Version | Format | Arrangement | Crop | Scale (O63, ≤ 1.6×) | Face (O64): top / claim share · run | Top block p95 (≤ 10 %) | Lockup p95 (≤ 15 %) | Bottom block p95 (≤ 15 %) | Band steps (O57) | Red line p95 → result (O58) | Claim | Safe area | Result | Rendered | File |");
 L.push("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|");
