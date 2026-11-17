@@ -72,21 +72,15 @@ alter table public.meta_custom_audiences
   add constraint meta_custom_audiences_list_role_check
   check (list_role is null or (audience_subtype = 'customer_list' and list_role in ('signups', 'similar', 'buyers')));
 
-do $$
-declare
-  cn text;
-begin
-  for cn in
-    select conname
-    from pg_constraint
-    where conrelid = 'public.meta_custom_audiences'::regclass
-      and contype = 'c'
-      and (pg_get_constraintdef(oid) ilike '%audience_subtype%in%' or pg_get_constraintdef(oid) ilike '%retention_days%')
-      and conname <> 'meta_custom_audiences_list_role_check'
-  loop
-    execute format('alter table public.meta_custom_audiences drop constraint %I', cn);
-  end loop;
-end $$;
+-- Drop the live subtype and retention checks by name. On prod they read
+-- "CHECK ((audience_subtype = ANY (ARRAY[...])))" and
+-- "CHECK (((retention_days > 0) AND (retention_days <= 365)))", so a match
+-- on the definition text is not used.
+alter table public.meta_custom_audiences
+  drop constraint if exists meta_custom_audiences_audience_subtype_check;
+
+alter table public.meta_custom_audiences
+  drop constraint if exists meta_custom_audiences_retention_days_check;
 
 alter table public.meta_custom_audiences
   add constraint meta_custom_audiences_audience_subtype_check
@@ -116,6 +110,6 @@ create index if not exists meta_custom_audiences_event_list_role_idx
   where list_role is not null;
 
 comment on column public.meta_custom_audiences.list_role is
-  'RT2 (docs/design-record/2026-11-17-retargeting-campaign.html): a customer list''s role for the show''s Retargeting campaign — signups and similar go in Bottom, buyers are left out of every tier. Null on every other audience.';
+  'RT2 (docs/design-record/2026-11-17-retargeting-campaign.html): a customer list''s role for the show''s Retargeting campaign — signups go in Bottom, similar in Mid Bottom, buyers are left out of every tier. Null on every other audience.';
 
 notify pgrst, 'reload schema';
