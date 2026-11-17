@@ -14,7 +14,7 @@ import { POST as metaLaunchPost } from "@/app/api/meta/launch-campaign/route";
 import { MATAS_USER_IDS } from "@/lib/auth/operator-allowlist";
 import type { LabUploadRequest } from "@/lib/creative-lab/launch";
 import { CREATES_OFF, approveTest, createsEnabled, type AdCopy, type TestMeta } from "@/lib/creative-tests/approve";
-import type { ListedCampaign } from "@/lib/creative-tests/tests-campaign";
+import type { CampaignRow } from "@/lib/creative-tests/tests-campaign";
 import { agencyMetaToken } from "@/lib/meta/agency-token";
 import { createMetaAdSet, graphGetWithToken, graphPostWithToken } from "@/lib/meta/client";
 import type { MetaAdSetPayload } from "@/lib/meta/adset";
@@ -74,11 +74,10 @@ function metaFor(token: string): TestMeta {
       return id;
     },
     async findCampaigns(adAccountId, nameContains) {
-      const res = await graphGetWithToken<{ data?: ListedCampaign[] }>(
+      const res = await graphGetWithToken<{ data?: CampaignRow[] }>(
         `/${act(adAccountId)}/campaigns`,
         {
           fields: "id,name,effective_status,created_time,daily_budget,lifetime_budget",
-          effective_status: JSON.stringify(["ACTIVE", "PAUSED"]),
           filtering: JSON.stringify([{ field: "name", operator: "CONTAIN", value: nameContains }]),
           limit: "50",
         },

@@ -39,7 +39,7 @@ import type { LabLaunchResponse, LabUploadRequest, LabUploadResult } from "../cr
 import { withMetaWriteIdempotency, type MetaWriteContext } from "../meta/write-idempotency.ts";
 import { sizeTest, type CboCampaign, type MainAdSet } from "./budget.ts";
 import { CONTROL, canApprove, chooseControl, variantCountOk, type TestRow } from "./plan.ts";
-import { hasCampaignBudget, pickTestsCampaign, testAdSetEndTime, testsCampaignPayload, type ListedCampaign } from "./tests-campaign.ts";
+import { TestsCampaignProblem, findTestsCampaign, isGoneCampaign, isShowTestCampaign, testAdSetEndTime, testsCampaignPayload, type CampaignRow } from "./tests-campaign.ts";
 import { testAdSetName, testsCampaignName, type ResultEvent, type TestFormat } from "./words.ts";
 
 type Db = Pick<SupabaseClient, "from">;
@@ -61,8 +61,8 @@ export type TestMeta = {
   readCampaign(campaignId: string): Promise<{ objective: string | null; dailyBudget: number | null; status: string | null } | null>;
   /** GET /{ad}?fields=creative{…}: the best ad's copy, link, call to action and identity. */
   readAdCopy(adId: string): Promise<AdCopy | null>;
-  /** GET /act_{id}/campaigns, ACTIVE and PAUSED, name containing `nameContains` (the exact match is pickTestsCampaign's). */
-  findCampaigns(adAccountId: string, nameContains: string): Promise<ListedCampaign[]>;
+  /** GET /act_{id}/campaigns, name containing `nameContains` (the exact match, and skipping deleted/archived, is findTestsCampaign's). */
+  findCampaigns(adAccountId: string, nameContains: string): Promise<CampaignRow[]>;
   createCampaign(adAccountId: string, payload: Record<string, unknown>): Promise<string>;
   createAdSet(adAccountId: string, payload: Record<string, unknown>): Promise<string>;
 };
@@ -103,9 +103,9 @@ export function resultsOf(day: Pick<AdDay, "landing_page_views" | "registrations
   return 0;
 }
 
-/** A main campaign is any of the event's campaigns but its Tests campaign. */
+/** A main campaign is any of the event's campaigns but its test campaigns ("· Tests", and this round's "· AB copy test" / "· Artist cards test"), by exact name. */
 export function isMainCampaign(name: string | null, eventCode: string): boolean {
-  return Boolean(name) && !name!.includes(testsCampaignName(eventCode));
+  return Boolean(name?.trim()) && !isShowTestCampaign(name, eventCode);
 }
 
 export type Facts = { last7Spend: number; deliveringAdSets: string[]; bestAd: { adId: string; adsetId: string } | null };
@@ -266,16 +266,33 @@ export async function approveTest(deps: ApproveDeps, input: { testId: string; us
   // its exact name in the event's account (the A/B copy test's, another plan's); else made.
   const format = str(test, "format") as TestFormat;
   const campaignName = testsCampaignName(eventCode);
+  // A stored id whose campaign was deleted or archived on Meta is dropped, and the campaign is made again.
+  const gone = async (id: string) => {
+    const row = await deps.meta.readCampaign(id);
+    return !row || isGoneCampaign(row);
+  };
   let campaignId = planTests.map((t) => str(t, "meta_campaign_id")).find(Boolean) ?? "";
+  if (campaignId && (await gone(campaignId))) campaignId = "";
   if (!campaignId) {
-    const found = pickTestsCampaign(await deps.meta.findCampaigns(adAccountId, campaignName), eventCode);
-    if (found && hasCampaignBudget(found)) return refuse(409, `${campaignName} has a campaign budget. Test budgets sit on the ad sets, so switch it to ad set budgets in Ads Manager first.`);
-    campaignId = found?.id ?? "";
+    try {
+      campaignId = findTestsCampaign(await deps.meta.findCampaigns(adAccountId, campaignName), eventCode)?.id ?? "";
+    } catch (err) {
+      if (err instanceof TestsCampaignProblem) return refuse(409, err.message);
+      throw err;
+    }
   }
   if (!campaignId) {
-    const payload = testsCampaignPayload(eventCode, objective);
-    // Keyed on the show's account and name, not the plan: one Tests campaign per show.
-    campaignId = await withMetaWriteIdempotency(ledger, "campaign_create", { tests_campaign: campaignName, ad_account_id: adAccountId }, () => deps.meta.createCampaign(adAccountId, payload), { required: true });
+    const payload = testsCampaignPayload(eventCode, { metaObjective: objective, status: "ACTIVE" });
+    // Keyed on the show's account and name, not the plan: one Tests campaign per show. The ledger
+    // hands back the id it made before; if Matas has since deleted that campaign, the key names the
+    // dead id it replaces, so the next create is a new write.
+    const key: Record<string, unknown> = { tests_campaign: campaignName, ad_account_id: adAccountId };
+    for (let attempt = 0; ; attempt += 1) {
+      campaignId = await withMetaWriteIdempotency(ledger, "campaign_create", key, () => deps.meta.createCampaign(adAccountId, payload), { required: true });
+      if (!(await gone(campaignId))) break;
+      if (attempt >= 2) return refuse(409, `${campaignName} keeps coming back deleted; nothing more was made.`);
+      key.replaces = campaignId;
+    }
   }
 
   // 2. The test's own ad set (never another test's), ACTIVE, ending 4 days after it starts.
