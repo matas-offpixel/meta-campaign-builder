@@ -7,7 +7,8 @@
 import { captionCharEm, CAPTION_BAND_BOX, VIDEO_BAND } from "./video-band.ts";
 import { profile } from "../../src/remotion/caption-style/profile.ts";
 import type { Rect } from "./artist-card.ts";
-import { judgeFaceOverTime, type FaceSample } from "./t1-face.ts";
+import { T1V_FACE, judgeFaceOverTime, type FaceSample } from "./t1-face.ts";
+import type { SamplingScheme } from "./face-sampling.ts";
 
 export const PLACEMENT_HOME = profile.verticalCenterPctOfSourceHeight * 1920;
 export const PLACEMENT_STEP = 0.02 * 1920;
@@ -30,7 +31,8 @@ export type StoredFaceRect = { left: number; top: number; width: number; height:
 /** One detection for a clip's crop and window. `t` is seconds from the window start. */
 export type StoredFaceSamples = {
   detector: string;
-  fps: 5;
+  /** Samples a second: 5 before 17 Nov 2026, FACE_SAMPLE_FPS since. */
+  fps: number;
   cropFocusX: number;
   cropFocusY: number;
   inS: number | null;
@@ -42,6 +44,21 @@ export type StoredFaceSamples = {
 };
 
 export const FACE_DETECTOR = "ssd_mobilenet_v1";
+/**
+ * When the face check samples a clip (face-sampling.ts). Gaps drawn from
+ * 0.3–0.4 s, seeded per clip: about 2.86 a second. No gap is over 0.4 s, so
+ * any face 5 fps would fail on a run (3 samples in a row, a 0.4 s span) is
+ * seen, and the jitter breaks the lock a fixed grid has on anything that
+ * repeats (a 2 fps grid and a 120 BPM head-bob: #1311 review). On the
+ * review's tracks against 50 fps truth: 0 worse than 5 fps on either rule
+ * (face-sample-rate.test.ts). 5 fps took ~150 frames, past Vercel's 800 s.
+ */
+export const FACE_SAMPLING: SamplingScheme = { kind: "jitter", minGap: 0.3, maxGap: 0.4 };
+/** The scheme's mean rate, stored as StoredFaceSamples.fps (below 5, so placement uses coverInterval). */
+export const FACE_SAMPLE_FPS = Math.round((2 / (0.3 + 0.4)) * 100) / 100;
+
+/** A check that runs past this stores FACE_CHECK_TIMED_OUT instead of being killed by the function limit. */
+export const FACE_CHECK_BUDGET_MS = 600_000;
 
 /** A lock outlives the function (800 s), so a check still running is never started again. */
 export const FACE_CHECK_LOCK_MS = 15 * 60 * 1000;
@@ -57,7 +74,7 @@ export function faceCheckLocked(stored: StoredFaceSamples | null, now: Date): bo
 export function readFaceSamples(value: unknown): StoredFaceSamples | null {
   if (!value || typeof value !== "object") return null;
   const row = value as StoredFaceSamples;
-  if (row.fps !== 5 || typeof row.detector !== "string") return null;
+  if (typeof row.fps !== "number" || !(row.fps > 0 && row.fps <= 5) || typeof row.detector !== "string") return null;
   if (typeof row.cropFocusX !== "number" || typeof row.cropFocusY !== "number") return null;
   return row;
 }
@@ -108,6 +125,8 @@ export function placeFromStoredSamples(args: {
   windowIn: number;
   windowOut: number;
   samples: readonly { t: number; faces: StoredFaceRect[] }[];
+  /** The samples' rate (StoredFaceSamples.fps); runs are judged in seconds from it. */
+  fps?: number;
 }): PlaceHit | PlaceMiss {
   const faces: FaceSample[] = args.samples.map((sample) => ({ tS: sample.t, faces: sample.faces }));
   return searchPlacement({
@@ -120,7 +139,9 @@ export function placeFromStoredSamples(args: {
       const slice = faces
         .filter((sample) => sample.tS >= origin - 1e-6)
         .map((sample) => ({ tS: sample.tS - origin, faces: sample.faces }));
-      const verdict = judgeFaceOverTime(slice, { always: boxes, claim: null }, { frameWidth: 1080 });
+      // Below 5 fps each hit counts its full interval each side (t1-face.ts), so a sparser sample never passes a run 5 fps fails.
+      const fps = args.fps ?? T1V_FACE.fps;
+      const verdict = judgeFaceOverTime(slice, { always: boxes, claim: null }, { frameWidth: 1080, fps, coverInterval: fps < T1V_FACE.fps });
       return { ok: verdict.ok, topShare: verdict.topShare, longestRunS: verdict.longestRunS };
     },
   });
