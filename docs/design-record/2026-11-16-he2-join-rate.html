@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>HE2 join rate — 16 Nov 2026</title>
+<style>
+:root{
+  --sand:#F0C9A8; --card:#e8d4c0; --edit:#f6ebe0; --paper:#fff8f0; --ink:#1e1810; --ink-2:#4a3d30; --ink-3:#6f6052;
+  --border:rgba(30,24,16,.10); --border-strong:rgba(30,24,16,.18); --muted:rgba(30,24,16,.06);
+  --olive:#4f5a1f; --ochre:#8a560c; --brick:#8f3424;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--sand);color:var(--ink);font:14px/1.5 var(--sans);font-feature-settings:"calt" 0}
+.wrap{max-width:1360px;margin:0 auto;padding:40px 24px 120px}
+h1{font-size:24px;font-weight:600;margin:0 0 6px}
+h2{font-size:20px;font-weight:600;margin:56px 0 8px}
+h3{font-size:13px;font-weight:600;margin:20px 0 6px}
+p{margin:0 0 10px;max-width:86ch}
+.lead{font-size:13px;color:var(--ink-2)}
+.k{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+code{font:12px var(--mono);background:var(--muted);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+figure{margin:0;min-width:0;max-width:100%}
+figcaption{font:700 9px/1.5 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+table.t{border-collapse:collapse;width:100%;font-size:12.5px;margin:10px 0 22px;background:var(--card);border-radius:8px;overflow:hidden;table-layout:fixed}
+table.t th,table.t td{text-align:left;vertical-align:top;padding:8px 12px;border-bottom:1px solid var(--border);overflow-wrap:anywhere}
+table.t th{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.t td:first-child{font-weight:600;width:190px}
+table.t ul{margin:4px 0 0 16px;padding:0}table.t li{margin:0 0 4px}
+.open{background:#f3e3c8;border:1px dashed var(--ochre);border-radius:8px;padding:10px 14px;font-size:12.5px;margin:10px 0 16px}
+.notes{font-size:12.5px;color:var(--ink-2)}.notes li{margin:0 0 6px;max-width:96ch}
+.frame{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start;margin:12px 0 24px}
+.vp{background:var(--sand);border:1px solid var(--border-strong);border-radius:8px;overflow:hidden;max-width:100%;padding:16px;font-size:13px}
+.vp.wide{width:900px}.vp.w393{width:393px}
+.h{font-weight:600;font-size:16px;margin:0 0 10px}
+.tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.w393 .tiles{grid-template-columns:1fr 1fr}
+.tiles.three{grid-template-columns:repeat(3,1fr)}
+.w393 .tiles.three{grid-template-columns:1fr 1fr}
+.tile{border:1px solid var(--border-strong);border-radius:6px;padding:10px 12px;min-width:0}
+.tile .l{font-size:11px;color:var(--ink-3)}
+.tile .n{font-size:22px;margin:2px 0}
+.tile .s{font-size:12px}
+.tile .src{font-size:11px;color:var(--ink-3);margin-top:2px}
+.foot{font-size:11.5px;color:var(--ink-2);margin-top:8px}
+.inv{text-decoration:underline dotted var(--brick);text-decoration-thickness:1.5px;text-underline-offset:3px}
+table.t ol{margin:4px 0 0 18px;padding:0}table.t ol li{margin:0 0 4px}
+@media (max-width:560px){table.t th[style]{width:100px!important}table.t td:first-child{width:100px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<p class="k">Off/Pixel · design record · dashboard v2 · HE2 · 16 November 2026</p>
+<h1>The join rate returns, with the same people on both sides</h1>
+<p class="lead">CIRQLIN #647 now stores <code>community_joined_reachable</code>: signups who are reachable on WhatsApp and joined the community. That lets HP1's withheld rate come back, comparing the same people top and bottom. This record re-rules HP1's return bullet in <code>2026-11-16-sales-page-order-he2.html</code> and sets the tile's words.</p>
+<p class="lead">Everything else in HP1–HP3 and PA1–PA7 stands, including step 3, the HP1 footnote and the scope line. SC1, SC1S, SC2 and SC2S gain the tile again. Prod reads it as 122 ÷ 314 on Glitterbox and 35 ÷ 75 on Locklead.</p>
+
+<h2>Rulings</h2>
+<table class="t">
+<tr><th style="width:190px">#</th><th>Ruling</th></tr>
+
+<tr><td>JR1 · The tile</td><td>
+<ul>
+<li><b>It's the fourth tile again,</b> after step 3, with the title <b>"Opt-in → community"</b> (kept by HP3).</li>
+<li><b>Its figure</b> is joined-and-reachable ÷ Reachable on WhatsApp, to one decimal place, like the panel's own "17.4 % of signups". For example "38.9 %".</li>
+<li><b>Its line:</b> <b>"of reachable signups joined"</b>. It says "signups", not "fans", because the panel's other lines say signups and it's the same people.</li>
+<li><b>Its source:</b> <b>"CIRQLIN · {jr} of {r} · since launch"</b>, for example "CIRQLIN · 122 of 314 · since launch". The two counts are there so the rate can be checked against step 2 beside it.</li>
+<li>"Derived", the old source line, is retired.</li>
+</ul></td></tr>
+
+<tr><td>JR2 · Since launch only</td><td>
+<ul>
+<li><b>The tile shows only on "Since launch".</b> A dated window can pass 100 %, because signups and joins are dated differently.</li>
+<li>On any other period the tile is left out, not shown as "—". The panel shows three tiles, and step 3 reads "{j} joined {period}" as HP2 accepted.</li>
+<li><b>It's capped at 100 %.</b> The rate can't pass 100 % when the counts are right. If a stored read ever has more joined-and-reachable signups than reachable ones, the tile shows "100.0 %". The internal view then adds the review line <b>"Joined-and-reachable is more than reachable on {show}'s page. Check CIRQLIN's read."</b> The share link shows the capped figure and no note.</li>
+</ul></td></tr>
+
+<tr><td>JR3 · Totals and gaps</td><td>
+<ul>
+<li><b>Client and venue views</b> sum both counts across the pages in scope, then divide (HP3). They never average the pages' own rates.</li>
+<li><b>Pages that don't offer WhatsApp</b> add nothing to either count. When nothing in scope is reachable, the tile is left out.</li>
+<li><b>A page read before #647</b> has no joined-and-reachable count. It's left out of both counts, and the source line adds <b>"· {m} pages without this count yet"</b> ("1 page without …" for one), so a total never reads as complete when it isn't.</li>
+<li><b>The umbrella</b> block gets its own tile from its own page, never added to the shows (HP2).</li>
+</ul></td></tr>
+
+<tr><td>JR4 · The HP1 footnote stays</td><td>
+<ul>
+<li>Step 3 still counts every joiner, reachable or not, so it can still be more than step 2.</li>
+<li>When it is, HP1's footnote stays word for word: "Joining the community doesn't need a marketing opt-in, so this can be more than step 2."</li>
+<li>The tile's line, "of reachable signups joined", is what keeps the rate and step 3 from being read as the same number.</li>
+</ul></td></tr>
+
+<tr><td>JR5 · Surfaces</td><td>
+<ul>
+<li>The tile shows on internal views and on the share link, figures only, naming no one.</li>
+<li>At 393 the four tiles sit two by two, with the tile last.</li>
+</ul></td></tr>
+</table>
+
+<h2>Frames</h2>
+<div class="frame">
+<figure><figcaption>JR-A · 1280 · Signups &amp; communities · Glitterbox · since launch</figcaption>
+<div class="vp wide">
+<div class="h">Signups &amp; communities</div>
+<div class="tiles">
+<div class="tile">
+<div class="l">1 · Email signups</div>
+<div class="n"><span class="inv">2,140</span></div>
+<div class="src">CIRQLIN · counted signups, spam removed</div></div>
+<div class="tile">
+<div class="l">2 · Reachable on WhatsApp</div>
+<div class="n">314</div>
+<div class="s">said yes to marketing and left a phone</div>
+<div class="src">CIRQLIN</div></div>
+<div class="tile">
+<div class="l">3 · Community members</div>
+<div class="n"><span class="inv">418</span></div>
+<div class="s">joined from signups</div>
+<div class="src">CIRQLIN · exact</div></div>
+<div class="tile">
+<div class="l">Opt-in → community</div>
+<div class="n">38.9 %</div>
+<div class="s">of reachable signups joined</div>
+<div class="src">CIRQLIN · 122 of 314 · since launch</div></div>
+</div>
+<div class="foot">Joining the community doesn't need a marketing opt-in, so this can be more than step 2.</div>
+</div></figure>
+</div>
+<div class="frame">
+<figure><figcaption>JR-A · 393 · the same</figcaption>
+<div class="vp w393">
+<div class="h">Signups &amp; communities</div>
+<div class="tiles">
+<div class="tile">
+<div class="l">1 · Email signups</div>
+<div class="n"><span class="inv">2,140</span></div>
+<div class="src">CIRQLIN · counted signups, spam removed</div></div>
+<div class="tile">
+<div class="l">2 · Reachable on WhatsApp</div>
+<div class="n">314</div>
+<div class="s">said yes to marketing and left a phone</div>
+<div class="src">CIRQLIN</div></div>
+<div class="tile">
+<div class="l">3 · Community members</div>
+<div class="n"><span class="inv">418</span></div>
+<div class="s">joined from signups</div>
+<div class="src">CIRQLIN · exact</div></div>
+<div class="tile">
+<div class="l">Opt-in → community</div>
+<div class="n">38.9 %</div>
+<div class="s">of reachable signups joined</div>
+<div class="src">CIRQLIN · 122 of 314 · since launch</div></div>
+</div>
+<div class="foot">Joining the community doesn't need a marketing opt-in, so this can be more than step 2.</div>
+</div></figure>
+<figure><figcaption>JR-B · 393 · the same page on "Last 7 days": no rate tile</figcaption>
+<div class="vp w393">
+<div class="h">Signups &amp; communities</div>
+<div class="tiles three">
+<div class="tile">
+<div class="l">1 · Email signups</div>
+<div class="n"><span class="inv">96</span></div>
+<div class="src">CIRQLIN · counted signups, spam removed</div></div>
+<div class="tile">
+<div class="l">2 · Reachable on WhatsApp</div>
+<div class="n"><span class="inv">17</span></div>
+<div class="s">said yes to marketing and left a phone</div>
+<div class="src">CIRQLIN</div></div>
+<div class="tile">
+<div class="l">3 · Community members</div>
+<div class="n"><span class="inv">21</span></div>
+<div class="s">joined in the last 7 days</div>
+<div class="src">CIRQLIN · exact</div></div>
+</div>
+<div class="foot">Joining the community doesn't need a marketing opt-in, so this can be more than step 2.</div>
+</div></figure>
+</div>
+<p class="lead">JR-A's rate is prod's Glitterbox figure: 122 ÷ 314 = 38.85 %, shown as 38.9 %. The <span class="inv">underlined</span> counts in steps 1 and 3, and all of JR-B, are invented to show the layout and the footnote. Locklead reads 35 ÷ 75 = 46.7 %.</p>
+
+<h2>Acceptance</h2>
+<ul class="notes">
+<li>The tile renders only on "Since launch". It's left out on every other period, and wherever nothing in scope is reachable.</li>
+<li>Its figure is the sum of joined-and-reachable ÷ the sum of reachable, to one decimal, capped at 100.0 %. A test covers the over-100 % read and its internal line.</li>
+<li>Pages read before #647 are left out of both counts and named in the "pages without this count yet" suffix.</li>
+<li>The HP1 footnote still shows exactly when step 3 is more than step 2.</li>
+<li>SC1, SC1S, SC2 and SC2S at 1280 and 393 show the tile on Since launch.</li>
+</ul>
+
+<h2>Invented here</h2>
+<ul class="notes">
+<li>"of reachable signups joined", "CIRQLIN · {jr} of {r} · since launch", and one decimal place.</li>
+<li>"Joined-and-reachable is more than reachable on {show}'s page. Check CIRQLIN's read."</li>
+<li>"· {m} pages without this count yet" / "· 1 page without this count yet".</li>
+</ul>
+
+</div>
+</body>
+</html>

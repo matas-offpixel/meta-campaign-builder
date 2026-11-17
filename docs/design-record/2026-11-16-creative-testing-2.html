@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Creative testing 2 — 16 Nov 2026</title>
+<style>
+:root{
+  --sand:#F0C9A8; --card:#e8d4c0; --edit:#f6ebe0; --paper:#fff8f0; --ink:#1e1810; --ink-2:#4a3d30; --ink-3:#6f6052;
+  --border:rgba(30,24,16,.10); --border-strong:rgba(30,24,16,.18); --muted:rgba(30,24,16,.06);
+  --olive:#4f5a1f; --ochre:#8a560c; --brick:#8f3424;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--sand);color:var(--ink);font:14px/1.5 var(--sans);font-feature-settings:"calt" 0}
+.wrap{max-width:1360px;margin:0 auto;padding:40px 24px 120px}
+h1{font-size:24px;font-weight:600;margin:0 0 6px}
+h2{font-size:20px;font-weight:600;margin:56px 0 8px}
+h3{font-size:13px;font-weight:600;margin:20px 0 6px}
+p{margin:0 0 10px;max-width:86ch}
+.lead{font-size:13px;color:var(--ink-2)}
+.k{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+code{font:12px var(--mono);background:var(--muted);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+figure{margin:0;min-width:0;max-width:100%}
+figcaption{font:700 9px/1.5 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+table.t{border-collapse:collapse;width:100%;font-size:12.5px;margin:10px 0 22px;background:var(--card);border-radius:8px;overflow:hidden;table-layout:fixed}
+table.t th,table.t td{text-align:left;vertical-align:top;padding:8px 12px;border-bottom:1px solid var(--border);overflow-wrap:anywhere}
+table.t th{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.t td:first-child{font-weight:600;width:190px}
+table.t ul{margin:4px 0 0 16px;padding:0}table.t li{margin:0 0 4px}
+.open{background:#f3e3c8;border:1px dashed var(--ochre);border-radius:8px;padding:10px 14px;font-size:12.5px;margin:10px 0 16px}
+.notes{font-size:12.5px;color:var(--ink-2)}.notes li{margin:0 0 6px;max-width:96ch}
+.frame{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start;margin:12px 0 24px}
+.vp{background:var(--paper);border:1px solid var(--border-strong);border-radius:8px;overflow:hidden;max-width:100%;padding:16px;font-size:13px}
+.vp.wide{width:760px}.vp.w393{width:393px}
+.ph{font:700 9px/1.4 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+.h{font-weight:600;font-size:14px;margin:0 0 4px}
+.sub{font-size:12px;color:var(--ink-2);margin:0 0 10px}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 10px}
+.chip{border:1px solid var(--border-strong);border-radius:999px;padding:3px 10px;font-size:12px;background:#fff}
+.chip.on{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.mono{font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase}
+.row{display:grid;grid-template-columns:22px 26px 1fr auto;gap:8px;align-items:center;padding:7px 0;border-top:1px solid var(--border)}
+.row .n{color:var(--ink-3);font:12px var(--mono)}
+.box{width:16px;height:16px;border:1.5px solid var(--ink);border-radius:3px;display:inline-block}
+.box.on{background:var(--ink)}
+.box.off{border-color:var(--ink-3);opacity:.45}
+.fs{font-size:11.5px;color:var(--ink-2)}
+.fs.warn{color:var(--brick)}
+.ok{color:var(--olive)}
+.btn{display:inline-block;border:1px solid var(--ink);border-radius:4px;padding:5px 10px;font:700 10px var(--mono);letter-spacing:.1em;text-transform:uppercase;background:var(--ink);color:var(--paper)}
+.btn.ghost{background:transparent;color:var(--ink)}
+.btn.dis{opacity:.4}
+.wave{position:relative;height:64px;background:repeating-linear-gradient(90deg,var(--ink-3) 0 2px,transparent 2px 5px);border-radius:4px;margin:26px 0 4px;opacity:.9}
+.wave .win{position:absolute;top:-4px;bottom:-4px;border:2px solid var(--ink);background:rgba(232,212,192,.55);border-radius:4px}
+.wave .drop{position:absolute;top:-10px;bottom:-10px;width:2px;background:var(--brick)}
+.wave .drop span{position:absolute;top:-16px;left:-20px;font:700 9px var(--mono);letter-spacing:.1em;color:var(--brick);white-space:nowrap}
+.tl{display:flex;justify-content:space-between;font:11px var(--mono);color:var(--ink-3)}
+.pv{width:150px;height:267px;background:#222;border-radius:6px;position:relative;flex:none;display:flex;align-items:center;justify-content:center;color:#fff;font:700 9px var(--mono);letter-spacing:.12em}
+.pv .play{position:absolute;bottom:10px;left:10px;width:28px;height:28px;border-radius:50%;background:#fff}
+.split{display:flex;gap:16px;align-items:flex-start}
+table.v{border-collapse:collapse;width:100%;font-size:12px;margin:6px 0}
+table.v th{font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);text-align:left;padding:4px 6px;border-bottom:1px solid var(--border-strong)}
+table.v td{padding:6px;border-bottom:1px solid var(--border)}
+table.v td.r,table.v th.r{text-align:right}
+.st{display:inline-block;border:1px solid var(--border-strong);border-radius:10px;padding:2px 8px;font:700 9px/1.5 var(--mono);letter-spacing:.1em;text-transform:uppercase}
+.st.run{border-style:dashed}
+.st.win{background:var(--olive);color:#fff;border-color:var(--olive)}
+.test{border:1px solid var(--border);border-radius:6px;padding:10px 12px;margin:8px 0;background:#fff}
+.test.dim{opacity:.55}
+.line{background:var(--card);border-radius:6px;padding:8px 10px;margin:6px 0;font-size:12px}
+.inv{text-decoration:underline dotted var(--brick);text-decoration-thickness:1.5px;text-underline-offset:3px}
+table.t table.t td:first-child{width:auto;font-weight:400}
+@media (max-width:560px){table.t th[style]{width:100px!important}table.t td:first-child{width:100px}}
+.st.fail{border-color:var(--brick);color:var(--brick)}
+.line .acts{float:right;font:700 9px var(--mono);letter-spacing:.1em;text-transform:uppercase}
+.line.wait{opacity:.6}
+.line.failed{border:1px solid var(--brick);background:#f6e3dc}
+.tick{display:inline-block;width:11px;height:11px;border:1.5px solid var(--ink);border-radius:2px;margin-right:6px;vertical-align:-1px}
+.tick.on{background:var(--ink)}
+.bar{display:inline-block;height:8px;background:var(--ink-3);border-radius:2px;vertical-align:middle;margin-right:6px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<p class="k">Off/Pixel · design record · creative testing · issue 2 · 16 November 2026</p>
+<h1>Test plans in one ad set: structure, winner rule and promotion</h1>
+<p class="lead">This record answers Matas's three replies (16 Nov) to the open items in <code>2026-11-16-creative-testing.html</code>.</p>
+<ul class="notes">
+<li><b>Test 3:</b> the winning track on the winning static, run as one ad against the current best ad. Accepted as suggested.</li>
+<li><b>Structure:</b> changed. There's no fixed amount per variant. The variants run together in one wide Advantage+ test ad set, and Meta spreads the spend. The best ads are then copied into the event's main ad sets, and the test ad set is paused.</li>
+<li><b>A rights mute:</b> pauses that variant and takes it out of the test. Accepted.</li>
+</ul>
+<p class="lead">Rulings TT1–TT7 replace CT6's clean-test, defaults and money bullets, all of CT7, and CT8's loser and winner bullets. CT6's test names and kinds stand, and so does CT8's R6 test for calls. CT1–CT5 and CT9–CT12 stand. CT-C and CT-D are redrawn here as TT-A and TT-C. The example figures are <span class="inv">invented</span>.</p>
+
+<h2>Rulings</h2>
+<table class="t">
+<tr><th style="width:190px">#</th><th>Ruling</th></tr>
+
+<tr><td>TT1 · Where a test runs</td><td>
+<ul>
+<li><b>One test campaign per event,</b> <code>{event code} · Tests</code>, with its budget on the ad sets. Ad-set budgets let each test ad set be funded and paused alone, whatever the main campaign uses.</li>
+<li><b>Up to two test ad sets in it,</b> one for each format, because Meta delivers stills and video differently:
+<ul>
+<li><code>{event code} · Tests · Video</code>: anything with sound or motion. That includes every audio snippet static (CT1), so Puzzle's Tests 1–3 all run here.</li>
+<li><code>{event code} · Tests · Statics</code>: still images.</li>
+</ul></li>
+<li><b>Wide Advantage+ audience:</b> the event's own location and age floor, nothing narrower, with the main campaign's placements. Each ad set optimises on the event's result (R3).</li>
+<li><b>One test at a time per test ad set.</b> A second test of the same format waits ("Waiting for Test {n−1}"). A statics test and a video test can run at once.</li>
+<li><b>Test 3</b> puts two ads in the test ad set: the combined winner, and a copy of the main campaign's current best ad on its own post as the control. The control is the ad with the lowest cost per result over the last 14 days, among ads with at least 10 results.</li>
+</ul></td></tr>
+
+<tr><td>TT2 · The test ad set's budget</td><td>
+<ul>
+<li><b>A test runs for 7 days</b>, one full refresh week, so its call lands on a refresh Monday.</li>
+<li><b>Its budget is 10 % of the event's remaining plan</b>, spent over the 7 days, as a daily budget in whole pounds rounded down.</li>
+<li><b>Both test ad sets together never pass R5's 20 % cap.</b> When a second test would push past it, it starts smaller, at whatever is left under the cap.</li>
+<li><b>Meta's floor:</b> a daily budget under £5 can't start, and the line reads "The plan has too little left to test: £{daily} a day is under Meta's £5 floor."</li>
+<li>The money comes from plan headroom or a named move (R5). Pausing the test ad set returns what's unspent to the plan.</li>
+<li><b>The budget line:</b> <b>"£{daily} a day for 7 days = £{total} · {pct} % of the £{remaining} left in the plan"</b>.</li>
+</ul></td></tr>
+
+<tr><td>TT3 · The winner rule, with uneven spend</td><td>
+<ul>
+<li><b>Meta will spend unevenly,</b> because it backs early favourites. So a variant is judged on its own results, never on its spend.</li>
+<li><b>Judged:</b> a variant needs at least <b>10 results</b> by the end of the test to win or lose.</li>
+<li><b>Not judged:</b> a variant Meta starved of spend, under 10 results, reads <b>"Not enough spend to judge"</b>. It never reads "lost". It's neither promoted nor paused as a loser. It stops when the test ad set pauses, and it can be put in a later test.</li>
+<li><b>The call</b> is at the end of the 7 days. Nothing is called early, because an early leader is often luck.
+<ul>
+<li>The winner is the judged variant with the lowest cost per result.</li>
+<li><b>Clear:</b> at least 15 % cheaper than the next judged variant, with 20 results or more of its own.</li>
+<li><b>Narrow:</b> anything less. It's still promoted, and marked " · narrow".</li>
+<li><b>No call:</b> fewer than 2 judged variants. The test reads "Not enough results to call this test. {n} of {m} reached 10 {results}." Nothing is promoted, and the pause line (TT4) is still offered.</li>
+</ul></li>
+<li><b>The event page shows Meta's spend share</b> beside each variant, so a starved variant is visible as starved. The share link never shows it.</li>
+<li><b>The states are CT7's, reworded:</b>
+<ul>
+<li>"Running · day {d} of 7 · £{spent} of £{total}";</li>
+<li>"Ready to call";</li>
+<li>"Winner: {variant} · {pct} % cheaper per {result} than {runner-up}", with " · narrow" when it is;</li>
+<li>"Not enough results to call this test";</li>
+<li>"Waiting for Test {n−1}".</li>
+</ul>
+"Too close · running {n} more days" is withdrawn.</li>
+<li><b>Calling is still Matas's click, "Call the winner".</b></li>
+</ul></td></tr>
+
+<tr><td>TT4 · Promotion, as refresh lines</td><td>
+<p>A call puts two lines in the event's refresh panel, in this order. They replace CT8's "Lost Test {n}" lines, which are withdrawn.</p>
+<ul>
+<li><b>1 · Copy the winner</b>, R2's add line under a new rule: <b>"Promote Test {n}'s winner: copy {variant} into {k} of {m} ad sets"</b>, with the ad sets listed under it.
+<ul>
+<li>It lists the main campaign's live ad sets that run the winner's format, each with a tick, all on to start. Matas can untick any before Accept.</li>
+<li>Accept, then Apply, adds the ad on the same post (PC9's creative reuse). It goes in live (R4).</li>
+</ul></li>
+<li><b>2 · Pause the test ad set</b>, as its own line: <b>"Pause {test ad set}: Test {n} is called"</b>.
+<ul>
+<li>It can't apply until line 1 has applied or been rejected, and says <b>"Waits for the copy above"</b> until then.</li>
+<li>It's offered even when nothing is promoted, so a finished test never keeps spending.</li>
+</ul></li>
+<li><b>Test 3:</b>
+<ul>
+<li>If the combined winner beats the control, line 1 copies it into the main ad sets.</li>
+<li>If the control holds, there's no line 1: the card reads "The current best ad held. Nothing changes.", and line 2 pauses the test ad set.</li>
+</ul></li>
+<li>Both lines follow R4: Accept, then Apply. Shadow mode applies, and they go through the gated writes (the ad add and the ad-set status write, HR4).</li>
+<li>The winner carries on as CT8 says. R6's test for calls stands, read on the winner's next 7 days in the main ad sets it was copied into.</li>
+</ul></td></tr>
+
+<tr><td>TT5 · A rights mute</td><td>
+<ul>
+<li>When Meta mutes a variant's audio or rejects it for a rights match, that variant is paused at once and leaves the test.</li>
+<li>Its row and a failed refresh line read <b>"Meta muted the audio (rights)"</b>, in F3's failed style.</li>
+<li>Its file is flagged in the Lab with the same words, and it can't be picked for a new snippet until Matas clears the flag.</li>
+<li>The test continues if 2 or more variants remain. Otherwise it ends: <b>"Not enough variants left to test."</b>, with TT4's pause line.</li>
+</ul></td></tr>
+
+<tr><td>TT6 · What each surface shows</td><td>
+<ul>
+<li><b>Event page</b> (CT9): the test card shows TT2's budget line, TT3's state, and the variant table: variant, spend share, spend, results, cost per result, vs best. Starved and muted rows say so in the "vs best" column.</li>
+<li><b>Phone:</b> each row reads "{variant} · {cost per result} · {results} · {share} of spend", or the starved or muted words.</li>
+<li><b>Share link</b> (CT11): unchanged, figures only. Starved rows read "Not enough spend to judge" and muted rows read "Audio muted by Meta". There are no budgets, spend shares or lines.</li>
+<li><b>The Lab</b> (CT10): unchanged, plus TT5's flag.</li>
+</ul></td></tr>
+
+<tr><td>TT7 · CT's open items, closed</td><td>
+<ul>
+<li>(1) Test 3 as suggested: TT1 and TT4.</li>
+<li>(2) The structure re-ruled: TT1–TT3.</li>
+<li>(3) The rights mute: TT5.</li>
+</ul></td></tr>
+</table>
+
+<h2>Frames</h2>
+<div class="frame">
+<figure><figcaption>TT-A · 1280 · event page · Test 1 called, one variant starved</figcaption>
+<div class="vp wide">
+<div class="h">Test plan</div>
+<div class="test">
+<div style="display:flex;justify-content:space-between;align-items:center;gap:10px"><b>Test 1 · Tracks</b><span class="st win">Winner: Track two · 26 % cheaper per checkout than Track one</span></div>
+<div class="fs">In P26-BDAY · Tests · Video · £30 a day for 7 days = £210 · 10 % of the £2,100 left in the plan</div>
+<table class="v">
+<tr><th>Variant</th><th>Spend share</th><th class="r">Spend</th><th class="r">Checkouts</th><th class="r">Cost per checkout</th><th class="r">vs best</th></tr>
+<tr><td><b>Track two</b></td><td><span class="bar" style="width:52px"></span>52 %</td><td class="r">£109.20</td><td class="r">61</td><td class="r">£1.79</td><td class="r">best</td></tr>
+<tr><td>Track one</td><td><span class="bar" style="width:31px"></span>31 %</td><td class="r">£65.10</td><td class="r">27</td><td class="r">£2.41</td><td class="r">+35 %</td></tr>
+<tr><td>Track five</td><td><span class="bar" style="width:13px"></span>13 %</td><td class="r">£27.30</td><td class="r">11</td><td class="r">£2.48</td><td class="r">+39 %</td></tr>
+<tr><td>Track three</td><td><span class="bar" style="width:4px"></span>4 %</td><td class="r">£8.40</td><td class="r">3</td><td class="r">—</td><td class="r">Not enough spend to judge</td></tr></table>
+</div>
+<div class="test dim"><b>Test 2 · Statics</b> · <span class="fs">Waiting for Test 1's statics</span></div>
+</div></figure>
+<figure><figcaption>TT-A · 393 · the same card</figcaption>
+<div class="vp w393">
+<div class="h">Test plan</div>
+<div class="test">
+<b>Test 1 · Tracks</b><br><span class="st win">Winner: Track two · 26 % cheaper per checkout than Track one</span>
+<div class="fs" style="margin-top:6px">£30 a day for 7 days = £210 · 10 % of the £2,100 left in the plan</div>
+<div class="line">Track two · £1.79 per checkout · 61 · 52 % of spend</div>
+<div class="line">Track one · £2.41 per checkout · 27 · 31 % of spend</div>
+<div class="line">Track five · £2.48 per checkout · 11 · 13 % of spend</div>
+<div class="line">Track three · Not enough spend to judge · 4 % of spend</div>
+</div>
+</div></figure>
+</div>
+
+<div class="frame">
+<figure><figcaption>TT-B · 1280 · refresh panel · the two promotion lines</figcaption>
+<div class="vp wide">
+<div class="h">On-sale refresh · w/c 23 Nov</div>
+<div class="line"><span class="acts">Accept · Reject</span><b>Promote Test 1's winner:</b> copy Track two into 2 of 3 ad sets<br>
+<span class="tick on"></span>Broad · UK 18–35 &nbsp; <span class="tick on"></span>Lookalike · signups 1 % &nbsp; <span class="tick"></span>Retargeting · 60-day video<br>
+<span class="fs">26 % cheaper per checkout than Track one · 61 checkouts at £1.79 · same post as the test ad</span></div>
+<div class="line wait"><span class="acts">Accept · Reject</span><b>Pause P26-BDAY · Tests · Video:</b> Test 1 is called<br><span class="fs">Waits for the copy above</span></div>
+</div></figure>
+<figure><figcaption>TT-B · 393</figcaption>
+<div class="vp w393">
+<div class="h">On-sale refresh · w/c 23 Nov</div>
+<div class="line"><b>Promote Test 1's winner:</b> copy Track two into 2 of 3 ad sets<br><span class="fs">26 % cheaper per checkout · 61 checkouts</span></div>
+<div class="line wait"><b>Pause P26-BDAY · Tests · Video</b><br><span class="fs">Waits for the copy above</span></div>
+</div></figure>
+</div>
+<p class="lead">In TT-B, Matas has unticked Retargeting, so the promote line copies into 2 of the 3 ad sets.</p>
+
+<div class="frame">
+<figure><figcaption>TT-D · 393 · event page · a rights mute mid-test</figcaption>
+<div class="vp w393">
+<div class="test">
+<b>Test 1 · Tracks</b><br><span class="st run">Running · day 3 of 7 · £84 of £210</span>
+<div class="line">Track two · £1.81 per checkout · 24 · 52 % of spend</div>
+<div class="line">Track one · £2.30 per checkout · 13 · 36 % of spend</div>
+<div class="line failed">Track six · Meta muted the audio (rights) · paused, out of the test</div>
+</div>
+</div></figure>
+</div>
+<p class="lead">TT-D is a different fixture from TT-A: a second Test 1 in which one track was muted on day 2.</p>
+
+<div class="frame">
+<figure><figcaption>TT-C · 393 · client share link · What we're testing</figcaption>
+<div class="vp w393">
+<div class="h">What we're testing</div>
+<div class="test">
+<b>Test 1 · Tracks</b><br><span class="st win">Winner: Track two · 26 % cheaper per checkout than Track one</span>
+<table class="v">
+<tr><th>Track</th><th class="r">Checkouts</th><th class="r">Per checkout</th></tr>
+<tr><td>Track two</td><td class="r">61</td><td class="r">£1.79</td></tr>
+<tr><td>Track one</td><td class="r">27</td><td class="r">£2.41</td></tr>
+<tr><td>Track five</td><td class="r">11</td><td class="r">£2.48</td></tr>
+<tr><td>Track three</td><td class="r" colspan="2">Not enough spend to judge</td></tr></table>
+</div>
+</div></figure>
+</div>
+
+<h2>Expected figures (TT-A)</h2>
+<ul class="notes">
+<li>The spend adds up: £109.20 + £65.10 + £27.30 + £8.40 = £210.00, which is £30 × 7. That's 10 % of £2,100.</li>
+<li>Spend shares: 52 %, 31 %, 13 %, 4 %.</li>
+<li>Cost per checkout: £109.20 ÷ 61 = £1.79, £65.10 ÷ 27 = £2.41, £27.30 ÷ 11 = £2.48.</li>
+<li>The winner: Track two is 25.8 % cheaper than Track one, which rounds to 26 %. That's clear, because it's over 15 % with 61 checkouts.</li>
+<li>Vs best, from unrounded costs: +35 % and +39 %.</li>
+<li>Track three has 3 checkouts, under 10, so it isn't judged.</li>
+<li>TT-D: £1.81 × 24 = £43.44 (52 % of £84) and £2.30 × 13 = £29.90 (36 %), so the muted Track six spent £10.66 before it was paused.</li>
+</ul>
+
+<h2>Acceptance</h2>
+<ul class="notes">
+<li>Test ad sets are created only inside <code>{event code} · Tests</code>, one per format, with one test at a time.</li>
+<li>Their budget follows TT2, and a test asserts that the two together never pass the 20 % cap.</li>
+<li>A variant under 10 results is never labelled a loser, never promoted and never gets its own pause line.</li>
+<li>The pause line can't apply before the promote line has been applied or rejected.</li>
+<li>A rights mute pauses the variant, writes the failed line, and flags the file.</li>
+<li>Frames TT-A and TT-B at 1280 and 393, and TT-C and TT-D at 393, from fixtures.</li>
+</ul>
+
+<h2>Invented here</h2>
+<ul class="notes">
+<li>The test campaign and its two ad sets' names, one test at a time per ad set, and Test 3's control (lowest cost per result over 14 days, at least 10 results).</li>
+<li>7 days, 10 % of the remaining plan, the £5 floor line, and the budget line.</li>
+<li>Judged at 10 results, clear at 15 % with 20 results, "Not enough spend to judge", "Not enough results to call this test. {n} of {m} reached 10 {results}.", and the reworded states.</li>
+<li>"Promote Test {n}'s winner: copy {variant} into …", "Pause {test ad set}: Test {n} is called", and "Waits for the copy above".</li>
+<li>"Meta muted the audio (rights)" (Matas's words), "Audio muted by Meta" on the share link, and "Not enough variants left to test."</li>
+</ul>
+
+</div>
+</body>
+</html>

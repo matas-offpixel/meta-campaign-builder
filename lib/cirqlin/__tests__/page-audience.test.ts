@@ -7,7 +7,7 @@ import {
   pageAudienceUrl,
   parsePageAudience,
 } from "../page-audience/client.ts";
-import { latestPageAudienceRows, offersWhatsapp, pageAudienceForClient, pageAudienceForEvents, pageAudienceForShow, partnerOptInShown } from "../page-audience/read.ts";
+import { joinRate, latestPageAudienceRows, offersWhatsapp, pageAudienceForClient, pageAudienceForEvents, pageAudienceForShow, partnerOptInShown } from "../page-audience/read.ts";
 import {
   CIRQLIN_PARTNER_BUCKET,
   checkSignups,
@@ -27,7 +27,7 @@ const P4 = "00000000-0000-4000-8000-0000000000a4";
 const P5 = "00000000-0000-4000-8000-0000000000a5";
 const UMB = "00000000-0000-4000-8000-0000000000ff";
 
-/** Shaped exactly like cirqlin #631's 200 body, with #633's partner_box_offered. */
+/** Shaped exactly like cirqlin #631's 200 body, with #633's partner_box_offered and #647's community_joined_reachable. */
 function body(pageId: string, over: Record<string, unknown> = {}) {
   return {
     page_id: pageId,
@@ -45,6 +45,7 @@ function body(pageId: string, over: Record<string, unknown> = {}) {
     partner_opt_in: 120,
     partner_box_offered: true,
     community_joined: 88,
+    community_joined_reachable: 61,
     community_link_clicks: 140,
     community_code_shared: false,
     daily_timezone: "Europe/London",
@@ -185,7 +186,7 @@ describe("page-audience client", () => {
     walk(parsed.audience);
     assert.deepEqual(
       [...keys].sort(),
-      ["channels_offered", "cities", "community_code_shared", "community_joined", "community_link_clicks", "consent", "couldnt_tell", "country", "daily_timezone", "everywhere_else", "geography", "marketing", "name", "page_id", "partner_box_offered", "partner_opt_in", "region", "signups", "whatsapp_with_phone"],
+      ["channels_offered", "cities", "community_code_shared", "community_joined", "community_joined_reachable", "community_link_clicks", "consent", "couldnt_tell", "country", "daily_timezone", "everywhere_else", "geography", "marketing", "name", "page_id", "partner_box_offered", "partner_opt_in", "region", "signups", "whatsapp_with_phone"],
     );
   });
 
@@ -240,6 +241,20 @@ describe("page-audience client", () => {
     const old = parsePageAudience(before);
     assert.ok(old.ok);
     assert.equal(old.audience.partner_box_offered, null);
+  });
+
+  it("community_joined_reachable (#647): a count is kept; a negative, a fraction or a non-number rejects the body; no key is null", () => {
+    const kept = parsePageAudience(body(P1, { community_joined_reachable: 0 }));
+    assert.ok(kept.ok);
+    assert.equal(kept.audience.community_joined_reachable, 0);
+    for (const bad of [-1, 1.5, "61", null, true, {}, Number.NaN]) {
+      assert.deepEqual(parsePageAudience(body(P1, { community_joined_reachable: bad })), { ok: false, reason: "bad_shape" }, String(bad));
+    }
+    const before: Record<string, unknown> = body(P1);
+    delete before.community_joined_reachable;
+    const old = parsePageAudience(before);
+    assert.ok(old.ok);
+    assert.equal(old.audience.community_joined_reachable, null);
   });
 
   it("classifies 401, 404, 400, 429 and 500", () => {
@@ -428,6 +443,7 @@ describe("page-audience step", () => {
       consent_marketing: 371,
       channels_offered: ["email", "whatsapp"],
       community_joined: 88,
+      community_joined_reachable: 61,
       community_link_clicks: 140,
       community_code_shared: false,
       whatsapp_with_phone: 302,
@@ -441,6 +457,16 @@ describe("page-audience step", () => {
     });
     assert.equal(db.upserts.find((u) => u.rows[0]!.page_id === UMB)!.rows[0]!.is_umbrella, true);
     assert.ok(Object.values(show).every((v) => v !== undefined));
+  });
+
+  it("an older body without community_joined_reachable writes null, never 0", async () => {
+    const old: Record<string, unknown> = body(P1);
+    delete old.community_joined_reachable;
+    const db = fakeDb({});
+    await runPageAudienceStep({ env: ON, db: asDb(db), signupsPassStartedAt: RUN, signupsPassCalls: 0, targets: targets(P1), fetchImpl: partner({ [P1]: { status: 200, body: old } }).fetchImpl, secret: SECRET, now: NOW, log: quiet });
+    const row = db.upserts[0]!.rows[0]!;
+    assert.ok("community_joined_reachable" in row);
+    assert.equal(row.community_joined_reachable, null);
   });
 
   it("reads the pages fetched longest ago first", async () => {
@@ -582,6 +608,44 @@ describe("page-audience read helpers", () => {
     assert.deepEqual([f("schak").partnerBoxOffered, f("schak").partnerOptIn], [true, 0]);
     assert.deepEqual([f("other").partnerBoxOffered, f("other").partnerOptIn], [null, null]);
     assert.deepEqual([f("global").partnerBoxOffered, f("global").partnerOptIn], [null, 7]);
+  });
+
+  it("join rate: CIRQLIN's prod examples, glitterbox-bristol 38.9 % and locklead-newcastle 46.7 %", async () => {
+    // As Matas gave them (414 / 314 / 122, 257 / 75 / 35): the first figure
+    // is not in the rate; whatsapp_with_phone, then community_joined_reachable.
+    const page = (id: string, ev: string, first: number, withPhone: number, reachable: number) => ({
+      ...stored(id, "2026-11-16", ev, first),
+      channels_offered: ["email", "whatsapp"],
+      community_joined: first,
+      whatsapp_with_phone: withPhone,
+      community_joined_reachable: reachable,
+    });
+    const db = fakeDb({ events, cirqlin_page_audience: [page(P1, "lock", 257, 75, 35), page(P2, "schak", 414, 314, 122)] });
+    const view = await pageAudienceForEvents(asDb(db), ["lock", "schak"]);
+    const pct = (r: number | null) => (r == null ? null : Math.round(r * 1000) / 10);
+    assert.equal(view.shows.get("schak")!.communityJoinedReachable, 122);
+    assert.equal(pct(view.shows.get("schak")!.joinRate), 38.9);
+    assert.equal(view.shows.get("lock")!.communityJoinedReachable, 35);
+    assert.equal(pct(view.shows.get("lock")!.joinRate), 46.7);
+    assert.equal(pct(joinRate(122, 314)), 38.9);
+    assert.equal(pct(joinRate(35, 75)), 46.7);
+  });
+
+  it("join rate: null without the count, with whatsapp_with_phone 0, or for a windowed view; capped at 100 %", async () => {
+    assert.equal(joinRate(null, 314), null);
+    assert.equal(joinRate(undefined, 314), null);
+    assert.equal(joinRate(122, null), null);
+    assert.equal(joinRate(0, 0), null);
+    assert.equal(joinRate(3, 0), null);
+    assert.equal(joinRate(122, 314, { windowed: true }), null);
+    assert.equal(joinRate(0, 75), 0);
+    assert.equal(joinRate(80, 75), 1);
+    const before = stored(P1, "2026-11-15", "lock", 404);
+    const noPhone = { ...stored(P2, "2026-11-15", "schak", 1792), community_joined_reachable: 0, whatsapp_with_phone: 0 };
+    const db = fakeDb({ events, cirqlin_page_audience: [before, noPhone] });
+    const view = await pageAudienceForEvents(asDb(db), ["lock", "schak"]);
+    assert.deepEqual([view.shows.get("lock")!.communityJoinedReachable, view.shows.get("lock")!.joinRate], [null, null]);
+    assert.deepEqual([view.shows.get("schak")!.communityJoinedReachable, view.shows.get("schak")!.joinRate], [0, null]);
   });
 
   it("by events and by show; a show with no row is absent", async () => {

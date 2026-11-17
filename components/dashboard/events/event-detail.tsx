@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -154,6 +154,8 @@ interface Props {
   lab: CreativeLabCardData | null;
   /** When the page was rendered. Dates on this page count from this, not the browser clock. */
   nowIso: string;
+  /** HE4 and HE6, already read. Omitted when the read failed. */
+  panels?: ReactNode;
   /** Releases and the client's ladder. Null until migration 211 is applied. */
   bank?: {
     eventId: string;
@@ -191,6 +193,7 @@ export function EventDetail({
   lab,
   nowIso,
   bank = null,
+  panels = null,
 }: Props) {
   // Plan-side cumulative wins over the manual override on the report —
   // resolved here so the Tickets sold StatCard, the read-only panel
@@ -374,6 +377,7 @@ export function EventDetail({
               ) : null}
               {bank && event.status !== "cancelled" ? <OffersSheet eventId={bank.eventId} /> : null}
               {lab ? <CreativeLabCard lab={lab} quoteMode presentation="owner" driveFolderId={event.drive_folder_id} /> : null}
+              {panels}
               {!isBrand && isOnSale(event as unknown as { status: string | null; event_date: string | null; general_sale_at: string | null }, todayLondon(new Date())) ? <OnSaleRefreshPanel eventId={event.id} eventDate={event.event_date ?? null} /> : null}
               {!isBrand && event.client_id ? (
                 <p className="text-sm">

@@ -1,5 +1,8 @@
 import { notFound, redirect } from "next/navigation";
+import { ObjectiveBudgetPanel } from "@/components/dashboard/objective-budget-panel/panel";
+import { PresalePanel } from "@/components/dashboard/presale-panel/presale-panel";
 import { EventDetail } from "@/components/dashboard/events/event-detail";
+import { loadEventPanels } from "@/lib/dashboard/he-panels/server";
 import { loadCreativeLabCard } from "@/lib/db/creative-lab";
 import { loadClientLadder, loadEventArtists, loadEventReleases, loadSalesHistory } from "@/lib/db/releases";
 import { measureClipSources, signClipPreviews } from "@/lib/creative-lab/clip-preview";
@@ -220,8 +223,25 @@ export default async function EventDetailPage({ params, searchParams }: Props) {
       return null;
     });
 
+  const he = event.client_id
+    ? await loadEventPanels(createServiceRoleClient(), {
+        eventId: event.id,
+        clientId: event.client_id,
+        surface: "internal",
+        presale: event.kind !== "brand_campaign",
+      })
+    : null;
+
   return (
     <EventDetail
+      panels={
+        he ? (
+          <>
+            {he.presale ? <PresalePanel model={he.presale} /> : null}
+            {he.budget ? <ObjectiveBudgetPanel model={he.budget} /> : null}
+          </>
+        ) : null
+      }
       event={event}
       drafts={drafts}
       userId={user.id}

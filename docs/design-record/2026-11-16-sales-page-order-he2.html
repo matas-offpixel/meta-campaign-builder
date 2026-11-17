@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sales page order and HE2 words — 16 Nov 2026</title>
+<style>
+:root{
+  --sand:#F0C9A8; --card:#e8d4c0; --edit:#f6ebe0; --paper:#fff8f0; --ink:#1e1810; --ink-2:#4a3d30; --ink-3:#6f6052;
+  --border:rgba(30,24,16,.10); --border-strong:rgba(30,24,16,.18); --muted:rgba(30,24,16,.06);
+  --olive:#4f5a1f; --ochre:#8a560c; --brick:#8f3424;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--sand);color:var(--ink);font:14px/1.5 var(--sans);font-feature-settings:"calt" 0}
+.wrap{max-width:1360px;margin:0 auto;padding:40px 24px 120px}
+h1{font-size:24px;font-weight:600;margin:0 0 6px}
+h2{font-size:20px;font-weight:600;margin:56px 0 8px}
+h3{font-size:13px;font-weight:600;margin:20px 0 6px}
+p{margin:0 0 10px;max-width:86ch}
+.lead{font-size:13px;color:var(--ink-2)}
+.k{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+code{font:12px var(--mono);background:var(--muted);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+figure{margin:0;min-width:0;max-width:100%}
+figcaption{font:700 9px/1.5 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+table.t{border-collapse:collapse;width:100%;font-size:12.5px;margin:10px 0 22px;background:var(--card);border-radius:8px;overflow:hidden;table-layout:fixed}
+table.t th,table.t td{text-align:left;vertical-align:top;padding:8px 12px;border-bottom:1px solid var(--border);overflow-wrap:anywhere}
+table.t th{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.t td:first-child{font-weight:600;width:190px}
+table.t ul{margin:4px 0 0 16px;padding:0}table.t li{margin:0 0 4px}
+.open{background:#f3e3c8;border:1px dashed var(--ochre);border-radius:8px;padding:10px 14px;font-size:12.5px;margin:10px 0 16px}
+.notes{font-size:12.5px;color:var(--ink-2)}.notes li{margin:0 0 6px;max-width:96ch}
+table.t ol{margin:4px 0 0 18px;padding:0}table.t ol li{margin:0 0 4px}
+@media (max-width:560px){table.t th[style]{width:100px!important}table.t td:first-child{width:100px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<p class="k">Off/Pixel · design record · dashboard v2 · 16 November 2026</p>
+<h1>The sales page's panel order, and the HE2 panel's words</h1>
+<p class="lead">From the #1261 and #1284 reviews. SO1 sets the order of the sales page's sections. HP1 re-rules PA3's join rate of the HE2 page-audience record, because on real data it goes over 100 %. HP2 and HP3 rule the eight strings and the session's own calls that #1284 lists. Everything else in PA1–PA7 and PB1–PB5 stands. No new frames. SC1, SC1S, SC2 and SC2S lose their join-rate tile under HP1.</p>
+
+<h2>Rulings</h2>
+<table class="t">
+<tr><th style="width:190px">#</th><th>Ruling</th></tr>
+
+<tr><td>SO1 · Panel order</td><td>
+<p>On the client, venue and show views of the sales page, internal and share link alike, the sections run in this order:</p>
+<ol>
+<li>the header, key figures and chart (D1–D13, N1–N8);</li>
+<li>Sales trajectory;</li>
+<li>Campaigns;</li>
+<li>Who we reached (HE1, HE3);</li>
+<li>Signups &amp; communities (HE2);</li>
+<li>Presale (HE4);</li>
+<li>Creatives (HE5);</li>
+<li>Objectives;</li>
+<li>Budget (HE6).</li>
+</ol>
+<ul>
+<li>Why: sales first, then who was reached and how they came in, then the presale moment, then what ran, and last what it cost. Budget closes the page because its total adds up everything above it.</li>
+<li>A section with nothing to show on a view is left out, and the order of the rest doesn't change.</li>
+<li>On a phone the order is the same. Sections MB7 folds stay folded.</li>
+</ul></td></tr>
+
+<tr><td>HP1 · The join rate is withheld (re-rules PA3)</td><td>
+<ul>
+<li><b>Why:</b> CIRQLIN's <code>community_joined</code> counts every signup who joined the community, and most joiners said no to marketing. So joined ÷ reachable doesn't compare the same people, and it reads 132.3 % on Glitterbox and 342.7 % on Locklead.</li>
+<li><b>Until CIRQLIN returns joined ∩ reachable,</b> there's no join rate on any view. The "Opt-in → community" tile is left out, not shown as "—". The panel shows three tiles.</li>
+<li><b>Step 3 is unchanged:</b> its headline stays every joiner, "{j} joined from signups" · "CIRQLIN · exact" (PA3).</li>
+<li><b>When step 3 is more than step 2,</b> a footnote under the steps reads: <b>"Joining the community doesn't need a marketing opt-in, so this can be more than step 2."</b> It never shows otherwise.</li>
+<li><b>When joined ∩ reachable lands,</b> the tile returns as "Opt-in → community", that count ÷ Reachable on WhatsApp, on "Since launch" only. It can't pass 100 %, and a test asserts it. That needs no new record.</li>
+</ul></td></tr>
+
+<tr><td>HP2 · #1284's eight strings</td><td>
+<p>All accepted, with one change to the fifth:</p>
+<ol>
+<li>"WhatsApp isn't offered on these pages" on a block of several pages.</li>
+<li>"CIRQLIN" as step 2's source line.</li>
+<li>"{j} joined in the last 7 days" (and 30, 14 and 3 days), and "{j} joined yesterday".</li>
+<li>"No CIRQLIN read before {day} yet, so this period isn't counted."</li>
+<li><b>Changed:</b> the block's scope line is <b>"{scope} · {n} CIRQLIN pages · read {day}"</b>, with "1 CIRQLIN page" for one. The trailing "· CIRQLIN · counted signups, spam removed" is dropped, because step 1 already carries it. When a show in scope has no CIRQLIN page, the line adds <b>"· {m} shows without a CIRQLIN page"</b> ("1 show without …" for one), so a total never reads as complete when it isn't.</li>
+<li>"{umbrella name} · its own page, never added to the shows".</li>
+<li>"Doesn't add up: {show}'s page", internal only.</li>
+<li>"{n} members" with "entered by {first name}, {date}" as its source. The share link reads "entered {date}".</li>
+</ol></td></tr>
+
+<tr><td>HP3 · The session's own calls</td><td>
+<ul>
+<li><b>Accepted:</b>
+<ul>
+<li>client and venue views sum the shows' pages, and an entered member count leads only on a show's own view;</li>
+<li>the share link names no one;</li>
+<li>a period comes from the nightly reads, the latest read less the latest read before the window, with the 23:55 UTC read standing for the end of its day;</li>
+<li>geography stays all-time, like HE1's tables;</li>
+<li>"Opt-in → community" is kept as the tile's title, for when HP1's rate returns.</li>
+</ul></li>
+<li><b>Not built, and open:</b> E2's 2 % cross-check against the CQ-{slug} Bird list, and the Mailchimp fallback for a show with no page. Until they're built, HP2's "shows without a CIRQLIN page" line says what's missing.</li>
+</ul></td></tr>
+</table>
+
+<h2>Acceptance</h2>
+<ul class="notes">
+<li>The section order on every view and both surfaces matches SO1, at 1280 and 393.</li>
+<li>No join rate renders anywhere. The footnote renders only when step 3 is more than step 2.</li>
+<li>The scope line carries no repeated source, and names shows without a page when there are any.</li>
+</ul>
+
+<h2>Invented here</h2>
+<ul class="notes">
+<li>"Joining the community doesn't need a marketing opt-in, so this can be more than step 2."</li>
+<li>"· {m} shows without a CIRQLIN page" / "· 1 show without a CIRQLIN page".</li>
+<li>SO1's order.</li>
+</ul>
+
+</div>
+</body>
+</html>
