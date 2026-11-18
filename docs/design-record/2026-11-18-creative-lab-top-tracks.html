@@ -109,7 +109,7 @@ table.t table.t td:first-child{width:auto;font-weight:400}
 <p class="lead">Matas, 18 Nov. This is a new Lab render, posted from the promoter's or venue's page. It plays 3 to 5 of one artist's tracks back to back over a still or clips of the artist. A list on screen names each track as it plays.</p>
 <p class="lead">The reference is a creator's reel, "What's your CamelPhat level?": a percent ladder down the left, with each rung's track name appearing as that track plays. It builds on:</p>
 <ul class="notes">
-<li>the snippet pipeline: CT1's sound, CT2 and AU1's files, CT3's Spotify picker, CT4's drop marker and AU3's rights flag;</li>
+<li>the snippet pipeline: CT1's sound, CT2 and AU1's files, CT3's Spotify picker, CT4's drop marker (which drop is amended here, for #1295 too), AU3's rights flag and VW14's kick-based drop finding;</li>
 <li>the 9:16 rules, O95 and O96;</li>
 <li>#1326's framing, O117–O121, with O19, O39 and O63;</li>
 <li>the kit and band rules: O24, O25, O40, O46, O49–O51 and O57;</li>
@@ -122,6 +122,7 @@ table.t table.t td:first-child{width:auto;font-weight:400}
 <li>Snippets are shaped by each track, not fixed, so the 5 × 7 s default and the 45 s cap are gone (TK3).</li>
 <li>K1–K4 become operator options, with the first drafts as defaults (TK4, TK9, TK10).</li>
 <li>The test plan is added (TK11).</li>
+<li>Which drop and which hook (Matas's second note): the last qualifying drop, the last third searched first, with an earlier drop as a fallback, not an error; the hook is the last place the track's repeated phrase plays before that drop, found from the file, which closes K5 (TK3). The drop choice applies to #1295's snippet statics too.</li>
 </ul>
 
 <h2>What the reference does</h2>
@@ -163,33 +164,45 @@ No writer, no other words. The apostrophe is the kit's typographic ’. The kit'
 <ul>
 <li><b>Each track gets its own window</b>, about 10–20 s. It holds the lead-up (the hook, when the track has one), the main drop, and the flow after it.
 <ul>
-<li><b>Start:</b> where the track has a hook marker, the bar at or just before the hook's start. Otherwise, the whole number of bars before the drop closest to 6 s, within 4–8 s. At 124 BPM that's 3 bars, 5.8 s.</li>
+<li><b>Start:</b> without a hook, the whole number of bars before the drop closest to 6 s, within 4–8 s. At 124 BPM that's 3 bars, 5.8 s. With a hook marker, the bar at or just before the hook's start, or that no-hook start if it's earlier, so a hook never shortens the lead-up.</li>
 <li><b>End:</b> on a bar boundary, the whole number of bars after the drop closest to 8 s, within 6–10 s. At 124 BPM that's 4 bars, 7.7 s.</li>
 <li><b>Length</b> is 10 s at least and 20 s at most.
 <ul>
 <li>Under 10 s: whole bars are added after the drop, up to 10 s, then before it, up to 8 s.</li>
-<li>Over 20 s (a long hook): the end comes in to its 6 s floor, in bars. If it's still over, the track is refused: "{title}: from the hook to 6 s after the drop is over 20 s — move the hook marker."</li>
+<li>Over 20 s (a hook the operator placed far back): the end comes in to its 6 s floor, in bars. If it's still over, the track is refused: "{title}: from the hook to 6 s after the drop is over 20 s — move the hook marker."</li>
 </ul></li>
 </ul></li>
-<li><b>The drop</b> is CT4's drop marker on each track: the Lab finds it, and the operator can drag it.</li>
+<li><b>Which drop.</b> Tracks usually have 2–3 drops. The 2nd and 3rd are alike, and the 3rd usually adds an element: it's the payoff before the end, usually in the last third (Matas's examples: 2:04 of 2:55, 2:54 of 3:53, 2:24 of 3:12).
+<ul>
+<li>The Lab finds every drop in the file as VW14 finds them in a clip (a kick that lands loud and ends the build), judged against the track's loudest 2 s and merged within 4 s. CT4's drop marker is the one of these the reel uses.</li>
+<li>A drop qualifies when TK3's window fits the file around it: the bars before it and the 6 s floor after it.</li>
+<li><b>The last qualifying drop in the last third wins.</b> The last third starts at two thirds of the file's length.</li>
+<li>With none there, the last qualifying drop before it is used, usually the 2nd. That's a fallback, not an error: the row reads "Drop {m:ss} · an earlier drop (no later drop fits)" in the ordinary row colour, and the reel makes as usual. With the last-third drop it reads "Drop {m:ss} · the last drop".</li>
+<li>The waveform shows every drop found, the one used marked. The operator can pick another or drag the marker: "Drop set by {first name}". With no qualifying drop, the room line below; with none found, "{title}: no drop found — drag the drop marker to it."</li>
+</ul></li>
 <li><b>The bar grid comes from the track's kicks</b>, found as VW14 finds them (30–150 Hz flux).
 <ul>
 <li>A beat is the median gap between kicks in the 8 s before the drop. A bar is 4 beats, and the drop falls on a downbeat.</li>
 <li>When those gaps vary by more than 3 %, the cut is in seconds instead: start 6.0 s before the drop (or at the hook), end 8.0 s after. The track's row says "No steady beat found — cut on seconds, not bars."</li>
 </ul></li>
-<li><b>The hook is a second marker</b> on CT4's waveform, "HOOK · {m:ss}", that the operator places. It can be left off, and the row reads "Hook set by {first name}".
+<li><b>The hook is the last place the track's repeated phrase plays before the chosen drop.</b> The Lab finds it from the file:
 <ul>
-<li>The Lab doesn't place it. The snippet statics never read YouTube: CT4 finds the drop from the track's own low end, and CT2 keeps the Lab off links. A read of YouTube's most-replayed peak is a new source, and it's open for Matas as K5.</li>
+<li>On the bar grid, each bar's pitch content in the mids (200 Hz–5 kHz). A phrase is 1, 2 or 4 bars, and two places match at 0.90 average similarity or more.</li>
+<li>The repeated phrase is the one with the most places in the file, at least 3, the longer on a tie. Places starting within 8 bars after any drop don't count: that's the drop's own loop.</li>
+<li>The HOOK marker, "HOOK · {m:ss}", goes at the start of its last place that ends at or before the chosen drop.</li>
+<li>When that's more than 14 s before the drop (20 s less the 6 s floor), the hook is left off: "Hook {m:ss} is too far before the drop — left off." With no phrase: "No repeated phrase found", and no hook.</li>
+<li>The operator can move or clear it: "Hook set by {first name}". A marker the operator places too far back gets the 20 s refusal above.</li>
 </ul></li>
 <li><b>Fades, as CT1 (#1295):</b> every snippet fades in over 0.25 s and out over 1.5 s.
 <ul>
 <li>The next snippet starts 0.75 s before the one before it ends, halfway through its fade-out, so there's never a silence.</li>
 <li>This replaces the first draft's equal-power crossfades.</li>
 </ul></li>
-<li><b>The end card</b> covers the last 3.0 s of the last snippet (2.5 s for no-CTA), so the reel ends as the fade ends. The 6 s floor after the drop means the last drop always plays out before the end card starts.</li>
+<li><b>The end card</b> covers the last 3.0 s of the last snippet (2.5 s for no-CTA), so the reel ends as the fade ends. The 6 s floor after the drop means the last snippet's drop always plays out before the end card starts.</li>
 <li><b>Loudness.</b> Each snippet is normalised to −14 LUFS before joining. The joined reel is checked at −14 LUFS integrated (± 1), with peaks no higher than −1 dBTP, encoded as AAC at 256 kbps (CT1).</li>
 <li><b>Room in the track.</b> Without the bars the window needs: "{title}: the drop is too close to the {start | end} of the file — move the marker or pick another track."</li>
 <li><b>Rights.</b> AU3 stands: a flagged file can't be picked. When Meta mutes a reel, every file in it is flagged, because Meta doesn't say which track it heard. The render row reads "Meta muted the audio (rights) · {n} files flagged".</li>
+<li><b>For #1295 too.</b> Audio snippet statics take the same drop choice: this amends CT4 for both. CT1's window there stands (from 4 s before the drop), and the hook is Top tracks only. Snippet static drafts re-pick their drop; approved renders and drops the operator set are kept.</li>
 <li><b>No fixed length and no cap.</b> 3, 4 or 5 tracks, 5 by default. The reel runs the sum of its snippets, less 0.75 s for each join (table below).</li>
 </ul></td></tr>
 <tr><td>TK4 · Order, reveal and the playing row</td><td>
@@ -290,7 +303,7 @@ With no approved live claim there's no claim: just lockup, name and date. Rule 1
 <li><b>A "Top tracks" tab beside Snippet (CT10).</b> One artist chip row (CT3). The card leads with the 9:16 preview (rule 2), playable with sound as CT5's is. Three visible inputs (rule 3):
 <ul>
 <li>Framing: four chips with the headline as it will read;</li>
-<li>Tracks: CT3's picker, in a sheet, with each track's waveform carrying its drop and hook markers and its window (TK3);</li>
+<li>Tracks: CT3's picker, in a sheet, with each track's waveform carrying every drop found (the one used marked), the hook marker and the window (TK3);</li>
 <li>Background: four chips.</li></ul>
 The primary action is "Make the reel". Renders land as render rows.</li>
 <li><b>Behind <code>Edit</code>, one row each</b> (TP2's rows), defaults first:
@@ -307,6 +320,7 @@ The primary action is "Make the reel". Renders land as render rows.</li>
 <li>"{n} of 5 picked · at least 3" (CT3's count, with a floor of 3).</li>
 <li>"Order follows Spotify's top tracks" under Ranked and Level; "Drag to reorder" under the other two.</li>
 <li>"{n} tracks · {total} s"; under each track, "{start}–{end} · {length} s · {bars} bars".</li>
+<li>Under each track, "Drop {m:ss} · the last drop" or "Drop {m:ss} · an earlier drop (no later drop fits)", "HOOK · {m:ss}", "No repeated phrase found", "Hook {m:ss} is too far before the drop — left off."</li>
 <li>"Not on Spotify's top tracks, so it can't be ranked" on a Drive-only row under Ranked or Level.</li>
 <li>The refusals in TK2, TK3, TK5, TK7, TK8 and TK9.</li>
 </ul></li>
@@ -379,7 +393,7 @@ The full range is in the table below.</li>
 <figure><figcaption>TK-E · no-CTA end · 66.4 s</figcaption><svg viewBox="0 0 1080 1920" width="324" height="576" class="rs"><rect width="1080" height="1920" fill="#2b2622"/><ellipse cx="800" cy="1650" rx="330" ry="520" fill="#4a4038"/><rect x="730" y="930" width="140" height="160" fill="#5a4c42"/><ellipse cx="800" cy="820" rx="118" ry="150" fill="#6b5a4d"/><path d="M675 760 Q800 600 925 760 L925 700 Q800 560 675 700Z" fill="#3a302a"/><rect width="1080" height="845" fill="url(#tb)"/><rect width="1080" height="1920" fill="url(#sbleft)"/><text x="120" y="399" class="sv" style="font-size:63px" fill="#fff">TOP LUKE DEAN TRACKS</text><text x="120" y="454" class="sv" style="font-size:63px" fill="#fff">RANKED 1–5</text><text x="136" y="588" class="sv" style="font-size:77px" fill="#fff" opacity="1">1</text><text x="196" y="572" class="sv" style="font-size:55px" fill="#fff" opacity="1">Track one</text><text x="136" y="731" class="sv" style="font-size:77px" fill="#fff" opacity="1">2</text><text x="196" y="715" class="sv" style="font-size:55px" fill="#fff" opacity="1">Track two</text><text x="136" y="874" class="sv" style="font-size:77px" fill="#fff" opacity="1">3</text><text x="196" y="858" class="sv" style="font-size:55px" fill="#fff" opacity="1">Track three</text><text x="196" y="928" class="sv" style="font-size:36px;font-weight:400" fill="#fff" opacity="1">with Guest Artist</text><text x="136" y="1017" class="sv" style="font-size:77px" fill="#fff" opacity="1">4</text><text x="196" y="1001" class="sv" style="font-size:55px" fill="#fff" opacity="1">Track four</text><text x="196" y="1050" class="sv" style="font-size:55px" fill="#fff" opacity="1">(Club Mix)</text><text x="136" y="1159" class="sv" style="font-size:77px" fill="#fff" opacity="1">5</text><text x="196" y="1143" class="sv" style="font-size:55px" fill="#fff" opacity="1">Track five</text></svg>
 <p class="fs" style="max-width:324px;margin:6px 0 0">The no-CTA end holds the full list at 100 % for 2.5 s, with no highlight, while the last track fades. There is no date, claim or lockup.</p></figure>
 </div>
-<h3>TK-F · The snippet window and the reel's timeline (TK3, TK4, TK9)</h3>
+<h3>TK-F · Which drop, the snippet window and the reel's timeline (TK3, TK4, TK9)</h3>
 <div class="frame">
 <figure style="width:100%"><figcaption>TK-F1 · one track's window, at 124 BPM (bar 1.94 s)</figcaption>
 <div class="vp" style="width:100%;max-width:980px">
@@ -406,7 +420,33 @@ The full range is in the table below.</li>
 <div class="tlp"><span class="ln"></span>
 <div class="tlq"><span style="left:0%">0 s</span><span style="left:18.65%">12.8</span><span style="left:37.31%">25.6</span><span style="left:55.96%">38.4</span><span style="left:74.61%">51.2</span><span style="left:100%">68.6 s</span></div></div>
 <p class="fs" style="margin:8px 0 0">Each track starts 0.75 s before the one before it ends. The drops land at 5.8, 18.6, 31.4, 44.2 and 60.9 s. With rows appearing at track start, they appear at 0, 12.8, 25.6, 38.4 and 51.2 s. With rows on the drop, the titles come in at the drop times instead. The end card covers 65.6–68.6 s, the last 3.0 s of #1, which starts 4.7 s after #1's drop.</p>
-</div></div></figure></div>
+</div></div></figure>
+<figure style="width:100%"><figcaption>TK-F3 · which drop and which hook, on two fixture tracks</figcaption>
+<div class="vp" style="width:100%;max-width:980px">
+<p class="fs" style="margin:0 0 4px"><b>Track one</b> · 3:12</p>
+<div class="tlx">
+<div class="lane"><span class="ln">Drops</span>
+<div class="bar thin"><i style="position:absolute;top:0;bottom:0;left:66.67%;right:0;background:rgba(138,86,12,.18)"></i><i class="dp" style="left:32.29%;opacity:.4"></i><i class="dp" style="left:55.73%;opacity:.4"></i><i class="dp" style="left:75%"></i></div></div>
+<div class="lane"><span class="ln">Phrase</span>
+<div class="bar thin"><i style="position:absolute;top:3px;bottom:3px;left:27.24%;width:2.02%;background:var(--ochre);opacity:.35"></i><i style="position:absolute;top:3px;bottom:3px;left:50.68%;width:2.02%;background:var(--ochre);opacity:.35"></i><i style="position:absolute;top:3px;bottom:3px;left:69.95%;width:2.02%;background:var(--ochre)"></i></div></div>
+<div class="lane"><span class="ln">Snippet</span>
+<div class="bar thin"><span class="sl hi" style="left:69.95%;width:9.06%"></span></div></div>
+<div class="tlp"><span class="ln"></span>
+<div class="tlq"><span style="left:0%">0:00</span><span style="left:32.29%">1:02</span><span style="left:55.73%">1:47</span><span style="left:75%">2:24</span><span style="left:100%">3:12</span></div></div>
+</div>
+<p class="fs" style="margin:14px 0 4px"><b>Track three</b> · 3:05</p>
+<div class="tlx">
+<div class="lane"><span class="ln">Drops</span>
+<div class="bar thin"><i style="position:absolute;top:0;bottom:0;left:66.67%;right:0;background:rgba(138,86,12,.18)"></i><i class="dp" style="left:31.35%;opacity:.4"></i><i class="dp" style="left:57.3%"></i></div></div>
+<div class="lane"><span class="ln">Phrase</span>
+<div class="bar thin"></div></div>
+<div class="lane"><span class="ln">Snippet</span>
+<div class="bar thin"><span class="sl hi" style="left:54.16%;width:7.3%"></span></div></div>
+<div class="tlp"><span class="ln"></span>
+<div class="tlq"><span style="left:0%">0:00</span><span style="left:31.35%">0:58</span><span style="left:57.3%">1:46</span><span style="left:100%">3:05</span></div></div>
+</div>
+<p class="fs" style="margin:8px 0 0">Shaded: the last third, from two thirds of the file's length (2:08 on track one, 2:03 on track three). Track one's drops are at 1:02, 1:47 and 2:24. The last, 2:24, is in the last third and has room, so it's used. Its 2-bar phrase plays at 0:52, 1:37 and 2:14, and the last place before 2:24 is the hook, 5 bars before: the snippet runs 2:14.3–2:31.7, 17.4 s. Track three's drops are at 0:58 and 1:46, with none in its last third, so 1:46 is used and the row reads "Drop 1:46 · an earlier drop (no later drop fits)". It has no repeated phrase, so the snippet starts 3 bars before: 1:40.2–1:53.7, 13.5 s.</p>
+</div></figure></div>
 
 <h3>TK-G · The Lab's Top tracks tab (TK10)</h3>
 <div class="frame">
@@ -458,7 +498,8 @@ The full range is in the table below.</li>
 <ul>
 <li>The kick-based bar grid per track (VW14's kick detection, the median gap, 4 beats a bar), with the seconds fallback.</li>
 <li>TK3's window from the hook or drop marker: the bars nearest 6 s before and 8 s after, the 10–20 s limits and their order of adjustment, and the two refusals.</li>
-<li>The HOOK marker on CT4's waveform, placed by the operator, with "Hook set by {first name}".</li>
+<li>The drop choice inside CT4's detector, so the Snippet tab gets it too: every VW14-style drop in the file, the qualifying test, the last third first, the earlier-drop fallback and its line, the picker of drops, and #1295's draft re-pick.</li>
+<li>The repeated-phrase finder on the bar grid, the HOOK marker at its last place before the chosen drop, the 14 s limit and both lines, with the operator's move and clear.</li>
 <li>CT1's fades on each snippet: in 0.25 s, out 1.5 s. Join with each next snippet starting 0.75 s before the one before it ends. The end card covers the last snippet's last 3.0 s (or 2.5 s).</li>
 <li>Normalise each snippet to −14 LUFS before joining.</li>
 <li>Check the joined reel at −14 LUFS ± 1 and −1 dBTP, and encode AAC at 256 kbps.</li>
@@ -500,11 +541,13 @@ The full range is in the table below.</li>
 </ul></td></tr>
 <tr><td>HK8 · Tests and frames</td><td>
 <ul>
-<li>Fixture: Luke Dean on P26-BDAY with AU-A's five tracks, every one at 124 BPM. Track three has a guest, track one has a hook 5 bars before its drop. The still has the head right of centre.</li>
+<li>Fixture: Luke Dean on P26-BDAY with AU-A's five tracks, every one at 124 BPM. Track one is 3:12, with drops at 1:02, 1:47 and 2:24, and a 2-bar phrase at 0:52.3, 1:37.3 and 2:14.3. Track three is 3:05, with drops at 0:58 and 1:46, no repeated phrase, and a guest. The other three each have their last drop in their last third and no phrase. The still has the head right of centre.</li>
 <li>Plan frames TK-B1–B4, TK-C1–C3, TK-D and TK-E, as render stills at those times, plus TK-G at 1280 and 393.</li>
 <li>Unit tests:
 <ul>
 <li>TK3's window for: a hook; no hook; a window under 10 s; one over 20 s; no steady beat;</li>
+<li>which drop: the last of three, in the last third; a last-third drop without room after it, falling back; no drop in the last third, falling back; none qualifying;</li>
+<li>the hook: the last place before the drop; a place too far back, left off; no phrase;</li>
 <li>the joined loudness;</li>
 <li>the head test failing for a list on the head's side;</li>
 <li>a Drive-only track refused under Ranked.</li>
@@ -532,6 +575,8 @@ The full range is in the table below.</li>
 </ul></li>
 <li><b>The three-track reel is 43.0 s</b>, with drops at 5.81, 18.60 and 35.27 s.</li>
 <li><b>Every snippet is 10–20 s</b> and starts and ends on its bar grid, or on seconds with the no-beat line.</li>
+<li><b>Which drop and hook.</b> On the fixture, track one uses its 2:24 drop with the hook at 2:14.3; track three uses 1:46 with "an earlier drop (no later drop fits)"; the rest use their last drops.</li>
+<li><b>Matas's examples.</b> On his three tracks, once their files are in <code>02 Source / Audio</code>, the drops used are 2:04, 2:54 and 2:24, within 0.5 s (his times are to the second).</li>
 <li><b>Loudness</b> is −14 LUFS ± 1, with peaks ≤ −1 dBTP.</li>
 <li><b>Text placement.</b> No text pixel is inside the grown head box in any frame, under every option. Nothing sits outside x 120–960 or y 353–1238.</li>
 <li><b>Headlines and order.</b> Each framing's headline matches TK2 exactly, and Ranked and Level keep Spotify's order.</li>
@@ -548,7 +593,9 @@ The full range is in the table below.</li>
 <li>the bars nearest 6 s and 8 s inside Matas's 4–8 s and 6–10 s;</li>
 <li>the order of adjustment at 10 s and 20 s;</li>
 <li>the kick-based bar grid, its 3 % steadiness test and the seconds fallback;</li>
-<li>the operator-placed hook marker;</li>
+<li>the drop's qualifying test, the last third as two thirds of the file's length, and the earlier-drop line;</li>
+<li>the repeated-phrase finder: the mids band, 1, 2 or 4 bars, 0.90, 3 places, 8 bars after a drop not counted, and the 14 s limit;</li>
+<li>a hook never shortening the lead-up;</li>
 <li>the 0.75 s join;</li>
 <li>the end card inside the last snippet.</li>
 </ul></li>
@@ -586,19 +633,11 @@ The full range is in the table below.</li>
 <li>one owner per reel for this template.</li>
 </ul></li>
 <li><b>Words:</b> every refusal and Lab string, the file-name pattern and its framing slugs.</li>
-<li><b>The fixture:</b> its tracks, 124 BPM, the hook, the date "SAT 28 NOV", the claim "GENERAL SALE LIVE" and the schematic press shot.</li>
+<li><b>The fixture:</b> its tracks, their lengths, drops and phrase, 124 BPM, the hook, the date "SAT 28 NOV", the claim "GENERAL SALE LIVE" and the schematic press shot.</li>
 </ul>
 
 <h2>Open for Matas</h2>
-<p class="notes">The first draft's K1–K4 are now options with those drafts as defaults: K1 is Ladder, K2 is Rows appear, K3 is Tracks, and K4 is End card. Rounds 2 and 3 test K3 and K2.</p>
-<table class="t">
-<tr><th style="width:190px">Question</th><th>As drawn</th></tr>
-<tr><td>K5 · Where the hook comes from</td><td>
-<ul>
-<li><b>As drawn:</b> the operator places it. The brief said the snippet statics found it from YouTube's most-replayed peak. They don't: CT4 finds the drop from the file, and CT2 rules out links.</li>
-<li><b>If you want a YouTube read:</b> it needs its own ruling. It would mean matching each track to a video, reading a peak position only (never audio), and saying what happens when there's no video or no peak. YouTube publishes that graph on the watch page but offers no API for it, so it would need a check on their terms first.</li>
-</ul></td></tr>
-</table>
+<p class="notes">Nothing is open. The first draft's K1–K4 are now options with those drafts as defaults: K1 is Ladder, K2 is Rows appear, K3 is Tracks, and K4 is End card. Rounds 2 and 3 test K3 and K2. K5 is closed by Matas's second note: the hook is the track's own repeated phrase, found from the file (TK3), so there's no YouTube read.</p>
 </div>
 </body>
 </html>
