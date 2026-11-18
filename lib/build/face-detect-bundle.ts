@@ -32,6 +32,9 @@ export const FACE_API_FILES = [
   "node_modules/@tensorflow/tfjs-backend-wasm/dist/tf-backend-wasm.node.js",
   "node_modules/@tensorflow/tfjs-backend-wasm/dist/tfjs-backend-wasm-simd.wasm",
   "node_modules/@tensorflow/tfjs-backend-wasm/dist/tfjs-backend-wasm.wasm",
+  // The person-outline model segment.ts reads from the working directory (O120).
+  "lib/creative-lab/models/selfie/selfie.json",
+  "lib/creative-lab/models/selfie/selfie.bin",
 ] as const;
 
 export type Io = { exists(path: string): boolean; read(path: string): string };

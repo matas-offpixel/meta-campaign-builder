@@ -55,6 +55,10 @@ const nextConfig: NextConfig = {
       // import() the bundler leaves alone, so nothing traces it: the build, the tfjs packages it requires, the
       // wasm binaries and their own dependencies (about 9 MB), and the models.
       // scripts/check-face-detect-bundle.mts loads the detector from these traced files alone.
+      // The person-outline model (segment.ts, O120): read with readFileSync
+      // from the working directory, which no import reaches. 297 KB.
+      "./lib/creative-lab/models/selfie/selfie.json",
+      "./lib/creative-lab/models/selfie/selfie.bin",
       "./node_modules/@vladmandic/face-api/package.json",
       "./node_modules/@vladmandic/face-api/dist/face-api.node-wasm.js",
       "./node_modules/@vladmandic/face-api/model/**/*",

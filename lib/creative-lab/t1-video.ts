@@ -218,6 +218,8 @@ export type ClipLayout = {
   size: Size;
   pieces: { lockup: ClipPiece | null; name: ClipPiece; date: ClipPiece };
   claim: VideoClaimLine[];
+  /** O120: the claim moved up into the top block, under the date. */
+  claimUp: boolean;
   boxes: { lockup: Rect | null; top: Rect; date: Rect; claim: Rect | null; bottom: Rect };
   /** The base bands (step 0), anchored to the blocks (O55). */
   anchors: { topFull: number; topGone: number; bottomZero: number; bottomFull: number; bottomRamp: number };
@@ -240,7 +242,12 @@ const union = (rs: readonly Rect[]): Rect => {
  * baseline on 0.90. The claim plan is the 9:16's; its lines are scaled and
  * re-anchored here.
  */
-export function planClipLayout(input: { lockup: Piece | null; name: Piece; date: Piece; claim: VideoClaimPlan | null }, format: VideoFormat, arrangement: Arrangement): ClipLayout {
+export function planClipLayout(
+  input: { lockup: Piece | null; name: Piece; date: Piece; claim: VideoClaimPlan | null },
+  format: VideoFormat,
+  arrangement: Arrangement,
+  opts: { claimUp?: boolean } = {},
+): ClipLayout {
   const size = FORMAT_SIZE[format];
   const k = format === "1:1" ? 0.8 : 1;
   const W = size.width;
@@ -255,20 +262,26 @@ export function planClipLayout(input: { lockup: Piece | null; name: Piece; date:
   const fit = (piece: Piece, cap: number) => Math.min((cap * H916) / Math.max(1, piece.capPx), T1C.maxWidthPx / Math.max(1, piece.width)) * k;
   const lockup = input.lockup ? centred(input.lockup, ((T1C.lockupWidth * MASTER.width) / input.lockup.width) * k, origin, "lockup") : null;
   const name = centred(input.name, fit(input.name, T1C.nameCap), y(T1C.nameCapTop * H916), "name");
-  const claim: VideoClaimLine[] = (input.claim?.lines ?? []).map((l) => ({ ...l, capPx: l.capPx * k, widthPx: l.widthPx * k, capTop: claimBottom + (l.capTop - input.claim!.bottom) * k }));
-  const claimTop = claim.length ? claim[0]!.capTop : claimBottom - T1V_CLAIM.steps[0]!.cap * H916 * k;
   const dateScale = fit(input.date, T1C.dateCap);
   const dateCapPx = input.date.capPx * dateScale;
+  // O120: with the head under the claim on its O97 baseline, the claim moves up into the top block, its first cap
+  // top one date pitch under the date line (one date cap under its baseline). Arrangement A only: B's date sits on the claim.
+  const up = !!opts.claimUp && arrangement === "A" && !!input.claim?.lines.length;
+  const shift = up ? y(T1C.dateCapTopA * H916) + 2 * dateCapPx - (claimBottom + (input.claim!.blockTop - input.claim!.bottom) * k) : 0;
+  const claim: VideoClaimLine[] = (input.claim?.lines ?? []).map((l) => ({ ...l, capPx: l.capPx * k, widthPx: l.widthPx * k, capTop: claimBottom + (l.capTop - input.claim!.bottom) * k + shift }));
+  const claimTop = claim.length ? claim[0]!.capTop : claimBottom - T1V_CLAIM.steps[0]!.cap * H916 * k;
   const dateTop = arrangement === "A" ? y(T1C.dateCapTopA * H916) : claimTop - T1C.dateGapB * H916 * k - dateCapPx;
   const date = centred(input.date, dateScale, dateTop, "date");
-  const claimRect = claim.length ? { left: (W - T1V_CLAIM.maxWidthPx * k) / 2, top: claimTop, width: T1V_CLAIM.maxWidthPx * k, height: claimBottom - claimTop } : null;
+  const claimRect = claim.length ? { left: (W - T1V_CLAIM.maxWidthPx * k) / 2, top: claimTop, width: T1V_CLAIM.maxWidthPx * k, height: claimBottom + shift - claimTop } : null;
   const topParts = [lockup?.at, name.at, arrangement === "A" ? date.at : null].filter((r): r is Placement => !!r);
   const top = union(topParts);
   const bottomParts = [claimRect ?? { left: (W - T1V_CLAIM.maxWidthPx * k) / 2, top: claimTop, width: T1V_CLAIM.maxWidthPx * k, height: claimBottom - claimTop }, arrangement === "B" ? date.at : null].filter((r): r is Rect => !!r);
   const bottom = union(bottomParts);
   // O55: the top band from the top block's last baseline; the bottom band from the bottom block's first cap top.
-  const lastBaseline = arrangement === "A" ? date.at.top + dateCapPx : name.at.top + input.name.capPx * name.at.scale;
-  const firstCap = arrangement === "B" ? date.at.top : claimTop;
+  // With the claim moved up (O120) the top band runs to the claim's last baseline, and no type is left at the bottom.
+  const lastBaseline = up ? claimBottom + shift : arrangement === "A" ? date.at.top + dateCapPx : name.at.top + input.name.capPx * name.at.scale;
+  // No bottom band then: its zero sits on the frame's bottom edge, so its extent is 0.
+  const firstCap = up ? size.height - T1C.bandBottom.zero * H916 * k : arrangement === "B" ? date.at.top : claimTop;
   const topFull = lastBaseline + T1C.bandTop.gap * H916 * k;
   return {
     format,
@@ -277,6 +290,7 @@ export function planClipLayout(input: { lockup: Piece | null; name: Piece; date:
     size,
     pieces: { lockup, name, date },
     claim,
+    claimUp: up,
     boxes: { lockup: lockup?.at ?? null, top, date: date.at, claim: claimRect, bottom },
     anchors: {
       topFull,
@@ -403,8 +417,8 @@ export function backingRect(line: { capTop: number; capPx: number; widthPx: numb
 export const T1V_SCALE = { maxUp: 1.6, minWindowPx: 675 } as const;
 
 /** O63: the crop window's scale to the output (above 1 is upscaling). */
-export function upscaleFactor(source: Size, format: VideoFormat, cropFocusY = 0.5, cropFocusX = 0.5): number {
-  return FORMAT_SIZE[format].width / footageWindow(source, format, cropFocusY, cropFocusX).width;
+export function upscaleFactor(source: Size, format: VideoFormat, cropFocusY = 0.5, cropFocusX = 0.5, cropWidth?: number | null): number {
+  return FORMAT_SIZE[format].width / footageWindow(source, format, cropFocusY, cropFocusX, cropWidth).width;
 }
 
 /**
@@ -422,11 +436,11 @@ export function formatTooSmall(source: Size, format: VideoFormat): string | null
  * the format's shape can't move) are tried once. Keeps the first of each
  * window, in the given order.
  */
-export function distinctCrops(source: Size, format: VideoFormat, candidates: readonly number[], cropFocusX = 0.5): number[] {
+export function distinctCrops(source: Size, format: VideoFormat, candidates: readonly number[], cropFocusX = 0.5, cropWidth?: number | null): number[] {
   const seen = new Set<string>();
   const out: number[] = [];
   for (const cy of candidates) {
-    const w = footageWindow(source, format, cy, cropFocusX);
+    const w = footageWindow(source, format, cy, cropFocusX, cropWidth);
     const key = `${Math.round(w.left)}:${Math.round(w.top)}`;
     if (seen.has(key)) continue;
     seen.add(key);

@@ -289,8 +289,12 @@ for (const pick of picks) {
     say(`- extension refused (${r.label}): ${Object.entries(r.strips).map(([e, st]) => `${e} ${stripFigures(st)}`).join("; ")}; seam it would have made: ${r.seams.map((sm) => `${sm.edge} ΔE p95 ${sm.p95.toFixed(2)}`).join(", ")}`);
   }
   if (j.variant === "A") {
-    if (card.squarePhotoScale > 0.8001) say(`- 1:1: the photo is too narrow to extend at the sides; drawn at ${card.squarePhotoScale.toFixed(3)}× the master's scale (not 0.8×), anchored on the eyes`);
-    if (card.squareShift) say(`- 1:1: the photo ran out; its window shifted ${card.squareShift} px (the text stays centred)`);
+    // O117–O119: the 4:5 and 1:1 are placed on their own; a skipped format says why.
+    for (const [fmt, f] of Object.entries(card.formats)) {
+      if (!f) continue;
+      if (!f.made) say(`- ${fmt}: skipped — ${f.skipped}`);
+      else say(`- ${fmt}: eyes ${f.eyeX.toFixed(3)} W · ${f.plan.eyes.toFixed(3)} H · head ${f.plan.headTop.toFixed(3)} · chin ${f.plan.chin.toFixed(3)} H · scale ${f.plan.scale.toFixed(3)}${f.notes.length ? ` · ${f.notes.join(" · ")}` : ""}${f.pass ? "" : ` · fails: ${f.rules.filter((r) => !r.pass).map((r) => r.detail).join("; ")}`}`);
+    }
   }
   const chosenB = j.variant === "B" ? j.b : null;
   const cc = j.b?.charcoal;
@@ -316,12 +320,17 @@ for (const pick of picks) {
   if (variant === "B" && !pickedB?.master) fail(`${pick.assetId}: the exception names B, but B was not drawn`);
   const chosen = variant === "A" ? { master: card.master, crop45: card.crop45, square: card.square } : { master: pickedB!.master!, crop45: pickedB!.crop45!, square: pickedB!.square! };
   const slug = artistSlug(pick.artist);
-  const outputs: { format: CardFormat; bytes: Buffer }[] = [
+  const outputs: { format: CardFormat; bytes: Buffer | null }[] = [
     { format: "9x16", bytes: chosen.master },
     { format: "4x5", bytes: chosen.crop45 },
     { format: "1x1", bytes: chosen.square },
   ];
   for (const o of outputs) {
+    // O119: one format can be skipped while the others are made.
+    if (!o.bytes) {
+      say(`- ${o.format}: not made (see above)`);
+      continue;
+    }
     if (exception && !exception.formats.includes(o.format)) {
       say(`- ${o.format}: not drawn (the exception covers ${exception.formats.join(", ")} only)`);
       continue;
