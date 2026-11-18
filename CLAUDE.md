@@ -206,9 +206,13 @@ REMOTION_AWS_ACCESS_KEY_ID=
 REMOTION_AWS_SECRET_ACCESS_KEY=
 REMOTION_AWS_REGION=
 REMOTION_LAMBDA_SERVE_URL=
+ENABLE_TOP_TRACKS_ANALYSIS=
+TOP_TRACKS_ANALYSIS_FUNCTION=
 ```
 
 > **`REMOTION_AWS_ACCESS_KEY_ID`**, **`REMOTION_AWS_SECRET_ACCESS_KEY`**, **`REMOTION_AWS_REGION`**, **`REMOTION_LAMBDA_SERVE_URL`** — Caption renders run on Remotion Lambda in `eu-west-2` because the Vercel function image has no glibc 2.35, so `@remotion/compositor-linux-x64-gnu` does not start (verified 5 Nov 2026 on Node 22.x and 26.x). `scripts/remotion-lambda-deploy.mts` creates the bucket and the function and prints the serve URL; set `REMOTION_LAMBDA_SERVE_URL` from that output on Preview and Production. Keep a billing alarm on the AWS account — the June ceiling was $20, then $50 — so a render loop cannot run up a bill. See `docs/REMOTION_LAMBDA_SETUP.md`.
+
+> **`ENABLE_TOP_TRACKS_ANALYSIS`**, **`TOP_TRACKS_ANALYSIS_FUNCTION`** — the Top tracks analysis host (TK13/TK14/TK18): a container-image Lambda in `eu-west-2` running Beat This! (final0) and htdemucs once per audio file version (`infra/top-tracks-analysis/`, `lib/creative-tests/top-tracks/lambda-analysis.ts`). `ENABLE_TOP_TRACKS_ANALYSIS` must be exactly `"1"`; unset (the default) means nothing signs a URL or calls AWS and every file reads TK18's failed line. `TOP_TRACKS_ANALYSIS_FUNCTION` defaults to `top-tracks-analysis`. It invokes with the `REMOTION_AWS_*` keys, which the deploy script grants `lambda:InvokeFunction` on that one function. 4096 MB, 600 s, arm64, reserved concurrency 2, no retries. Matas deploys with `scripts/top-tracks-analysis-deploy.mts` (`--dry-run` prints every call; `--pause` sets the cap to 0). The $20/$50 billing alarms are unchanged; two function alarms sit beside them. See `docs/TOP_TRACKS_ANALYSIS_LAMBDA_SETUP.md`.
 
 > **`BM_TOKEN_KEY`** (migration 145 — Business Manager Asset Sync) is the pgcrypto
 > symmetric key for `client_business_managers.access_token_encrypted` (the
