@@ -31,7 +31,7 @@ import { renderMedia, selectComposition } from "@remotion/renderer";
 
 import { muxSnippet } from "../lib/creative-tests/audio-ffmpeg.ts";
 import { pcm16ToFloat, trackFeatures } from "../lib/creative-tests/top-tracks/analysis.ts";
-import { localStudio } from "../lib/creative-tests/top-tracks/analysis-source.ts";
+import { localStudio, parseAnalysis } from "../lib/creative-tests/top-tracks/analysis-source.ts";
 import { mmss, planTrack, type TrackPlan } from "../lib/creative-tests/top-tracks/audio-rules.ts";
 import { dropPickerLine } from "../lib/creative-tests/top-tracks/studio.ts";
 import { cutTrackSnippet, decodeForAnalysis, loudnessOk } from "../lib/creative-tests/top-tracks/ffmpeg.ts";
@@ -62,6 +62,10 @@ const round = Number(flag("--round") ?? 1) as RoundNo;
 const onlyFramings = many("--framing") as Framing[];
 const claim = flag("--claim") ?? null;
 const python = flag("--python") ?? fail("--python <venv python> (Beat This! + Demucs, TK13–TK14)");
+// --analysis "Title=<analysis.json>" (repeatable): reuse a stored analyse.py run for that track instead of running the models again.
+const storedAnalyses = new Map(many("--analysis").map((kv) => [kv.slice(0, kv.lastIndexOf("=")), kv.slice(kv.lastIndexOf("=") + 1)]));
+// --drop "Title=<seconds>" (repeatable): the drop as an operator sets it by dragging the marker (TK10); it snaps to the nearest downbeat (TK14).
+const handDrops = new Map(many("--drop").map((kv) => [kv.slice(0, kv.lastIndexOf("=")), Number(kv.slice(kv.lastIndexOf("=") + 1))]));
 const fileTo = flag("--file");
 const keep = argv.includes("--keep");
 // --set key=value (repeatable): the round's held options, as TK10's Edit rows (tracks, rowsAppear, ladder, end, endCard, list).
@@ -96,7 +100,7 @@ const datePng = dateRec ? readFileSync(join(kitDir, dateRec.file)) : null;
 const dateText = dateRec?.label ?? "";
 
 // ─── The audio: the event's Drive files, read and kept as they are (CT2) ────
-type Track = { title: string; artists: string[]; driveId: string; file: string; spotifyRank: number; plan: Extract<TrackPlan, { ok: true }> };
+type Track = { title: string; artists: string[]; driveId: string; file: string; spotifyRank: number; plan: Extract<TrackPlan, { ok: true }>; labChoice: string | null; handDrop: number | null };
 const studio = localStudio({ python });
 const tracks: Track[] = [];
 for (const [i, spec] of trackSpecs.entries()) {
@@ -105,14 +109,18 @@ for (const [i, spec] of trackSpecs.entries()) {
   const local = join(work, `track-${i + 1}${meta!.name.slice(meta!.name.lastIndexOf("."))}`);
   if (!existsSync(local)) writeFileSync(local, await drive!.download(spec.driveId));
   const f = trackFeatures(pcm16ToFloat(await decodeForAnalysis(local)));
-  const analysis = await studio.analyse(local);
-  const plan = planTrack({ title: spec.title, features: f, analysis });
+  const stored = storedAnalyses.get(spec.title);
+  const analysis = stored ? parseAnalysis(readFileSync(stored, "utf8")) : await studio.analyse(local);
+  const lab = planTrack({ title: spec.title, features: f, analysis });
+  const hand = handDrops.get(spec.title);
+  const plan = hand != null ? planTrack({ title: spec.title, features: f, analysis, marks: { dropS: hand, dropSetBy: "hand" } }) : lab;
+  if (hand != null) console.log(`    the Lab's own choice: ${lab.lines[0]}`);
   const bars = analysis.downbeats.slice(1).map((d, k) => d - analysis.downbeats[k]!).sort((x, y) => x - y);
   const bar = bars[bars.length >> 1];
   console.log(`${i + 1} · ${spec.title} · ${mmss(f.durationS)} · ${bar ? `bar ${bar.toFixed(3)} s (${((4 * 60) / bar).toFixed(1)} BPM)` : "no grid"} · drops: ${plan.drops.map(dropPickerLine).join("; ") || "none"}`);
   for (const line of plan.lines) console.log(`    ${line}`);
   if (!plan.ok) fail(plan.refusal);
-  tracks.push({ title: spec.title, artists: spec.artists, driveId: spec.driveId, file: local, spotifyRank: i + 1, plan: plan as Extract<TrackPlan, { ok: true }> });
+  tracks.push({ title: spec.title, artists: spec.artists, driveId: spec.driveId, file: local, spotifyRank: i + 1, plan: plan as Extract<TrackPlan, { ok: true }>, labChoice: lab.lines[0] ?? null, handDrop: hand ?? null });
 }
 
 // Each track's cut, made once (CT1's fades, −14 LUFS, −1 dBTP).
@@ -168,7 +176,7 @@ for (const v of variants) {
   report.push({ name: b.name, framing: v.options.framing, options: v.options, totalS: b.timeline.totalS, drops: b.timeline.dropsS, rowsAt: v.options.rowsAppear === "start" ? b.timeline.startsS : b.timeline.dropsS, endFromS: b.timeline.endFromS, lufs: b.loudness.lufs, truePeakDb: b.loudness.truePeakDb, step: b.step, accentWhite: b.accentWhite });
 }
 
-writeFileSync(join(outDir, "report.json"), JSON.stringify({ tracks: tracks.map((t) => ({ title: t.title, spotifyRank: t.spotifyRank, lines: t.plan.lines, window: t.plan.window, choice: t.plan.choice.kind, hook: t.plan.hook })), reels: report }, null, 2));
+writeFileSync(join(outDir, "report.json"), JSON.stringify({ tracks: tracks.map((t) => ({ title: t.title, spotifyRank: t.spotifyRank, lines: t.plan.lines, window: t.plan.window, choice: t.plan.choice.kind, hook: t.plan.hook, labChoice: t.labChoice, handDrop: t.handDrop, drops: t.plan.drops })), reels: report }, null, 2));
 
 // ─── Filing (--file): the owner's Videos folder, never overwriting ──────────
 if (fileTo) {

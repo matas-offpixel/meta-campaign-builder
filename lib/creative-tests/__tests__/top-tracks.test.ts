@@ -471,6 +471,16 @@ describe("TK17: the snippet static takes TK14's drops and TK15's choice", () => 
   });
 });
 
+describe("Acceptance (issue 2, as Matas set it 18 Nov): Get Hard on its real analysis", () => {
+  const a = JSON.parse(readFileSync(join(process.cwd(), "lib/creative-tests/__tests__/fixtures/get-hard-analysis.json"), "utf8")) as StudioAnalysis;
+
+  it("uses the bass return at 1:50.9 ± 0.5 s, on a downbeat", () => {
+    const c = chooseDrop({ drops: findBassDrops(a).drops.map((d) => d.tS), durationS: a.durationS, downbeats: a.downbeats });
+    assert.ok("dropS" in c && Math.abs(c.dropS - 110.9) <= 0.5, `chose ${"dropS" in c ? c.dropS : c.kind}`);
+    assert.ok(a.downbeats.includes((c as { dropS: number }).dropS));
+  });
+});
+
 describe("Acceptance (issue 2): Can't Decide on its real analysis", () => {
   const a = JSON.parse(readFileSync(join(process.cwd(), "lib/creative-tests/__tests__/fixtures/cant-decide-analysis.json"), "utf8")) as StudioAnalysis;
 
@@ -485,12 +495,12 @@ describe("Acceptance (issue 2): Can't Decide on its real analysis", () => {
   });
 
   it(
-    "uses the bass return after the 2:04 break, between 2:06.75 and 2:08.0",
+    "uses the bass return after the 2:04 break, 2:07.5 ± 0.5 s",
     { todo: "TK15 picks 2:34.98, after a 1-bar fill that meets TK14's break rule (reported on #1338 for design's re-rule; not tuned)" },
     () => {
       const drops = findBassDrops(a).drops.map((d) => d.tS);
       const c = chooseDrop({ drops, durationS: a.durationS, downbeats: a.downbeats });
-      assert.ok("dropS" in c && c.dropS >= 126.75 && c.dropS <= 128.0, `chose ${"dropS" in c ? c.dropS : c.kind}`);
+      assert.ok("dropS" in c && Math.abs(c.dropS - 127.5) <= 0.5, `chose ${"dropS" in c ? c.dropS : c.kind}`);
     },
   );
 
