@@ -31,6 +31,7 @@ import {
 } from "@/lib/db/bm-assets";
 import { BM_V2_ASSET_KINDS, describeAssetKind, type BMAssetKind } from "@/lib/bm/asset-kinds";
 import { isTokenExpiredMetaError } from "@/lib/bm/sync";
+import { isMetaRateLimitError } from "@/lib/bm/scan-run";
 import { chunk } from "@/lib/bm/chunk";
 import type { BusinessManager } from "@/lib/bm/types";
 
@@ -48,6 +49,8 @@ export interface AssetScanResult {
   missingAccess: number;
   ok: boolean;
   error?: string;
+  /** Meta rate-limited this kind's read (see `ScanResult.rateLimited`). */
+  rateLimited?: boolean;
 }
 
 function emptyResult(bizId: string, kind: BMAssetKind, error: string): AssetScanResult {
@@ -203,6 +206,19 @@ export async function scanBusinessManagerAssetKind(
     merged = await fetchAndMap(kind, bizId, token, bsuId);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
+    if (isMetaRateLimitError(err)) {
+      // Same as the page scan: one rate_limited row, no last_scanned_at stamp.
+      console.error(`[bm-asset-scan] biz=${bizId} kind=${kind} rate limited: ${msg}`);
+      await logAssetAccessEvent(supabase, {
+        businessId: bizId,
+        kind,
+        assetId: "-",
+        userId: actorUserId,
+        action: "rate_limited",
+        detail: { message: msg, phase: "scan" },
+      });
+      return { ...emptyResult(bizId, kind, "rate_limited"), rateLimited: true };
+    }
     if (isTokenExpiredMetaError(err)) {
       console.error(`[bm-asset-scan] biz=${bizId} kind=${kind} token expired: ${msg}`);
       await markBusinessManagerTokenExpired(supabase, bizId, msg);
@@ -298,42 +314,74 @@ export async function scanBusinessManagerAssetKind(
 export async function scanBusinessManagerAllAssets(
   supabase: AnySupabaseClient,
   bm: BusinessManager,
-  opts: { actorUserId?: string | null } = {},
+  opts: {
+    actorUserId?: string | null;
+    /** Already-decrypted token for this BM (the cron decrypts once per BM). */
+    token?: string;
+    /**
+     * The business-scoped user id from the cron's one
+     * `listBusinessScopedUserIds` read. When absent it is resolved per BM.
+     */
+    businessScopedUserId?: string;
+  } = {},
 ): Promise<AssetScanResult[]> {
   const bizId = bm.business_id;
 
-  let token: string | null;
-  try {
-    token = await getBusinessManagerToken(supabase, bm.id);
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : "decrypt_failed";
-    return BM_V2_ASSET_KINDS.map((kind) => emptyResult(bizId, kind, msg));
+  let token: string | null = opts.token ?? null;
+  if (!token) {
+    try {
+      token = await getBusinessManagerToken(supabase, bm.id);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "decrypt_failed";
+      console.error(`[bm-asset-scan] biz=${bizId} token decrypt failed: ${msg}`);
+      return BM_V2_ASSET_KINDS.map((kind) => emptyResult(bizId, kind, msg));
+    }
   }
   if (!token) {
+    console.error(`[bm-asset-scan] biz=${bizId} no_token_stored`);
     return BM_V2_ASSET_KINDS.map((kind) => emptyResult(bizId, kind, "no_token_stored"));
   }
 
   let bsuId: string;
   try {
-    bsuId = await resolveBusinessScopedUserId(bizId, token);
+    bsuId = opts.businessScopedUserId ?? (await resolveBusinessScopedUserId(bizId, token));
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
+    // This branch used to return without a log line, which is why no
+    // [bm-asset-scan] line has appeared since about 26 Oct: every BM the run
+    // reached failed here (rate limited) and said nothing.
+    if (isMetaRateLimitError(err)) {
+      console.error(`[bm-asset-scan] biz=${bizId} business-scoped user id: rate limited: ${msg}`);
+      return BM_V2_ASSET_KINDS.map((kind) => ({
+        ...emptyResult(bizId, kind, "rate_limited"),
+        rateLimited: true,
+      }));
+    }
     if (isTokenExpiredMetaError(err)) {
+      console.error(`[bm-asset-scan] biz=${bizId} business-scoped user id: token expired: ${msg}`);
       await markBusinessManagerTokenExpired(supabase, bizId, msg);
       return BM_V2_ASSET_KINDS.map((kind) => emptyResult(bizId, kind, "token_expired"));
     }
+    console.error(`[bm-asset-scan] biz=${bizId} business-scoped user id failed: ${msg}`);
     return BM_V2_ASSET_KINDS.map((kind) => emptyResult(bizId, kind, msg));
   }
 
   const results: AssetScanResult[] = [];
   for (const kind of BM_V2_ASSET_KINDS) {
-    results.push(
-      await scanBusinessManagerAssetKind(supabase, bm, kind, {
-        actorUserId: opts.actorUserId,
-        token,
-        businessScopedUserId: bsuId,
-      }),
-    );
+    const r = await scanBusinessManagerAssetKind(supabase, bm, kind, {
+      actorUserId: opts.actorUserId,
+      token,
+      businessScopedUserId: bsuId,
+    });
+    results.push(r);
+    if (r.rateLimited) {
+      // Don't spend the next kinds' reads (and their 10 s retries) against a
+      // budget Meta has just said is spent.
+      for (const rest of BM_V2_ASSET_KINDS.slice(results.length)) {
+        results.push({ ...emptyResult(bizId, rest, "rate_limited"), rateLimited: true });
+      }
+      break;
+    }
   }
   return results;
 }

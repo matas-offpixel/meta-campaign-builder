@@ -44,9 +44,11 @@ export async function POST(
   }
 
   const result = await scanBusinessManager(service, bm, { actorUserId: user.id });
-  const assetResults = await scanBusinessManagerAllAssets(service, bm, {
-    actorUserId: user.id,
-  });
+  // Meta just refused the page reads; the asset reads would hit the same
+  // budget and each burn a 10 s retry.
+  const assetResults = result.rateLimited
+    ? []
+    : await scanBusinessManagerAllAssets(service, bm, { actorUserId: user.id });
 
   // The page scan stays the primary `ok` signal so the existing UI contract is
   // unchanged; asset failures surface per-kind in `assetResults` instead of

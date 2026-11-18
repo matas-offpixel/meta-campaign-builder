@@ -913,6 +913,13 @@ Notable recently-added tables / columns (dashboard-era, April 2026):
 - `/api/cron/google-ads-daily-insights` (04:00 UTC) — Google Ads campaign,
   search-term and location facts per day (see
   `ENABLE_GOOGLE_ADS_DAILY_INSIGHTS` above). Zero Google Ads mutates.
+- `/api/cron/bm-page-scan` (08:00 UTC) — re-reads every connected Business
+  Manager's pages, ad accounts, pixels and IG accounts. Detection only, never
+  grants. BMs go least-recently-scanned first. The first Meta rate-limit error
+  stops the run, and the rest are skipped, not errored. No BM starts after
+  650 s. `/me/accounts` and the business-scoped user ids are read once per
+  token per run. Writes a `cron_runs` row; deliberately not in `CRON_ALARMS`.
+  `lib/bm/scan-run.ts`, `lib/bm/cron-scan.ts`.
 - `/api/cron/retargeting-read` (08:00 London, `"0 7,8 * * *"`) — the Retargeting
   campaign's daily read (see `ENABLE_RETARGETING_READ` above). Zero Meta writes.
 - `/api/cron/onsale-refresh` (Mondays 06:00 UTC) — the on-sale refresh,

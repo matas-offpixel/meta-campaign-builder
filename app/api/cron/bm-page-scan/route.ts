@@ -1,9 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import { createServiceRoleClient } from "@/lib/supabase/server";
-import { listBusinessManagers } from "@/lib/db/business-managers";
-import { scanBusinessManager } from "@/lib/bm/sync";
-import { scanBusinessManagerAllAssets, type AssetScanResult } from "@/lib/bm/sync-assets";
+import { runBmCronScan } from "@/lib/bm/cron-scan";
+import { withCronRunLog } from "@/lib/reporting/with-cron-run-log";
 
 /**
  * GET /api/cron/bm-page-scan  (Vercel Cron — daily 08:00 UTC)
@@ -22,6 +21,15 @@ import { scanBusinessManagerAllAssets, type AssetScanResult } from "@/lib/bm/syn
  * count, because assignments are inlined into the list calls rather than read
  * per asset — see lib/meta/business-manager-assets.ts.
  *
+ * Breaker, budget, rotation (18 Nov 2026 — the run had hit the 800 s kill
+ * every day since about 29 Jul): BMs go least-recently-scanned first; the first
+ * Meta rate-limit error stops the run and the rest are skipped, not errored;
+ * no BM starts after 650 s. The token-wide reads (`/me/accounts`, the
+ * business-scoped user ids) happen once per run, not once per BM. Each run
+ * writes a `cron_runs` row (`bm-page-scan`). The cron stays out of
+ * CRON_ALARMS on purpose (lib/reporting/cron-alarm-config.ts). See
+ * lib/bm/scan-run.ts and lib/bm/cron-scan.ts.
+ *
  * Auth: Bearer CRON_SECRET (same pattern as the other crons).
  */
 
@@ -31,6 +39,8 @@ export const dynamic = "force-dynamic";
 // every connected BM. A single ~1000+ page BM (e.g. Columbo Group,
 // 527693220707294) alone can approach the old 300s budget, so with 10+ BMs
 // in the sequential loop 300s was no longer generous headroom.
+// The loop stops starting BMs at BM_SCAN_TIME_BUDGET_MS (650 s) so it always
+// returns, and writes its cron_runs row, inside this ceiling.
 export const maxDuration = 800;
 
 function isAuthorized(req: NextRequest): boolean {
@@ -43,7 +53,7 @@ function isAuthorized(req: NextRequest): boolean {
   return header.trim() === expected.trim();
 }
 
-export async function GET(req: NextRequest) {
+async function handleGET(req: NextRequest) {
   if (!isAuthorized(req)) {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   }
@@ -55,62 +65,42 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "Service client unavailable" }, { status: 500 });
   }
 
-  const startedAt = Date.now();
-  const bms = await listBusinessManagers(supabase);
-  console.error(`[bm-page-scan] starting scan of ${bms.length} business manager(s)`);
-
-  const results = [];
-  const assetResults: AssetScanResult[] = [];
-  for (const bm of bms) {
-    // Sequential — keeps concurrent Meta reads low so we never trip the
-    // per-token rate-limit budget across many BMs in one run. The asset phase
-    // follows the page phase for the same BM (rather than running as a second
-    // pass over all BMs) so one decrypted token and one resolved
-    // business-scoped user id cover both.
-    const r = await scanBusinessManager(supabase, bm, { actorUserId: bm.added_by_user_id });
-    results.push(r);
-    assetResults.push(
-      ...(await scanBusinessManagerAllAssets(supabase, bm, {
-        actorUserId: bm.added_by_user_id,
-      })),
-    );
-  }
-
-  const elapsedMs = Date.now() - startedAt;
-  const totals = results.reduce(
-    (acc, r) => {
-      acc.pages += r.scannedPages;
-      acc.newPages += r.newPages;
-      acc.missing += r.missingAccess;
-      if (!r.ok) acc.errors += 1;
-      return acc;
-    },
-    { pages: 0, newPages: 0, missing: 0, errors: 0 },
-  );
-  const assetTotals = assetResults.reduce(
-    (acc, r) => {
-      acc.assets += r.scanned;
-      acc.newAssets += r.newAssets;
-      acc.missing += r.missingAccess;
-      if (!r.ok) acc.errors += 1;
-      return acc;
-    },
-    { assets: 0, newAssets: 0, missing: 0, errors: 0 },
-  );
-
-  console.error(
-    `[bm-page-scan] done in ${elapsedMs}ms — bms=${bms.length} pages=${totals.pages} new=${totals.newPages} ` +
-      `missing_access=${totals.missing} errors=${totals.errors} | ` +
-      `assets=${assetTotals.assets} new=${assetTotals.newAssets} missing_access=${assetTotals.missing} errors=${assetTotals.errors}`,
-  );
-
-  return NextResponse.json({
-    ok: true,
-    elapsedMs,
-    businessManagers: bms.length,
-    totals,
-    assetTotals,
-    results,
-    assetResults,
-  });
+  // 200 even when the breaker tripped: stopping on a rate limit is the
+  // designed outcome, and the skipped BMs go first tomorrow.
+  return NextResponse.json(await runBmCronScan(supabase));
 }
+
+function num(v: unknown): number {
+  return typeof v === "number" && Number.isFinite(v) ? v : 0;
+}
+
+export const GET = withCronRunLog(
+  {
+    cronName: "bm-page-scan",
+    getDb: () => {
+      try {
+        return createServiceRoleClient();
+      } catch {
+        return null;
+      }
+    },
+    // A BM counts as written when its page scan succeeded.
+    rows: (body) => num(body.scannedOk),
+    considered: (body) => num(body.businessManagers),
+    detail: (body) => ({
+      elapsed_ms: num(body.elapsedMs),
+      bms_total: num(body.businessManagers),
+      bms_scanned: num(body.scanned),
+      bms_ok: num(body.scannedOk),
+      bms_failed: num(body.failed),
+      bms_skipped_rate_limited: num(body.skippedRateLimited),
+      bms_skipped_time_budget: num(body.skippedTimeBudget),
+      stopped_by: typeof body.stoppedBy === "string" ? body.stoppedBy : null,
+      rate_limited_at: typeof body.rateLimitedAt === "string" ? body.rateLimitedAt : null,
+      token_context_reads: num(body.tokenContextReads),
+      totals: body.totals ?? null,
+      asset_totals: body.assetTotals ?? null,
+    }),
+  },
+  handleGET,
+);

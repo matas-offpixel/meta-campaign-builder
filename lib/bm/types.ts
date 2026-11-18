@@ -85,6 +85,12 @@ export interface ScanResult {
   missingAccess: number;
   ok: boolean;
   error?: string;
+  /**
+   * Meta answered with a rate-limit error (#4/#17/#32/#341/#613/#80004 or HTTP
+   * 429). The daily cron's breaker stops the run on this; `last_scanned_at` is
+   * left alone so the BM keeps its place at the front of the rotation.
+   */
+  rateLimited?: boolean;
 }
 
 /**
