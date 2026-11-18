@@ -113,8 +113,8 @@ export const TK_TYPE = {
   rung: { capPx4to5: 44, capPx3: 56 },
   /** The list column: 480 px; 70 px under the headline's last baseline; last baseline on or above 1238. */
   column: { width: 480, gapUnderHeadline: 70 },
-  /** The accent bar: 6 px, on the list's outer edge (x 120, or 954 for a list on the right). */
-  bar: { width: 6 },
+  /** The accent bar: 6 px, on the list's outer edge (x 120, or 954 for a list on the right). The list's type starts 14 px inside it (invented in the build), so the bar never sits on a number. */
+  bar: { width: 6, gap: 14 },
   /** Gap between the marker column and the titles (invented in the build: half the marker's cap). */
   markerGapPerCap: 0.5,
   /** Line pitch: cap top to next cap top, in caps (invented in the build, as T1's details). */
@@ -208,10 +208,14 @@ export function layoutReel(input: { headline: string; artist: string; rows: read
   const few = n <= 3;
   const columnLeft = input.list === "left" ? band.left : band.right - TK_TYPE.column.width;
   const column = { left: columnLeft, right: columnLeft + TK_TYPE.column.width };
+  // The type sits inside the bar's side of the column.
+  const inset = TK_TYPE.bar.width + TK_TYPE.bar.gap;
+  const typeLeft = input.list === "left" ? column.left + inset : column.left;
+  const typeRight = input.list === "left" ? column.right : column.right - inset;
   const markerCap = input.markerKind === "number" ? (few ? TK_TYPE.number.capPx3 : TK_TYPE.number.capPx4to5) : input.markerKind === "rung" ? (few ? TK_TYPE.rung.capPx3 : TK_TYPE.rung.capPx4to5) : 0;
   const markerW = markerCap ? Math.max(...input.rows.map((r) => (r.marker ? measure(r.marker, markerCap) : 0))) : 0;
-  const titleLeft = column.left + (markerCap ? markerW + TK_TYPE.markerGapPerCap * markerCap : 0);
-  const titleWidth = column.right - titleLeft;
+  const titleLeft = typeLeft + (markerCap ? markerW + TK_TYPE.markerGapPerCap * markerCap : 0);
+  const titleWidth = typeRight - titleLeft;
   const baseTitle = few ? TK_TYPE.title.capPx3 : TK_TYPE.title.capPx4to5;
   const listTop = headBaseline + TK_TYPE.column.gapUnderHeadline;
   const rowH = (band.bottom - listTop) / Math.max(1, n);
@@ -230,7 +234,7 @@ export function layoutReel(input: { headline: string; artist: string; rows: read
     // The row's lines must end inside its share (and the last on or above 1238).
     const lastBase = withPlaced.length ? withPlaced[0]!.capTop + withCap : titleLines[titleLines.length - 1]!.capTop + fit.capPx;
     if (lastBase > top + rowH + 1e-6 || lastBase > band.bottom + 1e-6) return { refused: "title", title: r.title };
-    const marker: PlacedLine | null = r.marker && markerCap ? { text: r.marker, capPx: markerCap, capTop: top, left: column.left, width: measure(r.marker, markerCap), role: "marker" } : null;
+    const marker: PlacedLine | null = r.marker && markerCap ? { text: r.marker, capPx: markerCap, capTop: top, left: typeLeft, width: measure(r.marker, markerCap), role: "marker" } : null;
     rows.push({ index: i, marker, title: titleLines, withLine: withPlaced, top, bottom: top + rowH });
   }
   return { headline, rows, column, bar: { left: input.list === "left" ? band.left : band.right - TK_TYPE.bar.width }, titleLeft };

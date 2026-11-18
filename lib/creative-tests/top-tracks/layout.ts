@@ -260,26 +260,38 @@ export type EndCardLayout = { lockup: Rect; name: PlacedLine[]; date: PlacedLine
  * last line on 1238. No claim: lockup, name and date. A claim that doesn't
  * fit the column at its last step refuses (CLAIM_DOESNT_FIT).
  */
-export function layoutEndCard(input: { column: { left: number; right: number }; lockupAspect: number; name: string; date: string; claim: string | null; measure: Measure }): EndCardLayout | { refused: "claim" } | { refused: "name" } {
-  const { column, measure } = input;
-  const width = column.right - column.left;
+export function layoutEndCard(input: {
+  column: { left: number; right: number };
+  lockupAspect: number;
+  name: string;
+  date: string;
+  claim: string | null;
+  measure: Measure;
+  /** TK9's "End card" option: in the list's column (default), or centred as T1's block across x 120–960 (O97). */
+  place?: "column" | "centred";
+}): EndCardLayout | { refused: "claim" } | { refused: "name" } {
+  const { measure } = input;
   const band = TOP_TRACKS.band;
+  const centred = input.place === "centred";
+  const column = centred ? { left: band.left, right: band.right } : input.column;
+  const width = column.right - column.left;
   const lockupW = TK9.lockupWidth * W;
-  const lockup: Rect = { left: column.left, top: band.top, width: lockupW, height: lockupW / input.lockupAspect };
+  const at = (w: number) => (centred ? W / 2 - w / 2 : column.left);
+  const lockup: Rect = { left: at(lockupW), top: band.top, width: lockupW, height: lockupW / input.lockupAspect };
   const nameFit = fitSteps(input.name, TK9.nameCap * H, TK9.nameSteps, width, 2, measure);
   if (!nameFit) return { refused: "name" };
   const pitch = (c: number) => c * TK_TYPE.pitchPerCap;
   const nameTop = lockup.top + lockup.height + TK9.gapPerCap * nameFit.capPx;
-  const name: PlacedLine[] = nameFit.lines.map((text, i) => ({ text, capPx: nameFit.capPx, capTop: nameTop + i * pitch(nameFit.capPx), left: column.left, width: measure(text, nameFit.capPx), role: "title" }));
+  const name: PlacedLine[] = nameFit.lines.map((text, i) => ({ text, capPx: nameFit.capPx, capTop: nameTop + i * pitch(nameFit.capPx), left: at(measure(text, nameFit.capPx)), width: measure(text, nameFit.capPx), role: "title" }));
   const dateCap = TK9.dateCap * H;
   const dateTop = name[name.length - 1]!.capTop + nameFit.capPx + TK9.gapPerCap * nameFit.capPx;
-  const date: PlacedLine = { text: input.date, capPx: dateCap, capTop: dateTop, left: column.left, width: measure(input.date, dateCap), role: "title" };
+  const date: PlacedLine = { text: input.date, capPx: dateCap, capTop: dateTop, left: at(measure(input.date, dateCap)), width: measure(input.date, dateCap), role: "title" };
   let claim: PlacedLine[] = [];
   if (input.claim) {
     const fit = fitSteps(input.claim, TK9.claimCap * H, TK9.claimSteps, width, 2, measure);
     if (!fit) return { refused: "claim" };
     const lastTop = band.bottom - fit.capPx;
-    claim = fit.lines.map((text, i) => ({ text, capPx: fit.capPx, capTop: lastTop - (fit.lines.length - 1 - i) * pitch(fit.capPx), left: column.left, width: measure(text, fit.capPx), role: "title" }));
+    claim = fit.lines.map((text, i) => ({ text, capPx: fit.capPx, capTop: lastTop - (fit.lines.length - 1 - i) * pitch(fit.capPx), left: at(measure(text, fit.capPx)), width: measure(text, fit.capPx), role: "title" }));
     if (claim[0]!.capTop < dateTop + dateCap + TK9.gapPerCap * nameFit.capPx - 1e-6) return { refused: "claim" };
   }
   return { lockup, name, date, claim };

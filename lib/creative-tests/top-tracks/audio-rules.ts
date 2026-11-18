@@ -200,9 +200,9 @@ export type DropChoice =
   | { kind: "no_room"; side: "start" | "end"; lastThirdFromS: number; candidates: readonly number[] }
   | { kind: "none"; lastThirdFromS: number; candidates: readonly number[] };
 
-function pickLatest(times: readonly number[], durationS: number, kicks: readonly number[]): { dropS: number; inLastThird: boolean } | null {
+function pickLatest(times: readonly number[], durationS: number, kicks: readonly number[], fits?: (dropS: number) => boolean): { dropS: number; inLastThird: boolean } | null {
   const from = durationS * TK3.lastThird;
-  const ok = times.filter((t) => qualifies(t, durationS, kicks)).sort((a, b) => a - b);
+  const ok = times.filter((t) => (fits ? fits(t) : qualifies(t, durationS, kicks))).sort((a, b) => a - b);
   const late = ok.filter((t) => t >= from - EPS);
   if (late.length) return { dropS: late[late.length - 1]!, inLastThird: true };
   const early = ok.filter((t) => t < from - EPS);
@@ -215,13 +215,20 @@ function pickLatest(times: readonly number[], durationS: number, kicks: readonly
  * (bass-stem.ts), consulted only when VW14 finds no qualifying drop; null
  * when that ranking isn't available (the fallback can't run).
  */
-export function chooseDrop(input: { drops: readonly Pick<FoundDrop, "tS">[]; durationS: number; kicks: readonly number[]; bassStemTop2?: readonly number[] | null }): DropChoice {
+export function chooseDrop(input: {
+  drops: readonly Pick<FoundDrop, "tS">[];
+  durationS: number;
+  kicks: readonly number[];
+  bassStemTop2?: readonly number[] | null;
+  /** The qualifying test: TK3's window by default; the snippet static passes CT1's (TK3's amendment for #1295). */
+  fits?: (dropS: number) => boolean;
+}): DropChoice {
   const lastThirdFromS = r3(input.durationS * TK3.lastThird);
   const vw14 = input.drops.map((d) => d.tS);
-  const own = pickLatest(vw14, input.durationS, input.kicks);
+  const own = pickLatest(vw14, input.durationS, input.kicks, input.fits);
   if (own) return { kind: own.inLastThird ? "last" : "earlier", dropS: own.dropS, lastThirdFromS, candidates: vw14 };
   const stem = (input.bassStemTop2 ?? []).slice(0, 2);
-  const fromStem = pickLatest(stem, input.durationS, input.kicks);
+  const fromStem = pickLatest(stem, input.durationS, input.kicks, input.fits);
   if (fromStem) return { kind: "bass_stem", dropS: fromStem.dropS, lastThirdFromS, candidates: vw14 };
   const any = [...vw14, ...stem];
   if (!any.length) return { kind: "none", lastThirdFromS, candidates: vw14 };

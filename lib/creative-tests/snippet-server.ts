@@ -12,6 +12,7 @@ import path from "node:path";
 import { uploadFileToStorageBucket } from "../clients/asset-queue/storage-upload.ts";
 import type { DriveApi } from "../drive/client.ts";
 import { cutSnippet, probeAudio, readEnvelopes, withTempDir } from "./audio-ffmpeg.ts";
+import { decodeForAnalysis } from "./top-tracks/ffmpeg.ts";
 import { AUDIO_BUCKET, type IntakeDeps } from "./audio-intake.ts";
 import type { CutDeps } from "./snippet-render.ts";
 import { staticStoragePath } from "./statics.ts";
@@ -62,6 +63,7 @@ export function intakeDeps(db: Service, drive: DriveApi): IntakeDeps {
     upload: (storagePath, filePath, contentType) => storage.upload(AUDIO_BUCKET, storagePath, filePath, contentType),
     probe: probeAudio,
     envelopes: readEnvelopes,
+    analyse: decodeForAnalysis,
     tempDir: (fn) => withTempDir("snippet-in-", fn),
   };
 }

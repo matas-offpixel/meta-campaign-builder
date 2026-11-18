@@ -458,3 +458,24 @@ describe("TK2 / TK10: picking", () => {
     assert.equal(mmss(127.5), "2:07");
   });
 });
+
+describe("TK3 amends CT4: the snippet static takes the same drop choice", () => {
+  it("fits CT1's window (from 4 s before, 16 s), not Top tracks'", async () => {
+    const { snippetStaticFits } = await import("../audio-intake.ts");
+    assert.equal(snippetStaticFits(150, 192), true);
+    assert.equal(snippetStaticFits(181, 192), false);
+    assert.equal(snippetStaticFits(3, 192), false);
+    const kicks = fixtureKicks(T1);
+    const c = chooseDrop({ drops: [{ tS: 62.7 }, { tS: 144 }, { tS: 182 }], durationS: 192, kicks, fits: (t) => snippetStaticFits(t, 192) });
+    assert.ok("dropS" in c && c.dropS === 144 && c.kind === "last");
+  });
+
+  it("a file with no VW14 drop leaves the marker for the operator and keeps what was found", async () => {
+    const { tk3SnippetDrop } = await import("../audio-intake.ts");
+    const silent = new Uint8Array(16000 * 2 * 60);
+    const r = tk3SnippetDrop(silent, 60);
+    assert.equal(r.dropS, null);
+    assert.equal(r.choice, null);
+    assert.deepEqual((r.drops as { vw14: unknown[] }).vw14, []);
+  });
+});

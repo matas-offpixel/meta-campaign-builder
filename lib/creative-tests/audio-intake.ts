@@ -8,6 +8,16 @@
  *
  * There is no URL path in: the only source is a Drive file id listed in
  * that folder. creative_lab_audio_files (migration 255).
+ *
+ * Which drop (TK3, docs/design-record/2026-11-18-creative-lab-top-tracks.html,
+ * amending CT4 for the snippet static too): every drop VW14 finds in the
+ * file, the last that fits CT1's window in the last third, else the last
+ * before it ("an earlier drop"). CT1's window stands here (from 4 s before
+ * the drop); the hook is Top tracks only. With no qualifying drop the marker
+ * waits for the operator: the bass-stem fallback needs Demucs, which has no
+ * host in the app yet (top-tracks/bass-stem.ts). Every drop found is kept
+ * in `drops` (migration 260). `analyse` (the 16 kHz decode) is what turns
+ * TK3 on; a deps without it reads CT4's single best rise, as before.
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -17,6 +27,8 @@ import type { DriveApi, DriveFile } from "../drive/client.ts";
 import { APP_TAG_KEY, FOLDER_MIME, SHORTCUT_MIME } from "../drive/client.ts";
 import { ensureAudioFolder, type ClientRow, type EventRow } from "../drive/folders.ts";
 import { detectDrop, rmsEnvelope, waveformPeaks } from "./drop.ts";
+import { findDrops, findKicks, pcm16ToFloat, trackFeatures } from "./top-tracks/analysis.ts";
+import { barGrid, chooseDrop } from "./top-tracks/audio-rules.ts";
 import { ENVELOPE_RATE } from "./audio-ffmpeg.ts";
 import { clampLength, extensionOf, formatOf, looksLikeAudio, unusableReason, windowForDrop, type ProbedAudio } from "./snippet.ts";
 
@@ -42,6 +54,13 @@ export type AudioFileRow = {
   matched_at: string | null;
   drop_s: number | null;
   drop_source: "lab" | "operator" | null;
+  /** TK3 (migration 260): which rule chose a Lab drop. */
+  drop_choice?: "last" | "earlier" | "bass_stem" | null;
+  /** TK3 (migration 260): every drop found, as data. */
+  drops?: unknown;
+  /** TK3 (migration 260): the HOOK marker (Top tracks only). */
+  hook_s?: number | null;
+  hook_source?: "lab" | "operator" | "cleared" | null;
   drop_set_by: string | null;
   drop_set_at: string | null;
   window_start_s: number | null;
@@ -59,6 +78,8 @@ export type IntakeDeps = {
   upload: (storagePath: string, filePath: string, contentType: string) => Promise<void>;
   probe: (filePath: string) => Promise<ProbedAudio | null>;
   envelopes: (filePath: string) => Promise<{ full: Uint8Array; low: Uint8Array }>;
+  /** TK3: the file decoded mono 16 kHz s16le for VW14's drops (top-tracks/ffmpeg.ts decodeForAnalysis). */
+  analyse?: (filePath: string) => Promise<Uint8Array>;
   tempDir: <T>(fn: (dir: string) => Promise<T>) => Promise<T>;
 };
 
@@ -90,7 +111,30 @@ export type ReadResult = {
   dropS: number | null;
   windowStartS: number | null;
   waveform: number[] | null;
+  dropChoice: "last" | "earlier" | "bass_stem" | null;
+  drops: unknown;
 };
+
+/** CT1's window around a drop fits the file: from 4 s before it, 16 s long (the snippet static's own fit, TK3's amendment). */
+export function snippetStaticFits(dropS: number, durationS: number): boolean {
+  const w = windowForDrop(dropS, durationS, clampLength(null));
+  return dropS - 4 >= -1e-6 && Math.abs(w.startS - (dropS - 4)) < 1e-3 && w.startS + w.lengthS <= durationS + 1e-6;
+}
+
+/** TK3's drop choice on a decoded file, with CT1's window as the fit. */
+export function tk3SnippetDrop(pcm16k: Uint8Array, durationS: number): { dropS: number | null; choice: "last" | "earlier" | null; drops: unknown } {
+  const f = trackFeatures(pcm16ToFloat(pcm16k));
+  const kicks = findKicks(f);
+  const found = findDrops(f, kicks);
+  const c = chooseDrop({ drops: found, durationS, kicks, bassStemTop2: null, fits: (t) => snippetStaticFits(t, durationS) });
+  const dropS = "dropS" in c ? c.dropS : null;
+  const grid = dropS != null ? barGrid(kicks, dropS) : null;
+  return {
+    dropS,
+    choice: c.kind === "last" || c.kind === "earlier" ? c.kind : null,
+    drops: { v: 1, durationS, vw14: found, bassStem: null, grid: grid ? { steady: grid.steady, beatS: grid.beatS, spread: grid.steady ? null : grid.spread } : null },
+  };
+}
 
 /** Download, check, copy and analyse one file. An unusable file is recorded with its reason and not copied. */
 export async function readAudioFile(eventId: string, file: DriveFile, deps: IntakeDeps): Promise<ReadResult> {
@@ -101,14 +145,22 @@ export async function readAudioFile(eventId: string, file: DriveFile, deps: Inta
     const reason = unusableReason(probe, file.name);
     const format = probe ? formatOf(probe, file.name) : null;
     const base = { format, bitrateKbps: probe?.bitrateKbps ?? null, durationS: probe?.durationS ?? null, unusableReason: reason };
-    if (reason) return { ...base, storagePath: null, dropS: null, windowStartS: null, waveform: null };
+    if (reason) return { ...base, storagePath: null, dropS: null, windowStartS: null, waveform: null, dropChoice: null, drops: null };
     const storagePath = audioStoragePath(eventId, file.id, file.name);
     await deps.upload(storagePath, local, contentType(format));
     const { full, low } = await deps.envelopes(local);
-    const drop = detectDrop(rmsEnvelope(low, ENVELOPE_RATE));
     const waveform = waveformPeaks(rmsEnvelope(full, ENVELOPE_RATE));
-    const window = drop && probe?.durationS ? windowForDrop(drop.dropS, probe.durationS, clampLength(null)) : null;
-    return { ...base, storagePath, dropS: drop?.dropS ?? null, windowStartS: window?.startS ?? null, waveform };
+    let dropS: number | null;
+    let dropChoice: ReadResult["dropChoice"] = null;
+    let drops: unknown = null;
+    if (deps.analyse && probe?.durationS) {
+      const tk3 = tk3SnippetDrop(await deps.analyse(local), probe.durationS);
+      dropS = tk3.dropS;
+      dropChoice = tk3.choice;
+      drops = tk3.drops;
+    } else dropS = detectDrop(rmsEnvelope(low, ENVELOPE_RATE))?.dropS ?? null;
+    const window = dropS != null && probe?.durationS ? windowForDrop(dropS, probe.durationS, clampLength(null)) : null;
+    return { ...base, storagePath, dropS, windowStartS: window?.startS ?? null, waveform, dropChoice, drops };
   });
 }
 
@@ -156,6 +208,7 @@ export async function scanArtistAudio(
         unusable_reason: read.unusableReason,
         drop_s: read.dropS,
         drop_source: read.dropS != null ? "lab" : null,
+        ...(read.drops != null ? { drops: read.drops, drop_choice: read.dropChoice } : {}),
         window_start_s: read.windowStartS,
         waveform: read.waveform,
       });

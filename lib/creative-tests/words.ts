@@ -16,7 +16,7 @@ export const RESULT_WORD: Record<ResultEvent, { one: string; many: string }> = {
   complete_registration: { one: "signup", many: "signups" },
 };
 
-export type TestKind = "tracks" | "statics" | "together" | "copy" | "clip";
+export type TestKind = "tracks" | "statics" | "together" | "copy" | "clip" | "top_tracks";
 
 /** CT6: the test names. */
 export const KIND_NAME: Record<TestKind, string> = {
@@ -25,6 +25,8 @@ export const KIND_NAME: Record<TestKind, string> = {
   together: "Together",
   copy: "Copy",
   clip: "Clip",
+  /** TK11: the Top tracks reel's rounds. */
+  top_tracks: "Top tracks",
 };
 
 /** "Test 1 · Tracks" (CT6, CT9). */
