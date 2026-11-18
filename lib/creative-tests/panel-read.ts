@@ -14,11 +14,20 @@ type Db = Pick<SupabaseClient, "from">;
 
 const PAGE = 1000;
 
-export const TEST_COLUMNS = "id, event_id, n, kind, format, runs_in, state, result_event, currency, daily_budget_minor, budget_pct, at_minimum, first_delivery_at, winner_variant_id, meta_adset_id";
+export const TEST_COLUMNS = "id, event_id, n, kind, format, runs_in, state, result_event, currency, daily_budget_minor, budget_pct, at_minimum, first_delivery_at, winner_variant_id, meta_adset_id, held, started_at";
+/** TF6 / TF5 (migration 261): read when the columns are there, so the panel works before 261 is applied. */
+export const TEST_COLUMNS_261 = `${TEST_COLUMNS}, extensions, extension_evidence`;
 export const VARIANT_COLUMNS = "id, test_id, position, role, label, state";
 export const READ_COLUMNS = "test_id, read_at, variants";
+export const READ_COLUMNS_261 = `${READ_COLUMNS}, benchmark_cost`;
+
+function missingColumn(message: string): boolean {
+  return /column .* does not exist|could not find the .* column/i.test(message);
+}
 
 function missingTable(message: string): boolean {
+  // A missing column (migration 261 not applied yet) isn't a missing table: loadTestInputs reads the older columns instead.
+  if (missingColumn(message)) return false;
   return /does not exist|schema cache|creative_test/i.test(message) && /relation|table|schema cache/i.test(message);
 }
 
@@ -41,7 +50,15 @@ export type TestInputs = { tests: (TestInput & { event_id: string; meta_adset_id
 export async function loadTestInputs(db: Db, eventIds: readonly string[]): Promise<TestInputs> {
   const empty: TestInputs = { tests: [], variants: [], reads: [] };
   if (!eventIds.length) return empty;
-  const tests = await paged<TestInput & { event_id: string; meta_adset_id?: string | null }>((a, b) => db.from("creative_tests").select(TEST_COLUMNS).in("event_id", [...eventIds]).order("id", { ascending: true }).range(a, b));
+  type Row = TestInput & { event_id: string; meta_adset_id?: string | null };
+  const readTests = (columns: string) => paged<Row>((a, b) => db.from("creative_tests").select(columns).in("event_id", [...eventIds]).order("id", { ascending: true }).range(a, b));
+  let tests: Row[] | null;
+  try {
+    tests = await readTests(TEST_COLUMNS_261);
+  } catch (err) {
+    if (!(err instanceof Error) || !missingColumn(err.message)) throw err;
+    tests = await readTests(TEST_COLUMNS);
+  }
   if (!tests?.length) return empty;
   const ids = tests.map((t) => t.id);
   // TT8: each test ad set's name as Approve made it (launched_ad_sets.source_name).
@@ -52,6 +69,13 @@ export async function loadTestInputs(db: Db, eventIds: readonly string[]): Promi
     for (const t of tests) t.adset_name = (t.meta_adset_id && byId.get(t.meta_adset_id)) || null;
   }
   const variants = (await paged<VariantInput>((a, b) => db.from("creative_test_variants").select(VARIANT_COLUMNS).in("test_id", ids).order("id", { ascending: true }).range(a, b))) ?? [];
-  const reads = (await paged<ReadInput>((a, b) => db.from("creative_test_reads").select(READ_COLUMNS).in("test_id", ids).order("read_at", { ascending: false }).order("test_id", { ascending: true }).range(a, b))) ?? [];
+  const readReads = (columns: string) => paged<ReadInput>((a, b) => db.from("creative_test_reads").select(columns).in("test_id", ids).order("read_at", { ascending: false }).order("test_id", { ascending: true }).range(a, b));
+  let reads: ReadInput[];
+  try {
+    reads = (await readReads(READ_COLUMNS_261)) ?? [];
+  } catch (err) {
+    if (!(err instanceof Error) || !missingColumn(err.message)) throw err;
+    reads = (await readReads(READ_COLUMNS)) ?? [];
+  }
   return { tests, variants, reads: reads.map((r) => ({ ...r, variants: Array.isArray(r.variants) ? r.variants : [] })) };
 }

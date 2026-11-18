@@ -23,7 +23,10 @@
  * Gates, in order, before any Graph call or database write:
  *   - CREATIVE_TESTS_CREATE_ENABLED must be exactly "true" (503 otherwise);
  *   - Matas only ("No ads are created until Matas approves a test's variants");
- *   - one test at a time per test ad set (TT1);
+ *   - one test at a time per test ad set (TT1); a variant pair runs in its own
+ *     lane (VP4), and waits for Matas's sign-off and VP2's rules again (VP7),
+ *     then, once the copy's page is known, the artist-page approval when it
+ *     runs from the artist's page;
  *   - TF1's budget, which needs spend in the last 7 days.
  *
  * The test is "running" from the moment its ads are made, with started_at
@@ -39,6 +42,7 @@ import type { LabLaunchResponse, LabUploadRequest, LabUploadResult } from "../cr
 import { withMetaWriteIdempotency, type MetaWriteContext } from "../meta/write-idempotency.ts";
 import { spendToDate } from "../onsale-refresh/plan-guard.ts";
 import { planCheck, sizeTest, type CboCampaign, type MainAdSet } from "./budget.ts";
+import { pairAdSetKind, pairApproveRefusal, pairArtistPageRefusal, readPairHeld } from "./pair.ts";
 import { CONTROL, HOLDS_AD_SET, canApprove, chooseControl, variantCountOk, type TestRow } from "./plan.ts";
 import { TestsCampaignProblem, creativeTestKind, findTestsCampaign, isGoneCampaign, isShowTestCampaign, testAdSetEndTime, testsAdSetName, testsCampaignPayload, type CampaignRow } from "./tests-campaign.ts";
 import { testsCampaignName, type ResultEvent, type TestFormat } from "./words.ts";
@@ -214,7 +218,14 @@ export async function approveTest(deps: ApproveDeps, input: { testId: string; us
   if (!allowed.ok) return refuse(409, allowed.text);
 
   const variants = (await rows(db, "creative_test_variants", "test_id", input.testId)).sort((a, b) => Number(a.position) - Number(b.position));
-  if (!variantCountOk(str(test, "kind") as TestRow["kind"], variants.length)) return refuse(409, "This test needs 2 to 5 variants.");
+  const pair = str(test, "kind") === "pair" ? readPairHeld(test.held) : null;
+  if (str(test, "kind") === "pair" && !pair) return refuse(409, "This pair has no windows.");
+  // VP7: Matas's sign-off, then VP2's rules again, before anything else is read.
+  if (pair) {
+    const held = pairApproveRefusal(pair, variants.map((v) => str(v, "label")));
+    if (held) return refuse(409, held);
+  }
+  if (!variantCountOk(str(test, "kind") as TestRow["kind"], variants.length)) return refuse(409, pair ? "A pair needs its two variants." : "This test needs 2 to 5 variants.");
   const renders = new Map<string, Row>();
   for (const v of variants) {
     const render = str(v, "snippet_render_id") ? await one(db, "creative_lab_snippet_renders", "id", str(v, "snippet_render_id")) : null;
@@ -262,6 +273,13 @@ export async function approveTest(deps: ApproveDeps, input: { testId: string; us
   if (!source) return refuse(409, "The best ad's ad set couldn't be read.");
   const copy = await deps.meta.readAdCopy(facts.bestAd.adId);
   if (!copy) return refuse(409, "The best ad's copy couldn't be read.");
+  // VP7: a pair that runs from the artist's page (the page is the copy's, held between its two ads) needs the artist-page approval.
+  if (pair) {
+    const file = await one(db, "creative_lab_audio_files", "id", pair.audioFileId);
+    const artist = str(file, "artist_id") ? await one(db, "artists", "id", str(file, "artist_id")) : null;
+    const artistPage = pairArtistPageRefusal(pair, copy.pageId, str(artist, "meta_page_id"));
+    if (artistPage) return refuse(409, artistPage);
+  }
   // TT8: the Tests campaign is objective Sales; the result sits on each ad set's promoted object.
   const objective = "OUTCOME_SALES";
 
@@ -311,7 +329,7 @@ export async function approveTest(deps: ApproveDeps, input: { testId: string; us
   const startedAt = str(test, "started_at") || now.toISOString();
   let adsetId = str(test, "meta_adset_id");
   let adSetName = adsetId ? str(await deps.meta.readAdSet(adsetId), "name") : "";
-  if (!adSetName) adSetName = testsAdSetName(eventCode, creativeTestKind(format), startedAt, adsetId ? [] : await deps.meta.listAdSetNames(campaignId));
+  if (!adSetName) adSetName = testsAdSetName(eventCode, pair ? pairAdSetKind(pair.pair) : creativeTestKind(format), startedAt, adsetId ? [] : await deps.meta.listAdSetNames(campaignId));
   if (!adsetId) {
     const payload = testAdSetPayload(source, { name: adSetName, campaignId, dailyMinor: sized.dailyMinor, startTime: startedAt });
     adsetId = await withMetaWriteIdempotency(ledger, "adset_create", { creative_test: input.testId, format, campaign_id: campaignId, targeting: payload.targeting }, () => deps.meta.createAdSet(adAccountId, payload), { required: true });

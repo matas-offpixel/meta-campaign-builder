@@ -5,6 +5,7 @@
  */
 
 import type { AudioFileRow } from "./audio-intake.ts";
+import { WAITING_SIGN_OFF, approvalLines, readPairHeld, type PairWindow } from "./pair.ts";
 import {
   DROP_FOUND,
   NO_FILE_YET,
@@ -52,7 +53,40 @@ export type FileView = {
 
 export type PickerRow = { key: string; title: string; trackId: string | null; file: FileView | null; empty: string | null };
 
-export type RenderView = { id: string; tag: string | null; fileName: string | null; status: string; note: string | null; approved: boolean; driveFailed: boolean };
+export type RenderView = {
+  id: string;
+  tag: string | null;
+  fileName: string | null;
+  status: string;
+  note: string | null;
+  approved: boolean;
+  driveFailed: boolean;
+  /** VP2's "Window from": the file it was cut from, and its window. */
+  audioFileId: string;
+  startS: number | null;
+  lengthS: number | null;
+};
+
+/** A variant pair of the act's tracks (VP2, VP7), as the Lab shows it beside "Make pair". */
+export type PairView = {
+  testId: string;
+  n: number;
+  state: string;
+  fileId: string;
+  labels: string[];
+  windows: PairWindow[];
+  lengthS: number;
+  staticDriveFileId: string;
+  static: string;
+  /** "Signed off by Matas · {d Mon}" and the artist-page line, once recorded. */
+  approvalLines: string[];
+  signedOff: boolean;
+  artistPageRecorded: boolean;
+  /** Both snippets rendered (Approve needs them). */
+  rendered: boolean;
+  /** What holds "Approve variants" while the pair is being made, or null: VP7's sign-off first. */
+  approveBlock: string | null;
+};
 
 export type SnippetView = {
   eventId: string;
@@ -66,6 +100,12 @@ export type SnippetView = {
   statics: { driveFileId: string; name: string; fileName: string; label: string }[];
   renders: RenderView[];
   testState: string | null;
+  /** VP2 / VP7: the act's variant pairs, newest test last. */
+  pairs: PairView[];
+  /** Only Matas records a sign-off or an artist-page approval, and approves (VP7). */
+  isMatas: boolean;
+  /** Whether the open act has a page of its own to run from (so the artist-page approval can apply). */
+  actHasPage: boolean;
 };
 
 export type ViewInput = {
@@ -77,10 +117,17 @@ export type ViewInput = {
   files: AudioFileRow[];
   names: ReadonlyMap<string, string>;
   statics: { driveFileId: string; name: string; fileName: string }[];
-  renders: { id: string; audio_file_id: string; status: string; file_name: string | null; approved_at: string | null; drive_status: string | null; test_id: string | null; error: string | null }[];
+  renders: { id: string; audio_file_id: string; status: string; file_name: string | null; approved_at: string | null; drive_status: string | null; test_id: string | null; error: string | null; start_s?: number | string | null; length_s?: number | null }[];
   testN: number | null;
   testState: string | null;
   variantLabels: ReadonlyMap<string, string>;
+  /** Each render's "Test {n} · {variant}" for every test, not only Test 1 (a pair's renders carry their pair's number). */
+  renderTags?: ReadonlyMap<string, { n: number; label: string }>;
+  /** The event's variant pairs, with their variants. */
+  pairs?: { id: string; n: number; state: string; held: unknown; variants: { label: string; position: number; snippet_render_id: string | null }[] }[];
+  isMatas?: boolean;
+  /** Acts with a page of their own (artists.meta_page_id). */
+  actsWithPage?: ReadonlySet<string>;
 };
 
 /** Spotify's heading in AU-A: "Spotify's top tracks for {act} · {n} of 5 picked". */
@@ -135,7 +182,7 @@ export function fileView(file: AudioFileRow, ctx: { artistName: string; names: R
 export function buildSnippetView(input: ViewInput): SnippetView {
   const act = input.acts.find((a) => a.id === input.actId) ?? input.acts[0] ?? null;
   const acts = input.acts.map((a) => ({ ...a, open: a.id === act?.id }));
-  if (!act) return { eventId: input.eventId, eventCode: input.eventCode, acts, actName: null, heading: null, spotifyLine: null, rows: [], extras: [], statics: [], renders: [], testState: input.testState };
+  if (!act) return { eventId: input.eventId, eventCode: input.eventCode, acts, actName: null, heading: null, spotifyLine: null, rows: [], extras: [], statics: [], renders: [], testState: input.testState, pairs: [], isMatas: Boolean(input.isMatas), actHasPage: false };
   const tracks = input.tracks ?? [];
   const files = input.files.filter((f) => f.artist_id === act.id);
   const ctx = { artistName: act.name, names: input.names, tracks };
@@ -159,14 +206,43 @@ export function buildSnippetView(input: ViewInput): SnippetView {
     .map((r) => {
       const file = files.find((f) => f.id === r.audio_file_id)!;
       const label = input.variantLabels.get(r.id) ?? null;
+      const tagged = input.renderTags?.get(r.id) ?? null;
       return {
         id: r.id,
-        tag: r.test_id && input.testN && label ? testTag(input.testN, label) : null,
+        tag: tagged ? testTag(tagged.n, tagged.label) : r.test_id && input.testN && label ? testTag(input.testN, label) : null,
         fileName: r.file_name,
         status: r.status,
         note: fileLine({ fileName: file.drive_file_name, format: file.format, bitrateKbps: file.bitrate_kbps }),
         approved: Boolean(r.approved_at),
         driveFailed: r.drive_status === "failed",
+        audioFileId: r.audio_file_id,
+        startS: r.start_s == null ? null : Number(r.start_s),
+        lengthS: r.length_s == null ? null : Number(r.length_s),
+      };
+    });
+  const pairs: PairView[] = (input.pairs ?? [])
+    .map((t) => ({ t, held: readPairHeld(t.held) }))
+    .filter((p): p is { t: (typeof p)["t"]; held: NonNullable<(typeof p)["held"]> } => p.held != null && files.some((f) => f.id === p.held!.audioFileId))
+    .sort((a, b) => a.t.n - b.t.n)
+    .map(({ t, held }) => {
+      const variants = [...t.variants].sort((a, b) => a.position - b.position);
+      const rendered = variants.length === 2 && variants.every((v) => input.renders.some((r) => r.id === v.snippet_render_id && r.status === "done"));
+      const making = t.state === "making";
+      return {
+        testId: t.id,
+        n: t.n,
+        state: t.state,
+        fileId: held.audioFileId,
+        labels: variants.map((v) => v.label),
+        windows: held.windows,
+        lengthS: held.lengthS,
+        staticDriveFileId: held.staticDriveFileId,
+        static: held.static,
+        approvalLines: approvalLines(held),
+        signedOff: Boolean(held.signOff),
+        artistPageRecorded: Boolean(held.artistPageApproval),
+        rendered,
+        approveBlock: !making ? null : !held.signOff ? WAITING_SIGN_OFF : null,
       };
     });
   return {
@@ -181,6 +257,9 @@ export function buildSnippetView(input: ViewInput): SnippetView {
     statics: input.statics.map((s) => ({ ...s, label: staticLabel(s.name) })),
     renders,
     testState: input.testState,
+    pairs,
+    isMatas: Boolean(input.isMatas),
+    actHasPage: Boolean(input.actsWithPage?.has(act.id)),
   };
 }
 
