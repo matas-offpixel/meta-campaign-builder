@@ -24,15 +24,17 @@ export type CardRuleException = {
   ruling: string;
 };
 
+// Ruled by Matas 17 Nov 2026 (9:16), widened by Matas 18 Nov 2026 to the 4:5 and 1:1 once the framing record's
+// layouts (#1326) were drawn from this photo and approved. Same contrast override; no other rule is waived.
 const P26_LUKE_PRESS_RULING =
-  "Luke Dean's management sent two press photos on 17 Nov 2026; Matas grants an exception to the card rules for this one (the other, 14 00 31, he binned). 9:16 only: 1x1 and 4x5 wait for the framing design record.";
+  "Luke Dean's management sent two press photos on 17 Nov 2026; Matas grants an exception to the card rules for this one (the other, 14 00 31, he binned). 9:16 ruled 17 Nov; 4:5 and 1:1 added by Matas on 18 Nov 2026 after the framing record's layouts (#1326), with the same contrast override.";
 
 export const CARD_RULE_EXCEPTIONS: readonly CardRuleException[] = [
   {
     eventCode: "P26-BDAY",
     assetId: "2a5fcf27-10c0-449c-b9e0-4358edf3527c", // Photo 14-06-2026, 19 09 42.jpg
     variant: "A",
-    formats: ["9x16"],
+    formats: ["9x16", "4x5", "1x1"], // 4x5 and 1x1: ruled by Matas 18 Nov 2026
     ruledBy: "Matas",
     ruledOn: "2026-11-17",
     ruling: P26_LUKE_PRESS_RULING,
