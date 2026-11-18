@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Top tracks, issue 2 — 18 Nov 2026</title>
+<style>
+:root{
+  --sand:#F0C9A8; --card:#e8d4c0; --edit:#f6ebe0; --paper:#fff8f0; --ink:#1e1810; --ink-2:#4a3d30; --ink-3:#6f6052;
+  --border:rgba(30,24,16,.10); --border-strong:rgba(30,24,16,.18); --muted:rgba(30,24,16,.06);
+  --olive:#4f5a1f; --ochre:#8a560c; --brick:#8f3424;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--sand);color:var(--ink);font:14px/1.5 var(--sans);font-feature-settings:"calt" 0}
+.wrap{max-width:1360px;margin:0 auto;padding:40px 24px 120px}
+h1{font-size:24px;font-weight:600;margin:0 0 6px}
+h2{font-size:20px;font-weight:600;margin:56px 0 8px}
+h3{font-size:13px;font-weight:600;margin:20px 0 6px}
+p{margin:0 0 10px;max-width:86ch}
+.lead{font-size:13px;color:var(--ink-2)}
+.k{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+code{font:12px var(--mono);background:var(--muted);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+figure{margin:0;min-width:0;max-width:100%}
+figcaption{font:700 9px/1.5 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+table.t{border-collapse:collapse;width:100%;font-size:12.5px;margin:10px 0 22px;background:var(--card);border-radius:8px;overflow:hidden;table-layout:fixed}
+table.t th,table.t td{text-align:left;vertical-align:top;padding:8px 12px;border-bottom:1px solid var(--border);overflow-wrap:anywhere}
+table.t th{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.t td:first-child{font-weight:600;width:190px}
+table.t ul{margin:4px 0 0 16px;padding:0}table.t li{margin:0 0 4px}
+.open{background:#f3e3c8;border:1px dashed var(--ochre);border-radius:8px;padding:10px 14px;font-size:12.5px;margin:10px 0 16px}
+.notes{font-size:12.5px;color:var(--ink-2)}.notes li{margin:0 0 6px;max-width:96ch}
+.frame{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start;margin:12px 0 24px}
+.vp{background:var(--paper);border:1px solid var(--border-strong);border-radius:8px;overflow:hidden;max-width:100%;padding:16px;font-size:13px}
+.vp.wide{width:760px}.vp.w393{width:393px}
+.ph{font:700 9px/1.4 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+.h{font-weight:600;font-size:14px;margin:0 0 4px}
+.sub{font-size:12px;color:var(--ink-2);margin:0 0 10px}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 10px}
+.chip{border:1px solid var(--border-strong);border-radius:999px;padding:3px 10px;font-size:12px;background:#fff}
+.chip.on{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.mono{font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase}
+.row{display:grid;grid-template-columns:22px 26px 1fr auto;gap:8px;align-items:center;padding:7px 0;border-top:1px solid var(--border)}
+.row .n{color:var(--ink-3);font:12px var(--mono)}
+.box{width:16px;height:16px;border:1.5px solid var(--ink);border-radius:3px;display:inline-block}
+.box.on{background:var(--ink)}
+.box.off{border-color:var(--ink-3);opacity:.45}
+.fs{font-size:11.5px;color:var(--ink-2)}
+.fs.warn{color:var(--brick)}
+.ok{color:var(--olive)}
+.btn{display:inline-block;border:1px solid var(--ink);border-radius:4px;padding:5px 10px;font:700 10px var(--mono);letter-spacing:.1em;text-transform:uppercase;background:var(--ink);color:var(--paper)}
+.btn.ghost{background:transparent;color:var(--ink)}
+.btn.dis{opacity:.4}
+.wave{position:relative;height:64px;background:repeating-linear-gradient(90deg,var(--ink-3) 0 2px,transparent 2px 5px);border-radius:4px;margin:26px 0 4px;opacity:.9}
+.wave .win{position:absolute;top:-4px;bottom:-4px;border:2px solid var(--ink);background:rgba(232,212,192,.55);border-radius:4px}
+.wave .drop{position:absolute;top:-10px;bottom:-10px;width:2px;background:var(--brick)}
+.wave .drop span{position:absolute;top:-16px;left:-20px;font:700 9px var(--mono);letter-spacing:.1em;color:var(--brick);white-space:nowrap}
+.tl{display:flex;justify-content:space-between;font:11px var(--mono);color:var(--ink-3)}
+.pv{width:150px;height:267px;background:#222;border-radius:6px;position:relative;flex:none;display:flex;align-items:center;justify-content:center;color:#fff;font:700 9px var(--mono);letter-spacing:.12em}
+.pv .play{position:absolute;bottom:10px;left:10px;width:28px;height:28px;border-radius:50%;background:#fff}
+.split{display:flex;gap:16px;align-items:flex-start}
+table.v{border-collapse:collapse;width:100%;font-size:12px;margin:6px 0}
+table.v th{font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);text-align:left;padding:4px 6px;border-bottom:1px solid var(--border-strong)}
+table.v td{padding:6px;border-bottom:1px solid var(--border)}
+table.v td.r,table.v th.r{text-align:right}
+.st{display:inline-block;border:1px solid var(--border-strong);border-radius:10px;padding:2px 8px;font:700 9px/1.5 var(--mono);letter-spacing:.1em;text-transform:uppercase}
+.st.run{border-style:dashed}
+.st.win{background:var(--olive);color:#fff;border-color:var(--olive)}
+.test{border:1px solid var(--border);border-radius:6px;padding:10px 12px;margin:8px 0;background:#fff}
+.test.dim{opacity:.55}
+.line{background:var(--card);border-radius:6px;padding:8px 10px;margin:6px 0;font-size:12px}
+.inv{text-decoration:underline dotted var(--brick);text-decoration-thickness:1.5px;text-underline-offset:3px}
+table.t table.t td:first-child{width:auto;font-weight:400}
+@media (max-width:560px){table.t th[style]{width:100px!important}table.t td:first-child{width:100px}}
+.st.fail{border-color:var(--brick);color:var(--brick)}
+.line .acts{float:right;font:700 9px var(--mono);letter-spacing:.1em;text-transform:uppercase}
+.line.wait{opacity:.6}
+.line.failed{border:1px solid var(--brick);background:#f6e3dc}
+.tick{display:inline-block;width:11px;height:11px;border:1.5px solid var(--ink);border-radius:2px;margin-right:6px;vertical-align:-1px}
+.tick.on{background:var(--ink)}
+.bar{display:inline-block;height:8px;background:var(--ink-3);border-radius:2px;vertical-align:middle;margin-right:6px}
+.sbar{position:relative;display:inline-block;width:100px;height:8px;background:var(--muted);border-radius:2px;vertical-align:middle;margin-right:8px}
+.sbar i{position:absolute;left:0;top:0;bottom:0;background:var(--ink-3);border-radius:2px}
+.sbar i.lead{background:var(--olive)}
+.sbar b{position:absolute;left:60px;top:-3px;bottom:-3px;width:1px;background:var(--ink)}
+.sbar s{position:absolute;left:10px;top:-3px;bottom:-3px;width:1px;background:var(--ink-3);opacity:.6}
+
+.tlx .lane{display:flex;align-items:center;gap:8px;margin:4px 0}
+.tlx .ln{flex:none;width:52px;font:700 9px var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3)}
+.tlx .bar{position:relative;flex:1;height:26px;background:var(--muted);border-radius:3px}
+.tlx .bar.thin{height:14px}
+.tlx .sl{position:absolute;top:0;bottom:0;border-right:2px solid var(--paper);background:var(--card);font:10px/26px var(--mono);padding:0 4px;white-space:nowrap;overflow:hidden}
+.tlx .sl.hi{background:var(--ink);color:var(--paper)}
+.tlx .sl.ec{background:#e9c99a}
+.tlx .dp{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--brick)}
+.tlx .xf{position:absolute;top:2px;bottom:2px;background:var(--olive);opacity:.75}
+.tlx .tlp{display:flex;gap:8px}.tlx .tlq{position:relative;flex:1;height:14px;font:10px var(--mono);color:var(--ink-3)}
+.tlx .tlq span{position:absolute;transform:translateX(-50%);white-space:nowrap}
+.tlx .tlq span:first-child{transform:none}.tlx .tlq span:last-child{transform:translateX(-100%)}
+.rs{max-width:100%;height:auto;display:block;border-radius:6px}
+.sv{font-family:'DejaVu Sans Condensed','Arial Narrow',sans-serif;font-weight:700}
+</style>
+</head>
+<body>
+<div class="wrap">
+<div class="k">Off/Pixel · design record · creative lab · top tracks · issue 2 · 18 November 2026</div>
+<h1>Top tracks, issue 2: drops and bars on studio tracks</h1>
+<p class="lead">From the build on #1338 (comment 6982968275). VW14 is the wrong tool for a master. It was ruled for live clips. On Can't Decide it counted 6–8 "kicks" a second (the hats), found 9 drops, and never settled a beat grid.</p>
+<p class="lead">This record re-rules how TK3 finds the bars and the drops on <b>studio tracks</b>. Its parts:</p>
+<ul class="notes">
+<li>Beat This! for the beat grid;</li>
+<li>Demucs's bass stem for the drops;</li>
+<li>Matas's choice of drop, unchanged;</li>
+<li>the hook from the new grid.</li>
+</ul>
+<p class="lead">Live clips keep VW14–VW17, untouched. Both models are the ones the Demucs study ran.</p>
+<p class="lead"><b>What stands:</b> everything in #1338 except the pieces TK12 names, including:</p>
+<ul class="notes">
+<li>TK3's window shape, its limits and refusals, the fades, the 0.75 s join and the end card;</li>
+<li>the qualifying test and Matas's choice;</li>
+<li>the phrase finder's values;</li>
+<li>TK1–TK2 and TK4–TK11.</li>
+</ul>
+<p class="lead">Also standing: CT1's window for snippet statics, VW14–VW17 for clips, and the variant-pair record's later box taking CT4's drop.</p>
+<p class="lead">Can't Decide's length (2:55), its break (2:04) and its bass return (2:07.25–2:07.5) are real, from the Luke Dean session. Every other drop and level in TK-H is <span class="inv">invented</span>.</p>
+
+<h2>Rulings</h2>
+<table class="t">
+<tr><th style="width:190px">#</th><th>Ruling</th></tr>
+<tr><td>TK12 · Studio tracks, and what this replaces</td><td>
+<ul>
+<li><b>A studio track</b> is a file in <code>02 Source / Audio / {artist}</code> that passes AU1. That covers every track in Top tracks, and every audio snippet static's track (CT1–CT4, #1295).</li>
+<li><b>A live clip</b> is a Lab clip (<code>creative_lab_clips</code>). It keeps VW14–VW17 as ruled. This record changes nothing about clips, and clip work goes on separately.</li>
+<li><b>For studio tracks, this replaces three pieces of TK3:</b>
+<ul>
+<li>"The bar grid comes from the track's kicks" (VW14's kick detection, the median gap, 4 beats a bar) → TK13.</li>
+<li>"The Lab finds every drop in the file as VW14 finds them in a clip" → TK14.</li>
+<li>"When VW14 misses", the bass-stem fallback → withdrawn. The bass stem is now the main method, not a fallback, and the row's " · found on the bass stem" goes.</li>
+</ul></li>
+<li>TK3's repeated-phrase finder keeps its values and now runs on TK13's grid (TK16).</li>
+</ul></td></tr>
+<tr><td>TK13 · The beat grid: Beat This! on the master</td><td>
+<ul>
+<li><b>Beat This!</b> runs on the full mixed master, the same model as the Demucs study. It gives the beats and the downbeats.</li>
+<li><b>A bar</b> runs from one downbeat to the next. The grid's own bars are used, with no 4-beats-a-bar assumption.</li>
+<li>TK3's windows are counted in these bars: the bars nearest 6 s before the drop within 4–8 s, and nearest 8 s after it within 6–10 s.</li>
+<li><b>Steadiness.</b> When the bar lengths in the 16 bars around the chosen drop vary by more than 3 %, TK3's seconds cut applies, with its line: "No steady beat found — cut on seconds, not bars."</li>
+<li><b>No grid at all:</b> when Beat This! returns no downbeats, the same seconds cut and line apply.</li>
+</ul></td></tr>
+<tr><td>TK14 · Drops: the bass returning, on the bass stem</td><td>
+<ul>
+<li><b>The stem.</b> Demucs separates the bass stem from the master, the same model as the study. Its level is read per beat on TK13's grid, as the RMS from one beat to the next.</li>
+<li><b>The reference level R</b> is the median per-beat level over the loudest half of the track's beats.</li>
+<li><b>Bass out or well down:</b> a beat at least 10 dB under R. <b>A break</b> is at least 4 beats in a row like that, and at least one bar on the grid.</li>
+<li><b>A drop</b> is where the bass returns after a break:
+<ul>
+<li>the first beat after the break back within 3 dB of R;</li>
+<li>timed at the downbeat at or nearest that beat, within half a bar;</li>
+<li>the 8 beats from that downbeat averaging within 3 dB of R. A blip that falls away again isn't a drop.</li>
+</ul></li>
+<li><b>Merging.</b> Returns less than 4 bars apart are one drop, timed at the first of them that passes the 8-beat test.</li>
+<li><b>Track start.</b> A track that starts with the bass out counts as a break from the first downbeat, so an intro's bass entry can be a drop.</li>
+<li><b>The picker.</b> Each drop is listed as <b>"{m:ss.s} · bass returns after {n} bars"</b>, where {n} is the break's whole bars, at least 1, with "1 bar" for one. The operator can drag the marker as before, and it snaps to the nearest downbeat.</li>
+</ul></td></tr>
+<tr><td>TK15 · Which drop (Matas's rule, unchanged)</td><td>
+<ul>
+<li>TK3's qualifying test and choice stand, run on TK14's drops:
+<ul>
+<li>the last drop in the last third that fits the snippet window (the payoff);</li>
+<li>else the latest earlier one, with "Drop {m:ss} · an earlier drop (no later drop fits)";</li>
+<li>"Drop {m:ss} · the last drop" for the payoff.</li>
+</ul></li>
+<li>With no drop found: "{title}: no drop found — drag the drop marker to it."</li>
+</ul></td></tr>
+<tr><td>TK16 · The hook, from the new grid</td><td>
+<ul>
+<li>As ruled in TK3: the last place the track's repeated phrase plays before the chosen drop.</li>
+<li>The bars are TK13's: phrases of 1, 2 or 4 grid bars, matched at 0.90 or more, at least 3 places. Places starting within 8 bars after any TK14 drop don't count. The 14 s limit and the lines stand.</li>
+<li>The phrase is still read from the master's mids (200 Hz–5 kHz), not from a stem.</li>
+</ul></td></tr>
+<tr><td>TK17 · Snippet statics (#1295) and variant pairs</td><td>
+<ul>
+<li><b>CT4's drop</b> on an audio snippet static is now TK14's drops with TK15's choice. That replaces TK3's VW14-based amendment.</li>
+<li><b>CT1's window</b> stays as ruled: from 4 s before the drop. The hook stays Top tracks only.</li>
+<li><b>A variant pair's later box</b> takes this drop. Its earlier box lists TK14's other drops.</li>
+<li><b>Existing work.</b> Snippet static drafts re-pick their drop. Approved renders, and drops an operator set or dragged, are kept.</li>
+</ul></td></tr>
+<tr><td>TK18 · When the analysis runs, and the stem</td><td>
+<ul>
+<li><b>When it runs.</b> Beat This! and Demucs run once per file version, when a file is first offered in the Snippet or Top tracks picker. The results are stored with the file, keyed by <code>drive_file_id</code> and Drive's modified time, and run again when either changes. Stored: the beats, downbeats, per-beat bass levels, R and the drops.</li>
+<li><b>While it runs,</b> the row reads <b>"Finding the drops…"</b> and the file can't be ticked yet.</li>
+<li><b>If it fails,</b> the row reads <b>"Couldn't read this track's beat — drag the drop marker to it."</b>, and the seconds cut applies.</li>
+<li><b>The stem is data only.</b> Renders always use the master. The bass stem is never rendered, never filed to Drive and never offered as audio.</li>
+</ul></td></tr>
+</table>
+
+<h2>Frames</h2>
+<h3>TK-H · Can't Decide on the bass stem (TK14, TK15)</h3>
+<div class="frame">
+<figure style="width:100%"><figcaption>TK-H · Can't Decide · 2:55</figcaption>
+<div class="vp" style="width:100%;max-width:980px">
+<div class="tlx">
+<div class="lane"><span class="ln">Bass</span>
+<div class="bar thin" style="background:var(--ink-3)"><i style="position:absolute;top:0;bottom:0;left:0;width:6.29%;background:var(--paper)"></i><i style="position:absolute;top:0;bottom:0;left:33.14%;width:8.57%;background:var(--paper)"></i><i style="position:absolute;top:0;bottom:0;left:70.86%;width:1.88%;background:var(--paper)"></i></div></div>
+<div class="lane"><span class="ln">Drops</span>
+<div class="bar thin"><i style="position:absolute;top:0;bottom:0;left:66.67%;right:0;background:rgba(138,86,12,.18)"></i><i class="dp" style="left:6.29%;opacity:.4"></i><i class="dp" style="left:41.71%;opacity:.4"></i><i class="dp" style="left:72.74%"></i></div></div>
+<div class="tlp"><span class="ln"></span>
+<div class="tlq"><span style="left:0%">0:00</span><span style="left:41.71%">1:13</span><span style="left:72.74%">2:07.3</span><span style="left:100%">2:55</span></div></div>
+</div>
+<p class="fs" style="margin:8px 0 0">The grey lane is the bass stem with the bass in, and the gaps are breaks, where the bass is 10 dB or more under R for a bar or longer. Shaded on the drops lane: the last third, from 1:56.7. Three drops are found where the bass returns: 0:11, 1:13 and 2:07.3. The last, 2:07.3, comes after the 2:04 break, is in the last third, and fits, so it's used: "Drop 2:07 · the last drop". The picker reads "2:07.3 · bass returns after 1 bar" for it. VW14 found 9 drops on the same track.</p>
+</div></figure>
+</div>
+<p class="notes">Only the 2:04 break, the 2:07.25–2:07.5 return and the 2:55 length are real. The 0:11 and 1:13 drops, the breaks' widths and the bar counts are <span class="inv">invented</span>.</p>
+
+<h2>Hand-back</h2>
+<table class="t">
+<tr><th style="width:190px">Piece</th><th>Build</th></tr>
+<tr><td>HK10 · Analysis</td><td>
+<ul>
+<li>Beat This! and Demucs, the study's models, on every studio track: once per file version, keyed by <code>drive_file_id</code> and Drive's modified time.</li>
+<li>The stored beats, downbeats, per-beat bass levels, R and drops.</li>
+<li>"Finding the drops…" and the failure line.</li>
+<li>The stem is never rendered, filed or offered.</li>
+</ul></td></tr>
+<tr><td>HK11 · Grid and drops</td><td>
+<ul>
+<li>TK13's bars, and the steadiness and no-grid cases.</li>
+<li>TK14's breaks, returns, 8-beat test, 4-bar merge, the track-start break, the picker words and the marker snapping to downbeats.</li>
+<li>TK15's choice on these drops.</li>
+<li>HK2's VW14 bar grid, VW14-style drops and bass-stem fallback are removed for studio tracks. VW's clip code is untouched.</li>
+</ul></td></tr>
+<tr><td>HK12 · Hook and snippet statics</td><td>
+<ul>
+<li>TK16's phrase finder on TK13's bars.</li>
+<li>TK17's CT4 drop for snippet statics and the variant pair's later box.</li>
+<li>Snippet static drafts re-pick their drop; approved renders and operator-set drops are kept.</li>
+</ul></td></tr>
+<tr><td>HK13 · Tests</td><td>
+<ul>
+<li>Unit tests on synthetic stems and grids:
+<ul>
+<li>a break and a return;</li>
+<li>a blip that fails the 8-beat test;</li>
+<li>two returns 3 bars apart, merged;</li>
+<li>an intro entry;</li>
+<li>a half-bar dip that isn't a break;</li>
+<li>an unsteady grid; no grid;</li>
+<li>a failed analysis.</li>
+</ul></li>
+<li>A real-file check on Can't Decide, and on For An Angel and the 3:12 track once they're in Drive, reported as each track's drop list and the drop chosen.</li>
+</ul></td></tr>
+</table>
+
+<h2>Acceptance</h2>
+<ul class="notes">
+<li><b>Can't Decide.</b> The drop used is the bass return after the 2:04 break, between 2:06.75 and 2:08.0 (2:07.25–2:07.5, ± 0.5 s).
+<ul>
+<li>Its drop list should read as the track's few drops, as Matas describes tracks.</li>
+<li>If it lists more than 4, the build reports the list, with each break's length and level, before the record is taken as passed.</li>
+</ul></li>
+<li><b>For An Angel (PvD) and the 3:12 track:</b> within ± 4 s of 2:54 and 2:24, once their files are in <code>02 Source / Audio</code>. Those are Matas's screenshot readings, so they tighten once marked.</li>
+<li><b>Bars.</b> The build reports Can't Decide's tempo and bar length from Beat This!, and the snippet's start and end fall on its downbeats.</li>
+<li><b>Live clips unchanged:</b> VW17's clips still land at 27 → 0:29.8, 29 → 0:16.0 and 33 → 0:30.0, and clip 30's approved r3 stays at 0:11.5.</li>
+<li><b>The stem</b> appears in no render, no Drive folder and no picker.</li>
+<li><b>Everything else</b> in #1338's acceptance stands. The fixture reels' timings are unchanged.</li>
+</ul>
+
+<h2>Invented here</h2>
+<ul class="notes">
+<li><b>Bass levels:</b> per-beat RMS; R as the median of the loudest half of the beats; "out or well down" at 10 dB under R; back within 3 dB.</li>
+<li><b>Breaks and drops:</b> a break of at least 4 beats and one bar; the 8-beat test; the 4-bar merge kept at its first passing return; the half-bar snap; the track-start break.</li>
+<li><b>The grid:</b> the 3 % test over 16 bars, kept from TK3, and the no-grid case.</li>
+<li><b>Analysis:</b> when it runs and how it's keyed.</li>
+<li><b>Words:</b> "Finding the drops…", "Couldn't read this track's beat — drag the drop marker to it." and "{m:ss.s} · bass returns after {n} bars".</li>
+<li><b>TK-H:</b> every drop and width other than the real ones named.</li>
+</ul>
+
+<h2>Open for Matas</h2>
+<p class="notes">Nothing. The ops proposal is ruled as written, with the values above filled in.</p>
+</div>
+</body>
+</html>
