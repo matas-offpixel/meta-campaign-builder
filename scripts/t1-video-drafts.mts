@@ -55,6 +55,7 @@ import { KIT_SHADOW, lowContrastShare, textOverlay, trimToInk, type Piece, type 
 import { redLineVerdict, watermarkLayer } from "../lib/creative-lab/artist-card-claim.ts";
 import { assertExportable, type WarningRow } from "../lib/creative-lab/claim-approval.ts";
 import { KIT_RED, KIT_WHITE, renderCardLine } from "../lib/creative-lab/claim-slot.ts";
+import { clipExceptionLine, clipFaceException, faceExceptionAllows } from "../lib/creative-lab/clip-exceptions.ts";
 import { HEAD_REFUSAL, headOf, medianHeadX, planHeadCrop, toOutput, type HeadSample } from "../lib/creative-lab/clip-head.ts";
 import { detectFaces } from "../lib/creative-lab/face-detect.ts";
 import { personHeadBox } from "../lib/creative-lab/segment.ts";
@@ -443,7 +444,13 @@ for (const clipId of clipIds) {
           const fv = judgeFaceOverTime(samplesFor(cy), boxes, { frameWidth: size.width });
           if (!bestFace || Math.max(fv.topShare, fv.claimShare) < Math.max(bestFace.topShare, bestFace.claimShare)) bestFace = fv;
           const triedFace = `crop ${cy} · ${arr}${up ? " (claim up)" : ""}: face or head ${pc(fv.topShare)} / ${pc(fv.claimShare)}, run ${fv.longestRunS.toFixed(1)} s`;
-          if (!fv.ok) {
+          // A per-clip exception (lib/creative-lab/clip-exceptions.ts) lets a refused face verdict through within its caps.
+          const exception = fv.ok ? null : clipFaceException(code, clipId, job.label);
+          if (exception && faceExceptionAllows(exception, fv)) {
+            const line = clipExceptionLine(exception, fv);
+            console.log(`${id}: ${line}`);
+            tried.push(`${triedFace} → ${line}`);
+          } else if (!fv.ok) {
             if (judgeFaceOverTime(samplesFor(cy, false), boxes, { frameWidth: size.width }).ok) headBlocked = true;
             tried.push(`${triedFace} → ${fv.line}`);
             continue;
