@@ -19,7 +19,8 @@ describe("TF-A: the panel at the 48-hour read", () => {
   it("opens the called test with its winner, budget line and table", () => {
     assert.equal(card.name, "Test 1 · Tracks");
     assert.equal(card.open, true);
-    assert.equal(card.state, "Winner: Track two · 66 % of spend · £1.65 per checkout");
+    // Issue 6 (TF7): the result line carries the show's benchmark, Matas's example £3.00.
+    assert.equal(card.state, "Winner: Track two · 66 % of spend · £1.65 per checkout · show £3.00");
     // TT8: the full ad set name, as made.
     assert.equal(card.budgetLine, "In P26-BDAY · Tests · Video · 17 Nov · £10 a day · 6 % of current daily spend (cap £10) · read at 48 h, £20.00 spent");
     assert.equal(card.budgetLineShort, "£10 a day · 6 % of current daily spend (cap £10)");
@@ -30,8 +31,8 @@ describe("TF-A: the panel at the 48-hour read", () => {
     assert.deepEqual(
       card.rows.map((r) => [r.label, r.sharePct, r.spend, r.results, r.cost, r.leader]),
       [
-        ["Track two", "66", "£13.20", 8, "£1.65", true],
-        ["Track one", "21", "£4.20", 2, "£2.10", false],
+        ["Track two", "66", "£13.20", 8, "£1.65 · show £3.00", true],
+        ["Track one", "21", "£4.20", 2, "£2.10 · show £3.00", false],
         ["Track five", "9", "£1.80", 1, "Not enough spend to judge", false],
         ["Track three", "4", "£0.80", 0, "Not enough spend to judge", false],
       ],
@@ -40,8 +41,8 @@ describe("TF-A: the panel at the 48-hour read", () => {
 
   it("393: each row starts with the share (TF3)", () => {
     assert.deepEqual(card.rows.map((r) => r.phone), [
-      "66 % of spend · Track two · £1.65 per checkout · 8",
-      "21 % of spend · Track one · £2.10 per checkout · 2",
+      "66 % of spend · Track two · £1.65 per checkout · show £3.00 · 8",
+      "21 % of spend · Track one · £2.10 per checkout · show £3.00 · 2",
       "9 % of spend · Track five · Not enough spend to judge",
       "4 % of spend · Track three · Not enough spend to judge",
     ]);
@@ -94,11 +95,11 @@ describe("TF-C: the share link, figures only", () => {
   it("shows the name, the winner by cost, and results and cost per result", () => {
     assert.equal(cards.length, 1);
     assert.equal(cards[0]!.name, "Test 1 · Tracks");
-    assert.equal(cards[0]!.state, "Winner: Track two · £1.65 per checkout");
+    assert.equal(cards[0]!.state, "Winner: Track two · £1.65 per checkout · show £3.00");
     assert.deepEqual(cards[0]!.headers, { variant: "Track", results: "Checkouts", cost: "Per checkout" });
     assert.deepEqual(cards[0]!.rows.map((r) => [r.label, r.results, r.cost]), [
-      ["Track two", 8, "£1.65"],
-      ["Track one", 2, "£2.10"],
+      ["Track two", 8, "£1.65 · show £3.00"],
+      ["Track one", 2, "£2.10 · show £3.00"],
       ["Track five", null, "Not enough spend to judge"],
       ["Track three", null, "Not enough spend to judge"],
     ]);

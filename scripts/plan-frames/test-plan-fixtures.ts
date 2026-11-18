@@ -12,6 +12,11 @@
  *        running words and TF4's share sums, which replace TT3's.
  *   TF-C: TF-A on the share link.
  *
+ * Issue 6 (2026-11-18-creative-testing-6.html, TF7): TF-A and TF-C carry the
+ * show's benchmark, Matas's example £3.00 per checkout; Track two's £1.65 is
+ * under it, so the winner stands. TF-B and TT-D have no benchmark in their reads
+ * (TF5's no-benchmark case), so they read as before.
+ *
  * Show and track names from the records only; the figures are the records'
  * invented ones.
  */
@@ -61,6 +66,7 @@ const TFA_READS: ReadInput[] = [
   {
     test_id: "a1",
     read_at: at(48),
+    benchmark_cost: 3,
     variants: [
       { variantId: "a1-two", spend: 13.2, results: 8 },
       { variantId: "a1-one", spend: 4.2, results: 2 },
