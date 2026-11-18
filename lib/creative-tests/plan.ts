@@ -22,7 +22,8 @@
 import type { TestFormat, TestKind } from "./words.ts";
 import { waitingText } from "./words.ts";
 
-export type TestState = "waiting" | "making" | "approved" | "running" | "called" | "no_clear_winner" | "not_enough_variants" | "ended";
+/** "stopped" (TF6, migration 261): above the show's benchmark at its last read, its ad set paused. */
+export type TestState = "waiting" | "making" | "approved" | "running" | "called" | "no_clear_winner" | "not_enough_variants" | "ended" | "stopped";
 
 export type TestRow = {
   id: string;
@@ -64,7 +65,7 @@ export function variantCountOk(kind: TestKind, count: number): boolean {
 /** States that hold a test ad set: created on Meta and not yet ended. */
 export const HOLDS_AD_SET: readonly TestState[] = ["approved", "running"];
 
-export const ENDED: readonly TestState[] = ["called", "no_clear_winner", "not_enough_variants", "ended"];
+export const ENDED: readonly TestState[] = ["called", "no_clear_winner", "not_enough_variants", "ended", "stopped"];
 
 /**
  * Whether test `n` may be approved now, and the words when it can't:

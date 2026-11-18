@@ -455,10 +455,11 @@ describe("VP6: the event page and the share link (VP-B, VP-C)", () => {
     assert.equal(card.spanLine, "0:07–0:23 vs 2:03.5–2:19.5 · Static: Luke Dean card 4");
     assert.deepEqual(card.approvalLines, ["Signed off by Matas · 18 Nov"]);
     assert.equal(card.budgetLine, "In P26-BDAY · Tests · Track pair · 18 Nov · £1 a day · 10 % of current daily spend (cap £10) · read at day 4, £4.00 spent");
-    assert.deepEqual(card.rows.map((r) => r.phone), ["63 % of spend · Can't Decide · payoff drop · £0.84 per checkout · 3", "37 % of spend · Can't Decide · earlier drop · £1.48 per checkout · 1"]);
+    // Issue 6 (TF8): the rows carry the show's invented £3.00 benchmark; £0.84 is under it, so it's still ready to call.
+    assert.deepEqual(card.rows.map((r) => r.phone), ["63 % of spend · Can't Decide · payoff drop · £0.84 per checkout · show £3.00 · 3", "37 % of spend · Can't Decide · earlier drop · £1.48 per checkout · show £3.00 · 1"]);
     assert.deepEqual(card.rows.map((r) => [r.label, r.sharePct, r.spend, r.results, r.cost]), [
-      [PAYOFF, "63", "£2.52", 3, "£0.84"],
-      [EARLIER, "37", "£1.48", 1, "£1.48"],
+      [PAYOFF, "63", "£2.52", 3, "£0.84 · show £3.00"],
+      [EARLIER, "37", "£1.48", 1, "£1.48 · show £3.00"],
     ]);
   });
 
@@ -466,11 +467,11 @@ describe("VP6: the event page and the share link (VP-B, VP-C)", () => {
     const cards = variantPairShareCards();
     assert.equal(cards.length, 1);
     assert.equal(cards[0]!.name, "Test 1 · Track pair · Can't Decide");
-    assert.equal(cards[0]!.state, "Winner: Can't Decide · payoff drop · £0.84 per checkout");
+    assert.equal(cards[0]!.state, "Winner: Can't Decide · payoff drop · £0.84 per checkout · show £3.00");
     assert.deepEqual(cards[0]!.headers, { variant: "Variant", results: "Checkouts", cost: "Per checkout" });
     assert.deepEqual(cards[0]!.rows.map((r) => [r.label, r.results, r.cost]), [
-      [PAYOFF, 3, "£0.84"],
-      [EARLIER, 1, "£1.48"],
+      [PAYOFF, 3, "£0.84 · show £3.00"],
+      [EARLIER, 1, "£1.48 · show £3.00"],
     ]);
     assert.doesNotMatch(JSON.stringify(cards), /Signed off|Static:| vs |of spend|a day|Artist-page/);
   });
@@ -489,10 +490,19 @@ describe("migration 261", () => {
     assert.match(CODE, /add constraint creative_tests_kind_check\s+check \(kind in \('tracks', 'statics', 'together', 'copy', 'clip', 'pair'\)\)/);
   });
 
-  it("is additive: no table, column or row dropped or changed; only the kind check is replaced", () => {
+  it("widens the state check for TF6's stopped, keeping every old state", () => {
+    assert.match(CODE, /add constraint creative_tests_state_check\s+check \(state in \('waiting', 'making', 'approved', 'running', 'called', 'no_clear_winner', 'not_enough_variants', 'ended', 'stopped'\)\)/);
+  });
+
+  it("adds TF5's benchmark to each read and TF6's extensions to each test, new columns only", () => {
+    assert.match(CODE, /add column if not exists extensions smallint not null default 0 check \(extensions between 0 and 2\)/);
+    assert.match(CODE, /add column if not exists extension_evidence jsonb/);
+    for (const col of ["benchmark_cost numeric\\(12, 4\\)", "benchmark_spend numeric\\(12, 2\\)", "benchmark_results numeric\\(12, 2\\)"]) assert.match(CODE, new RegExp(`add column if not exists ${col}`));
+  });
+
+  it("is additive: no table, column or row dropped or changed; only the kind and state checks are replaced", () => {
     assert.doesNotMatch(CODE, /\bdrop\s+(table|column)\b/i);
     assert.doesNotMatch(CODE, /\btruncate\b|\bdelete\s+from\b|\bupdate\s+public\.|\binsert\s+into\b/i);
-    assert.match(CODE, /pg_get_constraintdef\(oid\) ilike '%\(kind = any%'/);
-    assert.equal((CODE.match(/alter table/gi) ?? []).length, 2);
+    assert.match(CODE, /pg_get_constraintdef\(oid\) ilike '%\(kind = any%' or pg_get_constraintdef\(oid\) ilike '%\(state = any%'/);
   });
 });

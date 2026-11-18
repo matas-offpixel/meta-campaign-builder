@@ -11,6 +11,11 @@
  *   VP-B  the Test plan panel: Test 1 · Track pair · Can't Decide at the day-4
  *         read, ready to call, with the span line and the sign-off line at 1280.
  *   VP-C  the share result: VP-B called.
+ *   TF-D  (docs/design-record/2026-11-18-creative-testing-6.html) Test 2 · Track
+ *         pair · Get Hard against a £3.00 benchmark: extended at day 4 (1280,
+ *         TFD), stopped at day 8 (393, TFD393).
+ *
+ * VP-B and VP-C carry issue 6's invented £3.00 benchmark (TF7, TF8).
  *
  * Real (the Luke Dean session, 18 Nov): the windows, Can't Decide's 2:55 and its
  * 2:07.5 drop. Invented: the waveform, the earlier drop (0:11), the static's name
@@ -25,7 +30,7 @@ import type { TopTrack } from "../../lib/creative-tests/snippet.ts";
 import { buildSnippetView, type SnippetView } from "../../lib/creative-tests/snippet-view.ts";
 
 export const VARIANT_PAIR_FRAME_IDS = ["VPA", "VPA393"] as const;
-export const VARIANT_PAIR_PLAN_IDS = ["VPB", "VPC"] as const;
+export const VARIANT_PAIR_PLAN_IDS = ["VPB", "VPC", "TFD", "TFD393"] as const;
 
 const MATAS = "frame-matas";
 const LUKE = "luke-dean";
@@ -90,18 +95,24 @@ const FILES: AudioFileRow[] = [
   file("f-mb", { drive_file_name: "Luke Dean - Make Believe.wav", spotify_track_id: "mb", spotify_title: "Make Believe", duration_s: 200, drop_s: 21, window_start_s: 17 }),
 ];
 
-function pairHeld(signed: boolean): PairHeld {
+function pairHeld(signed: boolean, track: "cd" | "gh" = "cd"): PairHeld {
   return {
     pair: "track",
-    audioFileId: "f-cd",
-    asset: "Can't Decide",
+    audioFileId: track === "cd" ? "f-cd" : "f-gh",
+    asset: track === "cd" ? "Can't Decide" : "Get Hard",
     static: STATIC.name,
     staticDriveFileId: STATIC.driveFileId,
     lengthS: 16,
-    windows: [
-      { startS: 7, dropS: 11 },
-      { startS: 123.5, dropS: 127.5 },
-    ],
+    windows:
+      track === "cd"
+        ? [
+            { startS: 7, dropS: 11 },
+            { startS: 123.5, dropS: 127.5 },
+          ]
+        : [
+            { startS: 34, dropS: 38 },
+            { startS: 106.85, dropS: 110.85 },
+          ],
     signOff: signed ? { by: MATAS, at: SIGNED } : null,
     artistPageApproval: null,
   };
@@ -201,6 +212,8 @@ const READS: ReadInput[] = [
       { variantId: "vp-payoff", spend: 2.52, results: 3 },
       { variantId: "vp-earlier", spend: 1.48, results: 1 },
     ],
+    // Issue 6's invented £3.00 benchmark: the payoff drop's £0.84 is under it, so VP-B still reads "Ready to call".
+    benchmark_cost: 3,
   },
 ];
 
@@ -210,4 +223,41 @@ export function variantPairPanelView() {
 
 export function variantPairShareCards() {
   return buildShareCards({ tests: [pairTest("called", "vp-payoff")], variants: VARIANTS, reads: READS, now: at(97) });
+}
+
+// TF-D (issue 6's example) ------------------------------------------------------
+
+const GH_PAYOFF = "Get Hard · payoff drop";
+const GH_EARLIER = "Get Hard · earlier drop";
+
+const TFD_VARIANTS: VariantInput[] = [
+  { id: "gh-earlier", test_id: "pair-2", position: 1, role: "variant", label: GH_EARLIER, state: "live" },
+  { id: "gh-payoff", test_id: "pair-2", position: 2, role: "variant", label: GH_PAYOFF, state: "live" },
+];
+
+/** Day 4 (22 Nov), £4.00: payoff £2.52 / 0, earlier £1.48 / 0. Day 8 (26 Nov), £8.00: payoff £5.04 / 0, earlier £2.96 / 0. */
+const DAY4: ReadInput = { test_id: "pair-2", read_at: at(96), benchmark_cost: 3, variants: [{ variantId: "gh-payoff", spend: 2.52, results: 0 }, { variantId: "gh-earlier", spend: 1.48, results: 0 }] };
+const DAY8: ReadInput = { test_id: "pair-2", read_at: at(192), benchmark_cost: 3, variants: [{ variantId: "gh-payoff", spend: 5.04, results: 0 }, { variantId: "gh-earlier", spend: 2.96, results: 0 }] };
+
+function getHardPair(state: TestInput["state"]): TestInput {
+  return {
+    ...pairTest(state, null),
+    id: "pair-2",
+    n: 2,
+    adset_name: "P26-BDAY · Tests · Track pair · 18 Nov · 2",
+    held: pairHeld(true, "gh"),
+    extensions: 1,
+    started_at: START,
+    extension_evidence: { day4: [{ variantId: "gh-payoff", cost: null, results: 0 }, { variantId: "gh-earlier", cost: null, results: 0 }] },
+  };
+}
+
+/** TF-D 1280: extended at the day-4 read. */
+export function tfdExtendedView() {
+  return buildPanel({ eventCode: "P26-BDAY", tests: [getHardPair("running")], variants: TFD_VARIANTS, reads: [DAY4], now: at(97) });
+}
+
+/** TF-D 393: stopped at the day-8 read. */
+export function tfdStoppedView() {
+  return buildPanel({ eventCode: "P26-BDAY", tests: [getHardPair("stopped")], variants: TFD_VARIANTS, reads: [DAY8, DAY4], now: at(193) });
 }

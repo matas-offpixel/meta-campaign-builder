@@ -67,12 +67,12 @@ export function budgetLine(input: { daily: number; sharePct: number; cap: number
   return atMinimum ? `${base}${META_MINIMUM_SUFFIX}` : base;
 }
 
-/** TF2's last read, in hours: from here the line reads "read at day 4" (VP-B). */
+/** TF2's last read, in hours: from here the line reads "read at day {n}" (VP-B's "day 4"; an extended test's "day 8", TF6). */
 const DAY_4_HOURS = 96;
 
 /** TF-A's card line: "In P26-BDAY · Tests · Video · {budget line} · read at 48 h, £20.00 spent"; at the last read "· read at day 4, £4.00 spent" (VP-B). */
 export function cardBudgetLine(input: { adSetName: string; budgetLine: string; readHours?: number | null; spent?: number | null; currency?: string | null }): string {
-  const when = input.readHours != null && input.readHours >= DAY_4_HOURS ? "day 4" : `${Math.floor(input.readHours ?? 0)} h`;
+  const when = input.readHours != null && input.readHours >= DAY_4_HOURS ? `day ${Math.floor(input.readHours / 24)}` : `${Math.floor(input.readHours ?? 0)} h`;
   const read = input.readHours != null && input.spent != null ? ` · read at ${when}, ${money(input.spent, input.currency)} spent` : "";
   return `In ${input.adSetName} · ${input.budgetLine}${read}`;
 }

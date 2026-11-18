@@ -13,4 +13,7 @@ export const VARIANT_PAIR_SHOTS = [
   { id: "VPB-393", frame: "test-plan/VPB", width: 393, lab: false, before: null },
   { id: "VPC-1280", frame: "test-plan/VPC", width: 1280, lab: false, before: null },
   { id: "VPC-393", frame: "test-plan/VPC", width: 393, lab: false, before: null },
+  // Creative testing issue 6 (2026-11-18-creative-testing-6.html): TF-D, extended at 1280 and stopped at 393.
+  { id: "TFD-1280", frame: "test-plan/TFD", width: 1280, lab: false, before: null },
+  { id: "TFD-393", frame: "test-plan/TFD393", width: 393, lab: false, before: null },
 ];

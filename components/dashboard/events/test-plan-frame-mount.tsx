@@ -2,7 +2,7 @@
 
 import { WhatWeAreTesting } from "@/components/dashboard/creative-section/what-we-are-testing";
 import { testPlanFixtureView, testPlanShareFixture } from "@/scripts/plan-frames/test-plan-fixtures";
-import { variantPairPanelView, variantPairShareCards } from "@/scripts/plan-frames/variant-pair-fixtures";
+import { tfdExtendedView, tfdStoppedView, variantPairPanelView, variantPairShareCards } from "@/scripts/plan-frames/variant-pair-fixtures";
 
 import { TestPlanPanelView } from "./test-plan-panel";
 
@@ -23,6 +23,9 @@ export function TestPlanFrameMount({ id }: { id: string }) {
           <WhatWeAreTesting cards={variantPairShareCards()} />
         ) : id === "VPB" ? (
           <TestPlanPanelView view={variantPairPanelView()} />
+        ) : id === "TFD" || id === "TFD393" ? (
+          // TF-D (issue 6): extended at day 4 at 1280, stopped at day 8 at 393.
+          <TestPlanPanelView view={id === "TFD" ? tfdExtendedView() : tfdStoppedView()} />
         ) : (
           <TestPlanPanelView view={testPlanFixtureView(id as "TFA" | "TFB" | "TTD")} />
         )}
