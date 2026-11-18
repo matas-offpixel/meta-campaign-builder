@@ -344,9 +344,9 @@ export function eachArmLine(halfMinor: number): string {
   return `${pence(halfMinor, { minor: true })} a day to each arm · Meta splits people at random, so nobody sees both`;
 }
 
-/** RT17 at 393: "£{total} a day · £{half} to each arm", then "Meta splits people at random, so nobody sees both". */
-export function eachArmNarrow(totalMinor: number, halfMinor: number): string {
-  return `${pence(totalMinor, { minor: true })} a day · ${pence(halfMinor, { minor: true })} to each arm`;
+/** RT17 at 393 (design, 17 Nov): "£{half} a day to each arm" — the header above already gives the total — then "Meta splits people at random, so nobody sees both". */
+export function eachArmNarrow(halfMinor: number): string {
+  return `${pence(halfMinor, { minor: true })} a day to each arm`;
 }
 export const META_SPLITS = "Meta splits people at random, so nobody sees both";
 

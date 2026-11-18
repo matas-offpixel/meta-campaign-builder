@@ -1,7 +1,7 @@
 "use client";
 
 import { OnSaleRefreshPanelView } from "@/components/dashboard/events/onsale-refresh-panel";
-import { raView, rbLine, rbView, rdStates, RD_PROPOSALS, rgPlan } from "@/scripts/plan-frames/retargeting-fixtures";
+import { raView, rbLine, rbView, rdStates, RD_PROPOSALS, rePlan, rgPlan } from "@/scripts/plan-frames/retargeting-fixtures";
 
 import { RetargetingPanelView } from "./retargeting-panel";
 
@@ -14,6 +14,16 @@ import { RetargetingPanelView } from "./retargeting-panel";
  * ("retargeting/RB"), which scripts/plan-frames/run.mjs waits for.
  */
 export function RetargetingFrameMount({ id }: { id: string }) {
+  if (id === "RE") {
+    const { view, line } = rePlan();
+    return (
+      <main data-frame-ready="retargeting/RE" className="min-h-screen bg-background p-4 text-foreground sm:p-8">
+        <div className="mx-auto max-w-[72rem]">
+          <RetargetingPanelView view={view} line={line} clientId="xmpl-client" eventId="xmpl-whse" mode="shadow" />
+        </div>
+      </main>
+    );
+  }
   if (id === "RG") {
     const { view, line } = rgPlan();
     return (

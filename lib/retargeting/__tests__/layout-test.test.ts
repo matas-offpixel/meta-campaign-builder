@@ -340,3 +340,20 @@ describe("frame RG: the record's figures", () => {
     assert.equal(words.armTierNarrow({ tier: "bottom", budgetMinor: 900, cost: 7, purchases: 9, frequency: 3.1 }), "Bottom · £9.00 a day · £7.00 · 9 purchases · frequency 3.1");
   });
 });
+
+describe("design (17 Nov): RG-393's each-arm line, and an entered show's Create line (frame RE)", () => {
+  it("RG-393 reads \"£18.00 a day to each arm\", without repeating £36.00", async () => {
+    const { rgPlan } = await import("../../../scripts/plan-frames/retargeting-fixtures.ts");
+    assert.equal(rgPlan().view.test!.eachArmNarrow, "£18.00 a day to each arm");
+    assert.equal(words.eachArmNarrow(1800), "£18.00 a day to each arm");
+  });
+
+  it("RE: XMPL-WHSE at £24.00 a day is entered — £12.00 to each arm — and isn't \"too small\"", async () => {
+    const { rePlan } = await import("../../../scripts/plan-frames/retargeting-fixtures.ts");
+    const { view, line } = rePlan();
+    assert.equal(view.state, "proposed");
+    assert.equal(view.create!.eachArm, "£12.00 a day to each arm · Meta splits people at random, so nobody sees both");
+    assert.equal(view.create!.tooSmall, null);
+    assert.equal(line.kind, "retargeting_campaign");
+  });
+});

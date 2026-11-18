@@ -41,7 +41,7 @@ import { callLine, planRetargeting, retargetingBeforeOnSale, type RetargetingInp
 import { runsInOwnCampaign } from "../../lib/retargeting/words.ts";
 import { OR6_PROPOSALS } from "./refresh-fixtures.ts";
 
-export const RETARGETING_FRAME_IDS = ["RA", "RB", "RD", "RG"] as const;
+export const RETARGETING_FRAME_IDS = ["RA", "RB", "RD", "RE", "RG"] as const;
 
 const TODAY = "2026-11-17";
 
@@ -247,6 +247,28 @@ export function rgPlan() {
     retargetingCall: { onAccept: call.onAccept },
   };
   return { view: plan.view, line };
+}
+
+/**
+ * RE: an entered show's Create line, before Apply (design asked for it, 17 Nov;
+ * RT17 doesn't draw one). XMPL-WHSE on Tue 17 Nov: £240.00 current daily
+ * spend, 10 %, £24.00 a day, so £12.00 to each arm. The line says so in
+ * RT17's words; when the test starts is open for design (no record sentence).
+ */
+export function rePlan() {
+  const plan = planRetargeting(
+    input({
+      eventId: "xmpl-whse",
+      eventCode: "XMPL-WHSE",
+      eventDate: "2026-12-19",
+      last7SpendGbp: 1680,
+      pixelHosts: { any: ["www.skiddle.com", "ra.co", "xmpl-whse.com"], pageView: ["www.skiddle.com", "ra.co", "xmpl-whse.com"], checkout: ["www.skiddle.com"], registration: ["xmpl-whse.com"] },
+      sources: raSources(),
+      existing: null,
+      legacy: [],
+    }),
+  );
+  return { view: plan.view, line: rbLine(plan.view) };
 }
 
 /** RB: the Create line with all three missing states, before Apply. */

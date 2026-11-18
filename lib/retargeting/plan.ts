@@ -604,7 +604,7 @@ export function testView(test: RunningTest, layoutA: readonly TierRow[], sources
   return {
     title: "",
     eachArm: eachArmLine(half),
-    eachArmNarrow: eachArmNarrow(half * 2, half),
+    eachArmNarrow: eachArmNarrow(half),
     metaSplits: META_SPLITS,
     arms,
     pooled: test.pooled ? (["A", "B"] as const).map((arm) => ({ arm, shows: test.pooled!.arms[arm].shows, days: test.pooled!.days, spend: test.pooled!.arms[arm].spend, purchases: test.pooled!.arms[arm].purchases, cost: test.pooled!.arms[arm].cost })) : null,
