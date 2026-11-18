@@ -118,6 +118,10 @@
       "schedule": "0 7,8 * * *"
     },
     {
+      "path": "/api/cron/creative-tests-read",
+      "schedule": "0 7,8 * * *"
+    },
+    {
       "path": "/api/cron/creative-lab-clip-sync",
       "schedule": "45 3 * * *"
     },

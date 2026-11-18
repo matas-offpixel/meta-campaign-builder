@@ -67,7 +67,15 @@ export type ExtensionEvidence = {
 
 export type BenchmarkAction =
   | { kind: "none" }
-  | { kind: "extend"; extension: 1 | 2; endTime: string; endDay: string; extraHoldMinor: number }
+  | {
+      kind: "extend";
+      extension: 1 | 2;
+      endTime: string;
+      endDay: string;
+      extraHoldMinor: number;
+      /** The second extension's variant and its cost over 8 days (kept as extension_evidence.second). */
+      earnedBy?: { variantId: string; cost: number };
+    }
   | { kind: "stop"; line: string };
 
 export type BenchmarkRead = FastCallRead & {
@@ -227,7 +235,7 @@ export function readWithBenchmark(input: BenchmarkInput): BenchmarkRead {
     const cameDown = cheapest(better)!;
     if (!second || evidence.capStoppedAt === 8 || !fits) return stop(stoppedCameDownText(cameDown.label, cameDown.cost!, benchmark, result, currency));
     const line = extendedAgainText(endDay(12), second.label, second.cost!, benchmark, result, currency);
-    return { ...base, state: "running", winnerId: null, ends: false, stage: "extended", text: line, action: { kind: "extend", extension: 2, endTime: testAdSetEndTime(start, 12), endDay: endDay(12), extraHoldMinor } };
+    return { ...base, state: "running", winnerId: null, ends: false, stage: "extended", text: line, action: { kind: "extend", extension: 2, endTime: testAdSetEndTime(start, 12), endDay: endDay(12), extraHoldMinor, earnedBy: { variantId: second.id, cost: second.cost! } } };
   }
 
   // Day 12, the most a test runs: "came down to" while its cost is still lower than at day 4 (any cost, with none at day 4).
