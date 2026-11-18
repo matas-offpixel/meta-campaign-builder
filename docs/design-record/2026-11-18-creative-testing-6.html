@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Creative testing issue 6 — 18 Nov 2026</title>
+<style>
+:root{
+  --sand:#F0C9A8; --card:#e8d4c0; --edit:#f6ebe0; --paper:#fff8f0; --ink:#1e1810; --ink-2:#4a3d30; --ink-3:#6f6052;
+  --border:rgba(30,24,16,.10); --border-strong:rgba(30,24,16,.18); --muted:rgba(30,24,16,.06);
+  --olive:#4f5a1f; --ochre:#8a560c; --brick:#8f3424;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--sand);color:var(--ink);font:14px/1.5 var(--sans);font-feature-settings:"calt" 0}
+.wrap{max-width:1360px;margin:0 auto;padding:40px 24px 120px}
+h1{font-size:24px;font-weight:600;margin:0 0 6px}
+h2{font-size:20px;font-weight:600;margin:56px 0 8px}
+h3{font-size:13px;font-weight:600;margin:20px 0 6px}
+p{margin:0 0 10px;max-width:86ch}
+.lead{font-size:13px;color:var(--ink-2)}
+.k{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+code{font:12px var(--mono);background:var(--muted);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+figure{margin:0;min-width:0;max-width:100%}
+figcaption{font:700 9px/1.5 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+table.t{border-collapse:collapse;width:100%;font-size:12.5px;margin:10px 0 22px;background:var(--card);border-radius:8px;overflow:hidden;table-layout:fixed}
+table.t th,table.t td{text-align:left;vertical-align:top;padding:8px 12px;border-bottom:1px solid var(--border);overflow-wrap:anywhere}
+table.t th{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.t td:first-child{font-weight:600;width:190px}
+table.t ul{margin:4px 0 0 16px;padding:0}table.t li{margin:0 0 4px}
+.open{background:#f3e3c8;border:1px dashed var(--ochre);border-radius:8px;padding:10px 14px;font-size:12.5px;margin:10px 0 16px}
+.notes{font-size:12.5px;color:var(--ink-2)}.notes li{margin:0 0 6px;max-width:96ch}
+.frame{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start;margin:12px 0 24px}
+.vp{background:var(--paper);border:1px solid var(--border-strong);border-radius:8px;overflow:hidden;max-width:100%;padding:16px;font-size:13px}
+.vp.wide{width:760px}.vp.w393{width:393px}
+.ph{font:700 9px/1.4 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+.h{font-weight:600;font-size:14px;margin:0 0 4px}
+.sub{font-size:12px;color:var(--ink-2);margin:0 0 10px}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 10px}
+.chip{border:1px solid var(--border-strong);border-radius:999px;padding:3px 10px;font-size:12px;background:#fff}
+.chip.on{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.mono{font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase}
+.row{display:grid;grid-template-columns:22px 26px 1fr auto;gap:8px;align-items:center;padding:7px 0;border-top:1px solid var(--border)}
+.row .n{color:var(--ink-3);font:12px var(--mono)}
+.box{width:16px;height:16px;border:1.5px solid var(--ink);border-radius:3px;display:inline-block}
+.box.on{background:var(--ink)}
+.box.off{border-color:var(--ink-3);opacity:.45}
+.fs{font-size:11.5px;color:var(--ink-2)}
+.fs.warn{color:var(--brick)}
+.ok{color:var(--olive)}
+.btn{display:inline-block;border:1px solid var(--ink);border-radius:4px;padding:5px 10px;font:700 10px var(--mono);letter-spacing:.1em;text-transform:uppercase;background:var(--ink);color:var(--paper)}
+.btn.ghost{background:transparent;color:var(--ink)}
+.btn.dis{opacity:.4}
+.wave{position:relative;height:64px;background:repeating-linear-gradient(90deg,var(--ink-3) 0 2px,transparent 2px 5px);border-radius:4px;margin:26px 0 4px;opacity:.9}
+.wave .win{position:absolute;top:-4px;bottom:-4px;border:2px solid var(--ink);background:rgba(232,212,192,.55);border-radius:4px}
+.wave .drop{position:absolute;top:-10px;bottom:-10px;width:2px;background:var(--brick)}
+.wave .drop span{position:absolute;top:-16px;left:-20px;font:700 9px var(--mono);letter-spacing:.1em;color:var(--brick);white-space:nowrap}
+.tl{display:flex;justify-content:space-between;font:11px var(--mono);color:var(--ink-3)}
+.pv{width:150px;height:267px;background:#222;border-radius:6px;position:relative;flex:none;display:flex;align-items:center;justify-content:center;color:#fff;font:700 9px var(--mono);letter-spacing:.12em}
+.pv .play{position:absolute;bottom:10px;left:10px;width:28px;height:28px;border-radius:50%;background:#fff}
+.split{display:flex;gap:16px;align-items:flex-start}
+table.v{border-collapse:collapse;width:100%;font-size:12px;margin:6px 0}
+table.v th{font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);text-align:left;padding:4px 6px;border-bottom:1px solid var(--border-strong)}
+table.v td{padding:6px;border-bottom:1px solid var(--border)}
+table.v td.r,table.v th.r{text-align:right}
+.st{display:inline-block;border:1px solid var(--border-strong);border-radius:10px;padding:2px 8px;font:700 9px/1.5 var(--mono);letter-spacing:.1em;text-transform:uppercase}
+.st.run{border-style:dashed}
+.st.win{background:var(--olive);color:#fff;border-color:var(--olive)}
+.test{border:1px solid var(--border);border-radius:6px;padding:10px 12px;margin:8px 0;background:#fff}
+.test.dim{opacity:.55}
+.line{background:var(--card);border-radius:6px;padding:8px 10px;margin:6px 0;font-size:12px}
+.inv{text-decoration:underline dotted var(--brick);text-decoration-thickness:1.5px;text-underline-offset:3px}
+table.t table.t td:first-child{width:auto;font-weight:400}
+@media (max-width:560px){table.t th[style]{width:100px!important}table.t td:first-child{width:100px}}
+.st.fail{border-color:var(--brick);color:var(--brick)}
+.line .acts{float:right;font:700 9px var(--mono);letter-spacing:.1em;text-transform:uppercase}
+.line.wait{opacity:.6}
+.line.failed{border:1px solid var(--brick);background:#f6e3dc}
+.tick{display:inline-block;width:11px;height:11px;border:1.5px solid var(--ink);border-radius:2px;margin-right:6px;vertical-align:-1px}
+.tick.on{background:var(--ink)}
+.bar{display:inline-block;height:8px;background:var(--ink-3);border-radius:2px;vertical-align:middle;margin-right:6px}
+.sbar{position:relative;display:inline-block;width:100px;height:8px;background:var(--muted);border-radius:2px;vertical-align:middle;margin-right:8px}
+.sbar i{position:absolute;left:0;top:0;bottom:0;background:var(--ink-3);border-radius:2px}
+.sbar i.lead{background:var(--olive)}
+.sbar b{position:absolute;left:60px;top:-3px;bottom:-3px;width:1px;background:var(--ink)}
+.sbar s{position:absolute;left:10px;top:-3px;bottom:-3px;width:1px;background:var(--ink-3);opacity:.6}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<p class="k">Off/Pixel · design record · creative testing · issue 6 · the show's benchmark · 18 November 2026</p>
+<h1>Creative testing issue 6: a winner has to beat the show</h1>
+<p class="lead">Matas, 18 Nov, on #1339's flag: judge test variants against the show's benchmark, not just against each other. A variant that beats its rival but costs more per result than the show's main campaign isn't a winner. Nothing is promoted, the test runs 4 more days, and then it's stopped if neither variant has improved.</p>
+<p class="lead"><b>What this amends:</b> TF2's call. A winner now also needs the benchmark (TF5), and the day-4 "No clear winner" gains an extension and a stop (TF6). TF3's rows and TF-A / TF-C's words gain the benchmark (TF7). It also re-rules VP5, and amends VP6 and VP8, of the variant-pair record (#1339, merged as d8974e6) (TF8).</p>
+<p class="lead"><b>What stands:</b> TF1 (the budget, always TF1's, never a fixed £10), TF2's read otherwise (daily from 48 h, 60 % of spend, 3 results, no cheaper judged variant, 10 % to be judged), TF3, TF4, TT8–TT11, R3's result, R5's cap and #1297's cap sentence. It applies to every test TF2 calls: CT6's tests and variant pairs (#1339), and any creative test after them.</p>
+<p class="lead">The figures in the example are <span class="inv">invented</span>. The £3.00 benchmark is Matas's example figure.</p>
+
+<h2>Rulings</h2>
+<table class="t">
+<tr><th style="width:190px">#</th><th>Ruling</th></tr>
+<tr><td>TF5 · The benchmark</td><td>
+<ul>
+<li><b>The benchmark</b> is the show's main campaign cost per result:
+<ul>
+<li>on the same result event as the test (R3: checkouts, else landing-page views, or signups on a signup campaign);</li>
+<li>over the test's own days, from the London day its ad set starts to the read.</li>
+</ul></li>
+<li><b>The main campaign</b> is every live campaign of the show on that event except <code>{code} · Tests</code> (TT8), the Purchase campaign and Retargeting. With more than one, the benchmark is their summed spend ÷ their summed results.</li>
+<li><b>A variant wins only when both hold:</b>
+<ul>
+<li>it meets TF2's read;</li>
+<li>its cost per result is at or under the benchmark.</li>
+</ul>
+"Ready to call" waits for both, from the 48 h read on.</li>
+<li><b>No benchmark.</b> When the main campaign has no results on that event over the test's days, TF2 decides alone. The result line says <b>"no show benchmark for these days"</b>.</li>
+</ul></td></tr>
+<tr><td>TF6 · All above the benchmark: extend once, then stop</td><td>
+<ul>
+<li><b>At day 4, if no variant is at or under the benchmark,</b> there's no winner and nothing is promoted: no TT4 promotion lines.</li>
+<li><b>The test is extended once, by 4 days.</b>
+<ul>
+<li>Its ad set's end moves to 23:59 London on day 8, at the same daily budget.</li>
+<li>The extra hold (the daily budget × 4) is checked against R5's 20 % cap first. If it doesn't fit, there's no extension: the test stops at day 4 with TF7's stop line.</li>
+<li>The end-date write goes through the Tests campaign path (TT8–TT9), behind the same gate.</li>
+</ul></li>
+<li><b>During the extension</b> the daily read goes on, over all the test's days. A variant that meets TF2's read and the benchmark wins as usual.</li>
+<li><b>At day 8 with no winner,</b> the test is stopped: its ad set is paused, and nothing is promoted.
+<ul>
+<li>A variant has <b>improved toward the benchmark</b> when its cost per result over the 8 days is lower than at day 4's read, or it has results where it had none.</li>
+<li>Neither improved: Matas's line, <b>"Stopped: both above the show's £{benchmark} per {result}"</b>.</li>
+<li>One improved but is still above: <b>"Stopped: {label} came down to £{cost}, still above the show's £{benchmark} per {result}"</b>. There's one extension only (open below).</li>
+<li>With more than two variants, "both" reads <b>"all {n}"</b>.</li>
+</ul></li>
+</ul></td></tr>
+<tr><td>TF7 · The words</td><td>
+<ul>
+<li><b>Each variant's figure</b> carries the benchmark, on the panel, the share link and the result: <b>"£{cost} per {result} · show £{benchmark}"</b>. A variant with no results reads <b>"— per {result} · show £{benchmark}"</b>.</li>
+<li><b>The result line:</b>
+<ul>
+<li>Panel: <b>"Winner: {label} · {share} % of spend · £{cost} per {result} · show £{benchmark}"</b>.</li>
+<li>Share link: <b>"Winner: {label} · £{cost} per {result} · show £{benchmark}"</b>.</li>
+</ul></li>
+<li><b>The state lines:</b>
+<ul>
+<li>During the extension: <b>"Extended to {d Mon}: both above the show's £{benchmark} per {result}"</b> ("all {n}" for more than two).</li>
+<li>After it: TF6's stop lines. Both stop lines show on the panel and on the share link.</li>
+</ul></li>
+<li><b>Without a benchmark</b>, the figure reads "£{cost} per {result}", and the result line ends " · no show benchmark for these days".</li>
+<li>TF3's spend share stays the first figure on each row. The benchmark follows the cost.</li>
+</ul></td></tr>
+<tr><td>TF8 · Variant pairs (#1339)</td><td>
+<ul>
+<li><b>VP5 is re-ruled.</b> A pair is called by TF2's read with TF5's benchmark, and TF6's extension and stop. "TF2's read, unchanged" no longer holds.</li>
+<li><b>VP6:</b> a pair's result lines carry TF7's " · show £{benchmark}". Its stop line is Matas's: "Stopped: both above the show's £{benchmark} per {result}".</li>
+<li><b>VP8:</b> an extended pair's hold grows by its daily budget × 4. At P26-BDAY's £1.00 a day that's £4.00 to £8.00 a pair, or £16.00 if both pairs are extended. The extra hold is checked against the cap first (TF6).</li>
+<li><b>VP-B and VP-C's words,</b> with a £3.00 benchmark (<span class="inv">invented</span>):
+<ul>
+<li>The payoff drop's £0.84 is under it, so VP-B still reads "Ready to call".</li>
+<li>VP-B's rows read "£0.84 per checkout · show £3.00" and "£1.48 per checkout · show £3.00".</li>
+<li>VP-C reads "Winner: Can't Decide · payoff drop · £0.84 per checkout · show £3.00".</li>
+</ul></li>
+<li><b>TF-D</b> (below) is a pair's extended and stopped states.</li>
+<li>The rest of VP1–VP10 stands.</li>
+</ul></td></tr>
+</table>
+
+<h2>Example</h2>
+<p class="lead">P26-BDAY's Test 2 · Track pair · Get Hard (#1339), at TF1's £1.00 a day, against a main campaign at £3.00 per checkout.</p>
+<ul class="notes">
+<li><b>Day 4 (22 Nov), £4.00 spent:</b> payoff drop £2.52, 0 checkouts; earlier drop £1.48, 0 checkouts. Neither is at or under £3.00, so it reads "Extended to 26 Nov: both above the show's £3.00 per checkout". Its hold grows from £4.00 to £8.00.</li>
+<li><b>Day 8 (26 Nov), £8.00 spent:</b> payoff drop £5.04, 0 checkouts; earlier drop £2.96, 0 checkouts. Neither improved, so it's stopped: "Stopped: both above the show's £3.00 per checkout".</li>
+</ul>
+<div class="frame">
+<figure><figcaption>TF-D · 1280 · sketch · extended, day 4</figcaption>
+<div class="vp wide">
+<p class="ph">Test plan</p>
+<div class="test">
+<p class="h">Test 2 · Track pair · Get Hard <span class="st run" style="float:right">Extended</span></p>
+<p class="fs">Extended to 26 Nov: both above the show's £3.00 per checkout</p>
+<table class="v">
+<tr><th>Variant</th><th>Spend share</th><th class="r">Spend</th><th class="r">Checkouts</th><th>Cost per checkout</th></tr>
+<tr><td>Get Hard · payoff drop</td><td><span class="sbar"><i style="width:63px"></i><b></b><s></s></span>63 %</td><td class="r">£2.52</td><td class="r">0</td><td>— · show £3.00</td></tr>
+<tr><td>Get Hard · earlier drop</td><td><span class="sbar"><i style="width:37px"></i><b></b><s></s></span>37 %</td><td class="r">£1.48</td><td class="r">0</td><td>— · show £3.00</td></tr>
+</table>
+</div>
+</div></figure>
+<figure><figcaption>TF-D · 393 · sketch · stopped, day 8</figcaption>
+<div class="vp w393">
+<p class="ph">Test plan</p>
+<p class="h">Test 2 · Track pair · Get Hard</p>
+<p class="sub">Stopped: both above the show's £3.00 per checkout</p>
+<div class="line">63 % of spend · Get Hard · payoff drop · — per checkout · show £3.00 · 0</div>
+<div class="line">37 % of spend · Get Hard · earlier drop · — per checkout · show £3.00 · 0</div>
+</div></figure>
+</div>
+
+<h2>Hand-back</h2>
+<table class="t">
+<tr><th style="width:190px">Piece</th><th>Build</th></tr>
+<tr><td>HT1 · The benchmark</td><td>
+<ul>
+<li>TF5's main-campaign cost per result on the test's event, over the test's days, read with each daily read.</li>
+<li>The two-part winner rule, and the no-benchmark case.</li>
+</ul></td></tr>
+<tr><td>HT2 · Extend and stop</td><td>
+<ul>
+<li>At day 4: the cap check, then the end date moved to day 8 through the Tests path.</li>
+<li>At day 8: the improvement test, the pause, no promotion lines, and the two stop lines.</li>
+</ul></td></tr>
+<tr><td>HT3 · Words and frames</td><td>
+<ul>
+<li>TF7's figures and lines on the panel and the share link.</li>
+<li>TF-A and TF-C, and #1339's VP-B and VP-C, re-shot with the benchmark.</li>
+<li>TF-D (extended at 1280, stopped at 393) shot from the example.</li>
+<li>Unit tests:
+<ul>
+<li>a TF2 winner above the benchmark, not called;</li>
+<li>a winner under it;</li>
+<li>no benchmark;</li>
+<li>extended then won;</li>
+<li>extended then stopped, with and without improvement;</li>
+<li>no room in the cap to extend;</li>
+<li>three variants.</li>
+</ul></li>
+</ul></td></tr>
+</table>
+
+<h2>Acceptance</h2>
+<ul class="notes">
+<li><b>No winner above the show:</b> a variant above the benchmark never reads "Ready to call" or "Winner", and never gets a promotion line.</li>
+<li><b>The extension:</b> one extension of 4 days, only when its hold fits the cap. The end date is 23:59 London on day 8.</li>
+<li><b>The stop:</b> at day 8 with no winner, the ad set is paused and the right stop line shows.</li>
+<li><b>The words:</b> every variant figure carries " · show £{benchmark}", and TF7's lines are exact.</li>
+<li><b>The example:</b> it reads as above at day 4 and day 8.</li>
+</ul>
+
+<h2>Invented here</h2>
+<ul class="notes">
+<li><b>The main campaign:</b> which campaigns count, and summing them.</li>
+<li><b>No benchmark:</b> the rule and its words.</li>
+<li><b>The extension:</b> the cap check before it, and stopping when it doesn't fit.</li>
+<li><b>Improvement:</b> what counts as "improved", the improved-but-above stop line, and "all {n}".</li>
+<li><b>Words:</b> the extension line, the "· show £{benchmark}" form and "— per {result}".</li>
+<li><b>The example's figures.</b></li>
+</ul>
+
+<h2>Open for Matas</h2>
+<p class="notes">One. A variant that improved during the extension but is still above the benchmark at day 8 is drawn as stopped, with its own line, because there's one extension only. Your rule stops a test when neither variant improved. Say if a variant that improved should run on instead, and for how long.</p>
+
+</div>
+</body>
+</html>
