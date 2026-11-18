@@ -21,6 +21,22 @@ import { withCronRunLog } from "@/lib/reporting/with-cron-run-log";
 import { createServiceRoleClient } from "@/lib/supabase/server";
 
 export const maxDuration = 800;
+
+async function snippetTick(supabase: ReturnType<typeof createServiceRoleClient>, archived: ReadonlySet<string>) {
+  const { driveFromEnv } = await import("@/lib/drive/client");
+  const { drive, reason } = driveFromEnv();
+  if (!drive) return { skippedReason: reason ?? "no_drive" };
+  const { runSnippetRenderTick } = await import("@/lib/creative-tests/snippet-render");
+  const { renderDeps } = await import("@/lib/creative-tests/snippet-render-server");
+  try {
+    return await runSnippetRenderTick(supabase, renderDeps(supabase, drive), { archivedEventIds: archived });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    // Before migration 255 is applied the table isn't there: a quiet skip, not a failed tick.
+    if (/creative_lab_snippet_renders|does not exist|schema cache/i.test(message)) return { skippedReason: "table_missing" };
+    throw err;
+  }
+}
 export const dynamic = "force-dynamic";
 
 async function handleGET(req: NextRequest) {
@@ -36,7 +52,9 @@ async function handleGET(req: NextRequest) {
   try {
     const scope = await loadArchivedClientScope(supabase);
     const result = await runRenderTick(supabase, { archivedEventIds: scope.eventIds, remotionEnabled: isRemotionEnabled() });
-    return NextResponse.json(result);
+    // CT1 / CT10: the audio snippet statics, after the caption renders. Their own in-flight cap.
+    const snippets = isRemotionEnabled() ? await snippetTick(supabase, scope.eventIds) : null;
+    return NextResponse.json({ ...result, snippets });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
     console.error(`[creative-lab-render-tick] ${message}`);
@@ -54,16 +72,22 @@ export const GET = withCronRunLog(
         return null;
       }
     },
-    rows: (body) => Number(body.claimed ?? 0),
+    rows: (body) => Number(body.claimed ?? 0) + Number((body.snippets as { claimed?: number } | null)?.claimed ?? 0),
     detail: (body) => ({
       timedOut: body.timedOut ?? 0,
       faceCheckFailed: body.faceCheckFailed ?? 0,
       busy: body.busy ?? false,
       skippedArchived: body.skippedArchived ?? 0,
+      snippets: body.snippets ?? null,
     }),
     recordWhen: (body, status) => {
       if (status >= 400 || body.ok === false) return true;
-      return Number(body.claimed ?? 0) > 0 || Number(body.timedOut ?? 0) > 0 || Number(body.faceCheckFailed ?? 0) > 0;
+      const snippets = (body.snippets ?? null) as { claimed?: number; timedOut?: number } | null;
+      return Number(body.claimed ?? 0) > 0
+        || Number(body.timedOut ?? 0) > 0
+        || Number(body.faceCheckFailed ?? 0) > 0
+        || Number(snippets?.claimed ?? 0) > 0
+        || Number(snippets?.timedOut ?? 0) > 0;
     },
   },
   handleGET,
