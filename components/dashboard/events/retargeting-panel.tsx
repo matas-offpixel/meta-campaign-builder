@@ -41,7 +41,7 @@ export function wizardHref(clientId: string | null, eventId: string | null, role
 
 function Missing({ line, clientId, eventId, narrow = false }: { line: MissingLine; clientId: string | null; eventId: string | null; narrow?: boolean }) {
   return (
-    <p className="mt-0.5 text-xs text-destructive" data-missing>
+    <p className={`mt-0.5 text-xs ${line.muted ? "text-muted-foreground" : "text-destructive"}`} data-missing data-tone={line.muted ? "muted" : "brick"}>
       {k(narrow ? line.narrow : line.text)}
       {line.actions.map((action, index) => (
         <span key={action.label}>

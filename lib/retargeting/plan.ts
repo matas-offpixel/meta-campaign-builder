@@ -72,7 +72,8 @@ import {
 export type RetargetingState = "before_onsale" | "no_pixel" | "sells_elsewhere" | "nothing_reaches" | "no_purchases" | "no_url" | "not_read" | "no_signal" | "no_spend" | "proposed" | "running";
 
 /** An RT8 action opens the client page's customer-audience wizard with this role and this show chosen. */
-export type MissingLine = { text: string; narrow: string; actions: { label: string; role: "signups" | "buyers" }[] };
+/** `muted`: drawn in the muted colour, not brick (a buyers list under 7 days old, design 17 Nov). */
+export type MissingLine = { text: string; narrow: string; actions: { label: string; role: "signups" | "buyers" }[]; muted?: boolean };
 
 export type TierRow = {
   tier: Tier;
@@ -304,7 +305,8 @@ export function tierRows(input: Pick<RetargetingInput, "sources"> & { today?: st
     const age = Math.max(0, daysBetween(latest, input.today ?? latest));
     const text = buyersListAge(latest, age);
     // RT8: the two hand-uploaded list lines, as the record writes them.
-    notes.push({ text, narrow: text, actions: [] });
+    // Design (17 Nov): a fresh list reads muted; it turns brick from 7 days, when it says to upload it again.
+    notes.push({ text, narrow: text, actions: [], muted: age < 7 });
   } else {
     // RT8 (revised 17 Nov): one line whether or not ticketing is connected, and no ticketing action until Matas rules.
     notes.push({ text: NO_BUYERS_LIST, narrow: NO_BUYERS_LIST, actions: [{ label: UPLOAD_BUYERS, role: "buyers" }] });

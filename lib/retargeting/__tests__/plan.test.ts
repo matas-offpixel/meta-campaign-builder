@@ -285,6 +285,18 @@ describe("RT8: buyers lists and their age", () => {
     assert.deepEqual(rows("2026-11-07T10:00:00Z"), [["Buyers list uploaded 7 Nov · 10 days old: upload it again so new buyers drop out", 0]]);
   });
 
+  it("the age line is muted until the list is 7 days old, then brick (design, 17 Nov): the 6- and 7-day boundary", () => {
+    const note = (uploadedAt: string) => tierRows({ sources: { ...SET, lists: [{ metaAudienceId: "buy", name: "Buyers", role: "buyers", uploadedAt }] }, today: "2026-11-17" }, { bottom: 100, mid_bottom: 100, mid: 100 }).notes[0]!;
+    assert.deepEqual([note("2026-11-14T10:00:00Z").text, note("2026-11-14T10:00:00Z").muted], ["Buyers list uploaded 14 Nov · 3 days old", true]);
+    assert.deepEqual([note("2026-11-11T10:00:00Z").text, note("2026-11-11T10:00:00Z").muted], ["Buyers list uploaded 11 Nov · 6 days old", true]);
+    assert.deepEqual([note("2026-11-10T10:00:00Z").text, note("2026-11-10T10:00:00Z").muted], ["Buyers list uploaded 10 Nov · 7 days old: upload it again so new buyers drop out", false]);
+    // No buyers list stays brick.
+    assert.equal(tierRows({ sources: { ...SET, lists: [] }, today: "2026-11-17" }, { bottom: 100, mid_bottom: 100, mid: 100 }).notes[0]!.muted, undefined);
+    // The panel draws a muted line in the muted colour, brick otherwise.
+    const panel = readFileSync("components/dashboard/events/retargeting-panel.tsx", "utf8");
+    assert.match(panel, /line\.muted \? "text-muted-foreground" : "text-destructive"/);
+  });
+
   it("no Buyers list: one line, ticketing connected or not, and \"buyers\" drops out of Leaves out (Bottom reads \"—\")", () => {
     const out = tierRows({ sources: { ...SET, lists: [] }, today: "2026-11-17" }, { bottom: 100, mid_bottom: 100, mid: 100 });
     assert.deepEqual(out.notes.map((line) => line.text), ["No buyers list yet, so buyers aren't left out and will keep seeing these ads."]);
