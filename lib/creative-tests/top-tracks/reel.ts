@@ -113,8 +113,8 @@ export const TK_TYPE = {
   rung: { capPx4to5: 44, capPx3: 56 },
   /** The list column: 480 px; 70 px under the headline's last baseline; last baseline on or above 1238. */
   column: { width: 480, gapUnderHeadline: 70 },
-  /** The accent bar: 6 px, on the list's outer edge (x 120, or 954 for a list on the right). The list's type starts 14 px inside it (invented in the build), so the bar never sits on a number. */
-  bar: { width: 6, gap: 14 },
+  /** The accent bar: 6 px, on the list's outer edge (x 120, or 954 for a list on the right). The list's type starts 18 px inside it (invented in the build): the bar never sits on a number, and a title's 24 px slide starts on x 120, inside the band. */
+  bar: { width: 6, gap: 18 },
   /** Gap between the marker column and the titles (invented in the build: half the marker's cap). */
   markerGapPerCap: 0.5,
   /** Line pitch: cap top to next cap top, in caps (invented in the build, as T1's details). */

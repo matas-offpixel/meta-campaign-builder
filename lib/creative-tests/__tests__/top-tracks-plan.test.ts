@@ -65,3 +65,22 @@ describe("TK11: the day-4 call", () => {
     assert.deepEqual(defaultsAfterCall(DEFAULT_OPTIONS, { ...DEFAULT_OPTIONS, framing: "forever", tracks: 4 }), { ...DEFAULT_OPTIONS, framing: "forever", tracks: 4 });
   });
 });
+
+describe("TK10: Make the reel", () => {
+  it("refuses a pick it can't make, in the record's words where it has them", async () => {
+    const { queueRefusal } = await import("../top-tracks/server.ts");
+    const t = (rank: number | null, id = String(rank)) => ({ audioFileId: id, title: `T${id}`, artists: [], spotifyRank: rank });
+    assert.equal(queueRefusal({ options: { ...DEFAULT_OPTIONS, tracks: 3 }, tracks: [t(1), t(2)] }), "Pick 3 to 5 tracks.");
+    assert.equal(queueRefusal({ options: { ...DEFAULT_OPTIONS, tracks: 3 }, tracks: [t(1), t(2), t(null, "x")] }), "Not on Spotify's top tracks, so it can't be ranked");
+    assert.equal(queueRefusal({ options: { ...DEFAULT_OPTIONS, framing: "forever", tracks: 3 }, tracks: [t(1), t(2), t(null, "x")] }), null);
+    assert.equal(queueRefusal({ options: { ...DEFAULT_OPTIONS, tracks: 4 }, tracks: [t(1), t(2), t(3)] }), "4 tracks are set under Edit and 3 are picked.");
+  });
+
+  it("keeps the operator's drop and hook marks, and a cleared hook", async () => {
+    const { marksOf } = await import("../top-tracks/server.ts");
+    const names = new Map([["u1", "Matas"]]);
+    assert.deepEqual(marksOf({ drop_s: 127.5, drop_source: "operator", hook_s: null, hook_source: null }, names, { drop: "u1" }), { dropS: 127.5, dropSetBy: "Matas" });
+    assert.deepEqual(marksOf({ drop_s: 150, drop_source: "lab", hook_s: null, hook_source: "cleared" }, names, { hook: "u1" }), { hookS: null, hookSetBy: "Matas" });
+    assert.deepEqual(marksOf({ drop_s: 150, drop_source: "lab", hook_s: 140, hook_source: "lab" }), {});
+  });
+});

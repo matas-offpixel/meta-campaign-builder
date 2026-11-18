@@ -114,7 +114,7 @@ export async function placePressShot(photo: Buffer, face: { box: { x: number; y:
   const y0 = Math.max(0, -Math.round(placed.top));
   const cw = Math.min(sw - x0, W - Math.max(0, Math.round(placed.left)));
   const ch = Math.min(sh - y0, H - Math.max(0, Math.round(placed.top)));
-  const visible = await sharp(photo).rotate().resize({ width: sw, height: sh }).extract({ left: x0, top: y0, width: cw, height: ch }).toBuffer();
+  const visible = await sharp(photo).resize({ width: sw, height: sh }).extract({ left: x0, top: y0, width: cw, height: ch }).toBuffer();
   const frame = await sharp({ create: { width: W, height: H, channels: 3, background: { r: 0, g: 0, b: 0 } } })
     .composite([{ input: visible, left: Math.max(0, Math.round(placed.left)), top: Math.max(0, Math.round(placed.top)) }])
     .removeAlpha()

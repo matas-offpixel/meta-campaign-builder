@@ -32,31 +32,13 @@ import { rmsEnvelope } from "../lib/creative-tests/drop.ts";
 import { findDrops, findKicks, pcm16ToFloat, trackFeatures } from "../lib/creative-tests/top-tracks/analysis.ts";
 import { mmss, planTrack, type TrackPlan } from "../lib/creative-tests/top-tracks/audio-rules.ts";
 import { bassStemTop2, detectorCandidates, localDemucs } from "../lib/creative-tests/top-tracks/bass-stem.ts";
-import { cutTrackSnippet, decodeForAnalysis, joinSnippets, loudnessOk, measureReel } from "../lib/creative-tests/top-tracks/ffmpeg.ts";
-import { CENTRED_HEAD, CLAIM_DOESNT_FIT, headOnList, headlineTooLong, photoCantClear, TOO_BUSY, titleTooLong } from "../lib/creative-tests/top-tracks/reel.ts";
-import {
-  FRAMINGS,
-  headline,
-  isLayout,
-  kitCase,
-  layoutReel,
-  playOrder,
-  reelTimeline,
-  rowForPlay,
-  rowMarkers,
-  topTracksFileName,
-  withLine,
-  type Framing,
-  type ReelOptions,
-} from "../lib/creative-tests/top-tracks/reel.ts";
-import { layoutEndCard } from "../lib/creative-tests/top-tracks/layout.ts";
-import { bandsPng, dataUri, judgeStill, pieceFor, placePressShot, setEndCard, setRows, topTracksProps, wordMeasure } from "../lib/creative-tests/top-tracks/render.ts";
+import { cutTrackSnippet, decodeForAnalysis, loudnessOk } from "../lib/creative-tests/top-tracks/ffmpeg.ts";
+import type { Framing, ReelOptions } from "../lib/creative-tests/top-tracks/reel.ts";
+import { buildReel } from "../lib/creative-tests/top-tracks/build.ts";
 import { roundVariants, round1Base, type RoundNo } from "../lib/creative-tests/top-tracks/test-plan.ts";
-import { artistSlug } from "../lib/drive/tree.ts";
 import { driveFromEnv, APP_ID_KEY, APP_TAG_KEY } from "../lib/drive/client.ts";
 import { CLAIM_FONT, KIT_RED } from "../lib/creative-lab/claim-slot.ts";
 import { fontsDir, indexFonts, requireFont } from "../lib/creative-lab/kit-font.ts";
-import { watermarkLayer } from "../lib/creative-lab/artist-card-claim.ts";
 import { detectFaces, faceGeometry } from "../lib/creative-lab/face-detect.ts";
 
 const argv = process.argv.slice(2);
@@ -147,8 +129,9 @@ for (const [i, t] of tracks.entries()) {
   cuts.set(t.driveId, out);
 }
 
-// ─── The background: the press shot (TK7) ────────────────────────────────────
-const photo = photoFile ? readFileSync(photoFile) : Buffer.from(await drive!.download(photoId!));
+// ─── The background: the press shot (TK7), upright ──────────────────────────
+const sharp = (await import("sharp")).default;
+const photo = await sharp(photoFile ? readFileSync(photoFile) : Buffer.from(await drive!.download(photoId!))).rotate().jpeg({ quality: 95 }).toBuffer();
 const faces = await detectFaces(photo);
 const main = faces.sort((a, b) => b.width * b.height - a.width * a.height)[0] ?? null;
 const geo = main ? (await faceGeometry(photo, [main]))[0] ?? null : null;
@@ -158,80 +141,37 @@ const serveUrl = await bundle({ entryPoint: resolve("src/remotion/index.tsx") })
 const variants = roundVariants(round, round1Base(overrides), artist).filter((v) => !onlyFramings.length || onlyFramings.includes(v.options.framing));
 const report: Record<string, unknown>[] = [];
 for (const v of variants) {
-  const o: ReelOptions = v.options;
-  const picked = tracks.slice(0, o.tracks);
-  const name = topTracksFileName({ eventCode, artistSlug: artistSlug(artist), framing: o.framing, tracks: o.tracks, end: o.end, stage: "on-sale", roundNo: round, draft: true });
-  const head = kitCase(headline(o.framing, artist, o.tracks), "upper");
-  const markers = rowMarkers(o.framing, o.tracks, o.ladder);
-  const rowsIn = picked.map((t, i) => {
-    const w = withLine(t.title, t.artists, artist);
-    return { title: kitCase(t.title, "upper"), withText: w ? kitCase(w, "upper") : null, marker: markers[i] ?? null };
+  const built = await buildReel({
+    eventCode,
+    artist,
+    kitCaseMode: "upper",
+    options: v.options,
+    tracks: tracks.map((t) => ({ key: t.driveId, title: t.title, artists: t.artists, spotifyRank: t.spotifyRank, window: t.plan.window, cutFile: cuts.get(t.driveId)! })),
+    face,
+    accentHex: KIT_RED,
+    photo,
+    faceGeo: geo ? { box: geo.box, eyeY: geo.eyeY, headTopY: geo.headTopY, chinY: geo.chinY } : null,
+    lockupPng,
+    datePng,
+    dateText,
+    claim,
+    stamp: "DRAFT",
+    stage: "on-sale",
+    roundNo: round,
+    draft: true,
+    workDir: work,
   });
-  const measure = await wordMeasure([head, ...rowsIn.map((r) => r.title), ...rowsIn.map((r) => r.withText ?? ""), ...markers.filter((m): m is string => !!m), kitCase(artist, "upper"), claim ?? ""], face);
-  const layout = layoutReel({ headline: head, artist: kitCase(artist, "upper"), rows: rowsIn, list: o.list, measure, markerKind: o.framing === "ranked" ? "number" : o.framing === "level" ? "rung" : "none" });
-  if (!isLayout(layout)) fail(layout.refused === "headline" ? headlineTooLong(artist) : titleTooLong(layout.title));
-  const still = await placePressShot(photo, geo ? { box: geo.box, eyeY: geo.eyeY, headTopY: geo.headTopY, chinY: geo.chinY } : null, o.list);
-  if (!still.ok) fail(still.refusal === "cant_clear" ? photoCantClear(still.side) : headOnList("photo"));
-  const headlinePieces = await Promise.all((isLayout(layout) ? layout.headline : []).map((l) => pieceFor(l, "#FFFFFF", face)));
-  const L = layout as Exclude<typeof layout, { refused: unknown }>;
-  // TK8's accent is decided per reel: judged on the pieces' boxes before the accent copies are set.
-  const pre = await setRows(L, face, KIT_RED);
-  let endPieces: { pieces: { url: string; left: number; top: number; width: number; height: number }[]; boxes: { left: number; top: number; width: number; height: number }[] } | null = null;
-  if (o.end === "date") {
-    const sharpL = (await import("sharp")).default;
-    const lm = lockupPng ? await sharpL(lockupPng).metadata() : null;
-    const end = layoutEndCard({ place: o.endCard, column: L.column, lockupAspect: lm ? (lm.width ?? 1) / (lm.height ?? 1) : 4, name: kitCase(artist, "upper"), date: dateText, claim: claim ? kitCase(claim, "upper") : null, measure });
-    if ("refused" in end) fail(CLAIM_DOESNT_FIT);
-    const e = end as Exclude<typeof end, { refused: unknown }>;
-    endPieces = await setEndCard({ layout: e, lockupPng, datePng, face });
+  if (!built.ok) {
+    if (built.p95ByStep) console.error(`p95 background luminance under the text, by side-band step 55 / 70 / 85 %: ${built.p95ByStep.join(" / ")} (white needs ≤ 0.183 for 4.5:1)`);
+    fail(`${v.label}: ${built.refusal}`);
   }
-  const boxes = [...headlinePieces.map((p) => p.box), ...pre.boxes, ...(endPieces?.boxes ?? [])];
-  const verdict = judgeStill(boxes, still as Extract<typeof still, { ok: true }>, o.list, KIT_RED);
-  if ("refused" in verdict) {
-    const sharpD = (await import("sharp")).default;
-    const st0 = still as Extract<typeof still, { ok: true }>;
-    await sharpD(Buffer.from(st0.rgb.data), { raw: { width: st0.rgb.width, height: st0.rgb.height, channels: st0.rgb.channels as 3 } }).png().toFile(join(work, `${o.framing}-still.png`));
-    console.error(`p95 background luminance under the text, by side-band step 55 / 70 / 85 %: ${verdict.p95ByStep.join(" / ")} (white needs ≤ 0.183 for 4.5:1)`);
-    fail(TOO_BUSY);
-  }
-  const vd = verdict as Exclude<typeof verdict, { refused: unknown }>;
-  const rowsSet = vd.accentWhite ? await setRows(L, face, "#FFFFFF") : pre;
-  if (!vd.faceOk) fail(o.end === "date" && o.endCard === "centred" ? CENTRED_HEAD : headOnList("photo"));
-  if (!vd.bandOk) fail(`${name}: a piece sits outside O96's band`);
-  // Play order (TK4): Ranked counts down.
-  const order = playOrder(o.framing, picked);
-  const snippets = order.map((t) => ({ lengthS: t.plan.window.lengthS, dropInS: t.plan.window.dropS - t.plan.window.startS }));
-  const timeline = reelTimeline(snippets, o.end);
-  const joined = join(work, `${name}.m4a`);
-  await joinSnippets(order.map((t) => cuts.get(t.driveId)!), timeline.startsS, joined);
-  const loud = await measureReel(joined);
-  const st = still as Extract<typeof still, { ok: true }>;
-  const sharp = (await import("sharp")).default;
-  const pm = await sharp(photo).metadata();
-  const stamp = await watermarkLayer("DRAFT", { width: 1080, height: 1920 }, face.path, face.family ?? CLAIM_FONT, { avoid: boxes });
-  const props = topTracksProps({
-    durationS: timeline.totalS,
-    background: { kind: "still", url: dataUri(await sharp(photo).jpeg({ quality: 92 }).toBuffer(), "image/jpeg"), width: pm.width ?? 0, height: pm.height ?? 0, scale: st.placed.scale, left: st.placed.left, top: st.placed.top, push: st.placed.push, pushOriginX: st.pushOrigin.x, pushOriginY: st.pushOrigin.y },
-    bandsPng: await bandsPng(o.list, vd.step),
-    headline: headlinePieces.map((p) => p.img),
-    rows: rowsSet.rows,
-    playRows: rowForPlay(o.framing, o.tracks),
-    timeline,
-    rowsAppear: o.rowsAppear,
-    end: o.end,
-    list: o.list,
-    barColour: vd.accentWhite ? "#FFFFFF" : KIT_RED,
-    column: L.column,
-    endCard: endPieces?.pieces ?? null,
-    stamp: { url: dataUri(stamp), left: 0, top: 0, width: 1080, height: 1920 },
-  });
-  const comp = await selectComposition({ serveUrl, id: "TopTracks", inputProps: props as unknown as Record<string, unknown> });
-  const silent = join(work, `${name}.silent.mp4`);
-  await renderMedia({ composition: comp, serveUrl, codec: "h264", outputLocation: silent, inputProps: props as unknown as Record<string, unknown>, muted: true, crf: 18 });
-  const final = join(outDir, name);
-  await muxSnippet(silent, joined, final);
-  console.log(`${name} · ${timeline.totalS.toFixed(1)} s · ${loud.lufs} LUFS · ${loud.truePeakDb} dBTP${loudnessOk(loud) ? "" : " · LOUDNESS OUT OF RANGE"} · side band step ${vd.step} (p95 ${vd.p95ByStep.join(" / ")}) · accent ${vd.accentWhite ? "white" : "kit red"} · face clear`);
-  report.push({ name, framing: o.framing, totalS: timeline.totalS, drops: timeline.dropsS, rowsAt: o.rowsAppear === "start" ? timeline.startsS : timeline.dropsS, endFromS: timeline.endFromS, lufs: loud.lufs, truePeakDb: loud.truePeakDb, step: vd.step, accentWhite: vd.accentWhite });
+  const b = built as Extract<typeof built, { ok: true }>;
+  const comp = await selectComposition({ serveUrl, id: "TopTracks", inputProps: b.props as unknown as Record<string, unknown> });
+  const silent = join(work, `${b.name}.silent.mp4`);
+  await renderMedia({ composition: comp, serveUrl, codec: "h264", outputLocation: silent, inputProps: b.props as unknown as Record<string, unknown>, muted: true, crf: 18 });
+  await muxSnippet(silent, b.joinedAudio, join(outDir, b.name));
+  console.log(`${b.name} · ${b.timeline.totalS.toFixed(1)} s · ${b.loudness.lufs} LUFS · ${b.loudness.truePeakDb} dBTP${loudnessOk(b.loudness) ? "" : " · LOUDNESS OUT OF RANGE"} · side band step ${b.step} (p95 ${b.p95ByStep.join(" / ")}) · accent ${b.accentWhite ? "white" : "kit red"} · face clear`);
+  report.push({ name: b.name, framing: v.options.framing, options: v.options, totalS: b.timeline.totalS, drops: b.timeline.dropsS, rowsAt: v.options.rowsAppear === "start" ? b.timeline.startsS : b.timeline.dropsS, endFromS: b.timeline.endFromS, lufs: b.loudness.lufs, truePeakDb: b.loudness.truePeakDb, step: b.step, accentWhite: b.accentWhite });
 }
 
 writeFileSync(join(outDir, "report.json"), JSON.stringify({ tracks: tracks.map((t) => ({ title: t.title, spotifyRank: t.spotifyRank, lines: t.plan.lines, window: t.plan.window, choice: t.plan.choice.kind, hook: t.plan.hook })), reels: report }, null, 2));
