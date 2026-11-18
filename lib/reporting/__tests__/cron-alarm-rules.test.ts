@@ -226,9 +226,51 @@ describe("the agreed alarm set", () => {
   it("excludes the crons that are 0 by design", async () => {
     const { CRON_ALARMS } = await import("../cron-alarm-config.ts");
     const names = CRON_ALARMS.map((s) => s.cronName);
-    for (const excluded of ["match-attribution", "show-week-burst", "bm-page-scan", "mailchimp-backfill-tick"]) {
+    for (const excluded of ["match-attribution", "show-week-burst", "mailchimp-backfill-tick"]) {
       assert.ok(!names.includes(excluded), `${excluded} must not be alarmed`);
     }
     assert.ok(!names.some((n) => n.startsWith("d2c-")), "d2c crons are idle");
+  });
+});
+
+describe("own_run zero rule (bm-page-scan)", () => {
+  const BM: CronAlarmSpec[] = [{ cronName: "bm-page-scan", intervalMinutes: 1440, zeroRule: "own_run" }];
+  const ev = (r: CronRunFact) =>
+    evidence({
+      latestRunByCron: new Map([["bm-page-scan", r]]),
+      firstSeenByCron: new Map([["bm-page-scan", SETTLED]]),
+    });
+  const bmRun = (over: Partial<CronRunFact>) => run({ cronName: "bm-page-scan", ...over });
+
+  it("is silent when some BMs were scanned", () => {
+    assert.deepEqual(evaluateCronAlarms(ev(bmRun({ rowsWritten: 30, rowsConsidered: 64 })), NOW, BM), []);
+  });
+
+  it("alarms 0 done of N candidates", () => {
+    const out = evaluateCronAlarms(ev(bmRun({ rowsWritten: 0, rowsConsidered: 64 })), NOW, BM);
+    assert.equal(out.length, 1);
+    assert.equal(out[0].kind, "implausible_zero");
+    assert.match((out[0] as { reason: string }).reason, /0 of 64/);
+  });
+
+  it("alarms a failed run even with nothing considered", () => {
+    const out = evaluateCronAlarms(ev(bmRun({ ok: false, rowsWritten: 0, rowsConsidered: 0 })), NOW, BM);
+    assert.equal(out.length, 1);
+    assert.match((out[0] as { reason: string }).reason, /failed/);
+  });
+
+  it("is silent on 0 of 0 (every BM under an archived client)", () => {
+    assert.deepEqual(evaluateCronAlarms(ev(bmRun({ rowsWritten: 0, rowsConsidered: 0 })), NOW, BM), []);
+  });
+
+  it("alarms a daily scan that stopped reporting for two days", () => {
+    const out = evaluateCronAlarms(ev(bmRun({ startedAt: "2026-10-12T04:15:00Z" })), NOW, BM);
+    assert.equal(out[0]?.kind, "not_reporting");
+  });
+
+  it("is wired into CRON_ALARMS with the own_run rule", async () => {
+    const { CRON_ALARMS } = await import("../cron-alarm-config.ts");
+    const spec = CRON_ALARMS.find((s) => s.cronName === "bm-page-scan");
+    assert.deepEqual(spec, { cronName: "bm-page-scan", intervalMinutes: 1440, zeroRule: "own_run" });
   });
 });

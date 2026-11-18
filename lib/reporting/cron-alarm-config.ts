@@ -14,7 +14,7 @@ export interface CronAlarmSpec {
    * Which zero counts as implausible. `never` means this cron legitimately
    * writes nothing most runs, so only a missing report is worth an alarm.
    */
-  zeroRule: "never" | "rollup_meta" | "tickets" | "tier_channel";
+  zeroRule: "never" | "rollup_meta" | "tickets" | "tier_channel" | "own_run";
 }
 
 /** A cron is "missing" after this many times its own interval. */
@@ -62,7 +62,7 @@ export const TIER_CHANNEL_WINDOW_DAYS = 7;
  * morning.
  *
  * Deliberately NOT alarmed: `d2c-*` (idle), `mailchimp-backfill-tick`,
- * `bm-page-scan`, `show-week-burst`, `match-attribution` (0 by design
+ * `show-week-burst`, `match-attribution` (0 by design
  * until attribution inputs exist), and anything on the Vercel v2 duplicate
  * project. A cron that is supposed to write nothing must never be wired to
  * an alarm that fires when it writes nothing.
@@ -101,6 +101,11 @@ export const CRON_ALARMS: CronAlarmSpec[] = [
   { cronName: CIRQLIN_LEG_NAME, intervalMinutes: 1440, zeroRule: "never" },
 
   { cronName: "optimisation-tick", intervalMinutes: 240, zeroRule: "never" },
+
+  // 15 4 UTC. One row per run (rows_written = BMs scanned OK, rows_considered
+  // = BMs not under an archived client). Until 18 Nov it was left out here
+  // because it wrote no cron_runs row; it was being killed at 800 s every day.
+  { cronName: "bm-page-scan", intervalMinutes: 1440, zeroRule: "own_run" },
   { cronName: "budget-pacing-check", intervalMinutes: 60, zeroRule: "never" },
 
   // The watcher watches itself: if the evaluator stops running, nothing

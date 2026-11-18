@@ -79,7 +79,7 @@ export function evaluateCronAlarms(
     // expected; 0 of 0 candidates is a quiet day and must stay silent, or
     // the alarm trains people to ignore it.
     if (run.rowsWritten > 0) continue;
-    const reason = implausibleZeroReason(spec.zeroRule, evidence);
+    const reason = implausibleZeroReason(spec.zeroRule, evidence, run);
     if (reason) {
       out.push({ kind: "implausible_zero", cronName: spec.cronName, rule: spec.zeroRule, reason });
     }
@@ -113,8 +113,16 @@ function laterOf(a: string | null, b: string | null): string | null {
 function implausibleZeroReason(
   rule: CronAlarmSpec["zeroRule"],
   evidence: AlarmEvidence,
+  run: CronRunFact,
 ): string | null {
   switch (rule) {
+    // The run is its own evidence: it says how many candidates it had. A
+    // failed run, or 0 done of N > 0, is a fault; 0 of 0 is a quiet day.
+    case "own_run":
+      if (!run.ok) return "the run failed";
+      return run.rowsConsidered > 0
+        ? `0 of ${run.rowsConsidered} candidate(s) done`
+        : null;
     case "rollup_meta":
       return evidence.eventsWithRecentMetaSpend > 0
         ? `${evidence.eventsWithRecentMetaSpend} event(s) had claimed-campaign spend in the lookback window`

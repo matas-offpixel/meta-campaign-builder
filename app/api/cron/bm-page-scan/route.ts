@@ -5,7 +5,7 @@ import { runBmCronScan } from "@/lib/bm/cron-scan";
 import { withCronRunLog } from "@/lib/reporting/with-cron-run-log";
 
 /**
- * GET /api/cron/bm-page-scan  (Vercel Cron — daily 08:00 UTC)
+ * GET /api/cron/bm-page-scan  (Vercel Cron — daily 04:15 UTC)
  *
  * For every connected Business Manager, re-enumerate every asset type — pages
  * (migration 145) plus ad accounts, pixels and Instagram accounts (migration
@@ -26,9 +26,18 @@ import { withCronRunLog } from "@/lib/reporting/with-cron-run-log";
  * Meta rate-limit error stops the run and the rest are skipped, not errored;
  * no BM starts after 650 s. The token-wide reads (`/me/accounts`, the
  * business-scoped user ids) happen once per run, not once per BM. Each run
- * writes a `cron_runs` row (`bm-page-scan`). The cron stays out of
- * CRON_ALARMS on purpose (lib/reporting/cron-alarm-config.ts). See
- * lib/bm/scan-run.ts and lib/bm/cron-scan.ts.
+ * writes a `cron_runs` row (`bm-page-scan`), alarmed in CRON_ALARMS
+ * (lib/reporting/cron-alarm-config.ts, rule `own_run`). BMs whose client is
+ * archived are skipped, like every other cron; a BM with no client is
+ * scanned. See lib/bm/scan-run.ts and lib/bm/cron-scan.ts.
+ *
+ * Schedule (04:15 UTC, was 08:00): Meta's app request limit is shared by
+ * every cron on this app. At 08:00 the scan ran with budget-pacing-check
+ * (hourly, :00) and optimisation-tick (every 4 h, :00). 04:15 starts after
+ * both have finished (their maxDuration is 120 s and 300 s) and, with the
+ * 650 s budget, ends before the 05:00 budget-pacing tick. The other jobs
+ * around then (google-ads-daily-insights, benchmark-alerts at 04:00) make
+ * no Meta calls.
  *
  * Auth: Bearer CRON_SECRET (same pattern as the other crons).
  */
@@ -90,6 +99,7 @@ export const GET = withCronRunLog(
     detail: (body) => ({
       elapsed_ms: num(body.elapsedMs),
       bms_total: num(body.businessManagers),
+      bms_skipped_archived_client: num(body.skippedArchivedClients),
       bms_scanned: num(body.scanned),
       bms_ok: num(body.scannedOk),
       bms_failed: num(body.failed),

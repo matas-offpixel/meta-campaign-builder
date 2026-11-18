@@ -13,6 +13,11 @@ import {
   logAccessEvent,
   markBusinessManagerTokenExpired,
 } from "@/lib/db/business-managers";
+import {
+  dropArchivedClientRows,
+  loadArchivedClientIds,
+  logSkippedArchivedClients,
+} from "@/lib/db/client-status";
 import { scanBusinessManager } from "@/lib/bm/sync";
 import { scanBusinessManagerAllAssets, type AssetScanResult } from "@/lib/bm/sync-assets";
 import {
@@ -45,7 +50,10 @@ interface BmOutcome {
 export interface BmCronScanSummary {
   ok: true;
   elapsedMs: number;
+  /** BMs this run could scan: every connected BM except archived clients'. */
   businessManagers: number;
+  /** BMs left out because their client is archived (`client_business_managers.client_id`). */
+  skippedArchivedClients: number;
   scanned: number;
   scannedOk: number;
   failed: number;
@@ -91,7 +99,13 @@ export async function runBmCronScan(
   const now = opts.now ?? Date.now;
   const startedAtMs = now();
 
-  const bms = orderForRotation(await listBusinessManagers(supabase));
+  // Archived clients are out of every cron (lib/db/client-status.ts). A BM
+  // with no client_id is kept, as rows with no client are everywhere else.
+  const connected = await listBusinessManagers(supabase);
+  const archivedClientIds = await loadArchivedClientIds(supabase);
+  const bms = orderForRotation(dropArchivedClientRows(connected, archivedClientIds));
+  const skippedArchivedClients = connected.length - bms.length;
+  logSkippedArchivedClients("bm-page-scan", skippedArchivedClients);
   console.error(
     `[bm-page-scan] starting scan of ${bms.length} business manager(s), least recently scanned first`,
   );
@@ -234,7 +248,8 @@ export async function runBmCronScan(
   const scannedOk = results.filter((r) => r.ok).length;
 
   console.error(
-    `[bm-page-scan] done in ${elapsedMs}ms — bms=${bms.length} scanned=${results.length} ok=${scannedOk} ` +
+    `[bm-page-scan] done in ${elapsedMs}ms — bms=${bms.length} skipped_archived_clients=${skippedArchivedClients} ` +
+      `scanned=${results.length} ok=${scannedOk} ` +
       `skipped_rate_limited=${skippedRateLimited} skipped_time_budget=${skippedTimeBudget} ` +
       `stopped_by=${loop.stoppedBy ?? "none"}` +
       (loop.rateLimitedAt ? ` rate_limited_at=${loop.rateLimitedAt.business_id}` : "") +
@@ -247,6 +262,7 @@ export async function runBmCronScan(
     ok: true,
     elapsedMs,
     businessManagers: bms.length,
+    skippedArchivedClients,
     scanned: results.length,
     scannedOk,
     failed: results.length - scannedOk,
