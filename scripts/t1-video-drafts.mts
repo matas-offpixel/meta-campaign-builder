@@ -8,10 +8,10 @@
  *
  *   node --env-file=.env.local --experimental-strip-types scripts/t1-video-drafts.mts \
  *     --event P26-BDAY --kit <the static PSD's kit folder> --out .scratch/drafts/t1-video-2026-11-10 \
- *     --clip '<clip id>' [--clip …] [--seconds 8] [--lambda] [--local-from 2160] [--version v2-roll-call] [--format 9:16] [--audio]
+ *     --clip '<clip id>' [--clip …] [--seconds 8] [--window '<clip id>=<start s>:<length s>' …] [--lambda] [--local-from 2160] [--version v2-roll-call] [--format 9:16]
  *
- * --audio keeps the clip's own sound (AAC) and checks every draft has an audio
- * stream; without it the drafts are muted, as before.
+ * --window (repeatable) cuts that clip from <start s> of the source file for <length s> instead of the first
+ * --seconds from in_s (r3, 17 Nov: the drop lands 3–5 s in).
  *
  * O120 (issue 17), 9:16: the artist's head on each sample is the face box, or
  * the person mask's top 0.18 when no face is found (segment.ts personHeadBox,
@@ -101,7 +101,7 @@ import {
 import { applyBacking, backingLayer, checkFeather, type FeatherCheck } from "../lib/creative-lab/red-backing.ts";
 import { renderSourceAsset } from "../lib/creative-lab/render-source.ts";
 import { emptyTriedHeadings, triedSection } from "../lib/creative-lab/draft-report.ts";
-import { draftVersions, releaseFromRow, type DraftVersion } from "../lib/creative-lab/draft-versions.ts";
+import { draftSound, draftVersions, draftWindow, parseDraftWindows, releaseFromRow, type DraftVersion } from "../lib/creative-lab/draft-versions.ts";
 import { MAX_KNEE_STEP, MAX_ROW_STEP, renderVideoBands, rowMeanLuma } from "../lib/creative-lab/video-bands.ts";
 import type { T1OnClipProps } from "../src/remotion/compositions/T1OnClip.tsx";
 
@@ -125,7 +125,14 @@ const kitDir = flag("--kit") ?? "";
 const outDir = resolve(flag("--out") ?? "");
 const clipIds = many("--clip");
 const seconds = Number(flag("--seconds") ?? "8");
-const withAudio = argv.includes("--audio");
+let windows: ReturnType<typeof parseDraftWindows> = new Map();
+try {
+  windows = parseDraftWindows(many("--window"));
+} catch (e) {
+  fail((e as Error).message);
+}
+const unknownWindows = [...windows.keys()].filter((id) => !clipIds.includes(id));
+if (unknownWindows.length) fail(`--window for a clip not in --clip: ${unknownWindows.join(", ")}`);
 if (!code || !kitDir || !flag("--out") || !clipIds.length) fail("--event, --kit, --out and --clip are required");
 if (argv.some((a) => ["--apply", "--export", "--upload"].includes(a))) fail("this script renders drafts only: it never files, exports or uploads");
 const onLambda = argv.includes("--lambda");
@@ -317,6 +324,8 @@ for (const clipId of clipIds) {
   const c = await db.from("creative_lab_clips").select("*").eq("id", clipId).maybeSingle();
   if (c.error || !c.data) fail(`clip ${clipId}`);
   const clip = c.data!;
+  // The clip's own sound unless the clip is marked muted (draftSound, draft-versions.ts).
+  const sound = draftSound(clip);
   const art = await db.from("creative_lab_artists").select("name").eq("id", clip.artist_id).maybeSingle();
   const artist = String(art.data?.name ?? "?");
   // O68 / migration 220: the clip's 1080 render copy (render_asset_id) when it has one, else the original (creative_asset_id).
@@ -332,9 +341,13 @@ for (const clipId of clipIds) {
   writeFileSync(join(work, clipFile), Buffer.from(await file.data!.arrayBuffer()));
   const probe = JSON.parse(ff("ffprobe", ["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height,r_frame_rate:format=duration", "-of", "json", join(work, clipFile)])) as { streams: { width: number; height: number; r_frame_rate: string }[]; format: { duration: string } };
   const src = { width: probe.streams[0]!.width, height: probe.streams[0]!.height };
-  const inS = Number(clip.in_s ?? 0);
-  const full = Number(clip.out_s ?? probe.format.duration) - inS;
-  const dur = Math.min(seconds, full);
+  let win: ReturnType<typeof draftWindow> = { inS: 0, full: 0, dur: 0 };
+  try {
+    win = draftWindow(clip, Number(probe.format.duration), seconds, windows.get(clipId));
+  } catch (e) {
+    fail(`${clipId}: ${(e as Error).message}`);
+  }
+  const { inS, full, dur } = win;
   const fps = 30;
 
   // 5-a-second samples of the source, once.
@@ -537,7 +550,7 @@ for (const clipId of clipIds) {
         inS,
         fps,
         durationInSeconds: dur,
-        muted: !withAudio,
+        muted: sound.muted,
         bandsUrl: !here ? dataUri(bands) : `${base}/${id}-bands.png`,
         topUrl: !here ? dataUri(topWithStamp) : `${base}/${id}-top.png`,
         claimUrl: typeClaim ? (!here ? dataUri(typeClaim) : `${base}/${id}-claim.png`) : null,
@@ -558,7 +571,7 @@ for (const clipId of clipIds) {
         const nFrames = Math.round(dur * fps);
         const chunk = lambdaChunking(lambda.limit, nFrames);
         const started = Date.now();
-        const r = await renderMediaOnLambda({ region: REMOTION_REGION, functionName: lambda.functionName, serveUrl: lambda.serveUrl, composition: "T1OnClip", inputProps: props as unknown as Record<string, unknown>, codec: "h264", crf: 18, muted: !withAudio, framesPerLambda: chunk.framesPerLambda, concurrencyPerLambda: chunk.concurrencyPerLambda, privacy: "private", downloadBehavior: { type: "download", fileName: null } });
+        const r = await renderMediaOnLambda({ region: REMOTION_REGION, functionName: lambda.functionName, serveUrl: lambda.serveUrl, composition: "T1OnClip", inputProps: props as unknown as Record<string, unknown>, codec: "h264", crf: 18, muted: sound.muted, framesPerLambda: chunk.framesPerLambda, concurrencyPerLambda: chunk.concurrencyPerLambda, privacy: "private", downloadBehavior: { type: "download", fileName: null } });
         let progress = await getRenderProgress({ renderId: r.renderId, bucketName: r.bucketName, functionName: lambda.functionName, region: REMOTION_REGION });
         while (!progress.done && !progress.fatalErrorEncountered) {
           await new Promise((res) => setTimeout(res, 2000));
@@ -583,13 +596,7 @@ for (const clipId of clipIds) {
         console.log(`  lambda: ${functions} functions · $${(progress.costs?.accruedSoFar ?? 0).toFixed(4)} · ${((Date.now() - started) / 1000).toFixed(0)} s`);
       } else {
         const composition = await selectComposition({ serveUrl, id: "T1OnClip", inputProps: props as unknown as Record<string, unknown> });
-        await renderMedia({ composition, serveUrl, codec: "h264", crf: 18, outputLocation: out, inputProps: props as unknown as Record<string, unknown>, muted: !withAudio, logLevel: "error" });
-      }
-      // --audio: every draft must carry the clip's sound.
-      if (withAudio) {
-        const streams = ff("ffprobe", ["-v", "error", "-select_streams", "a", "-show_entries", "stream=codec_name", "-of", "csv=p=0", out]).trim();
-        if (!streams) fail(`${id}: rendered with --audio but the file has no audio stream`);
-        console.log(`  audio: ${streams}`);
+        await renderMedia({ composition, serveUrl, codec: "h264", crf: 18, outputLocation: out, inputProps: props as unknown as Record<string, unknown>, muted: sound.muted, logLevel: "error" });
       }
       contactRows.push({ label: `${id} · ${layout.arrangement}${refused ? " · REFUSED (flagged preview)" : ""}`, file: out });
       const fv = chosen?.face ?? bestFace!;
@@ -696,7 +703,7 @@ if (lambdaCosts.length) {
   const total = lambdaCosts.reduce((a, c) => a + (c.costUsd ?? 0), 0);
   L.push(`Lambda: ${lambdaCosts.length} renders, ${lambdaCosts[0]!.functions} functions each (one orchestrator plus the chunks), $${(total / lambdaCosts.length).toFixed(4)} a render on average, $${total.toFixed(4)} in all.`);
 }
-L.push(`Each clip: its first ${seconds} s from in_s, ${withAudio ? "with its own sound (AAC)" : "muted"}, H.264 CRF 18. Samples at ${T1V_FACE.fps} a second.`, "");
+L.push(`Each clip: ${windows.size ? `its --window where given (${[...windows].map(([id, w]) => `${id.slice(0, 8)} ${w.startS}–${w.startS + w.lengthS} s`).join(", ")}), else ` : ""}its first ${seconds} s from in_s, with the clip's own sound (silent only when its audio_status is muted), H.264 CRF 18, AAC. Samples at ${T1V_FACE.fps} a second.`, "");
 L.push(`The roll-call, from Puzzle's tiers (${tiers.map((t) => `${t.name} ${t.state}`).join(" · ")}): "${rollCall.claim!.replace("\n", " / ")}".`, "");
 L.push("| Clip | Version | Format | Arrangement | Crop | Scale (O63, ≤ 1.6×) | Face (O64): top / claim share · run | Top block p95 (≤ 10 %) | Lockup p95 (≤ 15 %) | Bottom block p95 (≤ 15 %) | Band steps (O57) | Red line p95 → result (O58) | Claim | Safe area | Result | Rendered | File |");
 L.push("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|");

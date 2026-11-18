@@ -63,14 +63,7 @@ function tidy(samples: readonly FaceCheckProgress["samples"][number][]): FaceChe
 }
 
 /** Seconds of this slice, for the log line on success, park and failure alike. */
-export type SliceStats = { frames: number; extractS: number; scanS: number; detectS: number; extracts: number; benchS?: number };
-
-/**
- * Timing samples on one frame of the slice (face-detect-bench.ts), after its first real detection. They run
- * only when the time left before `sliceEnd` covers about `frames` detections at the clip's measured seconds a
- * frame plus `overheadS`, so they can't push a slice past its end. Their time counts in the slice's.
- */
-export type SliceBench = { run: (file: string, t: number) => Promise<void>; frames: number; overheadS: number };
+export type SliceStats = { frames: number; extractS: number; scanS: number; detectS: number; extracts: number };
 
 export type SliceResult = {
   progress: FaceCheckProgress;
@@ -105,7 +98,6 @@ export async function runFaceCheckSlice(args: {
   scan: (timeoutMs: number) => Promise<{ n: number; t: number }[]>;
   /** Called after each frame is checked (to free its file). */
   done?: (file: string) => Promise<void>;
-  bench?: SliceBench;
   maxGap?: number;
   maxBatch?: number;
   now?: () => number;
@@ -118,7 +110,6 @@ export async function runFaceCheckSlice(args: {
   const p: FaceCheckProgress = structuredClone(args.progress);
   p.slices += 1;
   let madeProgress = false;
-  let benched = false;
   const result = (status: SliceResult["status"], stopped?: SliceResult["stopped"]): SliceResult => {
     p.samples = tidy(p.samples);
     return { progress: p, status, madeProgress, ...(stopped ? { stopped } : {}) };
@@ -157,16 +148,6 @@ export async function runFaceCheckSlice(args: {
         p.samples.push({ t: frame.t, faces });
         detected += 1;
         madeProgress = true;
-        if (args.bench && !benched) {
-          benched = true;
-          const perFrameS = p.detectS / Math.max(1, p.checked);
-          if (args.sliceEnd - now() > (args.bench.frames * perFrameS + args.bench.overheadS) * 1000) {
-            const t2 = now();
-            // A sample never fails the check (face-detect-bench.ts never throws; this is the backstop).
-            await args.bench.run(frame.file, frame.t).catch(() => {});
-            stats.benchS = (stats.benchS ?? 0) + (now() - t2) / 1000;
-          }
-        }
         await args.done?.(frame.file);
       }
       // A full return pairs frame for frame with the batch. A short one (frames the source doesn't have) is

@@ -36,7 +36,6 @@ import { fetchDropboxFileContent, isDropboxFolderUrl, listDropboxFolderFiles } f
 import { uploadFileToStorageBucket, uploadToStorageBucket } from "../clients/asset-queue/storage-upload.ts";
 import { fingerprintBytes, resolveRegistryAspect, upsertRegisteredAsset, type ContentIdentity, type RegistryAspect } from "../creatives/asset-registry.ts";
 import type { RemoteOriginal } from "../creatives/remote-file.ts";
-import { windowState, type StoredDrops } from "./edit-window.ts";
 import type { ServiceRoleDb } from "./load.ts";
 import { probeMp4Bytes, probeMp4File, probeMp4Reader } from "./mp4-probe.ts";
 import {
@@ -307,12 +306,6 @@ export async function importArtistClips(
      * ffmpeg-static; `renderProxy: false` still switches the copy off.
      */
     renderProxyFile?: FileProxyMaker;
-    /**
-     * VW1: finds the clip's drops and VW2's window once the row (and its render
-     * copy) exist, before onImported. Never throws (clip-drops-run.ts). false
-     * leaves the clip unchecked for the backfill or the pickup's sweep.
-     */
-    checkDrops?: ((db: ServiceRoleDb, clipId: string) => Promise<StoredDrops | null>) | false;
     /** File mode's upload, from a file on disk. Defaults to Storage, streamed over 40 MB. */
     uploadFile?: FileUpload;
     /** File mode's probe, from a file on disk. Defaults to the moov-atom probe. */
@@ -572,14 +565,6 @@ export async function importArtistClips(
           console.warn(JSON.stringify({ step: "render_proxy", clipId, errorClass: plain(err instanceof Error ? err.message : String(err)).slice(0, 160) }));
         }
       }
-      let window: { inS: number | null; outS: number | null } = { inS: trimmed ? 0 : null, outS: trimmed ? TRIM_SECONDS : null };
-      if (args.checkDrops !== false && clipId) {
-        // Lazy: ffmpeg and the Storage client load only when a clip is checked.
-        const check = args.checkDrops ?? (await import("./clip-drops-run.ts")).storeClipDropsSafely;
-        const drops = await check(db, clipId);
-        const state = drops ? windowState(drops, { dropS: null, byHand: false, inS: null, outS: null }) : null;
-        if (state?.kind === "ok") window = { inS: state.window.inS, outS: state.window.outS };
-      }
       if (args.onImported && clipId) {
         try {
           const note = await args.onImported({
@@ -589,8 +574,8 @@ export async function importArtistClips(
             renderStoragePath,
             driveFileId,
             durationSeconds: duration,
-            inS: window.inS,
-            outS: window.outS,
+            inS: trimmed ? 0 : null,
+            outS: trimmed ? TRIM_SECONDS : null,
           });
           if (note) notes.push(note);
         } catch (err) {

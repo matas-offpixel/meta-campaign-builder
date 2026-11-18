@@ -88,11 +88,16 @@ export const FACE_SAMPLE_FPS = Math.round((2 / (0.3 + 0.4)) * 100) / 100;
 export const FACE_CHECK_BUDGET_MS = 600_000;
 /**
  * A tick starts no frame, extract or scan past this into its slice: it saves the progress, keeps the lock and
- * returns, and the next tick resumes from there (Vercel measured ~15 s a frame, 17 Nov 2026).
+ * returns, and the next tick resumes from there. On the cpu backend Vercel measured ~15 s a frame (17 Nov 2026);
+ * on wasm (face-detect.ts) a 30 s window fits one slice, and this stays as the fallback.
  */
 export const FACE_CHECK_SLICE_MS = 450_000;
-/** Seconds a frame, to size a slice's first extract before any frame on this clip is timed (Vercel, 17 Nov). */
+/**
+ * Seconds a frame, to size a slice's first extract before any frame on this clip is timed (Vercel, 17 Nov 2026):
+ * the cpu backend (the fallback when wasm doesn't start, face-detect.ts) and wasm (0.47–0.80 s, rounded up).
+ */
 export const FACE_DETECT_ESTIMATE_S = 15;
+export const FACE_DETECT_ESTIMATE_WASM_S = 1;
 
 /** A lock outlives the function (800 s), so a check still running is never started again. */
 export const FACE_CHECK_LOCK_MS = 15 * 60 * 1000;
