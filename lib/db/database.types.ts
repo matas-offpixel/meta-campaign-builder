@@ -3490,6 +3490,10 @@ export type Database = {
           event_id: string | null
           face_samples: Json | null
           face_samples_at: string | null
+          drops: Json | null
+          drops_at: string | null
+          window_by_hand: boolean
+          window_drop_s: number | null
           external_id: string | null
           fetched_at: string | null
           id: string
@@ -3525,6 +3529,10 @@ export type Database = {
           event_id?: string | null
           face_samples?: Json | null
           face_samples_at?: string | null
+          drops?: Json | null
+          drops_at?: string | null
+          window_by_hand?: boolean
+          window_drop_s?: number | null
           external_id?: string | null
           fetched_at?: string | null
           id?: string
@@ -3560,6 +3568,10 @@ export type Database = {
           event_id?: string | null
           face_samples?: Json | null
           face_samples_at?: string | null
+          drops?: Json | null
+          drops_at?: string | null
+          window_by_hand?: boolean
+          window_drop_s?: number | null
           external_id?: string | null
           fetched_at?: string | null
           id?: string

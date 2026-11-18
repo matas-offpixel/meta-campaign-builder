@@ -17,7 +17,6 @@ import { lowContrastShare, type Rect } from "./artist-card.ts";
 import {
   captionBoxesAt,
   readFaceSamples,
-  type StoredFaceRect,
   type StoredFaceSamples,
 } from "./caption-placement.ts";
 import { cropWindow } from "../../src/remotion/caption-style/profile.ts";
@@ -29,7 +28,23 @@ import { T1V_FACE } from "./t1-face.ts";
 import { nearestRank } from "./t1-video.ts";
 
 const run = promisify(execFile);
-export const FACE_DETECTOR = "ssd_mobilenet_v1";
+/** The face check's frames are scaled to this on their long side before detection. */
+export const FACE_FRAME_SIDE = 640;
+export { FACE_DETECTOR } from "./caption-placement.ts";
+import {
+  FACE_CHECK_BUDGET_MS,
+  FACE_CHECK_SLICE_MS,
+  FACE_DETECT_ESTIMATE_S,
+  FACE_DETECT_ESTIMATE_WASM_S,
+  FACE_DETECTOR,
+  FACE_SAMPLE_FPS,
+  FACE_SAMPLING,
+  type FaceCheckProgress,
+} from "./caption-placement.ts";
+import { finishFaceCheck, parkFaceCheck } from "./face-check-lock.ts";
+import { finishedSamples, newProgress, runFaceCheckSlice, type SliceStats } from "./face-check-slice.ts";
+import { extractFaceFrames, scanFrameTimes } from "./face-frames.ts";
+import { FACE_MAX_GAP_S, faceSampleSeed, planFrames, sampleTimes } from "./face-sampling.ts";
 
 async function ffmpegPath(): Promise<string> {
   const mod = (await import("ffmpeg-static")) as { default?: string | null } | string;
@@ -51,46 +66,6 @@ async function signUrl(bucket: string, objectPath: string): Promise<string> {
   return data.signedUrl;
 }
 
-/** Frames from the clip window, faces in 1080×1920 output pixels. */
-export async function detectClipFaces(args: {
-  url: string;
-  inS: number;
-  outS: number;
-  sourceWidth: number;
-  sourceHeight: number;
-  cropFocusX: number;
-}): Promise<StoredFaceRect[][]> {
-  const { detectFaces } = await import("./face-detect.ts");
-  const dir = await mkdtemp(join(tmpdir(), "caption-place-"));
-  try {
-    const ffmpeg = await ffmpegPath();
-    await run(ffmpeg, [
-      "-y", "-v", "error",
-      "-ss", String(args.inS),
-      "-t", String(Math.max(0, args.outS - args.inS)),
-      "-i", args.url,
-      "-r", String(T1V_FACE.fps),
-      join(dir, "s%04d.png"),
-    ], { maxBuffer: 4 * 1024 * 1024 });
-    const frames = (await readdir(dir)).filter((name) => name.endsWith(".png")).sort();
-    const crop = cropWindow(args.sourceWidth, args.sourceHeight, args.cropFocusX);
-    const k = 1080 / crop.width;
-    const faces: StoredFaceRect[][] = [];
-    for (const name of frames) {
-      const found = await detectFaces(await readFile(join(dir, name)), { minConfidence: 0.3 });
-      faces.push(found.map((box) => ({
-        left: (box.x - crop.left) * k,
-        top: (box.y - crop.top) * k,
-        width: box.width * k,
-        height: box.height * k,
-      })));
-    }
-    return faces;
-  } finally {
-    await rm(dir, { recursive: true, force: true });
-  }
-}
-
 type Row = Record<string, unknown>;
 
 function num(value: unknown, fallback: number | null): number | null {
@@ -99,8 +74,15 @@ function num(value: unknown, fallback: number | null): number | null {
   return Number.isFinite(n) ? n : fallback;
 }
 
-/** Detect one clip and store the samples, or the failure, for its current crop and window. */
-export async function ensureClipFaces(db: ServiceRoleDb, clipId: string): Promise<"ready" | "failed"> {
+export type FaceCheckClaimed = { stamp: string; attempt: number; progress: FaceCheckProgress | null };
+
+/**
+ * One tick's slice of the clip's face check, for its current crop and window (face-check-slice.ts), under the
+ * tick's claim (face-check-lock.ts). It resumes the claim's progress, then parks the check with what it
+ * checked ("checking": the next tick goes on from there) or stores the samples or the error. The writes land
+ * only if the row is still the claim's.
+ */
+export async function ensureClipFaces(db: ServiceRoleDb, clipId: string, claim: FaceCheckClaimed): Promise<"ready" | "failed" | "checking"> {
   const clipRes = await db.from("creative_lab_clips").select("*").eq("id", clipId).maybeSingle();
   if (clipRes.error) throw new Error(`creative_lab_clips: ${clipRes.error.message}`);
   const clip = clipRes.data as Row | null;
@@ -109,9 +91,26 @@ export async function ensureClipFaces(db: ServiceRoleDb, clipId: string): Promis
   const cropFocusY = num(clip.crop_focus_y, 0.5) ?? 0.5;
   const inS = num(clip.in_s, null);
   const outS = num(clip.out_s, null);
-  const stamp = new Date().toISOString();
-  const base = { detector: FACE_DETECTOR, fps: 5 as const, cropFocusX, cropFocusY, inS, outS };
+  const base = { detector: FACE_DETECTOR, fps: FACE_SAMPLE_FPS, cropFocusX, cropFocusY, inS, outS };
+  const since = readFaceSamples(clip.face_samples)?.running?.since ?? claim.stamp;
+  const started = Date.now();
+  const stats: SliceStats = { frames: 0, extractS: 0, scanS: 0, detectS: 0, extracts: 0 };
+  let progress: FaceCheckProgress | null = claim.progress;
+  const prefix = `[creative-lab-face-check] clip ${clipId}`;
+  // Split by stage, on every outcome, so the logs show where a slice's time went. No owner or person data.
+  let backend = "";
+  const timing = () => {
+    const per = stats.frames ? `, ${(stats.detectS / stats.frames).toFixed(2)} s per frame` : "";
+    const total = progress ? `, ${progress.done} of ${progress.frames.length} frames done (${progress.planned} planned), slice ${progress.slices}` : "";
+    return `this slice ${stats.frames} frames in ${((Date.now() - started) / 1000).toFixed(1)} s: extract ${stats.extractS.toFixed(1)} s (${stats.extracts} runs), ` +
+      `scan ${stats.scanS.toFixed(1)} s, detect ${stats.detectS.toFixed(1)} s${per}${backend}${total}`;
+  };
+  const write = (body: StoredFaceSamples): Promise<boolean> => finishFaceCheck(db, clipId, claim, body, new Date());
+  const dir = await mkdtemp(join(tmpdir(), "caption-place-"));
   try {
+    const { detectFaces, faceBackend } = await import("./face-detect.ts");
+    const detector = await faceBackend();
+    backend = ` on ${detector.backend}${detector.simd ? " (SIMD)" : ""}${detector.fallback ? `, wasm didn't start: ${detector.fallback}` : ""}`;
     const assetRes = await db.from("creative_assets").select("*").eq("id", renderAssetId(clip)).maybeSingle();
     if (assetRes.error) throw new Error(`creative_assets: ${assetRes.error.message}`);
     const asset = assetRes.data as Row | null;
@@ -119,33 +118,74 @@ export async function ensureClipFaces(db: ServiceRoleDb, clipId: string): Promis
     const bucket = String(asset.storage_bucket ?? "campaign-assets");
     const signed = await signUrl(bucket, String(asset.storage_path));
     const meta = await probeClip(signed);
-    const window = clipWindow({
-      fileSeconds: meta.durationInSeconds,
-      inS,
-      outS,
-    });
+    const window = clipWindow({ fileSeconds: meta.durationInSeconds, inS, outS });
     const end = window.outS ?? meta.durationInSeconds;
-    const frames = await detectClipFaces({
-      url: signed,
-      inS: window.inS,
-      outS: end,
-      sourceWidth: meta.width,
-      sourceHeight: meta.height,
-      cropFocusX,
+    const durationS = Math.max(0, end - window.inS);
+    // Seeded by clip, crop and window, and stored with the progress: every slice checks the same frames, a crop
+    // change new ones. No gap between them over FACE_MAX_GAP_S, window start and end included (face-sampling.ts).
+    progress ??= newProgress(
+      planFrames(sampleTimes(durationS, FACE_SAMPLING, faceSampleSeed({ id: clipId, cropFocusX, cropFocusY, inS, outS })), meta.fps, durationS).map((p) => p.frame),
+    );
+    const ffmpeg = await ffmpegPath();
+    const crop = cropWindow(meta.width, meta.height, cropFocusX);
+    const k = 1080 / crop.width;
+    let batch = 0;
+    const slice = await runFaceCheckSlice({
+      progress,
+      durationS,
+      sliceEnd: started + FACE_CHECK_SLICE_MS,
+      deadline: started + FACE_CHECK_BUDGET_MS,
+      estimateS: detector.backend === "wasm" ? FACE_DETECT_ESTIMATE_WASM_S : FACE_DETECT_ESTIMATE_S,
+      stats,
+      extract: (frames, timeoutMs) =>
+        extractFaceFrames({ ffmpeg, url: signed, inS: window.inS, outS: end, frames, dir, side: FACE_FRAME_SIDE, timeoutMs, prefix: `x${batch++}_` }),
+      scan: (timeoutMs) => scanFrameTimes({ ffmpeg, url: signed, inS: window.inS, outS: end, timeoutMs }),
+      detect: async (file) => {
+        const bytes = await readFile(join(dir, file));
+        // Boxes come back in the scaled frame's pixels: back to the source's before the crop transform.
+        const frameWidth = (await sharp(bytes).metadata()).width ?? meta.width;
+        const toSource = meta.width / frameWidth;
+        const found = await detectFaces(bytes, { minConfidence: 0.3 });
+        return found.map((box) => ({
+          left: (box.x * toSource - crop.left) * k,
+          top: (box.y * toSource - crop.top) * k,
+          width: box.width * toSource * k,
+          height: box.height * toSource * k,
+        }));
+      },
+      done: (file) => rm(join(dir, file), { force: true }),
     });
-    if (!frames.length) throw new Error("no frames");
-    const body: StoredFaceSamples = {
-      ...base,
-      samples: frames.map((faces, i) => ({ t: i / T1V_FACE.fps, faces })),
-    };
-    const update = await db.from("creative_lab_clips").update({ face_samples: body, face_samples_at: stamp }).eq("id", clipId);
-    if (update.error) throw new Error(`creative_lab_clips: ${update.error.message}`);
+    progress = slice.progress;
+    if (slice.status === "parked") {
+      const kept = await parkFaceCheck(db, clipId, { stamp: claim.stamp, attempt: claim.attempt, since }, base, progress, slice.madeProgress, new Date());
+      const why = slice.stopped === "stall" ? "an ffmpeg run stalled" : "slice time up";
+      console.log(`${prefix}: parked (${why}${slice.madeProgress ? "" : ", no progress"}${kept ? "" : ", lost the claim, not saved"}); ${timing()}`);
+      return "checking";
+    }
+    const finished = finishedSamples(progress, durationS);
+    if (!finished.samples.length) throw new Error("no frames");
+    const line =
+      `${prefix}: ready; requested ${finished.requested}, returned ${finished.samples.length}, ` +
+      `largest gap ${finished.largestGapS.toFixed(3)} s, window ${durationS.toFixed(1)} s (${FACE_SAMPLING.kind}${finished.scanned ? ", frame times scanned" : ""}); ` +
+      `${timing()}; every slice: extract ${progress.extractS.toFixed(1)} s, scan ${progress.scanS.toFixed(1)} s, detect ${progress.detectS.toFixed(1)} s` +
+      (progress.checked ? `, ${(progress.detectS / progress.checked).toFixed(2)} s per frame` : "");
+    if (finished.hole) console.warn(`${line}; the source has no frame in a ${finished.largestGapS.toFixed(3)} s stretch, so the ${FACE_MAX_GAP_S} s gap isn't guaranteed on this clip`);
+    else console.log(line);
+    const kept = await write({ ...base, samples: finished.samples });
+    if (!kept) {
+      console.warn(`${prefix}: finished but the row changed under the claim; not stored`);
+      return "checking";
+    }
     return "ready";
   } catch (err) {
     const message = (err instanceof Error ? err.message : String(err)).slice(0, 300);
-    const body: StoredFaceSamples = { ...base, error: message };
-    await db.from("creative_lab_clips").update({ face_samples: body, face_samples_at: stamp }).eq("id", clipId);
+    console.error(`${prefix}: failed after ${Date.now() - started} ms: ${message.slice(0, 120)}; ${timing()}`);
+    await write({ ...base, error: message }).catch((writeErr: unknown) => {
+      console.error(`${prefix}: storing the failure: ${writeErr instanceof Error ? writeErr.message : String(writeErr)}`);
+    });
     return "failed";
+  } finally {
+    await rm(dir, { recursive: true, force: true });
   }
 }
 

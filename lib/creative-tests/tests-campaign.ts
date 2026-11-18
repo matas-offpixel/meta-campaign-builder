@@ -14,7 +14,6 @@
 
 import { buildCampaignPayload } from "../meta/campaign.ts";
 import type { CampaignObjective } from "../types.ts";
-import { TF1 } from "./budget.ts";
 import { testsCampaignName } from "./words.ts";
 
 export { testsCampaignName };
@@ -138,8 +137,12 @@ export function testsAdSetName(eventCode: string, kind: TestAdSetKind, createdAt
   for (let n = 2; ; n += 1) if (!names.has(`${base} · ${n}`)) return `${base} · ${n}`;
 }
 
-/** How many days a test's ad set runs (TF1's hold). */
-export const TEST_AD_SET_DAYS = TF1.holdDays;
+/**
+ * How many days a test's ad set runs: TF1's hold (budget.ts TF1.holdDays; a test pins the two
+ * together). Written out rather than imported: budget.ts imports the refresh's plan guard, which
+ * imports the refresh's loader, which imports this file, and that cycle breaks at load time.
+ */
+export const TEST_AD_SET_DAYS = 4;
 
 /** London's calendar date of an instant, YYYY-MM-DD. */
 export function londonDay(at: Date): string {

@@ -46,11 +46,26 @@ const nextConfig: NextConfig = {
     // because package.json allowScripts approves ffmpeg-static@5.3.0.
     "/api/cron/creative-lab-drive-pickup": ["./node_modules/ffmpeg-static/ffmpeg", "./node_modules/ffmpeg-static/package.json"],
     "/api/creative-lab/artists/[id]/import-clips": ["./node_modules/ffmpeg-static/ffmpeg", "./node_modules/ffmpeg-static/package.json"],
+    // The Snippet tab reads audio files and cuts snippets with ffmpeg (CT2, CT4, CT5).
+    "/api/creative-lab/events/[eventId]/snippet": ["./node_modules/ffmpeg-static/ffmpeg", "./node_modules/ffmpeg-static/package.json"],
     "/api/cron/creative-lab-render-tick": [
       "./node_modules/ffmpeg-static/ffmpeg",
       "./node_modules/ffmpeg-static/package.json",
-      "./node_modules/@vladmandic/face-api/dist/face-api.esm.js",
+      // Face detection (lib/creative-lab/face-detect.ts) loads face-api's Node wasm build with a runtime
+      // import() the bundler leaves alone, so nothing traces it: the build, the tfjs packages it requires, the
+      // wasm binaries and their own dependencies (about 9 MB), and the models.
+      // scripts/check-face-detect-bundle.mts loads the detector from these traced files alone.
+      "./node_modules/@vladmandic/face-api/package.json",
+      "./node_modules/@vladmandic/face-api/dist/face-api.node-wasm.js",
       "./node_modules/@vladmandic/face-api/model/**/*",
+      "./node_modules/@tensorflow/tfjs*/package.json",
+      "./node_modules/@tensorflow/tfjs*/dist/*.node.js",
+      "./node_modules/@tensorflow/tfjs-backend-wasm/dist/*.wasm",
+      "./node_modules/long/package.json",
+      "./node_modules/long/src/long.js",
+      "./node_modules/seedrandom/package.json",
+      "./node_modules/seedrandom/*.js",
+      "./node_modules/seedrandom/lib/*.js",
     ],
   },
   // render-caption renders on Remotion Lambda from REMOTION_LAMBDA_SERVE_URL

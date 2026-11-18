@@ -20,7 +20,17 @@ export const PURCHASE_CAMPAIGN_SHOTS = [
   { id: "PF4-1280", frame: "onsale/PF4", width: 1280, lab: false, before: null },
 ];
 
+/**
+ * Creative testing's AU-A (picker, 2026-11-16-creative-testing-4.html, which
+ * redraws CT-A) and CT-B (drop marker and preview, 2026-11-16-creative-testing.html)
+ * at 1280 and 393, at
+ * /frames/creative-tests/{id}. Listed here, not in run.mjs, while run.mjs
+ * sits in open PRs.
+ */
+export const SNIPPET_SHOTS = ["AUA", "CTB"].flatMap((frame) => REFRESH_WIDTHS.map((width) => ({ id: `${frame}-${width}`, frame: `creative-tests/${frame}`, width, lab: false, before: null })));
+
 export const REFRESH_SHOTS = [
   ...REFRESH_FRAME_IDS.flatMap((frame) => REFRESH_WIDTHS.map((width) => ({ id: `${frame}-${width}`, frame: `onsale/${frame}`, width, lab: false, before: null }))),
   ...PURCHASE_CAMPAIGN_SHOTS,
+  ...SNIPPET_SHOTS,
 ];

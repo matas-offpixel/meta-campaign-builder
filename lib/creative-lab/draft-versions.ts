@@ -13,6 +13,7 @@
  */
 
 import { rollCallWords } from "../releases/roll-call.ts";
+import { tripleFitSound } from "./triple-fit.ts";
 import type { Release } from "../releases/types.ts";
 import { WATERMARK, approvedClaim, type WarningRow } from "./claim-approval.ts";
 
@@ -70,4 +71,53 @@ export function draftVersions(tiers: readonly Release[], warnings: readonly Warn
       why: inForce ? `approved ticket_warnings ${(approved as { id: string }).id}` : held ? `held ticket_warnings ${held.id.slice(0, 8)}, not approved` : "the event's tiers through the roll-call generator, no claim row (sample)",
     },
   ];
+}
+
+/**
+ * A T1 draft's sound (scripts/t1-video-drafts.mts): the clip's own track unless
+ * the clip's audio_status is muted, triple-fit's rule (tripleFitSound). Until
+ * 17 Nov 2026 every draft was rendered muted, and the P26-BDAY roll-call and
+ * no-CTA edits went to Drive with no audio stream.
+ */
+export function draftSound(clip: { audio_status?: unknown; audio_match?: unknown }): { muted: boolean; flag: string | null } {
+  return tripleFitSound({
+    hasAudio: true,
+    audioMatch: typeof clip.audio_match === "boolean" ? clip.audio_match : null,
+    audioStatus: typeof clip.audio_status === "string" ? clip.audio_status : null,
+  });
+}
+
+/**
+ * `--window '<clip id>=<start s>:<length s>'` on the T1 draft script (Matas, 17 Nov: the r2 edits were 8 s and
+ * cut off before the drop). The start is in the source file's own seconds, not from in_s. Throws on a bad value.
+ */
+export function parseDraftWindows(values: readonly string[]): Map<string, { startS: number; lengthS: number }> {
+  const out = new Map<string, { startS: number; lengthS: number }>();
+  for (const v of values) {
+    const m = /^([^=\s]+)=(\d+(?:\.\d+)?):(\d+(?:\.\d+)?)$/.exec(v);
+    if (!m) throw new Error(`--window ${v}: expected <clip id>=<start s>:<length s>`);
+    const lengthS = Number(m[3]);
+    if (!(lengthS > 0)) throw new Error(`--window ${v}: the length must be over 0 s`);
+    if (out.has(m[1]!)) throw new Error(`--window ${v}: ${m[1]} has two windows`);
+    out.set(m[1]!, { startS: Number(m[2]), lengthS });
+  }
+  return out;
+}
+
+/** The draft's window: the --window override when there is one (it must fit the source), else the first `seconds` from in_s. */
+export function draftWindow(
+  clip: { in_s?: unknown; out_s?: unknown },
+  sourceDurationS: number,
+  seconds: number,
+  override?: { startS: number; lengthS: number },
+): { inS: number; full: number; dur: number } {
+  if (override) {
+    if (override.startS + override.lengthS > sourceDurationS + 1e-6) {
+      throw new Error(`the window ${override.startS}–${override.startS + override.lengthS} s runs past the source's ${sourceDurationS.toFixed(2)} s`);
+    }
+    return { inS: override.startS, full: override.lengthS, dur: override.lengthS };
+  }
+  const inS = Number(clip.in_s ?? 0);
+  const full = Number(clip.out_s ?? sourceDurationS) - inS;
+  return { inS, full, dur: Math.min(seconds, full) };
 }

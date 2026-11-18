@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Lab video window — 17 Nov 2026</title>
+<style>
+:root{
+  --sand:#F0C9A8; --card:#e8d4c0; --edit:#f6ebe0; --paper:#fff8f0; --ink:#1e1810; --ink-2:#4a3d30; --ink-3:#6f6052;
+  --border:rgba(30,24,16,.10); --border-strong:rgba(30,24,16,.18); --muted:rgba(30,24,16,.06);
+  --olive:#4f5a1f; --ochre:#8a560c; --brick:#8f3424;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--sand);color:var(--ink);font:14px/1.5 var(--sans);font-feature-settings:"calt" 0}
+.wrap{max-width:1360px;margin:0 auto;padding:40px 24px 120px}
+h1{font-size:24px;font-weight:600;margin:0 0 6px}
+h2{font-size:20px;font-weight:600;margin:56px 0 8px}
+h3{font-size:13px;font-weight:600;margin:20px 0 6px}
+p{margin:0 0 10px;max-width:86ch}
+.lead{font-size:13px;color:var(--ink-2)}
+.k{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+code{font:12px var(--mono);background:var(--muted);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+figure{margin:0;min-width:0;max-width:100%}
+figcaption{font:700 9px/1.5 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+table.t{border-collapse:collapse;width:100%;font-size:12.5px;margin:10px 0 22px;background:var(--card);border-radius:8px;overflow:hidden;table-layout:fixed}
+table.t th,table.t td{text-align:left;vertical-align:top;padding:8px 12px;border-bottom:1px solid var(--border);overflow-wrap:anywhere}
+table.t th{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.t td:first-child{font-weight:600;width:190px}
+table.t ul{margin:4px 0 0 16px;padding:0}table.t li{margin:0 0 4px}
+.open{background:#f3e3c8;border:1px dashed var(--ochre);border-radius:8px;padding:10px 14px;font-size:12.5px;margin:10px 0 16px}
+.notes{font-size:12.5px;color:var(--ink-2)}.notes li{margin:0 0 6px;max-width:96ch}
+.frame{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start;margin:12px 0 24px}
+.vp{background:var(--paper);border:1px solid var(--border-strong);border-radius:8px;overflow:hidden;max-width:100%;padding:16px;font-size:13px}
+.vp.wide{width:760px}.vp.w393{width:393px}
+.ph{font:700 9px/1.4 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+.h{font-weight:600;font-size:14px;margin:0 0 4px}
+.sub{font-size:12px;color:var(--ink-2);margin:0 0 10px}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 10px}
+.chip{border:1px solid var(--border-strong);border-radius:999px;padding:3px 10px;font-size:12px;background:#fff}
+.chip.on{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.mono{font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase}
+.row{display:grid;grid-template-columns:22px 26px 1fr auto;gap:8px;align-items:center;padding:7px 0;border-top:1px solid var(--border)}
+.row .n{color:var(--ink-3);font:12px var(--mono)}
+.box{width:16px;height:16px;border:1.5px solid var(--ink);border-radius:3px;display:inline-block}
+.box.on{background:var(--ink)}
+.box.off{border-color:var(--ink-3);opacity:.45}
+.fs{font-size:11.5px;color:var(--ink-2)}
+.fs.warn{color:var(--brick)}
+.ok{color:var(--olive)}
+.btn{display:inline-block;border:1px solid var(--ink);border-radius:4px;padding:5px 10px;font:700 10px var(--mono);letter-spacing:.1em;text-transform:uppercase;background:var(--ink);color:var(--paper)}
+.btn.ghost{background:transparent;color:var(--ink)}
+.btn.dis{opacity:.4}
+.wave{position:relative;height:64px;background:repeating-linear-gradient(90deg,var(--ink-3) 0 2px,transparent 2px 5px);border-radius:4px;margin:26px 0 4px;opacity:.9}
+.wave .win{position:absolute;top:-4px;bottom:-4px;border:2px solid var(--ink);background:rgba(232,212,192,.55);border-radius:4px}
+.wave .drop{position:absolute;top:-10px;bottom:-10px;width:2px;background:var(--brick)}
+.wave .drop span{position:absolute;top:-16px;left:-20px;font:700 9px var(--mono);letter-spacing:.1em;color:var(--brick);white-space:nowrap}
+.tl{display:flex;justify-content:space-between;font:11px var(--mono);color:var(--ink-3)}
+.pv{width:150px;height:267px;background:#222;border-radius:6px;position:relative;flex:none;display:flex;align-items:center;justify-content:center;color:#fff;font:700 9px var(--mono);letter-spacing:.12em}
+.pv .play{position:absolute;bottom:10px;left:10px;width:28px;height:28px;border-radius:50%;background:#fff}
+.split{display:flex;gap:16px;align-items:flex-start}
+table.v{border-collapse:collapse;width:100%;font-size:12px;margin:6px 0}
+table.v th{font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);text-align:left;padding:4px 6px;border-bottom:1px solid var(--border-strong)}
+table.v td{padding:6px;border-bottom:1px solid var(--border)}
+table.v td.r,table.v th.r{text-align:right}
+.st{display:inline-block;border:1px solid var(--border-strong);border-radius:10px;padding:2px 8px;font:700 9px/1.5 var(--mono);letter-spacing:.1em;text-transform:uppercase}
+.st.run{border-style:dashed}
+.st.win{background:var(--olive);color:#fff;border-color:var(--olive)}
+.test{border:1px solid var(--border);border-radius:6px;padding:10px 12px;margin:8px 0;background:#fff}
+.test.dim{opacity:.55}
+.line{background:var(--card);border-radius:6px;padding:8px 10px;margin:6px 0;font-size:12px}
+.inv{text-decoration:underline dotted var(--brick);text-decoration-thickness:1.5px;text-underline-offset:3px}
+table.t table.t td:first-child{width:auto;font-weight:400}
+@media (max-width:560px){table.t th[style]{width:100px!important}table.t td:first-child{width:100px}}
+.st.fail{border-color:var(--brick);color:var(--brick)}
+.line .acts{float:right;font:700 9px var(--mono);letter-spacing:.1em;text-transform:uppercase}
+.line.wait{opacity:.6}
+.line.failed{border:1px solid var(--brick);background:#f6e3dc}
+.tick{display:inline-block;width:11px;height:11px;border:1.5px solid var(--ink);border-radius:2px;margin-right:6px;vertical-align:-1px}
+.tick.on{background:var(--ink)}
+.bar{display:inline-block;height:8px;background:var(--ink-3);border-radius:2px;vertical-align:middle;margin-right:6px}
+.sbar{position:relative;display:inline-block;width:100px;height:8px;background:var(--muted);border-radius:2px;vertical-align:middle;margin-right:8px}
+.sbar i{position:absolute;left:0;top:0;bottom:0;background:var(--ink-3);border-radius:2px}
+.sbar i.lead{background:var(--olive)}
+.sbar b{position:absolute;left:60px;top:-3px;bottom:-3px;width:1px;background:var(--ink)}
+.sbar s{position:absolute;left:10px;top:-3px;bottom:-3px;width:1px;background:var(--ink-3);opacity:.6}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<p class="k">Off/Pixel · design record · creative lab · video window · 17 November 2026</p>
+<h1>Every Lab video edit is 15–20 s, with the drop 3–5 s in</h1>
+<p class="lead">Matas's rule of 17 Nov for every Lab video edit (T1 and its roll-call on a clip, T2 on a promoter clip, no-CTA edits, UGC captions and quotes, and the triple-fit): 15–20 s long, with the main drop 3–5 s from the start, found by an audio transient in the clip's own sound. The Lab's window picker builds to this record.</p>
+<ul class="notes">
+<li><b>Replaced:</b> O109's "length the stored window ≥ 6 s" for the triple-fit. Its window is now VW2's.</li>
+<li><b>Stands:</b> O37's claim timing, O39's face limits, O63 and O68's render copy, O93–O96's 9:16 rules, C1–C4's caption placement and O110's own track. CT1's audio snippet statics keep their own rule: the drop is found in the chosen track, not the clip, and CT1's 16 s from 4 s before the drop already sits inside VW2.</li>
+<li><b>Invented:</b> the clip names, times and dB figures are <span class="inv">invented</span>.</li>
+</ul>
+
+<h2>Rulings</h2>
+<table class="t">
+<tr><th style="width:190px">#</th><th>Ruling</th></tr>
+
+<tr><td>VW1 · Finding the drop</td><td>
+<p>The drop is found in the clip's own sound, on the render copy (O68), when the clip is imported.</p>
+<ul>
+<li><b>Two measures,</b> on a mono mix in 50 ms steps:
+<ul>
+<li>loudness (short-term RMS, in dB);</li>
+<li>onset strength (how sharply the sound's spectrum changes; a kick, a snare or the bass coming in).</li>
+</ul></li>
+<li><b>A candidate</b> is a moment where:
+<ul>
+<li>the 2 s after it are at least 6 dB louder than the 2 s before it (the rise);</li>
+<li>and an onset peak sits within 0.1 s of it. The drop's time is that onset peak.</li>
+</ul>
+Candidates closer than 4 s to each other are one candidate, the larger rise kept.</li>
+<li><b>The main drop</b> is the candidate with the largest rise in the whole clip. Two within 1 dB of each other: the earlier one wins, as it leaves more after it.</li>
+<li><b>Stored on the clip:</b> the main drop's time and rise, and every other candidate with its time and rise. It's found again if the render copy changes.</li>
+</ul></td></tr>
+
+<tr><td>VW2 · Choosing the window</td><td>
+<ul>
+<li><b>The default:</b> the window starts 4.0 s before the main drop and runs 16 s, the same shape as CT1.</li>
+<li><b>Short of the start:</b> when the drop is under 4.0 s from the clip's start, the window starts at the clip's start. The drop then sits 3.0–4.0 s in.</li>
+<li><b>Short of the end:</b> when the clip ends inside those 16 s, the window shortens to the clip's end, down to 15 s.</li>
+<li><b>Still short:</b> when it's still under 15 s, the window starts earlier, which puts the drop up to 5.0 s in, until it's 15 s long.</li>
+<li><b>The limits:</b> the drop is always 3.0–5.0 s from the window's start, and the window is always 15–20 s. So a clip needs at least 3 s of sound before the drop and 10 s after it.</li>
+<li><b>One window per clip.</b> Every video edit of the clip uses it, so a roll-call, a caption edit and a no-CTA edit of the same clip cut the same 15–20 s.</li>
+<li><b>Inside the window:</b> times are counted from the window's start. O37's claim enters at 1.5 s, before the drop. C2's caption in-points, O39's face test and O63's crop all read the window, not the whole clip.</li>
+</ul></td></tr>
+
+<tr><td>VW3 · When a clip can't make an edit</td><td>
+<p>Checked at import, in this order. The first that fails is the one shown. The clip keeps its other uses (stills, the asset bank), but it isn't offered for any video edit.</p>
+<table class="t" style="margin:6px 0 10px">
+<tr><th style="width:190px">Tile chip</th><th>Sentence (window picker and render row)</th></tr>
+<tr><td>No sound</td><td>"This clip has no sound, so there's no drop to build the edit on."</td></tr>
+<tr><td>Too short for an edit</td><td>"This clip is {n.n} s long. An edit needs 15 s, with 3 s before the drop and 10 s after it."</td></tr>
+<tr><td>No clear drop</td><td>"No clear drop in this clip's sound, so it can't make a 15–20 s edit. Choose another clip."</td></tr>
+<tr><td>Drop too soon</td><td>"The main drop is {n.n} s in. An edit needs 3 s before it."</td></tr>
+<tr><td>Too little after the drop</td><td>"Only {n.n} s after the main drop at {m:ss.s}. An edit needs 10 s after it."</td></tr>
+</table>
+<ul>
+<li><b>No sound</b> is no audio stream, or the whole clip under −50 LUFS.</li>
+<li><b>No clear drop</b> means no candidate reaches a 6 dB rise.</li>
+<li><b>Another drop.</b> For "Drop too soon" and "Too little after the drop", when another candidate fits VW2's limits, the sentence adds an action: "Use the drop at {m:ss.s}". The tile chip stays until it's used.</li>
+<li>Existing clips are checked once, by a backfill, and get the same chips.</li>
+</ul></td></tr>
+
+<tr><td>VW4 · The operator's nudge</td><td>
+<p>Yes, inside the rule. The window picker on the clip offers three things, and nothing can take the window outside VW2's limits.</p>
+<ul>
+<li><b>Drop in at:</b> 3.0–5.0 s, in 0.1 s steps. This slides the window; the drop itself doesn't move.</li>
+<li><b>Length:</b> 15–20 s, in 1 s steps, never past the clip's end.</li>
+<li><b>Which drop:</b> the main drop, or any other candidate that fits VW2, each with its time and rise. Matas can choose a quieter drop than the main one.</li>
+<li><b>Never a drop by hand.</b> A drop is always one the sound shows. A clip with no clear drop stays refused, whatever the operator would mark.</li>
+<li><b>Back to the detected window</b> resets all three.</li>
+<li>A change re-renders that clip's video drafts. Approved renders are kept and never replaced (VW6).</li>
+</ul></td></tr>
+
+<tr><td>VW5 · The picker's words</td><td>
+<ul>
+<li><b>Heading:</b> "Edit window".</li>
+<li><b>Summary:</b> "Drop at {m:ss.s} · {n.n} s in · {len} s long". When the operator has changed it, add " · set by hand".</li>
+<li><b>Drops:</b> "Main drop {m:ss.s} · rises {n} dB". Others read "{m:ss.s} · rises {n} dB" with "Use this drop", and a candidate that can't fit adds "· doesn't fit".</li>
+<li><b>Controls:</b> "Drop in at" and "Length", then "Back to the detected window".</li>
+<li><b>The waveform</b> marks the window and the drop, as CT4's drop marker does, with the drop labelled "DROP".</li>
+<li><b>Phone:</b> the same, stacked. The waveform is full width, and the two controls are steppers.</li>
+</ul></td></tr>
+
+<tr><td>VW6 · What changes on existing work</td><td>
+<ul>
+<li>Approved video renders are kept as they are. Nothing approved is re-rendered or replaced.</li>
+<li>Drafts made before this rule are re-cut to VW2's window the next time they're rendered.</li>
+<li>A triple-fit's three parts share one VW2 window (O109's shared window, now 15–20 s).</li>
+</ul></td></tr>
+</table>
+
+<h2>Frames</h2>
+
+<div class="frame">
+<figure><figcaption>VW-A · 1280 · the window picker on a clip · detected window</figcaption>
+<div class="vp wide">
+<div class="h">Edit window · XMPL clip 07</div>
+<div class="fs">Drop at 0:16.4 · 4.0 s in · 16 s long</div>
+<div class="wave">
+<div class="win" style="left:29.5%;width:38.1%"></div>
+<div class="drop" style="left:39.0%"><span>DROP</span></div>
+<div class="drop" style="left:74.3%;opacity:.35"></div></div>
+<div class="tl"><span>0:00</span><span>0:10</span><span>0:20</span><span>0:30</span><span>0:42</span></div>
+<table class="v" style="margin-top:14px">
+<tr><td style="width:220px"><b>Main drop 0:16.4</b> · rises 11 dB</td><td class="fs">in use</td></tr>
+<tr><td>0:31.2 · rises 8 dB</td><td><span class="btn ghost">Use this drop</span></td></tr>
+</table>
+<div class="split" style="margin-top:12px">
+<div>
+<div class="ph">Drop in at</div><span class="chip">−</span> <b>4.0 s</b> <span class="chip">+</span> <span class="fs">3.0–5.0 s</span></div>
+<div>
+<div class="ph">Length</div><span class="chip">−</span> <b>16 s</b> <span class="chip">+</span> <span class="fs">15–20 s</span></div>
+</div>
+<div style="margin-top:12px"><span class="btn ghost dis">Back to the detected window</span></div>
+</div></figure>
+<figure><figcaption>VW-A · 393 · the same</figcaption>
+<div class="vp w393">
+<div class="h">Edit window · XMPL clip 07</div>
+<div class="fs">Drop at 0:16.4 · 4.0 s in · 16 s long</div>
+<div class="wave">
+<div class="win" style="left:29.5%;width:38.1%"></div>
+<div class="drop" style="left:39.0%"><span>DROP</span></div>
+<div class="drop" style="left:74.3%;opacity:.35"></div></div>
+<div class="tl"><span>0:00</span><span>0:20</span><span>0:42</span></div>
+<div class="line"><b>Main drop 0:16.4</b> · rises 11 dB · in use</div>
+<div class="line">0:31.2 · rises 8 dB <span class="acts">Use this drop</span></div>
+<div class="ph" style="margin-top:10px">Drop in at</div>
+<div><span class="chip">−</span> <b>4.0 s</b> <span class="chip">+</span> <span class="fs">3.0–5.0 s</span></div>
+<div class="ph" style="margin-top:10px">Length</div>
+<div><span class="chip">−</span> <b>16 s</b> <span class="chip">+</span> <span class="fs">15–20 s</span></div>
+<div style="margin-top:12px"><span class="btn ghost dis">Back to the detected window</span></div>
+</div></figure>
+</div>
+
+<div class="frame">
+<figure><figcaption>VW-B · 393 · clips that can't make an edit, one per state</figcaption>
+<div class="vp w393">
+<div class="test"><span class="st fail">No sound</span>
+<div class="fs" style="margin-top:6px">This clip has no sound, so there's no drop to build the edit on.</div></div>
+<div class="test"><span class="st fail">Too short for an edit</span>
+<div class="fs" style="margin-top:6px">This clip is 12.6 s long. An edit needs 15 s, with 3 s before the drop and 10 s after it.</div></div>
+<div class="test"><span class="st fail">No clear drop</span>
+<div class="fs" style="margin-top:6px">No clear drop in this clip's sound, so it can't make a 15–20 s edit. Choose another clip.</div></div>
+<div class="test"><span class="st fail">Drop too soon</span>
+<div class="fs" style="margin-top:6px">The main drop is 1.8 s in. An edit needs 3 s before it.</div>
+<div style="margin-top:6px"><span class="btn ghost">Use the drop at 0:09.0</span></div></div>
+<div class="test"><span class="st fail">Too little after the drop</span>
+<div class="fs" style="margin-top:6px">Only 6.2 s after the main drop at 0:24.8. An edit needs 10 s after it.</div></div>
+</div></figure>
+</div>
+
+<h2>Expected figures</h2>
+<ul class="notes">
+<li><b>VW-A:</b> XMPL clip 07 is 42.0 s.
+<ul>
+<li>Main drop at 16.4 s, rising 11 dB. Window 12.4–28.4 s: 16 s long, drop 4.0 s in.</li>
+<li>The other candidate, at 31.2 s rising 8 dB, has 31.2 s before it and 10.8 s after it, so it fits and offers "Use this drop".</li>
+</ul></li>
+<li><b>VW-B:</b>
+<ul>
+<li>12.6 s is under 15 s.</li>
+<li>A drop at 1.8 s has under 3 s before it. The candidate at 9.0 s fits.</li>
+<li>A drop at 24.8 s in a 31.0 s clip leaves 6.2 s, under 10 s, and no other candidate fits.</li>
+</ul></li>
+</ul>
+
+<h2>Acceptance</h2>
+<ul class="notes">
+<li><b>Detection:</b> VW1 runs on the render copy at import and at backfill, and the drop and candidates are stored on the clip. A test on fixture audio asserts a 6 dB rise with an onset is found within 0.1 s, a 5 dB rise isn't, and the earlier of two within 1 dB wins.</li>
+<li><b>The window:</b> every video render's window follows VW2: 15–20 s, drop 3.0–5.0 s in, one window per clip, and times counted from its start.</li>
+<li><b>Refusals:</b> VW3's chips and sentences are exact, in VW3's order. A refused clip isn't offered for a video edit, and "Use the drop at {m:ss.s}" appears only when another candidate fits.</li>
+<li><b>The nudge:</b> stays inside VW2's limits. There's no way to mark a drop by hand, and changing it re-renders drafts only.</li>
+<li><b>Frames:</b> VW-A at 1280 and 393 and VW-B at 393, from fixtures with these figures.</li>
+</ul>
+
+<h2>Hand-back</h2>
+<table class="t">
+<tr><th style="width:190px">Piece</th><th>Build</th></tr>
+<tr><td>HV1 · Detection</td><td>
+<ul>
+<li>Loudness and onset strength at import, on the render copy.</li>
+<li>Candidates, the main drop, and the stored fields on the clip.</li>
+<li>A backfill for existing clips, dry run by default.</li>
+</ul></td></tr>
+<tr><td>HV2 · The window</td><td>
+<ul>
+<li>VW2's default and its limits.</li>
+<li>One window per clip, read by every video render: Remotion locally and on Lambda, T1, T2, captions, quotes and the triple-fit.</li>
+</ul></td></tr>
+<tr><td>HV3 · Refusals</td><td>VW3's checks, chips and sentences. "Use the drop at…". Refused clips leave the video pairing and rounds, as "Too small for 9:16" does (O93).</td></tr>
+<tr><td>HV4 · The picker</td><td>VW4 and VW5 on the clip, at 1280 and 393. A change re-renders drafts only.</td></tr>
+<tr><td>HV5 · Frames</td><td>VW-A and VW-B. Baselines after design-pass.</td></tr>
+</table>
+
+<h2>Invented here</h2>
+<ul class="notes">
+<li>The detection: 50 ms steps, the 2 s before and after, the 6 dB rise, the onset within 0.1 s, the 4 s merge, and the earlier of two within 1 dB. These are the build's starting values, for Matas to tune on real clips.</li>
+<li>−50 LUFS for "no sound".</li>
+<li>Steps for the window: 16 s at 4.0 s in by default, then shorten to 15 s, then start earlier up to 5.0 s in.</li>
+<li>One window per clip, and no drop marked by hand.</li>
+<li>Every chip and sentence in VW3 and VW5, and the XMPL clips.</li>
+</ul>
+
+</div>
+</body>
+</html>
