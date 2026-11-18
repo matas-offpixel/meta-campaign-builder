@@ -716,6 +716,21 @@ REMOTION_LAMBDA_SERVE_URL=
 > panel shows one note. Lists uploaded with a role (Signups, Similar,
 > Buyers) and a show are `meta_custom_audiences` rows (`customer_list`,
 > `list_role`, migration 256).
+> PR B (RT3, RT5, RT7): once the campaign runs, the read also asks Meta, per
+> show, for the campaign's status and its tier ad sets' daily budgets
+> (`GET /{campaign}`), their 7-day frequency (`/insights`, `level=adset`) and
+> each tier's delivery estimate (`/{adset}/delivery_estimate`), counted in
+> `meta_calls`; spend and attributed purchases come from `ad_daily_insights`
+> (`lib/retargeting/delivery.ts`). `lib/retargeting/moves.ts` proposes at most
+> one Move or Cut a read (cost per attributed purchase only; room = average
+> daily spend × 4 ÷ frequency; a cut at frequency 6 back to 4), stored as a
+> `move_budget` line (`write.kind` `retargeting_move` / `retargeting_cut`,
+> `amountGbp` = the daily move × 7, so the refresh's move apply and R5's cap
+> apply unchanged; a cut with no receiver writes one side). Holds and
+> "No move today" are notes. "{code} · Retargeting is off." when Meta says it
+> isn't ACTIVE, with no budget line. The read runs through show week to the
+> show day (RT7). RT6's step heights are unset (`lib/retargeting/steps.ts`);
+> the footer shows only the next step's date.
 
 > **`ENABLE_GOOGLE_ADS_DAILY_INSIGHTS`** must be exactly `"1"` to activate
 > `/api/cron/google-ads-daily-insights` (04:00 UTC). Unset = 200 with

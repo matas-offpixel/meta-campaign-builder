@@ -187,6 +187,11 @@ export function movedText(amountGbp: number): string {
   return `£${amountGbp.toFixed(2)} a week moved`;
 }
 
+/** RT5 (Retargeting) moves are daily: "£2.99 a day moved"; a cut with no receiver, "£4.50 a day back to the plan". */
+export function dailyMovedText(deltaMinor: number, backToPlan = false): string {
+  return `£${(deltaMinor / 100).toFixed(2)} a day ${backToPlan ? "back to the plan" : "moved"}`;
+}
+
 function adName(fileName: string): string {
   return fileName.replace(/\.[a-z0-9]{2,5}$/i, "").slice(0, 380) || "Ad";
 }
@@ -405,7 +410,7 @@ async function applyAdSetStatus(deps: ApplyDeps, line: LineRow, ledger: MetaWrit
   return { state: "applied", reason: appliedText(line.kind, 1), result: { adsetId, status, before: now.status ?? null, effectiveBefore: now.effectiveStatus ?? null, wrote: true } };
 }
 
-type MovePlan = { fromAdsetId: string; toAdsetId: string; deltaMinor: number; from: { before: number; after: number }; to: { before: number; after: number } };
+type MovePlan = { fromAdsetId: string; toAdsetId: string | null; deltaMinor: number; from: { before: number; after: number }; to: { before: number; after: number } | null };
 
 /**
  * A within-campaign move through the optimisation budget write: the giving
@@ -421,22 +426,23 @@ async function applyMove(deps: ApplyDeps, line: LineRow, ledger: MetaWriteContex
   const fromAdsetId = typeof write.fromAdsetId === "string" ? write.fromAdsetId : null;
   const toAdsetId = typeof write.toAdsetId === "string" ? write.toAdsetId : null;
   const amount = num(write.amountGbp);
-  if (!fromAdsetId || !toAdsetId || amount <= 0) return { state: "failed", reason: "The line has no ad sets or amount to move.", result: {} };
-  const [from, to] = await Promise.all([deps.meta.readAdSet(fromAdsetId), deps.meta.readAdSet(toAdsetId)]);
-  for (const set of [from, to]) {
+  // RT5 (Retargeting): a cut with no receiver lowers one ad set and the money goes back to the plan.
+  const oneSided = write.kind === "retargeting_cut" && !toAdsetId;
+  const daily = write.kind === "retargeting_move" || write.kind === "retargeting_cut";
+  if (!fromAdsetId || (!toAdsetId && !oneSided) || amount <= 0) return { state: "failed", reason: "The line has no ad sets or amount to move.", result: {} };
+  const [from, to] = await Promise.all([deps.meta.readAdSet(fromAdsetId), toAdsetId ? deps.meta.readAdSet(toAdsetId) : Promise.resolve(null)]);
+  for (const set of oneSided ? [from] : [from, to]) {
     if (!set?.campaignId || !guard.campaignIds.includes(set.campaignId)) return { state: "failed", reason: "One of the ad sets isn't in this campaign any more, so nothing was moved.", result: { fromAdsetId, toAdsetId } };
   }
-  if (from!.dailyBudget == null || to!.dailyBudget == null) return { state: "failed", reason: "The budget is set on the campaign or as a lifetime budget, so ad-set budgets can't be moved.", result: { fromAdsetId, toAdsetId } };
+  if (from!.dailyBudget == null || (!oneSided && to!.dailyBudget == null)) return { state: "failed", reason: "The budget is set on the campaign or as a lifetime budget, so ad-set budgets can't be moved.", result: { fromAdsetId, toAdsetId } };
   const previous = (line.applied_result?.plan ?? (line.applied_result?.previous as Record<string, unknown> | undefined)?.plan) as MovePlan | undefined;
   const deltaMinor = moveDeltaMinor(amount);
-  const plan: MovePlan = previous?.fromAdsetId === fromAdsetId && previous.toAdsetId === toAdsetId
+  const plan: MovePlan = previous?.fromAdsetId === fromAdsetId && (previous.toAdsetId ?? null) === toAdsetId
     ? previous
-    : { fromAdsetId, toAdsetId, deltaMinor, from: { before: from!.dailyBudget, after: from!.dailyBudget - deltaMinor }, to: { before: to!.dailyBudget, after: to!.dailyBudget + deltaMinor } };
+    : { fromAdsetId, toAdsetId, deltaMinor, from: { before: from!.dailyBudget, after: from!.dailyBudget - deltaMinor }, to: to && toAdsetId ? { before: to.dailyBudget!, after: to.dailyBudget! + deltaMinor } : null };
   if (plan.from.after < MIN_DAILY_BUDGET_MINOR) return { state: "failed", reason: "Moving it would take the giving ad set under £1.00 a day, the floor we keep, so nothing was moved.", result: { plan } };
-  const sides: [string, { before: number; after: number }, number][] = [
-    [fromAdsetId, plan.from, from!.dailyBudget],
-    [toAdsetId, plan.to, to!.dailyBudget],
-  ];
+  const sides: [string, { before: number; after: number }, number][] = [[fromAdsetId, plan.from, from!.dailyBudget]];
+  if (plan.to && toAdsetId) sides.push([toAdsetId, plan.to, to!.dailyBudget!]);
   const written: string[] = [];
   for (const [adsetId, side, live] of sides) {
     if (live === side.after) continue;
@@ -451,7 +457,7 @@ async function applyMove(deps: ApplyDeps, line: LineRow, ledger: MetaWriteContex
       return { state: "failed", reason: written.length ? `Only the giving side moved — ${plainMetaReason(err)}` : plainMetaReason(err), result: { plan, written, error: err instanceof Error ? err.message : String(err) } };
     }
   }
-  return { state: "applied", reason: movedText(amount), result: { plan, written, amountGbp: amount } };
+  return { state: "applied", reason: daily ? dailyMovedText(deltaMinor, oneSided) : movedText(amount), result: { plan, written, amountGbp: amount } };
 }
 
 /**

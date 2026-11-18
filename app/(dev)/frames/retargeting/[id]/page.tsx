@@ -4,10 +4,10 @@ import { RetargetingFrameMount } from "@/components/dashboard/events/retargeting
 import { RETARGETING_FRAME_IDS } from "@/scripts/plan-frames/retargeting-fixtures";
 
 /**
- * The Retargeting campaign frames at /frames/retargeting/{id}: RB and RD of
- * docs/design-record/2026-11-17-retargeting-campaign.html (PR A). RA lands
- * with PR B (the tiers' figures, holds and moves) and RC with PR C (cuts
- * and steps). A nested route under the shared /frames/ prefix, while
+ * The Retargeting campaign frames at /frames/retargeting/{id}: RA (PR B:
+ * the tiers' figures, a hold and a move), RB and RD (PR A) of
+ * docs/design-record/2026-11-17-retargeting-campaign.html. RC lands with
+ * PR C (a cut and the steps). A nested route under the shared /frames/ prefix, while
  * app/(dev)/frames/[id]/page.tsx sits in an open Cursor PR.
  */
 export function generateStaticParams() {

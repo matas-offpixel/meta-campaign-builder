@@ -1,18 +1,29 @@
 "use client";
 
 import { OnSaleRefreshPanelView } from "@/components/dashboard/events/onsale-refresh-panel";
-import { rbLine, rbView, rdStates, RD_PROPOSALS } from "@/scripts/plan-frames/retargeting-fixtures";
+import { raBudgetLines, raPlan, rbLine, rbView, rdStates, RD_PROPOSALS } from "@/scripts/plan-frames/retargeting-fixtures";
 
 import { RetargetingPanelView } from "./retargeting-panel";
 
 /**
- * RB (a new show's Create line with all three missing states) and RD (the
+ * RA (a running campaign's tiers, with a hold and a move), RB (a new
+ * show's Create line with all three missing states) and RD (the
  * on-sale panel's one Retargeting note, then the not-proposed states) from
  * fixtures, at the width the runner opens. Read-only and in Shadow, as the
  * record draws them. data-frame-ready carries the shot's frame
  * ("retargeting/RB"), which scripts/plan-frames/run.mjs waits for.
  */
 export function RetargetingFrameMount({ id }: { id: string }) {
+  if (id === "RA") {
+    const plan = raPlan();
+    return (
+      <main data-frame-ready="retargeting/RA" className="min-h-screen bg-background p-4 text-foreground sm:p-8">
+        <div className="mx-auto max-w-[72rem]">
+          <RetargetingPanelView view={plan.view} budgetLines={raBudgetLines(plan)} clientId="xmpl-client" eventId="xmpl-whse" mode="shadow" />
+        </div>
+      </main>
+    );
+  }
   if (id === "RB") {
     const view = rbView();
     return (

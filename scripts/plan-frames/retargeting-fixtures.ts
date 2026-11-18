@@ -11,6 +11,13 @@
  *     signup list, a lineup page with no role (Mira Vale, so 3 of 4 pages)
  *     and no buyers list. Before Apply every pool reads "Known after create"
  *     (RT3, revised 17 Nov).
+ * RA: XMPL-WHSE's running campaign, read Tue 17 Nov (PR B): current daily
+ *     spend £240.00 (£1,680.00 over 10–16 Nov), so £24.00 a day is 10 %,
+ *     on £12.00 / £6.00 / £6.00. The 7 days: Bottom £82.40 ÷ 16 = £5.15 at
+ *     frequency 4.3, Mid Bottom £41.60 ÷ 5 = £8.32 at 2.2, Mid £41.90 ÷ 2 =
+ *     £20.95 at 1.6; £165.90 ÷ 23 = £7.21. Bottom is cheapest but held
+ *     (frequency 4.3); Mid gives half its £5.99 a day, £2.99, to Mid Bottom
+ *     (room £10.80). Final month from Thu 19 Nov; payday from Thu 26 Nov.
  * RD: RA's show (XMPL-WHSE) on the on-sale panel: its Registrations
  *     lookalike standing default, and the one note in place of the
  *     per-campaign Retargeting default (RT9). Under it, the eight
@@ -28,7 +35,7 @@ import { planRetargeting, retargetingBeforeOnSale, type RetargetingInput, type R
 import { runsInOwnCampaign } from "../../lib/retargeting/words.ts";
 import { OR6_PROPOSALS } from "./refresh-fixtures.ts";
 
-export const RETARGETING_FRAME_IDS = ["RB", "RD"] as const;
+export const RETARGETING_FRAME_IDS = ["RA", "RB", "RD"] as const;
 
 const TODAY = "2026-11-17";
 
@@ -93,6 +100,74 @@ function input(overrides: Partial<RetargetingInput>): RetargetingInput {
     today: TODAY,
     ...overrides,
   };
+}
+
+/** RA: the running panel with a hold and a move, read Tue 17 Nov. */
+export function raPlan() {
+  return planRetargeting(
+    input({
+      eventId: "xmpl-whse",
+      eventCode: "XMPL-WHSE",
+      eventDate: "2026-12-19",
+      onSaleDay: "2026-11-06",
+      last7SpendGbp: 1680,
+      sources: {
+        pixelId: "1067726194205285",
+        ticketUrl: "skiddle.com/whats-on/xmpl-whse",
+        pageUrl: "xmpl-whse.example/tickets",
+        videos: [{ contextId: "", videoIds: ["pending"] }],
+        pages: [
+          { id: "p1", name: "XMPL Promotions", igId: "ig1", kind: "promoter", hasRole: true },
+          { id: "p2", name: "The Warehouse", igId: "ig2", kind: "venue", hasRole: true },
+          { id: "p3", name: "Ada North", igId: "ig3", kind: "lineup", hasRole: true },
+          { id: "p4", name: "Mira Vale", igId: "ig4", kind: "lineup", hasRole: true },
+        ],
+        lists: [
+          { metaAudienceId: "l1", name: "XMPL-WHSE signups", role: "signups", uploadedAt: "2026-11-12T10:00:00Z" },
+          { metaAudienceId: "l2", name: "Tech house data", role: "similar", uploadedAt: "2026-11-09T10:00:00Z" },
+          { metaAudienceId: "l3", name: "House data", role: "similar", uploadedAt: "2026-11-09T10:00:00Z" },
+          { metaAudienceId: "l4", name: "XMPL-WHSE buyers", role: "buyers", uploadedAt: "2026-11-14T10:00:00Z" },
+        ],
+      },
+      existing: {
+        campaignId: "120000000000000010",
+        since: "2026-11-10",
+        totalMinor: 2400,
+        share: 10,
+        live: {
+          status: "ACTIVE",
+          tiers: {
+            bottom: { adsetId: "120000000000000011", dailyMinor: 1200, frequency: 4.3, pool: "3,900–4,600", spendMinor: 8240, purchases: 16 },
+            mid_bottom: { adsetId: "120000000000000012", dailyMinor: 600, frequency: 2.2, pool: "6,300–7,400", spendMinor: 4160, purchases: 5 },
+            mid: { adsetId: "120000000000000013", dailyMinor: 600, frequency: 1.6, pool: "180,000–212,000", spendMinor: 4190, purchases: 2 },
+          },
+        },
+      },
+      legacy: [],
+    }),
+  );
+}
+
+/** RA's Move, To review, as the daily read writes it (a move_budget line). */
+export function raBudgetLines(plan = raPlan()): PanelLine[] {
+  const line = plan.budget;
+  if (!line) return [];
+  return [
+    {
+      id: "ra-move",
+      kind: "move_budget",
+      title: line.title,
+      detail: line.detail,
+      writeText: line.writeText,
+      narrow: { detail: line.narrow, writeText: null },
+      addsSpend: false,
+      blockedReason: null,
+      supply: false,
+      state: "to_review",
+      reason: null,
+      writeKind: line.write.kind,
+    },
+  ];
 }
 
 /** RB: the Create line with all three missing states, before Apply. */

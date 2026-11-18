@@ -26,6 +26,9 @@
 import type { PurchaseRead } from "../onsale-refresh/purchases.ts";
 import { campaignFloor, shortCampaign } from "../onsale-refresh/purchase-campaign.ts";
 import { midBuildable, pagesWithoutRole, tierSpecs, usablePages, type SourceSet } from "./audiences.ts";
+import { isOff } from "./delivery.ts";
+import { costOf, planBudget, type BudgetLine, type BudgetNote, type TierFigures } from "./moves.ts";
+import { nextSteps, stepHeightsSet } from "./steps.ts";
 import { currentDailyMinor, daysToShow, fundHold, isShare, RT4, startingBudget, type Funding, type Share, type Starting } from "./budget.ts";
 import {
   audiencesNarrow,
@@ -38,6 +41,8 @@ import {
   holdLine,
   leavesOut,
   legacyAdSets,
+  nextStepLine,
+  retargetingOff,
   MID_NOT_BUILT,
   NO_FIGURE,
   NO_PIXEL,
@@ -67,7 +72,8 @@ import {
 export type RetargetingState = "before_onsale" | "no_pixel" | "sells_elsewhere" | "nothing_reaches" | "no_purchases" | "no_url" | "not_read" | "no_signal" | "no_spend" | "proposed" | "running";
 
 /** An RT8 action opens the client page's customer-audience wizard with this role and this show chosen. */
-export type MissingLine = { text: string; narrow: string; actions: { label: string; role: "signups" | "buyers" }[] };
+/** `muted`: drawn in the muted colour, not brick (a buyers list under 7 days old, design 17 Nov). */
+export type MissingLine = { text: string; narrow: string; actions: { label: string; role: "signups" | "buyers" }[]; muted?: boolean };
 
 export type TierRow = {
   tier: Tier;
@@ -84,6 +90,8 @@ export type TierRow = {
   /** 7-day cost per attributed purchase, £; null before it runs. */
   cost: number | null;
   purchases: number | null;
+  /** 7-day spend, pence, once it runs: spend with no purchase reads "No purchase yet". */
+  spendMinor?: number | null;
   missing: MissingLine[];
 };
 
@@ -123,9 +131,30 @@ export type RetargetingView = {
   tiers: TierRow[];
   /** RT8 lines that affect every tier (buyers), under the table. */
   notes: MissingLine[];
-  /** Running: RT3's header lines. */
-  running: { totalMinor: number; share: number; since: string; showDay: string } | null;
+  /** Running: RT3's header lines, and what the daily read found (RT5, RT6's footer, RT9's "is off"). */
+  running: RunningView | null;
 };
+
+export type RunningView = {
+  totalMinor: number;
+  share: number;
+  since: string;
+  showDay: string;
+  /** RT9: "{code} · Retargeting is off." when Meta says it isn't delivering. */
+  off?: string | null;
+  /** RT3's total row: the campaign's 7 days. */
+  total?: { spentMinor: number; budgetMinor: number; cost: number | null; purchases: number } | null;
+  /** RT5: holds (notes, nothing to accept). */
+  holds?: BudgetNote[];
+  /** RT5: "No move today: …". */
+  note?: string | null;
+  /** RT6's footer: "Next step: …". */
+  nextStep?: string | null;
+};
+
+/** What the daily read gathered for a running campaign, per tier (Meta's figures plus ad_daily_insights' 7 days). */
+export type LiveTier = { adsetId: string; dailyMinor: number | null; frequency: number | null; pool: string | null; spendMinor: number; purchases: number };
+export type LiveRead = { status: string | null; tiers: Partial<Record<Tier, LiveTier>> };
 
 export type RetargetingMain = {
   campaignKey: string;
@@ -149,7 +178,7 @@ export type RetargetingInput = {
   minDailyMinor: number | null;
   sources: SourceSet;
   /** The show's `{code} · Retargeting` campaign, whatever its status; null when it has none. */
-  existing: { campaignId: string | null; since: string | null; totalMinor: number | null; share: number | null; tiers?: Partial<Record<Tier, number>> } | null;
+  existing: { campaignId: string | null; since: string | null; totalMinor: number | null; share: number | null; tiers?: Partial<Record<Tier, number>>; live?: LiveRead | null } | null;
   /** Delivering ad sets with "retarget" in their name, per campaign of the show (not this one). */
   legacy: { campaign: string; adSets: number }[];
   budgetGbp: number | null;
@@ -197,6 +226,8 @@ export type RetargetingPlan = {
   takes: boolean;
   view: RetargetingView;
   build: RetargetingBuild | null;
+  /** RT5: the read's one Move or Cut, when it runs. */
+  budget?: BudgetLine | null;
   /** Accept is held for every share: no ads to reuse, no draft. */
   held: string | null;
 };
@@ -274,7 +305,8 @@ export function tierRows(input: Pick<RetargetingInput, "sources"> & { today?: st
     const age = Math.max(0, daysBetween(latest, input.today ?? latest));
     const text = buyersListAge(latest, age);
     // RT8: the two hand-uploaded list lines, as the record writes them.
-    notes.push({ text, narrow: text, actions: [] });
+    // Design (17 Nov): a fresh list reads muted; it turns brick from 7 days, when it says to upload it again.
+    notes.push({ text, narrow: text, actions: [], muted: age < 7 });
   } else {
     // RT8 (revised 17 Nov): one line whether or not ticketing is connected, and no ticketing action until Matas rules.
     notes.push({ text: NO_BUYERS_LIST, narrow: NO_BUYERS_LIST, actions: [{ label: UPLOAD_BUYERS, role: "buyers" }] });
@@ -313,21 +345,8 @@ export function planRetargeting(input: RetargetingInput): RetargetingPlan {
   const none = (state: RetargetingState, notProposed: string | null, takes: boolean): RetargetingPlan => ({ state, takes, view: { ...base, state, notProposed }, build: null, held: null });
   // Before the on-sale date, nothing changes (RT9).
   if (!input.onSaleDay || input.onSaleDay > input.runDay) return none("before_onsale", input.onSaleDay ? startsOnSale(input.onSaleDay) : null, false);
-  // The show already has the campaign: it runs (PR B reads its tiers).
-  if (input.existing) {
-    const tiers = { bottom: input.existing.tiers?.bottom ?? 0, mid_bottom: input.existing.tiers?.mid_bottom ?? 0, mid: input.existing.tiers?.mid ?? 0 };
-    const { rows, notes } = tierRows({ sources: input.sources, today: input.today ?? input.runDay }, tiers);
-    const read = input.read;
-    const path = read ? signalPath(read) : null;
-    const signal = read && (path === "own_domain" || path === "platform") ? { wide: signalLine(path, { pixelName: read.pixelName, domain: read.domain }), narrow: signalNarrow(path, { pixelName: read.pixelName, domain: read.domain }) } : null;
-    return {
-      state: "running",
-      takes: true,
-      view: { ...base, state: "running", notProposed: null, signal, tiers: rows, notes, running: input.existing.since && input.eventDate && input.existing.totalMinor != null ? { totalMinor: input.existing.totalMinor, share: input.existing.share ?? RT4.defaultShare, since: input.existing.since, showDay: input.eventDate } : null },
-      build: null,
-      held: null,
-    };
-  }
+  // The show already has the campaign: it runs, and the daily read (PR B) fills its tiers.
+  if (input.existing) return planRunning(input, base);
   const read = input.read;
   if (!read || read.state === "not_read") return none("not_read", NOT_READ, true);
   if (read.state === "no_pixel" || !read.pixel) return none("no_pixel", NO_PIXEL, false);
@@ -420,3 +439,67 @@ export function pickedShare(view: RetargetingView | null | undefined, value: unk
 }
 
 export { NO_FIGURE };
+
+/**
+ * RT3 and RT5 for a running campaign: the tier rows from the read's figures
+ * (Meta's budgets, frequency and pool; ad_daily_insights' 7-day spend and
+ * attributed purchases), the total row, the read's one Move or Cut, its
+ * holds or note, RT6's footer and RT9's "is off". The budget line is
+ * proposed only while Meta says the campaign is delivering.
+ */
+function planRunning(input: RetargetingInput, base: Pick<RetargetingView, "code" | "title" | "create" | "signal" | "tiers" | "notes" | "running">): RetargetingPlan {
+  const existing = input.existing!;
+  const live = existing.live ?? null;
+  const budgetOf = (tier: Tier) => live?.tiers[tier]?.dailyMinor ?? existing.tiers?.[tier] ?? 0;
+  const tiers = { bottom: budgetOf("bottom"), mid_bottom: budgetOf("mid_bottom"), mid: budgetOf("mid") } as Record<Tier, number>;
+  const { rows, notes } = tierRows({ sources: input.sources, today: input.today ?? input.runDay }, tiers);
+  for (const row of rows) {
+    const figures = live?.tiers[row.tier];
+    if (!figures) continue;
+    row.pool = figures.pool;
+    row.frequency = figures.frequency == null ? null : Math.round(figures.frequency * 10) / 10;
+    row.cost = costOf(figures);
+    row.purchases = figures.purchases;
+    row.spendMinor = figures.spendMinor;
+  }
+  const read = input.read;
+  const path = read ? signalPath(read) : null;
+  const signal = read && (path === "own_domain" || path === "platform") ? { wide: signalLine(path, { pixelName: read.pixelName, domain: read.domain }), narrow: signalNarrow(path, { pixelName: read.pixelName, domain: read.domain }) } : null;
+  const totalMinor = live ? TIERS.reduce((sum, tier) => sum + tiers[tier], 0) : existing.totalMinor;
+  // RT3: "{pct} % of current daily spend", as it reads today; the stored share when there's no spend to measure.
+  const daily = currentDailyMinor(input.last7SpendGbp);
+  const share = totalMinor != null && daily > 0 ? Math.round((totalMinor / daily) * 100) : (existing.share ?? RT4.defaultShare);
+  const off = live && isOff(live.status) ? retargetingOff(input.eventCode) : null;
+  const figures: TierFigures[] = live
+    ? TIERS.flatMap((tier) => {
+        const row = live.tiers[tier];
+        return row && row.dailyMinor != null ? [{ tier, adsetId: row.adsetId, budgetMinor: row.dailyMinor, spendMinor: row.spendMinor, purchases: row.purchases, frequency: row.frequency, pool: row.pool }] : [];
+      })
+    : [];
+  const budget = live && !off && figures.length ? planBudget(figures, { floorMinor: input.minDailyMinor ?? undefined }) : null;
+  const spent = figures.reduce((sum, row) => sum + row.spendMinor, 0);
+  const bought = figures.reduce((sum, row) => sum + row.purchases, 0);
+  const steps = input.eventDate ? nextSteps(input.today ?? input.runDay, input.eventDate) : [];
+  const running: RunningView | null =
+    existing.since && input.eventDate && totalMinor != null
+      ? {
+          totalMinor,
+          share,
+          since: existing.since,
+          showDay: input.eventDate,
+          off,
+          total: live ? { spentMinor: spent, budgetMinor: totalMinor, cost: bought > 0 ? Math.round(spent / bought) / 100 : null, purchases: bought } : null,
+          holds: budget?.holds ?? [],
+          note: budget?.note ?? null,
+          nextStep: nextStepLine(steps, stepHeightsSet()),
+        }
+      : null;
+  return {
+    state: "running",
+    takes: true,
+    view: { ...base, state: "running", notProposed: null, signal, tiers: rows, notes, running },
+    build: null,
+    budget: budget?.line ?? null,
+    held: null,
+  };
+}
