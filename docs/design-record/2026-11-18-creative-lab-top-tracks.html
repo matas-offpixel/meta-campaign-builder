@@ -178,6 +178,7 @@ No writer, no other words. The apostrophe is the kit's typographic ’. The kit'
 <li>A drop qualifies when TK3's window fits the file around it: the bars before it and the 6 s floor after it.</li>
 <li><b>The last qualifying drop in the last third wins.</b> The last third starts at two thirds of the file's length.</li>
 <li>With none there, the last qualifying drop before it is used, usually the 2nd. That's a fallback, not an error: the row reads "Drop {m:ss} · an earlier drop (no later drop fits)" in the ordinary row colour, and the reel makes as usual. With the last-third drop it reads "Drop {m:ss} · the last drop".</li>
+<li><b>When VW14 misses.</b> On a studio track where VW14 finds no qualifying drop, the Lab falls back to #1295's snippet detector, ranked by the separated bass: the Demucs study's ranking, which had the right drop in its top 2 on 19 of 20 tracks. The choice above runs on that ranking's top 2: the later one that qualifies, the last third first. The row adds " · found on the bass stem". VW14's thresholds stay as ruled, and a miss is never a reason to re-tune them.</li>
 <li>The waveform shows every drop found, the one used marked. The operator can pick another or drag the marker: "Drop set by {first name}". With no qualifying drop, the room line below; with none found, "{title}: no drop found — drag the drop marker to it."</li>
 </ul></li>
 <li><b>The bar grid comes from the track's kicks</b>, found as VW14 finds them (30–150 Hz flux).
@@ -498,7 +499,7 @@ The full range is in the table below.</li>
 <ul>
 <li>The kick-based bar grid per track (VW14's kick detection, the median gap, 4 beats a bar), with the seconds fallback.</li>
 <li>TK3's window from the hook or drop marker: the bars nearest 6 s before and 8 s after, the 10–20 s limits and their order of adjustment, and the two refusals.</li>
-<li>The drop choice inside CT4's detector, so the Snippet tab gets it too: every VW14-style drop in the file, the qualifying test, the last third first, the earlier-drop fallback and its line, the picker of drops, and #1295's draft re-pick.</li>
+<li>The drop choice inside CT4's detector, so the Snippet tab gets it too: every VW14-style drop in the file, the qualifying test, the last third first, the earlier-drop fallback and its line, the picker of drops, and #1295's draft re-pick. When VW14 finds no qualifying drop, the fallback to #1295's detector ranked by the separated bass (Demucs), the top 2 and " · found on the bass stem"; VW14's thresholds untouched.</li>
 <li>The repeated-phrase finder on the bar grid, the HOOK marker at its last place before the chosen drop, the 14 s limit and both lines, with the operator's move and clear.</li>
 <li>CT1's fades on each snippet: in 0.25 s, out 1.5 s. Join with each next snippet starting 0.75 s before the one before it ends. The end card covers the last snippet's last 3.0 s (or 2.5 s).</li>
 <li>Normalise each snippet to −14 LUFS before joining.</li>
@@ -546,7 +547,7 @@ The full range is in the table below.</li>
 <li>Unit tests:
 <ul>
 <li>TK3's window for: a hook; no hook; a window under 10 s; one over 20 s; no steady beat;</li>
-<li>which drop: the last of three, in the last third; a last-third drop without room after it, falling back; no drop in the last third, falling back; none qualifying;</li>
+<li>which drop: the last of three, in the last third; a last-third drop without room after it, falling back; no drop in the last third, falling back; none qualifying; VW14 finding none, falling back to the bass-stem top 2;</li>
 <li>the hook: the last place before the drop; a place too far back, left off; no phrase;</li>
 <li>the joined loudness;</li>
 <li>the head test failing for a list on the head's side;</li>
@@ -576,7 +577,13 @@ The full range is in the table below.</li>
 <li><b>The three-track reel is 43.0 s</b>, with drops at 5.81, 18.60 and 35.27 s.</li>
 <li><b>Every snippet is 10–20 s</b> and starts and ends on its bar grid, or on seconds with the no-beat line.</li>
 <li><b>Which drop and hook.</b> On the fixture, track one uses its 2:24 drop with the hook at 2:14.3; track three uses 1:46 with "an earlier drop (no later drop fits)"; the rest use their last drops.</li>
-<li><b>Matas's examples.</b> On his three tracks, once their files are in <code>02 Source / Audio</code>, the drops used are 2:04, 2:54 and 2:24, within 0.5 s (his times are to the second).</li>
+<li><b>Matas's examples.</b> His three times were read off paused-player screenshots, not marked. On his three tracks, once their files are in <code>02 Source / Audio</code>:
+<ul>
+<li>Can't Decide: 2:07.5 ± 0.5 s, where the bass returns after the 2:04 break (confirmed in the Luke Dean session);</li>
+<li>An Angel (PvD): within ± 4 s of 2:54;</li>
+<li>the 3:12 track: within ± 4 s of 2:24.</li>
+</ul>
+The last two tighten once they're marked precisely.</li>
 <li><b>Loudness</b> is −14 LUFS ± 1, with peaks ≤ −1 dBTP.</li>
 <li><b>Text placement.</b> No text pixel is inside the grown head box in any frame, under every option. Nothing sits outside x 120–960 or y 353–1238.</li>
 <li><b>Headlines and order.</b> Each framing's headline matches TK2 exactly, and Ranked and Level keep Spotify's order.</li>
@@ -596,6 +603,7 @@ The full range is in the table below.</li>
 <li>the drop's qualifying test, the last third as two thirds of the file's length, and the earlier-drop line;</li>
 <li>the repeated-phrase finder: the mids band, 1, 2 or 4 bars, 0.90, 3 places, 8 bars after a drop not counted, and the 14 s limit;</li>
 <li>a hook never shortening the lead-up;</li>
+<li>the bass-stem fallback choosing among its top 2, and its row words;</li>
 <li>the 0.75 s join;</li>
 <li>the end card inside the last snippet.</li>
 </ul></li>
