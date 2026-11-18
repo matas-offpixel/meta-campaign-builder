@@ -303,6 +303,7 @@ describe("Approve variants", () => {
     const { deps, calls } = fakes(mem);
     const result = await approveTest(deps, { testId: "t1", userId: MATAS });
     assert.deepEqual(result.body, { ok: false, error: capText(12, 7, "GBP") });
+    assert.equal(capText(12, 7, "GBP"), "This test needs £12.00 for its 4 days, and the plan's 20 % cap has £7.00 left.");
     assert.ok(!calls.some((c) => c.startsWith("createCampaign") || c.startsWith("createAdSet")));
   });
 

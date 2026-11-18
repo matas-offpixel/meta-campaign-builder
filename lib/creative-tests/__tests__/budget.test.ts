@@ -107,7 +107,15 @@ describe("TF1 / R5: the plan hold", () => {
     // £3 tests hold £12 each: two fit under £30, a third's worth doesn't.
     assert.equal(planCheck({ budget: 4500, spendToDate: 4350, holdMinor: 1200, otherHoldMinor: 1200 }), null);
     assert.equal(planCheck({ budget: 4500, spendToDate: 4350, holdMinor: 1200, otherHoldMinor: 1900 }), capText(12, 11));
-    assert.equal(capText(12, 11), "This test holds £12.00 for 4 days, and the 20 % cap on the plan has £11.00 left.");
+  });
+
+  it("the cap sentence is design's words, pence on both amounts, and only when the test doesn't fit", () => {
+    assert.equal(capText(12, 11), "This test needs £12.00 for its 4 days, and the plan's 20 % cap has £11.00 left.");
+    assert.equal(capText(120, 0, "GBP"), "This test needs £120.00 for its 4 days, and the plan's 20 % cap has £0.00 left.");
+    // £2,100 left → the cap is £420.00; another test holds £400.00, so a £6.25 a day test (£25.00) doesn't fit.
+    assert.equal(planCheck({ budget: 4500, spendToDate: 2400, holdMinor: 2500, otherHoldMinor: 40000, currency: "GBP" }), "This test needs £25.00 for its 4 days, and the plan's 20 % cap has £20.00 left.");
+    // With £20.00 of room, a £5.00 a day test (£20.00) fits: no sentence.
+    assert.equal(planCheck({ budget: 4500, spendToDate: 2400, holdMinor: 2000, otherHoldMinor: 40000, currency: "GBP" }), null);
   });
 
   it("a hold that exactly fills the cap is allowed", () => {

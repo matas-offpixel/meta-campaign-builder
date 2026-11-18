@@ -146,8 +146,9 @@ export type PlanCheckInput = {
 };
 
 /**
- * R5 at Start: a sentence when the hold doesn't fit, else null. The first two
- * are R5's own sentences; the cap sentence is new (listed for design).
+ * R5 at Approve: a sentence when the hold doesn't fit, else null (no sentence when
+ * it fits). The first two are R5's own sentences; the cap sentence is design's
+ * ruling on #1297.
  */
 export function planCheck(input: PlanCheckInput): string | null {
   if (input.budget == null) return "Set this event's budget to apply this.";
@@ -159,7 +160,11 @@ export function planCheck(input: PlanCheckInput): string | null {
   return null;
 }
 
-/** New string (not in the records): the two test ad sets would pass R5's 20 % cap. */
+/**
+ * Design's ruling on #1297: this test's four days would pass R5's 20 % cap, with the
+ * event's other test ad sets. Shown only when it doesn't fit, with Approve off; pence
+ * on both amounts.
+ */
 export function capText(hold: number, left: number, currency?: string | null): string {
-  return `This test holds ${money(hold, currency)} for 4 days, and the 20 % cap on the plan has ${money(left, currency)} left.`;
+  return `This test needs ${money(hold, currency)} for its 4 days, and the plan's 20 % cap has ${money(left, currency)} left.`;
 }
