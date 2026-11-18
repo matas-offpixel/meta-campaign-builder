@@ -1,0 +1,518 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Top tracks reel — 18 Nov 2026</title>
+<style>
+:root{
+  --sand:#F0C9A8; --card:#e8d4c0; --edit:#f6ebe0; --paper:#fff8f0; --ink:#1e1810; --ink-2:#4a3d30; --ink-3:#6f6052;
+  --border:rgba(30,24,16,.10); --border-strong:rgba(30,24,16,.18); --muted:rgba(30,24,16,.06);
+  --olive:#4f5a1f; --ochre:#8a560c; --brick:#8f3424;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--sand);color:var(--ink);font:14px/1.5 var(--sans);font-feature-settings:"calt" 0}
+.wrap{max-width:1360px;margin:0 auto;padding:40px 24px 120px}
+h1{font-size:24px;font-weight:600;margin:0 0 6px}
+h2{font-size:20px;font-weight:600;margin:56px 0 8px}
+h3{font-size:13px;font-weight:600;margin:20px 0 6px}
+p{margin:0 0 10px;max-width:86ch}
+.lead{font-size:13px;color:var(--ink-2)}
+.k{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+code{font:12px var(--mono);background:var(--muted);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+figure{margin:0;min-width:0;max-width:100%}
+figcaption{font:700 9px/1.5 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+table.t{border-collapse:collapse;width:100%;font-size:12.5px;margin:10px 0 22px;background:var(--card);border-radius:8px;overflow:hidden;table-layout:fixed}
+table.t th,table.t td{text-align:left;vertical-align:top;padding:8px 12px;border-bottom:1px solid var(--border);overflow-wrap:anywhere}
+table.t th{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.t td:first-child{font-weight:600;width:190px}
+table.t ul{margin:4px 0 0 16px;padding:0}table.t li{margin:0 0 4px}
+.open{background:#f3e3c8;border:1px dashed var(--ochre);border-radius:8px;padding:10px 14px;font-size:12.5px;margin:10px 0 16px}
+.notes{font-size:12.5px;color:var(--ink-2)}.notes li{margin:0 0 6px;max-width:96ch}
+.frame{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start;margin:12px 0 24px}
+.vp{background:var(--paper);border:1px solid var(--border-strong);border-radius:8px;overflow:hidden;max-width:100%;padding:16px;font-size:13px}
+.vp.wide{width:760px}.vp.w393{width:393px}
+.ph{font:700 9px/1.4 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+.h{font-weight:600;font-size:14px;margin:0 0 4px}
+.sub{font-size:12px;color:var(--ink-2);margin:0 0 10px}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 10px}
+.chip{border:1px solid var(--border-strong);border-radius:999px;padding:3px 10px;font-size:12px;background:#fff}
+.chip.on{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.mono{font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase}
+.row{display:grid;grid-template-columns:22px 26px 1fr auto;gap:8px;align-items:center;padding:7px 0;border-top:1px solid var(--border)}
+.row .n{color:var(--ink-3);font:12px var(--mono)}
+.box{width:16px;height:16px;border:1.5px solid var(--ink);border-radius:3px;display:inline-block}
+.box.on{background:var(--ink)}
+.box.off{border-color:var(--ink-3);opacity:.45}
+.fs{font-size:11.5px;color:var(--ink-2)}
+.fs.warn{color:var(--brick)}
+.ok{color:var(--olive)}
+.btn{display:inline-block;border:1px solid var(--ink);border-radius:4px;padding:5px 10px;font:700 10px var(--mono);letter-spacing:.1em;text-transform:uppercase;background:var(--ink);color:var(--paper)}
+.btn.ghost{background:transparent;color:var(--ink)}
+.btn.dis{opacity:.4}
+.wave{position:relative;height:64px;background:repeating-linear-gradient(90deg,var(--ink-3) 0 2px,transparent 2px 5px);border-radius:4px;margin:26px 0 4px;opacity:.9}
+.wave .win{position:absolute;top:-4px;bottom:-4px;border:2px solid var(--ink);background:rgba(232,212,192,.55);border-radius:4px}
+.wave .drop{position:absolute;top:-10px;bottom:-10px;width:2px;background:var(--brick)}
+.wave .drop span{position:absolute;top:-16px;left:-20px;font:700 9px var(--mono);letter-spacing:.1em;color:var(--brick);white-space:nowrap}
+.tl{display:flex;justify-content:space-between;font:11px var(--mono);color:var(--ink-3)}
+.pv{width:150px;height:267px;background:#222;border-radius:6px;position:relative;flex:none;display:flex;align-items:center;justify-content:center;color:#fff;font:700 9px var(--mono);letter-spacing:.12em}
+.pv .play{position:absolute;bottom:10px;left:10px;width:28px;height:28px;border-radius:50%;background:#fff}
+.split{display:flex;gap:16px;align-items:flex-start}
+table.v{border-collapse:collapse;width:100%;font-size:12px;margin:6px 0}
+table.v th{font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);text-align:left;padding:4px 6px;border-bottom:1px solid var(--border-strong)}
+table.v td{padding:6px;border-bottom:1px solid var(--border)}
+table.v td.r,table.v th.r{text-align:right}
+.st{display:inline-block;border:1px solid var(--border-strong);border-radius:10px;padding:2px 8px;font:700 9px/1.5 var(--mono);letter-spacing:.1em;text-transform:uppercase}
+.st.run{border-style:dashed}
+.st.win{background:var(--olive);color:#fff;border-color:var(--olive)}
+.test{border:1px solid var(--border);border-radius:6px;padding:10px 12px;margin:8px 0;background:#fff}
+.test.dim{opacity:.55}
+.line{background:var(--card);border-radius:6px;padding:8px 10px;margin:6px 0;font-size:12px}
+.inv{text-decoration:underline dotted var(--brick);text-decoration-thickness:1.5px;text-underline-offset:3px}
+table.t table.t td:first-child{width:auto;font-weight:400}
+@media (max-width:560px){table.t th[style]{width:100px!important}table.t td:first-child{width:100px}}
+.st.fail{border-color:var(--brick);color:var(--brick)}
+.line .acts{float:right;font:700 9px var(--mono);letter-spacing:.1em;text-transform:uppercase}
+.line.wait{opacity:.6}
+.line.failed{border:1px solid var(--brick);background:#f6e3dc}
+.tick{display:inline-block;width:11px;height:11px;border:1.5px solid var(--ink);border-radius:2px;margin-right:6px;vertical-align:-1px}
+.tick.on{background:var(--ink)}
+.bar{display:inline-block;height:8px;background:var(--ink-3);border-radius:2px;vertical-align:middle;margin-right:6px}
+.sbar{position:relative;display:inline-block;width:100px;height:8px;background:var(--muted);border-radius:2px;vertical-align:middle;margin-right:8px}
+.sbar i{position:absolute;left:0;top:0;bottom:0;background:var(--ink-3);border-radius:2px}
+.sbar i.lead{background:var(--olive)}
+.sbar b{position:absolute;left:60px;top:-3px;bottom:-3px;width:1px;background:var(--ink)}
+.sbar s{position:absolute;left:10px;top:-3px;bottom:-3px;width:1px;background:var(--ink-3);opacity:.6}
+
+.tlx .lane{display:flex;align-items:center;gap:8px;margin:4px 0}
+.tlx .ln{flex:none;width:52px;font:700 9px var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3)}
+.tlx .bar{position:relative;flex:1;height:26px;background:var(--muted);border-radius:3px}
+.tlx .bar.thin{height:14px}
+.tlx .sl{position:absolute;top:0;bottom:0;border-right:2px solid var(--paper);background:var(--card);font:10px/26px var(--mono);padding:0 4px;white-space:nowrap;overflow:hidden}
+.tlx .sl.hi{background:var(--ink);color:var(--paper)}
+.tlx .sl.ec{background:#e9c99a}
+.tlx .dp{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--brick)}
+.tlx .xf{position:absolute;top:2px;bottom:2px;background:var(--olive);opacity:.75}
+.tlx .tlp{display:flex;gap:8px}.tlx .tlq{position:relative;flex:1;height:14px;font:10px var(--mono);color:var(--ink-3)}
+.tlx .tlq span{position:absolute;transform:translateX(-50%);white-space:nowrap}
+.tlx .tlq span:first-child{transform:none}.tlx .tlq span:last-child{transform:translateX(-100%)}
+.rs{max-width:100%;height:auto;display:block;border-radius:6px}
+.sv{font-family:'DejaVu Sans Condensed','Arial Narrow',sans-serif;font-weight:700}
+</style>
+</head>
+<body>
+<div class="wrap">
+<div class="k">Off/Pixel · design record · creative lab · top tracks · 18 November 2026</div>
+<h1>Top tracks: a ranked-list reel</h1>
+<p class="lead">Matas, 18 Nov. This is a new Lab render, posted from the promoter's or venue's page. It plays 3 to 5 of one artist's tracks back to back over a still or clips of the artist. A list on screen names each track as it plays.</p>
+<p class="lead">The reference is a creator's reel, "What's your CamelPhat level?": a percent ladder down the left, with each rung's track name appearing as that track plays. It builds on:</p>
+<ul class="notes">
+<li>the snippet pipeline: CT1's sound, CT2 and AU1's files, CT3's Spotify picker, CT4's drop marker and AU3's rights flag;</li>
+<li>the 9:16 rules, O95 and O96;</li>
+<li>#1326's framing, O117–O121, with O19, O39 and O63;</li>
+<li>the kit and band rules: O24, O25, O40, O46, O49–O51 and O57;</li>
+<li>T1's end pieces, O23 and O54, and the approved claim ladder;</li>
+<li>owners and filing: W1–W4, D1–D2 and S14.</li>
+</ul>
+<p class="lead">All of those stand. Values not taken from them are listed under "Invented here". The fixture's tracks, date and claim are invented.</p>
+
+<h2>What the reference does</h2>
+<table class="t">
+<tr><th style="width:190px">Piece</th><th>Read off the screenshot (about)</th><th>Here</th></tr>
+<tr><td>Headline</td><td>One line across the top third, at about 0.26 H, nearly full width.</td><td>Kept. It goes at the top of O96's band, from 353 px, in at most 2 lines (TK2).</td></tr>
+<tr><td>Ladder</td><td>15 rungs from 10% to 1000%, at about 0.33–0.86 H in a left column about 0.13–0.30 W wide. All rungs show from the start, and the track names fill in one at a time.</td><td>Kept, at 3–5 rungs. It has to end by 1238 (0.645 H), because the Reels controls cover everything below (TK4, TK6).</td></tr>
+<tr><td>Track name</td><td>"ARTIST, FEATURE - TITLE", in the headline face at about a third of its size.</td><td>The title, with other artists on a line under it. The headline already names the artist (TK5).</td></tr>
+<tr><td>Background</td><td>The creator dancing to camera, centre right. The top rows cross her hair and face.</td><td>The artist or the event, never someone dancing to camera. No text sits on a face (TK7).</td></tr>
+</table>
+
+<h2>Rulings</h2>
+<table class="t">
+<tr><th style="width:190px">#</th><th>Ruling</th></tr>
+<tr><td>TK1 · The format</td><td>
+<ul>
+<li><b>One 9:16 video, 1080 × 1920, and nothing else.</b> There's no 4:5. O95 stands: video is one 9:16, and Feed shows its centre 4:5 (y 285–1635). The whole layout sits inside O96's band (x 120–960, y 353–1238), so Feed's crop shows every line. A separate 4:5 would add nothing, and it would re-rule O95.</li>
+<li><b>One artist per reel</b>, one lineup act, named exactly as the Lab lineup. Titles come from Spotify's top tracks (CT3). Audio comes only from files in <code>02 Source / Audio / {artist}</code> that pass AU1 (CT2).</li>
+<li><b>The file name follows S14.</b> It files under Videos for the background's owner (TK7, D1–D2):
+<ul>
+<li><code>{event code}_{artist}_top-tracks-{framing}-{n}x{s}s-{cta|nocta}-{stage}_r{n}_9x16.mp4</code></li>
+<li>{framing} is <code>ranked</code>, <code>level</code>, <code>forever</code> or <code>cant-live</code>.</li></ul></li>
+</ul></td></tr>
+<tr><td>TK2 · The headline</td><td>
+<ul>
+<li><b>Four headlines, and the operator picks one.</b> The words are Matas's and exact. {artist} is the lineup name. {n} is the number of tracks.
+<ul>
+<li>"Top {artist} tracks ranked 1–{n}"</li>
+<li>"{artist} tracks that changed music forever"</li>
+<li>"What's your {artist} level?"</li>
+<li>"{artist} tracks we can't live without"</li>
+</ul>
+No writer, no other words. The apostrophe is the kit's typographic ’. The kit's case applies; Puzzle's is uppercase.</li>
+<li><b>Ranked and Level are Spotify's order.</b> The picked tracks keep Spotify's top-tracks order, which is never re-sorted (CT3). The numbers 1–{n} and the rungs are places in that order. A Drive-only track, one that isn't in Spotify's top tracks, can't go into a Ranked or Level reel: it has no place to stand on. The other two framings are the promoter's own taste, so their order is the operator's.</li>
+<li><b>Size.</b> Cap 0.024 H (46 px) in the kit's display face, at most 2 lines in 840 px, with size steps 0.85 and 0.75. A line break never splits the artist's name. If it still doesn't fit: "The headline doesn't fit two lines for {artist} — pick another framing."</li>
+<li>It shows from frame 0 until the end card.</li>
+</ul></td></tr>
+<tr><td>TK3 · The audio: track length and crossfades</td><td>
+<ul>
+<li><b>Two lengths.</b> One length applies to every slot in a reel.
+<ul>
+<li>4 or 5 tracks: 6, 7 or 8 s each, 7 s by default.</li>
+<li>3 tracks: 10 to 15 s each, 12 s by default.</li>
+</ul>
+The default reel is 5 × 7 s.</li>
+<li><b>Every slot is cut around its track's drop</b>, from CT4's drop marker, which the operator can move as CT4 allows. The slot starts 2.0 s before the drop for 6–8 s slots, and 4.0 s before for 10–15 s slots, which is CT1's lead.</li>
+<li><b>Crossfades</b> are equal-power and centred on each slot boundary: 0.5 s for 6–8 s slots, 1.0 s for 10–15 s. The drops of two tracks never line up, so a short fade avoids two beats fighting.
+<ul>
+<li>The first slot fades in over 0.25 s (CT1).</li>
+<li>The last slot runs on under the end card and fades out over its last 1.5 s (CT1).</li>
+</ul></li>
+<li><b>Loudness.</b> Each snippet is normalised to −14 LUFS before joining. The joined reel is checked at −14 LUFS integrated (± 1), with peaks no higher than −1 dBTP, encoded as AAC at 256 kbps (CT1).</li>
+<li><b>Room in the track.</b> A slot needs its lead before the drop and the rest after it, plus 3 s more for the last slot. Without that room: "{title}: the drop is too close to the {start | end} for a {s} s slot — move the marker or pick another track."</li>
+<li><b>Rights.</b> AU3 stands: a flagged file can't be picked. When Meta mutes a reel, every file in it is flagged, because Meta doesn't say which track it heard. The render row reads "Meta muted the audio (rights) · {n} files flagged".</li>
+<li><b>A cap of 45 s of tracks.</b> 5 × 8 s and 3 × 15 s are the longest reels. The trade-off table below shows why 10–20 s per track stops at 15.</li>
+</ul></td></tr>
+<tr><td>TK4 · Order, reveal and the playing row</td><td>
+<ul>
+<li><b>Ranked counts down.</b> Ranks 1–{n} show top-down from frame 0 at 40 %. #{n} plays first and #1 plays last, so the list fills from the bottom. The best track is the reason to stay to the end, so it comes last.</li>
+<li><b>Level climbs.</b> The rungs show from frame 0:
+<ul>
+<li>5 tracks: 10%, 50%, 100%, 500%, 1000%;</li>
+<li>4 tracks: 10%, 50%, 100%, 1000%;</li>
+<li>3 tracks: 10%, 100%, 1000%.</li>
+</ul>
+Spotify's most played track takes the top rung, 10%, and the deepest cut takes 1000%, the joke the reference makes. It fills top-down.</li>
+<li><b>Forever and can't-live</b> have no numbers. Empty rows are 2 px rules at 40 %. The rows fill top-down in the operator's order, which defaults to Spotify's.</li>
+<li><b>A row's title appears as its slot starts</b>, at the crossfade's midpoint: a 0.25 s fade with a 24 px slide in from the list's outer side.</li>
+<li><b>The playing row.</b> The title is at 100 %, the number or rung turns the kit accent, and a 6 px accent bar runs the row's height on the list's outer edge (x 120, or x 954 for a list on the right). Played rows drop to 70 %. Unplayed numbers and rungs sit at 40 %.</li>
+</ul></td></tr>
+<tr><td>TK5 · A row</td><td>
+<ul>
+<li><b>The title is Spotify's, verbatim:</b> "Track four (Club Mix)" stays whole. Only the kit's case is applied. A title is never shortened or edited.</li>
+<li><b>Other artists</b> go on a second line: "with {names}", from Spotify's artist list minus this artist. Names are joined with ", " and " &amp; " before the last, at 0.65 of the title's cap. The line is left out when the title already names them ("feat." or "with").</li>
+<li><b>Sizes.</b>
+<ul>
+<li>Titles: cap 0.021 H (40 px) for 4–5 rows, 0.027 H (52 px) for 3, in the kit's info face (the face T2's details use). At most 2 lines in the column after the marker, with size steps 0.85 and 0.75.</li>
+<li>Numbers: the display face, cap 56 / 72 px.</li>
+<li>Rungs: cap 44 / 56 px.</li>
+</ul></li>
+<li><b>If a title doesn't fit</b> at the last step: "'{title}' is too long for the list — pick another track."</li>
+</ul></td></tr>
+<tr><td>TK6 · Where it sits</td><td>
+<ul>
+<li><b>Headline:</b> x 120–960, cap top at 353.</li>
+<li><b>List:</b> a 480 px column, at x 120–600 for a list on the left or x 480–960 on the right, left-aligned either way. It starts 0.036 H (70 px) under the headline's last baseline. Its last line's baseline sits on or above 1238. The rows share the height equally.</li>
+<li><b>The end card</b> takes the list's column.</li>
+<li>Nothing goes above 353, below 1238, or outside x 120–960 (O96).</li>
+</ul></td></tr>
+<tr><td>TK7 · The background, and no text on a face</td><td>
+<ul>
+<li><b>Sources.</b> The artist or the event, never someone dancing to camera. The operator picks one:
+<ul>
+<li><b>Press shot:</b> a still the Lab can already use for an artist card (O19, O22). It moves in a slow push from 1.00 to 1.04 across the reel, centred on the head, but only when the photo has the pixels: no upscaling.</li>
+<li><b>DJ moment:</b> one artist clip at least as long as the reel.</li>
+<li><b>Clip montage:</b> one artist clip per slot, each at least as long as its slot, cut hard on the slot boundary.</li>
+<li><b>Event b-roll:</b> the promoter's own footage from <code>02 Source / Venue &amp; crowd</code>, as one clip or one per slot.</li>
+</ul>
+Clips are muted: the tracks are the only sound. Every clip passes O93: a 9:16 window of at least 675 px.</li>
+<li><b>One owner per reel (W4).</b> Artist footage (press shot, DJ moment, montage) or promoter b-roll, never both. The reel files under that owner (D2).</li>
+<li><b>The head goes on the side away from the list.</b> This amends O120's centring for this template only.
+<ul>
+<li>With the list on the left, the head's centre sits at 0.74 W. With the list on the right, at 0.26 W. Either way within 0.03 W.</li>
+<li>Clips use O120's head finding (the face box, or the top 0.18 of the person mask) and crop focus x, within O63.</li>
+<li>Stills put the eyes at 0.40 H (band 0.36–0.46), with a face box 0.18–0.30 W wide. O19 and O119's side extension (up to 0.12 W) apply.</li>
+</ul>
+The list starts on the side the source leaves free. "List on the right" / "List on the left" switches it. The picture is never flipped.</li>
+<li><b>The test runs on every text piece, in every state:</b> headline, rows and end card. For stills it is O118's (no text pixel inside the head box grown by 0.02 H). For clips it is O39's limits on the head box (≤ 10 % of the window, ≤ 0.5 s in a row).</li>
+<li><b>Refusals.</b>
+<ul>
+<li>"The artist's head is where the list goes — choose another {photo | clip}."</li>
+<li>"The photo can't put the artist clear of the list: it ends at the {left | right}."</li>
+<li>In a montage: "In this clip the artist is on the list's side — choose another clip." Every clip's head must sit on the same side, so the list never jumps.</li>
+</ul></li>
+</ul></td></tr>
+<tr><td>TK8 · Bands and contrast</td><td>
+<ul>
+<li><b>Two bands.</b> O25's top band (20 % black, to 0.44 H). A side band behind the list: 55 % black at the list's outer edge, falling to 0 at 0.60 W (mirrored for a right-hand list), dithered (O46).</li>
+<li><b>Contrast</b> is measured on the p95 sample (O40), on the playing state (≥ 4.5:1) and the played state (≥ 3:1). Before refusing, the side band steps 55 → 70 → 85 % (O57). Then: "Too busy behind the list — choose another background."</li>
+<li><b>The kit accent</b> is decided per reel, as O40 decides red. If it misses 3:1 at the top step, the marker and bar go white.</li>
+</ul></td></tr>
+<tr><td>TK9 · The last frame</td><td>
+<ul>
+<li><b>With the date (default), 3.0 s.</b> The headline and list fade out over 0.4 s. In the list's column, top-down:
+<ul>
+<li>the kit's event lockup, top at 353, 0.22 W;</li>
+<li>the artist's name, cap 0.05 H, O3's steps to fit the column, at most 2 lines, never split inside a word;</li>
+<li>T1's date line (O54);</li>
+<li>the event's approved live claim, with its last line on 1238 (O23, with its steps fitting the column).</li>
+</ul>
+With no approved live claim there's no claim: just lockup, name and date. Rule 11 and the approved ladder decide, never this template.</li>
+<li><b>No CTA, 2.5 s.</b> The full list holds at 100 %, with no highlight, under the headline. Nothing is added: no date, no claim, no lockup.</li>
+<li><b>Both ends</b> run over the last track's tail, which fades over the final 1.5 s.</li>
+<li><b>If the claim doesn't fit the column</b> at its last step: "The claim doesn't fit beside the artist — make the no-CTA version." Claims aren't edited to fit.</li>
+</ul></td></tr>
+<tr><td>TK10 · In the Lab</td><td>
+<ul>
+<li><b>A "Top tracks" tab beside Snippet (CT10).</b> One artist chip row (CT3). The card leads with the 9:16 preview (rule 2), playable with sound as CT5's is. Three visible inputs (rule 3):
+<ul>
+<li>Framing: four chips with the headline as it will read;</li>
+<li>Tracks: CT3's picker, in a sheet;</li>
+<li>Background: four chips.</li></ul>
+Length, list side and end sit behind <code>Edit</code>. The primary action is "Make the reel". Renders land as render rows.</li>
+<li><b>Strings.</b>
+<ul>
+<li>"{n} of 5 picked · at least 3" (CT3's count, with a floor of 3).</li>
+<li>"Order follows Spotify's top tracks" under Ranked and Level; "Drag to reorder" under the other two.</li>
+<li>"{n} × {s} s · {total} s with the end card"; "Not on Spotify's top tracks, so it can't be ranked" on a Drive-only row under Ranked or Level.</li>
+<li>The refusals in TK2, TK3, TK5, TK7, TK8 and TK9.</li>
+</ul></li>
+<li><b>At 393</b>, the preview sits full width above the inputs. The track picker and Edit open as bottom sheets, and the chips wrap.</li>
+</ul></td></tr>
+</table>
+
+<h2>The trade-off: how long each track plays</h2>
+<p class="lead">"#1 lands" is when the countdown's last slot starts, (n − 1) × s. "Bars" is time after the drop at 124 BPM, where a bar is 1.94 s. The lengths include the 3 s end card.</p>
+<table class="t">
+<tr><th style="width:190px">Per track × tracks</th><th>Reel</th><th>#1 lands</th><th>A listener gets</th><th>Ruling</th></tr>
+<tr><td>6 s × 5</td><td>33 s</td><td>24.0 s</td><td>1 bar of build, the drop, 2.1 bars</td><td>Allowed</td></tr>
+<tr><td>7 s × 5</td><td>38 s</td><td>28.0 s</td><td>1 bar, the drop, 2.6 bars</td><td><b>Default</b>: every pick lands on its drop, and #1 is in before 30 s.</td></tr>
+<tr><td>8 s × 5</td><td>43 s</td><td>32.0 s</td><td>1 bar, the drop, 3.1 bars</td><td>Allowed</td></tr>
+<tr><td>10 s × 3</td><td>33 s</td><td>20.0 s</td><td>2 bars, the drop, 3.1 bars</td><td>Allowed</td></tr>
+<tr><td>12 s × 3</td><td>39 s</td><td>24.0 s</td><td>2 bars, the drop, 4.1 bars</td><td><b>3-track default</b>: fewer tracks, and each one heard long enough to recognise a deeper cut.</td></tr>
+<tr><td>15 s × 3</td><td>48 s</td><td>30.0 s</td><td>2 bars, the drop, 5.7 bars</td><td>Allowed, and the longest: 45 s of tracks.</td></tr>
+<tr><td>20 s × 3</td><td>63 s</td><td>40.0 s</td><td>2 bars, the drop, 8.2 bars, a full phrase</td><td>Not offered. 60 s of tracks, and #1 is 40 s in.</td></tr>
+<tr><td>20 s × 5</td><td>103 s</td><td>80.0 s</td><td>a full phrase each</td><td>Not offered. #1 lands after 80 s, so most viewers never reach it.</td></tr>
+</table>
+<p class="notes">Matas's 10–20 s range is kept up to 15 s on the 3-track reel. Past that, each extra second per track pushes #1, the payoff, later, and the list stops being the point. The cap applies to tracks only (45 s); the end card adds to it.</p>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs><linearGradient id="tb" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#000" stop-opacity=".2"/><stop offset="1" stop-color="#000" stop-opacity="0"/></linearGradient><linearGradient id="sbleft" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#000" stop-opacity=".55"/><stop offset=".6" stop-color="#000" stop-opacity="0"/></linearGradient><linearGradient id="sbright" x1="1" y1="0" x2="0" y2="0"><stop offset="0" stop-color="#000" stop-opacity=".55"/><stop offset=".6" stop-color="#000" stop-opacity="0"/></linearGradient><linearGradient id="br" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1a1530"/><stop offset="1" stop-color="#3a2030"/></linearGradient></defs></svg>
+<h2>Frames</h2>
+<p class="lead">Every frame is the 1080 × 1920 render, drawn at 0.3 or 0.375 scale. The fixture is Luke Dean on P26-BDAY, in Puzzle's kit. His tracks are the <span class="inv">invented</span> "Track one" to "Track five", as in AU-A, and track three has a guest. The background is a schematic press shot, with the head drawn where TK7 puts it. The type is drawn in a stand-in condensed face. Renders use the kit's own faces (O24, O49–O51), and sizes are checked on those.</p>
+<h3>TK-A · The layout, with the crops (TK6, TK7)</h3>
+<div class="frame">
+<figure><figcaption>TK-A · 1080 × 1920 · list left, slot 3 playing</figcaption><svg viewBox="0 0 1080 1920" width="405" height="720" class="rs"><rect width="1080" height="1920" fill="#2b2622"/><ellipse cx="800" cy="1650" rx="330" ry="520" fill="#4a4038"/><rect x="730" y="930" width="140" height="160" fill="#5a4c42"/><ellipse cx="800" cy="820" rx="118" ry="150" fill="#6b5a4d"/><path d="M675 760 Q800 600 925 760 L925 700 Q800 560 675 700Z" fill="#3a302a"/><rect width="1080" height="845" fill="url(#tb)"/><rect width="1080" height="1920" fill="url(#sbleft)"/><text x="120" y="399" class="sv" style="font-size:63px" fill="#fff">TOP LUKE DEAN TRACKS</text><text x="120" y="454" class="sv" style="font-size:63px" fill="#fff">RANKED 1–5</text><text x="136" y="588" class="sv" style="font-size:77px" fill="#fff" opacity="0.7">1</text><text x="196" y="572" class="sv" style="font-size:55px" fill="#fff" opacity="0.7">Track one</text><text x="136" y="731" class="sv" style="font-size:77px" fill="#fff" opacity="0.7">2</text><text x="196" y="715" class="sv" style="font-size:55px" fill="#fff" opacity="0.7">Track two</text><rect x="120" y="814" width="6" height="125" fill="#FE3232"/><text x="136" y="874" class="sv" style="font-size:77px" fill="#FE3232" opacity="1">3</text><text x="196" y="858" class="sv" style="font-size:55px" fill="#fff" opacity="1">Track three</text><text x="196" y="928" class="sv" style="font-size:36px;font-weight:400" fill="#fff" opacity="1">with Guest Artist</text><text x="136" y="1017" class="sv" style="font-size:77px" fill="#fff" opacity="0.4">4</text><text x="136" y="1159" class="sv" style="font-size:77px" fill="#fff" opacity="0.4">5</text><rect x="0" y="0" width="1080" height="269" fill="#000" opacity=".35"/><rect x="0" y="1248" width="1080" height="672" fill="#000" opacity=".35"/><rect x="120" y="285" width="840" height="963" fill="none" stroke="#7fd1ff" stroke-width="4" stroke-dasharray="16 10"/><rect x="0" y="285" width="1080" height="1350" fill="none" stroke="#ffe27a" stroke-width="3" stroke-dasharray="6 8"/><line x1="0" y1="353" x2="1080" y2="353" stroke="#7fd1ff" stroke-width="2"/><line x1="0" y1="1238" x2="1080" y2="1238" stroke="#7fd1ff" stroke-width="2"/><rect x="120" y="520" width="480" height="730" fill="none" stroke="#fff" stroke-width="2" stroke-dasharray="4 6"/><rect x="644" y="632" width="312" height="376" fill="none" stroke="#FE3232" stroke-width="4" stroke-dasharray="12 8"/><text x="130" y="320" style="font-family:monospace;font-size:26px;font-weight:700" fill="#7fd1ff">BAND x 120–960 · y 285–1248</text><text x="130" y="1280" style="font-family:monospace;font-size:26px;font-weight:700" fill="#7fd1ff">LAST BASELINE 1238</text><text x="20" y="1670" style="font-family:monospace;font-size:26px;font-weight:700" fill="#ffe27a">FEED 4:5 ENDS · y 1635</text><text x="20" y="250" style="font-family:monospace;font-size:26px;font-weight:700" fill="#fff">REELS UI · y 0–269</text><text x="650" y="620" style="font-family:monospace;font-size:26px;font-weight:700" fill="#FE3232">HEAD BOX +0.02 H</text><text x="130" y="502" style="font-family:monospace;font-size:26px;font-weight:700" fill="#fff">LIST · x 120–600</text></svg>
+<p class="fs" style="max-width:405px;margin:6px 0 0">Shaded: the Reels and Stories controls. Blue: O96's band, with type from 353 to the last baseline at 1238. Yellow: Feed's centre 4:5. Red: the head box grown by 0.02 H, which no text may enter. The list column is x 120–600, and the head sits at 0.74 W on the other side.</p></figure>
+</div>
+<h3>TK-B · "Top {artist} tracks ranked 1–5": the countdown, 5 × 7 s (TK3, TK4)</h3>
+<div class="frame">
+<figure><figcaption>TK-B1 · 0.3 s · #5 plays</figcaption><svg viewBox="0 0 1080 1920" width="324" height="576" class="rs"><rect width="1080" height="1920" fill="#2b2622"/><ellipse cx="800" cy="1650" rx="330" ry="520" fill="#4a4038"/><rect x="730" y="930" width="140" height="160" fill="#5a4c42"/><ellipse cx="800" cy="820" rx="118" ry="150" fill="#6b5a4d"/><path d="M675 760 Q800 600 925 760 L925 700 Q800 560 675 700Z" fill="#3a302a"/><rect width="1080" height="845" fill="url(#tb)"/><rect width="1080" height="1920" fill="url(#sbleft)"/><text x="120" y="399" class="sv" style="font-size:63px" fill="#fff">TOP LUKE DEAN TRACKS</text><text x="120" y="454" class="sv" style="font-size:63px" fill="#fff">RANKED 1–5</text><text x="136" y="588" class="sv" style="font-size:77px" fill="#fff" opacity="0.4">1</text><text x="136" y="731" class="sv" style="font-size:77px" fill="#fff" opacity="0.4">2</text><text x="136" y="874" class="sv" style="font-size:77px" fill="#fff" opacity="0.4">3</text><text x="136" y="1017" class="sv" style="font-size:77px" fill="#fff" opacity="0.4">4</text><rect x="120" y="1099" width="6" height="125" fill="#FE3232"/><text x="136" y="1159" class="sv" style="font-size:77px" fill="#FE3232" opacity="1">5</text><text x="196" y="1143" class="sv" style="font-size:55px" fill="#fff" opacity="1">Track five</text></svg></figure>
+<figure><figcaption>TK-B2 · 7.3 s · #4 plays</figcaption><svg viewBox="0 0 1080 1920" width="324" height="576" class="rs"><rect width="1080" height="1920" fill="#2b2622"/><ellipse cx="800" cy="1650" rx="330" ry="520" fill="#4a4038"/><rect x="730" y="930" width="140" height="160" fill="#5a4c42"/><ellipse cx="800" cy="820" rx="118" ry="150" fill="#6b5a4d"/><path d="M675 760 Q800 600 925 760 L925 700 Q800 560 675 700Z" fill="#3a302a"/><rect width="1080" height="845" fill="url(#tb)"/><rect width="1080" height="1920" fill="url(#sbleft)"/><text x="120" y="399" class="sv" style="font-size:63px" fill="#fff">TOP LUKE DEAN TRACKS</text><text x="120" y="454" class="sv" style="font-size:63px" fill="#fff">RANKED 1–5</text><text x="136" y="588" class="sv" style="font-size:77px" fill="#fff" opacity="0.4">1</text><text x="136" y="731" class="sv" style="font-size:77px" fill="#fff" opacity="0.4">2</text><text x="136" y="874" class="sv" style="font-size:77px" fill="#fff" opacity="0.4">3</text><rect x="120" y="956" width="6" height="125" fill="#FE3232"/><text x="136" y="1017" class="sv" style="font-size:77px" fill="#FE3232" opacity="1">4</text><text x="196" y="1001" class="sv" style="font-size:55px" fill="#fff" opacity="1">Track four</text><text x="196" y="1050" class="sv" style="font-size:55px" fill="#fff" opacity="1">(Club Mix)</text><text x="136" y="1159" class="sv" style="font-size:77px" fill="#fff" opacity="0.7">5</text><text x="196" y="1143" class="sv" style="font-size:55px" fill="#fff" opacity="0.7">Track five</text></svg></figure>
+<figure><figcaption>TK-B3 · 28.3 s · #1 plays</figcaption><svg viewBox="0 0 1080 1920" width="324" height="576" class="rs"><rect width="1080" height="1920" fill="#2b2622"/><ellipse cx="800" cy="1650" rx="330" ry="520" fill="#4a4038"/><rect x="730" y="930" width="140" height="160" fill="#5a4c42"/><ellipse cx="800" cy="820" rx="118" ry="150" fill="#6b5a4d"/><path d="M675 760 Q800 600 925 760 L925 700 Q800 560 675 700Z" fill="#3a302a"/><rect width="1080" height="845" fill="url(#tb)"/><rect width="1080" height="1920" fill="url(#sbleft)"/><text x="120" y="399" class="sv" style="font-size:63px" fill="#fff">TOP LUKE DEAN TRACKS</text><text x="120" y="454" class="sv" style="font-size:63px" fill="#fff">RANKED 1–5</text><rect x="120" y="528" width="6" height="125" fill="#FE3232"/><text x="136" y="588" class="sv" style="font-size:77px" fill="#FE3232" opacity="1">1</text><text x="196" y="572" class="sv" style="font-size:55px" fill="#fff" opacity="1">Track one</text><text x="136" y="731" class="sv" style="font-size:77px" fill="#fff" opacity="0.7">2</text><text x="196" y="715" class="sv" style="font-size:55px" fill="#fff" opacity="0.7">Track two</text><text x="136" y="874" class="sv" style="font-size:77px" fill="#fff" opacity="0.7">3</text><text x="196" y="858" class="sv" style="font-size:55px" fill="#fff" opacity="0.7">Track three</text><text x="196" y="928" class="sv" style="font-size:36px;font-weight:400" fill="#fff" opacity="0.7">with Guest Artist</text><text x="136" y="1017" class="sv" style="font-size:77px" fill="#fff" opacity="0.7">4</text><text x="196" y="1001" class="sv" style="font-size:55px" fill="#fff" opacity="0.7">Track four</text><text x="196" y="1050" class="sv" style="font-size:55px" fill="#fff" opacity="0.7">(Club Mix)</text><text x="136" y="1159" class="sv" style="font-size:77px" fill="#fff" opacity="0.7">5</text><text x="196" y="1143" class="sv" style="font-size:55px" fill="#fff" opacity="0.7">Track five</text></svg></figure>
+<figure><figcaption>TK-B4 · 35.5 s · end card</figcaption><svg viewBox="0 0 1080 1920" width="324" height="576" class="rs"><rect width="1080" height="1920" fill="#2b2622"/><ellipse cx="800" cy="1650" rx="330" ry="520" fill="#4a4038"/><rect x="730" y="930" width="140" height="160" fill="#5a4c42"/><ellipse cx="800" cy="820" rx="118" ry="150" fill="#6b5a4d"/><path d="M675 760 Q800 600 925 760 L925 700 Q800 560 675 700Z" fill="#3a302a"/><rect width="1080" height="845" fill="url(#tb)"/><rect width="1080" height="1920" fill="url(#sbleft)"/><rect x="120" y="353" width="238" height="84" fill="none" stroke="#fff" stroke-width="3"/><text x="239" y="408" text-anchor="middle" class="sv" style="font-size:34px" fill="#fff">PUZZLE</text><text x="120" y="560" class="sv" style="font-size:96px" fill="#fff">LUKE</text><text x="120" y="660" class="sv" style="font-size:96px" fill="#fff">DEAN</text><text x="120" y="740" class="sv" style="font-size:46px" fill="#fff">SAT 28 NOV</text><rect x="120" y="1100" width="470" height="12" fill="#FE3232"/><text x="120" y="1180" class="sv" style="font-size:62px" fill="#fff">GENERAL SALE</text><text x="120" y="1238" class="sv" style="font-size:62px" fill="#fff">LIVE</text></svg></figure>
+</div>
+<p class="fs">Ranks 1–5 show from frame 0 at 40 %. The rows fill from the bottom: #5 first, #1 last. The playing row's number turns the kit accent, with a 6 px bar at x 120. Played rows sit at 70 %. B4 is the end card with the claim (TK9). The date and claim are <span class="inv">invented</span> for the fixture.</p>
+<h3>TK-C · The other three framings at 14.3 s (slot 3 playing)</h3>
+<div class="frame">
+<figure><figcaption>TK-C1 · "What's your {artist} level?"</figcaption><svg viewBox="0 0 1080 1920" width="324" height="576" class="rs"><rect width="1080" height="1920" fill="#2b2622"/><ellipse cx="800" cy="1650" rx="330" ry="520" fill="#4a4038"/><rect x="730" y="930" width="140" height="160" fill="#5a4c42"/><ellipse cx="800" cy="820" rx="118" ry="150" fill="#6b5a4d"/><path d="M675 760 Q800 600 925 760 L925 700 Q800 560 675 700Z" fill="#3a302a"/><rect width="1080" height="845" fill="url(#tb)"/><rect width="1080" height="1920" fill="url(#sbleft)"/><text x="120" y="399" class="sv" style="font-size:63px" fill="#fff">WHAT&#x27;S YOUR LUKE DEAN</text><text x="120" y="454" class="sv" style="font-size:63px" fill="#fff">LEVEL?</text><text x="136" y="576" class="sv" style="font-size:60px" fill="#fff" opacity="0.7">10%</text><text x="326" y="572" class="sv" style="font-size:55px" fill="#fff" opacity="0.7">Track one</text><text x="136" y="719" class="sv" style="font-size:60px" fill="#fff" opacity="0.7">50%</text><text x="326" y="715" class="sv" style="font-size:55px" fill="#fff" opacity="0.7">Track two</text><rect x="120" y="814" width="6" height="125" fill="#FE3232"/><text x="136" y="861" class="sv" style="font-size:60px" fill="#FE3232" opacity="1">100%</text><text x="326" y="858" class="sv" style="font-size:55px" fill="#fff" opacity="1">Track three</text><text x="326" y="928" class="sv" style="font-size:36px;font-weight:400" fill="#fff" opacity="1">with Guest Artist</text><text x="136" y="1004" class="sv" style="font-size:60px" fill="#fff" opacity="0.4">500%</text><text x="136" y="1147" class="sv" style="font-size:60px" fill="#fff" opacity="0.4">1000%</text></svg></figure>
+<figure><figcaption>TK-C2 · "{artist} tracks that changed music forever"</figcaption><svg viewBox="0 0 1080 1920" width="324" height="576" class="rs"><rect width="1080" height="1920" fill="#2b2622"/><ellipse cx="800" cy="1650" rx="330" ry="520" fill="#4a4038"/><rect x="730" y="930" width="140" height="160" fill="#5a4c42"/><ellipse cx="800" cy="820" rx="118" ry="150" fill="#6b5a4d"/><path d="M675 760 Q800 600 925 760 L925 700 Q800 560 675 700Z" fill="#3a302a"/><rect width="1080" height="845" fill="url(#tb)"/><rect width="1080" height="1920" fill="url(#sbleft)"/><text x="120" y="399" class="sv" style="font-size:63px" fill="#fff">LUKE DEAN TRACKS THAT</text><text x="120" y="454" class="sv" style="font-size:63px" fill="#fff">CHANGED MUSIC FOREVER</text><text x="136" y="572" class="sv" style="font-size:55px" fill="#fff" opacity="0.7">Track one</text><text x="136" y="715" class="sv" style="font-size:55px" fill="#fff" opacity="0.7">Track two</text><rect x="120" y="814" width="6" height="125" fill="#FE3232"/><text x="136" y="858" class="sv" style="font-size:55px" fill="#fff" opacity="1">Track three</text><text x="136" y="928" class="sv" style="font-size:36px;font-weight:400" fill="#fff" opacity="1">with Guest Artist</text><rect x="136" y="991" width="300" height="2" fill="#fff" opacity=".4"/><rect x="136" y="1133" width="300" height="2" fill="#fff" opacity=".4"/></svg></figure>
+<figure><figcaption>TK-C3 · "{artist} tracks we can't live without"</figcaption><svg viewBox="0 0 1080 1920" width="324" height="576" class="rs"><rect width="1080" height="1920" fill="#2b2622"/><ellipse cx="800" cy="1650" rx="330" ry="520" fill="#4a4038"/><rect x="730" y="930" width="140" height="160" fill="#5a4c42"/><ellipse cx="800" cy="820" rx="118" ry="150" fill="#6b5a4d"/><path d="M675 760 Q800 600 925 760 L925 700 Q800 560 675 700Z" fill="#3a302a"/><rect width="1080" height="845" fill="url(#tb)"/><rect width="1080" height="1920" fill="url(#sbleft)"/><text x="120" y="399" class="sv" style="font-size:63px" fill="#fff">LUKE DEAN TRACKS WE</text><text x="120" y="454" class="sv" style="font-size:63px" fill="#fff">CAN&#x27;T LIVE WITHOUT</text><text x="136" y="572" class="sv" style="font-size:55px" fill="#fff" opacity="0.7">Track one</text><text x="136" y="715" class="sv" style="font-size:55px" fill="#fff" opacity="0.7">Track two</text><rect x="120" y="814" width="6" height="125" fill="#FE3232"/><text x="136" y="858" class="sv" style="font-size:55px" fill="#fff" opacity="1">Track three</text><text x="136" y="928" class="sv" style="font-size:36px;font-weight:400" fill="#fff" opacity="1">with Guest Artist</text><rect x="136" y="991" width="300" height="2" fill="#fff" opacity=".4"/><rect x="136" y="1133" width="300" height="2" fill="#fff" opacity=".4"/></svg></figure>
+</div>
+<p class="fs">C1: the ladder's rungs show from frame 0 and fill from the top, so the most played track sits at 10 % and the deepest cut at 1000 %. C2 and C3 are unranked: there are no numbers, and the empty rows are 2 px rules at 40 %. They fill top-down in the operator's order.</p>
+<h3>TK-D · The 3-track option, 3 × 12 s, at 12.3 s (TK3)</h3>
+<div class="frame">
+<figure><figcaption>TK-D · 12.3 s · #2 plays</figcaption><svg viewBox="0 0 1080 1920" width="324" height="576" class="rs"><rect width="1080" height="1920" fill="#2b2622"/><ellipse cx="800" cy="1650" rx="330" ry="520" fill="#4a4038"/><rect x="730" y="930" width="140" height="160" fill="#5a4c42"/><ellipse cx="800" cy="820" rx="118" ry="150" fill="#6b5a4d"/><path d="M675 760 Q800 600 925 760 L925 700 Q800 560 675 700Z" fill="#3a302a"/><rect width="1080" height="845" fill="url(#tb)"/><rect width="1080" height="1920" fill="url(#sbleft)"/><text x="120" y="399" class="sv" style="font-size:63px" fill="#fff">TOP LUKE DEAN TRACKS</text><text x="120" y="454" class="sv" style="font-size:63px" fill="#fff">RANKED 1–3</text><text x="136" y="604" class="sv" style="font-size:99px" fill="#fff" opacity="0.4">1</text><rect x="120" y="766" width="6" height="220" fill="#FE3232"/><text x="136" y="842" class="sv" style="font-size:99px" fill="#FE3232" opacity="1">2</text><text x="220" y="822" class="sv" style="font-size:71px" fill="#fff" opacity="1">Track two</text><text x="136" y="1080" class="sv" style="font-size:99px" fill="#fff" opacity="0.7">3</text><text x="220" y="1060" class="sv" style="font-size:71px" fill="#fff" opacity="0.7">Track three</text><text x="220" y="1149" class="sv" style="font-size:46px;font-weight:400" fill="#fff" opacity="0.7">with Guest Artist</text></svg></figure>
+<figure><figcaption>TK-E · no-CTA end · 35.5 s</figcaption><svg viewBox="0 0 1080 1920" width="324" height="576" class="rs"><rect width="1080" height="1920" fill="#2b2622"/><ellipse cx="800" cy="1650" rx="330" ry="520" fill="#4a4038"/><rect x="730" y="930" width="140" height="160" fill="#5a4c42"/><ellipse cx="800" cy="820" rx="118" ry="150" fill="#6b5a4d"/><path d="M675 760 Q800 600 925 760 L925 700 Q800 560 675 700Z" fill="#3a302a"/><rect width="1080" height="845" fill="url(#tb)"/><rect width="1080" height="1920" fill="url(#sbleft)"/><text x="120" y="399" class="sv" style="font-size:63px" fill="#fff">TOP LUKE DEAN TRACKS</text><text x="120" y="454" class="sv" style="font-size:63px" fill="#fff">RANKED 1–5</text><text x="136" y="588" class="sv" style="font-size:77px" fill="#fff" opacity="1">1</text><text x="196" y="572" class="sv" style="font-size:55px" fill="#fff" opacity="1">Track one</text><text x="136" y="731" class="sv" style="font-size:77px" fill="#fff" opacity="1">2</text><text x="196" y="715" class="sv" style="font-size:55px" fill="#fff" opacity="1">Track two</text><text x="136" y="874" class="sv" style="font-size:77px" fill="#fff" opacity="1">3</text><text x="196" y="858" class="sv" style="font-size:55px" fill="#fff" opacity="1">Track three</text><text x="196" y="928" class="sv" style="font-size:36px;font-weight:400" fill="#fff" opacity="1">with Guest Artist</text><text x="136" y="1017" class="sv" style="font-size:77px" fill="#fff" opacity="1">4</text><text x="196" y="1001" class="sv" style="font-size:55px" fill="#fff" opacity="1">Track four</text><text x="196" y="1050" class="sv" style="font-size:55px" fill="#fff" opacity="1">(Club Mix)</text><text x="136" y="1159" class="sv" style="font-size:77px" fill="#fff" opacity="1">5</text><text x="196" y="1143" class="sv" style="font-size:55px" fill="#fff" opacity="1">Track five</text></svg>
+<p class="fs" style="max-width:324px;margin:6px 0 0">The no-CTA end holds the full list at 100 % for 2.5 s, with no highlight, while the last track fades. There is no date, claim or lockup.</p></figure>
+</div>
+<h3>TK-F · The timeline (TK3, TK4, TK9)</h3>
+<div class="frame">
+<figure style="width:100%"><figcaption>TK-F · 5 × 7 s, Ranked, with the date end · and 3 × 12 s</figcaption>
+<div class="vp" style="width:100%;max-width:980px">
+<div class="tlx">
+<div class="lane"><span class="ln">Slots</span>
+<div class="bar">
+<span class="sl" style="left:0;width:18.42%">#5 · 0–7</span><span class="sl" style="left:18.42%;width:18.42%">#4 · 7–14</span><span class="sl" style="left:36.84%;width:18.42%">#3 · 14–21</span><span class="sl" style="left:55.26%;width:18.42%">#2 · 21–28</span><span class="sl hi" style="left:73.68%;width:18.42%">#1 · 28–35</span><span class="sl ec" style="left:92.1%;width:7.9%">end</span>
+</div></div>
+<div class="lane"><span class="ln">Drops</span>
+<div class="bar thin">
+<i class="dp" style="left:5.26%"></i><i class="dp" style="left:23.68%"></i><i class="dp" style="left:42.1%"></i><i class="dp" style="left:60.52%"></i><i class="dp" style="left:78.94%"></i>
+</div></div>
+<div class="lane"><span class="ln">Fades</span>
+<div class="bar thin">
+<i class="xf" style="left:0;width:.66%"></i><i class="xf" style="left:17.76%;width:1.32%"></i><i class="xf" style="left:36.18%;width:1.32%"></i><i class="xf" style="left:54.6%;width:1.32%"></i><i class="xf" style="left:73.02%;width:1.32%"></i><i class="xf" style="left:96.05%;width:3.95%"></i>
+</div></div>
+<div class="tlp"><span class="ln"></span>
+<div class="tlq"><span style="left:0.00%">0 s</span><span style="left:18.42%">7</span><span style="left:36.84%">14</span><span style="left:55.26%">21</span><span style="left:73.68%">28</span><span style="left:92.11%">35</span><span style="left:100.00%">38 s</span></div></div>
+<p class="fs" style="margin:8px 0 14px">Drops sit 2.0 s into each slot, at 2, 9, 16, 23 and 30 s. Each crossfade is 0.5 s, centred on 7, 14, 21 and 28. Each row appears at its slot's start. The last track runs under the end card from 35 s and fades out over 36.5–38.0 s.</p>
+<div class="lane"><span class="ln">Slots</span>
+<div class="bar">
+<span class="sl" style="left:0;width:30.77%">#3 · 0–12</span><span class="sl" style="left:30.77%;width:30.77%">#2 · 12–24</span><span class="sl hi" style="left:61.54%;width:30.77%">#1 · 24–36</span><span class="sl ec" style="left:92.31%;width:7.69%">end</span>
+</div></div>
+<div class="lane"><span class="ln">Drops</span>
+<div class="bar thin"><i class="dp" style="left:10.26%"></i><i class="dp" style="left:41.03%"></i><i class="dp" style="left:71.8%"></i></div></div>
+<div class="tlp"><span class="ln"></span>
+<div class="tlq"><span style="left:0.00%">0 s</span><span style="left:30.77%">12</span><span style="left:61.54%">24</span><span style="left:92.31%">36</span><span style="left:100.00%">39 s</span></div></div>
+<p class="fs" style="margin:8px 0 0">Drops sit 4.0 s into each slot, at 4, 16 and 28 s. The crossfades are 1.0 s. The end card runs 36–39 s.</p>
+</div></div></figure></div>
+
+<h3>TK-G · The Lab's Top tracks tab (TK10)</h3>
+<div class="frame">
+<figure><figcaption>TK-G · 1280</figcaption>
+<div class="vp wide" style="width:860px">
+<div class="ph">P26-BDAY · Top tracks</div>
+<div class="chips"><span class="chip on">Luke Dean</span><span class="chip">Enzo Siragusa</span></div>
+<div class="split">
+<div class="pv" style="width:152px;height:270px;background:#2b2622"><span>9:16 · 0:38</span><span class="play"></span></div>
+<div style="flex:1;min-width:0">
+<div class="h">Framing</div>
+<div class="chips"><span class="chip on">Top Luke Dean tracks ranked 1–5</span><span class="chip">What's your Luke Dean level?</span><span class="chip">Luke Dean tracks that changed music forever</span><span class="chip">Luke Dean tracks we can't live without</span></div>
+<div class="h">Tracks · 5 of 5 picked · at least 3</div>
+<div class="line">1 Track one · 2 Track two · 3 Track three · 4 Track four (Club Mix) · 5 Track five<br><span class="fs">Order follows Spotify's top tracks</span><span class="acts">Change</span></div>
+<div class="h">Background</div>
+<div class="chips"><span class="chip on">Press shot</span><span class="chip">DJ moment</span><span class="chip">Clip montage</span><span class="chip">Event b-roll</span></div>
+<p class="fs">5 × 7 s · 38 s with the end card · list on the left · ends with the date <span style="float:right"><span class="btn ghost">Edit</span></span></p>
+<span class="btn">Make the reel</span>
+</div></div>
+<div style="margin-top:14px;border-top:1px solid var(--border);padding-top:10px" class="fs"><b>Render row.</b> P26-BDAY_luke-dean_top-tracks-ranked-5x7s-cta-on-sale_r1_9x16.mp4 · ready · 0:38</div>
+</div></figure>
+<figure><figcaption>TK-G · 393</figcaption>
+<div class="vp w393">
+<div class="ph">P26-BDAY · Top tracks</div>
+<div class="chips"><span class="chip on">Luke Dean</span><span class="chip">Enzo Siragusa</span></div>
+<div class="pv" style="width:100%;height:auto;aspect-ratio:9/16;max-height:420px;background:#2b2622;margin:0 0 10px"><span>9:16 · 0:38</span><span class="play"></span></div>
+<div class="h">Framing</div>
+<div class="chips"><span class="chip on">Top Luke Dean tracks ranked 1–5</span><span class="chip">What's your Luke Dean level?</span><span class="chip">… changed music forever</span><span class="chip">… we can't live without</span></div>
+<div class="h">Tracks · 5 of 5 picked · at least 3</div>
+<div class="line">Track one, Track two, Track three, Track four (Club Mix), Track five<br><span class="fs">Order follows Spotify's top tracks</span><span class="acts">Change</span></div>
+<div class="h">Background</div>
+<div class="chips"><span class="chip on">Press shot</span><span class="chip">DJ moment</span><span class="chip">Clip montage</span><span class="chip">Event b-roll</span></div>
+<p class="fs">5 × 7 s · 38 s with the end card <span class="btn ghost" style="float:right">Edit</span></p>
+<span class="btn" style="display:block;text-align:center">Make the reel</span>
+</div>
+<p class="fs" style="max-width:393px;margin:6px 0 0">At 393, the narrow framing chips shorten to their ending after the artist's name. The full headline is in the preview. "Change" and "Edit" open bottom sheets.</p></figure>
+</div>
+
+<h2>Hand-back</h2>
+<table class="t">
+<tr><th style="width:190px">Piece</th><th>Build</th></tr>
+<tr><td>HK1 · The render</td><td>
+<ul>
+<li>A Remotion composition, <code>TopTracks</code>, at 1080 × 1920 and 30 fps. Its inputs are the framing, the ordered tracks (title, other artists, file, drop), the slot length, the list side, the background source and the end.</li>
+<li>It renders on Lambda from the render copy (O68, O101).</li>
+<li>Kit faces are loaded as O52 sets out. Drafts carry O36's stamp.</li>
+</ul></td></tr>
+<tr><td>HK2 · The audio</td><td>
+<ul>
+<li>Cut each slot from CT4's marker with TK3's lead.</li>
+<li>Normalise each snippet to −14 LUFS, then join with equal-power crossfades: 0.5 s or 1.0 s.</li>
+<li>Fades: in over 0.25 s; the last track runs on under the end card and fades over its final 1.5 s.</li>
+<li>Check the joined reel at −14 LUFS ± 1 and −1 dBTP, and encode AAC at 256 kbps.</li>
+<li>Refuse TK3's room case.</li>
+<li>Mutes flag every file in the reel (AU3).</li>
+</ul></td></tr>
+<tr><td>HK3 · Headline and rows</td><td>
+<ul>
+<li>TK2's four strings, exact, with the artist's name unbroken.</li>
+<li>TK5's row: the verbatim title and the "with" line.</li>
+<li>The size steps and the three fit refusals.</li>
+<li>TK4's order rules, and the Spotify-order lock under Ranked and Level. A Drive-only row can't be ticked there.</li>
+</ul></td></tr>
+<tr><td>HK4 · Framing</td><td>
+<ul>
+<li>TK7's head target: 0.74 W or 0.26 W, using O120's head finding and crop focus x within O63. This applies to this template only; T1 keeps centring.</li>
+<li>Still placement, with O19 and O119.</li>
+<li>The face test on every text piece in every state.</li>
+<li>One side for every montage clip. One owner per reel.</li>
+</ul></td></tr>
+<tr><td>HK5 · Bands</td><td>
+<ul>
+<li>TK8's side band and its steps.</li>
+<li>Contrast on p95, judged on the playing and played states.</li>
+<li>The accent falls back to white when it misses 3:1.</li>
+</ul></td></tr>
+<tr><td>HK6 · The ends</td><td>
+<ul>
+<li>TK9's date end, with the claim only from the approved ladder.</li>
+<li>The no-CTA hold.</li>
+<li>The claim-fit refusal.</li>
+</ul></td></tr>
+<tr><td>HK7 · The Lab tab</td><td>
+<ul>
+<li>TK10's tab, its strings, the render row and S14's name.</li>
+<li>Filing under the background's owner / Videos.</li>
+<li>The 393 sheets.</li>
+</ul></td></tr>
+<tr><td>HK8 · Tests and frames</td><td>
+<ul>
+<li>Fixture: Luke Dean on P26-BDAY with AU-A's five tracks (track three with a guest), and a still with the head right of centre.</li>
+<li>Plan frames TK-B1–B4, TK-C1–C3, TK-D and TK-E, as render stills at those times, plus TK-G at 1280 and 393.</li>
+<li>Unit tests:
+<ul>
+<li>TK3's timings for every length;</li>
+<li>the joined loudness;</li>
+<li>the head test failing for a list on the head's side;</li>
+<li>a Drive-only track refused under Ranked.</li>
+</ul></li>
+<li>Baselines go in after design-pass.</li>
+</ul></td></tr>
+</table>
+
+<h2>Acceptance</h2>
+<ul class="notes">
+<li>The default fixture reel is 38.0 s.
+<ul>
+<li>Its five drops land at 2, 9, 16, 23 and 30 s, each ± 0.05 s.</li>
+<li>The rows appear at 0, 7, 14, 21 and 28 s, bottom row first.</li>
+<li>The end card shows from 35.0 s.</li>
+</ul></li>
+<li>The 3 × 12 s reel is 39.0 s, with drops at 4, 16 and 28 s.</li>
+<li>Loudness is −14 LUFS ± 1, with peaks ≤ −1 dBTP.</li>
+<li>No text pixel is inside the grown head box in any frame.</li>
+<li>Nothing sits outside x 120–960 or y 353–1238.</li>
+<li>Each framing's headline matches TK2 exactly, and Ranked and Level keep Spotify's order.</li>
+<li>Only a 9:16 is rendered and filed.</li>
+<li>The frames match TK-B to TK-E. The Lab matches TK-G at 1280 and 393.</li>
+</ul>
+
+<h2>Invented here</h2>
+<ul class="notes">
+<li><b>Lengths:</b>
+<ul>
+<li>6–8 s for 4–5 tracks and 10–15 s for 3, defaulting to 7 and 12;</li>
+<li>the 2.0 s lead on short slots;</li>
+<li>the 0.5 s and 1.0 s crossfades;</li>
+<li>the 45 s cap.</li>
+</ul></li>
+<li><b>Order and reveal:</b>
+<ul>
+<li>the countdown for Ranked and the climb for Level;</li>
+<li>the rungs 10% / 50% / 100% / 500% / 1000% (and the 3- and 4-track sets);</li>
+<li>the 40 % / 70 % / 100 % row states, the 6 px bar, the 0.25 s reveal with its 24 px slide.</li>
+</ul></li>
+<li><b>Layout:</b>
+<ul>
+<li>the 480 px column and the 70 px gap;</li>
+<li>the head at 0.74 W or 0.26 W, the eyes at 0.40 H, the 0.18–0.30 W face box;</li>
+<li>the 1.00–1.04 push.</li>
+</ul></li>
+<li><b>Type and bands:</b>
+<ul>
+<li>the headline and row caps and their steps;</li>
+<li>the "with" line at 0.65;</li>
+<li>the side band, 55 % to 0 at 0.60 W, with steps to 70 % and 85 %.</li>
+</ul></li>
+<li><b>Ends:</b>
+<ul>
+<li>the date end at 3.0 s in the list's column;</li>
+<li>the no-CTA hold at 2.5 s.</li>
+</ul></li>
+<li><b>Rules:</b>
+<ul>
+<li>all files flagged on a mute;</li>
+<li>no Drive-only track under Ranked or Level;</li>
+<li>one owner per reel for this template.</li>
+</ul></li>
+<li><b>Words:</b> every refusal and Lab string, the file-name pattern and its framing slugs.</li>
+<li><b>The fixture:</b> its tracks, the date "SAT 28 NOV", the claim "GENERAL SALE LIVE" and the schematic press shot.</li>
+</ul>
+
+<h2>Open for Matas</h2>
+<table class="t">
+<tr><th style="width:190px">Question</th><th>As drawn</th></tr>
+<tr><td>K1 · The rungs</td><td>10% / 50% / 100% / 500% / 1000%, which keeps the reference's joke past 100%. The plain alternative is 20% to 100% in steps of 20.</td></tr>
+<tr><td>K2 · When a row appears</td><td>At its slot's start. The alternative is on its drop, 2 s later, which hits harder but leaves 2 s of a track with no name.</td></tr>
+<tr><td>K3 · The default</td><td>5 × 7 s. The 3 × 12 s reel is one tap away under Edit.</td></tr>
+<tr><td>K4 · The end with the date</td><td>It sits in the list's column, so the artist stays clear. The alternative is T1's centred block, which would need the head moved for the last 3 s.</td></tr>
+</table>
+</div>
+</body>
+</html>
