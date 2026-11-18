@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Crossover 2 — 18 Nov 2026</title>
+<style>
+:root{
+  --sand:#F0C9A8; --card:#e8d4c0; --edit:#f6ebe0; --paper:#fff8f0; --ink:#1e1810; --ink-2:#4a3d30; --ink-3:#6f6052;
+  --border:rgba(30,24,16,.10); --border-strong:rgba(30,24,16,.18); --muted:rgba(30,24,16,.06);
+  --olive:#4f5a1f; --ochre:#8a560c; --brick:#8f3424;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--sand);color:var(--ink);font:14px/1.5 var(--sans);font-feature-settings:"calt" 0}
+.wrap{max-width:1360px;margin:0 auto;padding:40px 24px 120px}
+h1{font-size:24px;font-weight:600;margin:0 0 6px}
+h2{font-size:20px;font-weight:600;margin:56px 0 8px}
+h3{font-size:13px;font-weight:600;margin:20px 0 6px}
+p{margin:0 0 10px;max-width:86ch}
+.lead{font-size:13px;color:var(--ink-2)}
+.k{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+code{font:12px var(--mono);background:var(--muted);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+figure{margin:0;min-width:0;max-width:100%}
+figcaption{font:700 9px/1.5 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+table.t{border-collapse:collapse;width:100%;font-size:12.5px;margin:10px 0 22px;background:var(--card);border-radius:8px;overflow:hidden;table-layout:fixed}
+table.t th,table.t td{text-align:left;vertical-align:top;padding:8px 12px;border-bottom:1px solid var(--border);overflow-wrap:anywhere}
+table.t th{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.t td:first-child{font-weight:600;width:190px}
+table.t ul{margin:4px 0 0 16px;padding:0}table.t li{margin:0 0 4px}
+.open{background:#f3e3c8;border:1px dashed var(--ochre);border-radius:8px;padding:10px 14px;font-size:12.5px;margin:10px 0 16px}
+.notes{font-size:12.5px;color:var(--ink-2)}.notes li{margin:0 0 6px;max-width:96ch}
+.frame{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start;margin:12px 0 24px}
+.vp{background:var(--paper);border:1px solid var(--border-strong);border-radius:8px;overflow:hidden;max-width:100%;padding:16px;font-size:13px}
+.vp.wide{width:760px}.vp.w393{width:393px}
+.ph{font:700 9px/1.4 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+.h{font-weight:600;font-size:14px;margin:0 0 4px}
+.sub{font-size:12px;color:var(--ink-2);margin:0 0 10px}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 10px}
+.chip{border:1px solid var(--border-strong);border-radius:999px;padding:3px 10px;font-size:12px;background:#fff}
+.chip.on{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.mono{font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase}
+.row{display:grid;grid-template-columns:22px 26px 1fr auto;gap:8px;align-items:center;padding:7px 0;border-top:1px solid var(--border)}
+.row .n{color:var(--ink-3);font:12px var(--mono)}
+.box{width:16px;height:16px;border:1.5px solid var(--ink);border-radius:3px;display:inline-block}
+.box.on{background:var(--ink)}
+.box.off{border-color:var(--ink-3);opacity:.45}
+.fs{font-size:11.5px;color:var(--ink-2)}
+.fs.warn{color:var(--brick)}
+.ok{color:var(--olive)}
+.btn{display:inline-block;border:1px solid var(--ink);border-radius:4px;padding:5px 10px;font:700 10px var(--mono);letter-spacing:.1em;text-transform:uppercase;background:var(--ink);color:var(--paper)}
+.btn.ghost{background:transparent;color:var(--ink)}
+.btn.dis{opacity:.4}
+.wave{position:relative;height:64px;background:repeating-linear-gradient(90deg,var(--ink-3) 0 2px,transparent 2px 5px);border-radius:4px;margin:26px 0 4px;opacity:.9}
+.wave .win{position:absolute;top:-4px;bottom:-4px;border:2px solid var(--ink);background:rgba(232,212,192,.55);border-radius:4px}
+.wave .drop{position:absolute;top:-10px;bottom:-10px;width:2px;background:var(--brick)}
+.wave .drop span{position:absolute;top:-16px;left:-20px;font:700 9px var(--mono);letter-spacing:.1em;color:var(--brick);white-space:nowrap}
+.tl{display:flex;justify-content:space-between;font:11px var(--mono);color:var(--ink-3)}
+.pv{width:150px;height:267px;background:#222;border-radius:6px;position:relative;flex:none;display:flex;align-items:center;justify-content:center;color:#fff;font:700 9px var(--mono);letter-spacing:.12em}
+.pv .play{position:absolute;bottom:10px;left:10px;width:28px;height:28px;border-radius:50%;background:#fff}
+.split{display:flex;gap:16px;align-items:flex-start}
+table.v{border-collapse:collapse;width:100%;font-size:12px;margin:6px 0}
+table.v th{font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);text-align:left;padding:4px 6px;border-bottom:1px solid var(--border-strong)}
+table.v td{padding:6px;border-bottom:1px solid var(--border)}
+table.v td.r,table.v th.r{text-align:right}
+.st{display:inline-block;border:1px solid var(--border-strong);border-radius:10px;padding:2px 8px;font:700 9px/1.5 var(--mono);letter-spacing:.1em;text-transform:uppercase}
+.st.run{border-style:dashed}
+.st.win{background:var(--olive);color:#fff;border-color:var(--olive)}
+.test{border:1px solid var(--border);border-radius:6px;padding:10px 12px;margin:8px 0;background:#fff}
+.test.dim{opacity:.55}
+.line{background:var(--card);border-radius:6px;padding:8px 10px;margin:6px 0;font-size:12px}
+.inv{text-decoration:underline dotted var(--brick);text-decoration-thickness:1.5px;text-underline-offset:3px}
+table.t table.t td:first-child{width:auto;font-weight:400}
+@media (max-width:560px){table.t th[style]{width:100px!important}table.t td:first-child{width:100px}}
+.st.fail{border-color:var(--brick);color:var(--brick)}
+.line .acts{float:right;font:700 9px var(--mono);letter-spacing:.1em;text-transform:uppercase}
+.line.wait{opacity:.6}
+.line.failed{border:1px solid var(--brick);background:#f6e3dc}
+.tick{display:inline-block;width:11px;height:11px;border:1.5px solid var(--ink);border-radius:2px;margin-right:6px;vertical-align:-1px}
+.tick.on{background:var(--ink)}
+.bar{display:inline-block;height:8px;background:var(--ink-3);border-radius:2px;vertical-align:middle;margin-right:6px}
+.sbar{position:relative;display:inline-block;width:100px;height:8px;background:var(--muted);border-radius:2px;vertical-align:middle;margin-right:8px}
+.sbar i{position:absolute;left:0;top:0;bottom:0;background:var(--ink-3);border-radius:2px}
+.sbar i.lead{background:var(--olive)}
+.sbar b{position:absolute;left:60px;top:-3px;bottom:-3px;width:1px;background:var(--ink)}
+.sbar s{position:absolute;left:10px;top:-3px;bottom:-3px;width:1px;background:var(--ink-3);opacity:.6}
+.tile{background:var(--card);border-radius:8px;padding:10px 12px}
+.tile .n{font:600 22px/1.1 var(--sans);font-variant-numeric:tabular-nums}
+.tile .s{font-size:11.5px;color:var(--ink-2);margin-top:2px}
+.tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.w393 .tiles{grid-template-columns:1fr 1fr}
+.kick{font:700 9px/1.4 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3)}
+.chan{display:grid;grid-template-columns:20px 1fr auto;gap:8px;align-items:center;padding:5px 0;border-top:1px solid var(--border);font-size:12px}
+.brick{color:var(--brick)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<p class="k">Off/Pixel · design record · crossover · issue 2 · 18 November 2026</p>
+<h1>Crossover: one seed from several neighbours</h1>
+<p class="lead">This amends XO2 and XO3 of <code>2026-11-18-crossover.html</code> (#1333). Checked against CIRQLIN's live read for Ewan McVicar, the two best neighbours both fail the seed rule's list floor: 19.2 % of Locklead's list of 645 signed up for Ewan, as did 16.2 % of Robbie Doherty's 685. Neither reaches 1,000, so no lookalike would ever be proposed for him. Small promoters' lists will hit this often. Ops' proposal is accepted: the strong neighbours combine into one seed.</p>
+<ul class="notes">
+<li><b>Amended:</b> XO2's seed row and XO3's line, both for the case where no single neighbour reaches 1,000.</li>
+<li><b>Stands:</b> the rest of XO1–XO8, including the switch, the people path (CIRQLIN to Meta, never through the app), the floors and the share words.</li>
+<li><b>Frames:</b> XO-E is new, at 1280 and 393.</li>
+<li><b>Invented:</b> the merge rule and the new words are <span class="inv">invented</span>, and so are XO-E's after-duplicates count and registration counts. The shares and list sizes are the live read.</li>
+</ul>
+
+<h2>Ruling</h2>
+<table class="t">
+<tr><th style="width:190px">#</th><th>Ruling</th></tr>
+<tr><td>XO9 · The combined seed</td><td>
+<ul>
+<li><b>When it applies.</b> Every neighbour at 10 % or more qualifies on share, but none has a list of 1,000. Then they all become one seed together: one LOOKALIKE line, which counts as one of XO3's two a proposal. When one or more neighbours reach 1,000 alone, XO3 stands: each gets its own line, with no combining.</li>
+<li><b>The floor moves to the combined list.</b> CIRQLIN counts the neighbours' signups together after duplicates. The line is proposed only when that count is 1,000 or more; under 1,000, there's no seed. The app receives only the count, and CIRQLIN builds and uploads the combined list, as XO3 does for one list.</li>
+<li><b>The words.</b> Neighbours are named closest first, joined with "+".
+<ul>
+<li>Title: "Lookalike from {A} + {B} signups"</li>
+<li>Why: "{share A} % of {A}'s list and {share B} % of {B}'s also signed up for {show}." With three: "{share A} % of {A}'s list, {share B} % of {B}'s and {share C} % of {C}'s …".</li>
+<li>Writes: "Uploads {A} + {B} signups to Meta as one list · {n} people after duplicates · a 1 % lookalike in {country} · into {ad set}"</li>
+</ul></li>
+<li><b>Switch off.</b> XO3's page alternative combines the same way.
+<ul>
+<li>Title: "Lookalike from people who signed up on {A} + {B} pages"</li>
+<li>Writes: "Registrations on {A} + {B} pages · 180 days · {n} people · a 1 % lookalike in {country} · into {ad set}"</li>
+</ul>
+It's proposed only when those registrations come to 1,000 or more together. The brick line is XO3's, unchanged.</li>
+<li><b>Not re-proposed.</b> XO3's "already has a lookalike from that neighbour" counts a combined seed as one from each of its neighbours. If one of them later reaches 1,000 alone, it isn't offered again while the combined seed runs.</li>
+<li><b>XO2's seed row</b> now reads: "share_of_that ≥ 10 % and a list of ≥ 1,000: one neighbour's, or every such neighbour's combined after duplicates (XO9)".</li>
+</ul></td></tr>
+</table>
+
+<h2>XO-E · The combined seed</h2>
+<div class="frame">
+<figure><figcaption>XO-E · 1280 · Ewan McVicar, Electric's switch on</figcaption>
+<div class="vp wide">
+<div class="h">XMPL-EWAN · Tickets · audiences</div>
+<div class="line"><span class="kick">Lookalike</span> &nbsp;<b>Lookalike from Locklead + Robbie Doherty signups</b><span class="acts">Accept · Reject</span><br>19.2 % of Locklead's list and 16.2 % of Robbie Doherty's also signed up for Ewan McVicar.<br><span class="fs">Uploads Locklead + Robbie Doherty signups to Meta as one list · 1,214 people after duplicates · a 1 % lookalike in the UK · into Prospecting</span></div>
+</div></figure>
+<figure><figcaption>XO-E · 393 · switch off: the pages combined</figcaption>
+<div class="vp w393">
+<div class="h">XMPL-EWAN · Tickets</div>
+<div class="line"><span class="kick">Lookalike</span><br><b>Lookalike from people who signed up on Locklead + Robbie Doherty pages</b><br>19.2 % of Locklead's list and 16.2 % of Robbie Doherty's also signed up for Ewan McVicar.<br><span class="brick" style="font-size:11.5px">Electric's signup lists can't go to Meta until their privacy notice is confirmed for advertising.</span><br><span class="fs">Registrations on Locklead + Robbie Doherty pages · 180 days · 1,062 people · a 1 % lookalike in the UK · into Prospecting</span>
+<div style="margin-top:6px"><span class="btn ghost">Accept</span> <span class="btn ghost">Reject</span></div></div>
+</div></figure>
+</div>
+
+<h2>Expected figures</h2>
+<table class="t">
+<tr><th style="width:190px">Neighbour</th><th>List</th><th>share_of_that</th><th>Shared</th><th>Alone</th></tr>
+<tr><td>Locklead</td><td>645</td><td>19.2 %</td><td>124</td><td>under 1,000, so no seed alone</td></tr>
+<tr><td>Robbie Doherty</td><td>685</td><td>16.2 %</td><td>111</td><td>under 1,000, so no seed alone</td></tr>
+<tr><td>Combined</td><td>1,214 after duplicates</td><td>—</td><td>—</td><td><b>seed</b>: 1,214 is 1,000 or more</td></tr>
+</table>
+<ul class="notes">
+<li>The live read gave the shares and list sizes. The shared counts are 645 × 19.2 % = 123.8, so 124, and 685 × 16.2 % = 111.0, so 111.</li>
+<li>Ops put the combined count at about 1,200. The frame's 1,214 assumes 116 fans on both lists (645 + 685 − 116) and is invented. So is the 1,062 registrations on the two pages.</li>
+<li>The other neighbours are under 10 %, so they don't join the seed.</li>
+</ul>
+
+<h2>Acceptance</h2>
+<ul class="notes">
+<li>With no neighbour at 1,000 alone, the 10 % neighbours combine into one line, but only when CIRQLIN's count after duplicates is 1,000 or more.</li>
+<li>With one neighbour at 1,000, XO3's single lines appear and nothing combines.</li>
+<li>The words are exact, with names closest first and joined by "+".</li>
+<li>The app stores only the count: no table gains a person-level column.</li>
+<li>Switch off: the pages combine, with the same 1,000 floor.</li>
+<li>A combined seed blocks a later single seed from any of its neighbours.</li>
+<li>Frames: XO-E at 1280 and 393.</li>
+</ul>
+
+<h2>Hand-back</h2>
+<table class="t">
+<tr><th style="width:190px">Piece</th><th>Build</th></tr>
+<tr><td>HX8 · Combined seed</td><td>
+<ul>
+<li>The merge rule in XO3's line builder.</li>
+<li><b>Needs CIRQLIN:</b>
+<ul>
+<li>a count of several shows' signups after duplicates, counts only;</li>
+<li>a provider-side upload of the combined list, the same path as one list.</li>
+</ul></li>
+</ul></td></tr>
+</table>
+
+<h2>Invented here</h2>
+<ul class="notes">
+<li>Combining every 10 % neighbour when none reaches 1,000, and the floor applied to the combined count.</li>
+<li>"Lookalike from {A} + {B} signups" and "Lookalike from people who signed up on {A} + {B} pages".</li>
+<li>The why line for two or three neighbours, and the "as one list · {n} people after duplicates" writes.</li>
+<li>XO-E's 1,214 and 1,062.</li>
+</ul>
+
+</div>
+</body>
+</html>
