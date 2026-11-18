@@ -1,0 +1,470 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Creative test variant pairs — 18 Nov 2026</title>
+<style>
+:root{
+  --sand:#F0C9A8; --card:#e8d4c0; --edit:#f6ebe0; --paper:#fff8f0; --ink:#1e1810; --ink-2:#4a3d30; --ink-3:#6f6052;
+  --border:rgba(30,24,16,.10); --border-strong:rgba(30,24,16,.18); --muted:rgba(30,24,16,.06);
+  --olive:#4f5a1f; --ochre:#8a560c; --brick:#8f3424;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--sand);color:var(--ink);font:14px/1.5 var(--sans);font-feature-settings:"calt" 0}
+.wrap{max-width:1360px;margin:0 auto;padding:40px 24px 120px}
+h1{font-size:24px;font-weight:600;margin:0 0 6px}
+h2{font-size:20px;font-weight:600;margin:56px 0 8px}
+h3{font-size:13px;font-weight:600;margin:20px 0 6px}
+p{margin:0 0 10px;max-width:86ch}
+.lead{font-size:13px;color:var(--ink-2)}
+.k{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+code{font:12px var(--mono);background:var(--muted);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+figure{margin:0;min-width:0;max-width:100%}
+figcaption{font:700 9px/1.5 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+table.t{border-collapse:collapse;width:100%;font-size:12.5px;margin:10px 0 22px;background:var(--card);border-radius:8px;overflow:hidden;table-layout:fixed}
+table.t th,table.t td{text-align:left;vertical-align:top;padding:8px 12px;border-bottom:1px solid var(--border);overflow-wrap:anywhere}
+table.t th{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.t td:first-child{font-weight:600;width:190px}
+table.t ul{margin:4px 0 0 16px;padding:0}table.t li{margin:0 0 4px}
+.open{background:#f3e3c8;border:1px dashed var(--ochre);border-radius:8px;padding:10px 14px;font-size:12.5px;margin:10px 0 16px}
+.notes{font-size:12.5px;color:var(--ink-2)}.notes li{margin:0 0 6px;max-width:96ch}
+.frame{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start;margin:12px 0 24px}
+.vp{background:var(--paper);border:1px solid var(--border-strong);border-radius:8px;overflow:hidden;max-width:100%;padding:16px;font-size:13px}
+.vp.wide{width:760px}.vp.w393{width:393px}
+.ph{font:700 9px/1.4 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+.h{font-weight:600;font-size:14px;margin:0 0 4px}
+.sub{font-size:12px;color:var(--ink-2);margin:0 0 10px}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 10px}
+.chip{border:1px solid var(--border-strong);border-radius:999px;padding:3px 10px;font-size:12px;background:#fff}
+.chip.on{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.mono{font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase}
+.row{display:grid;grid-template-columns:22px 26px 1fr auto;gap:8px;align-items:center;padding:7px 0;border-top:1px solid var(--border)}
+.row .n{color:var(--ink-3);font:12px var(--mono)}
+.box{width:16px;height:16px;border:1.5px solid var(--ink);border-radius:3px;display:inline-block}
+.box.on{background:var(--ink)}
+.box.off{border-color:var(--ink-3);opacity:.45}
+.fs{font-size:11.5px;color:var(--ink-2)}
+.fs.warn{color:var(--brick)}
+.ok{color:var(--olive)}
+.btn{display:inline-block;border:1px solid var(--ink);border-radius:4px;padding:5px 10px;font:700 10px var(--mono);letter-spacing:.1em;text-transform:uppercase;background:var(--ink);color:var(--paper)}
+.btn.ghost{background:transparent;color:var(--ink)}
+.btn.dis{opacity:.4}
+.wave{position:relative;height:64px;background:repeating-linear-gradient(90deg,var(--ink-3) 0 2px,transparent 2px 5px);border-radius:4px;margin:26px 0 4px;opacity:.9}
+.wave .win{position:absolute;top:-4px;bottom:-4px;border:2px solid var(--ink);background:rgba(232,212,192,.55);border-radius:4px}
+.wave .drop{position:absolute;top:-10px;bottom:-10px;width:2px;background:var(--brick)}
+.wave .drop span{position:absolute;top:-16px;left:-20px;font:700 9px var(--mono);letter-spacing:.1em;color:var(--brick);white-space:nowrap}
+.tl{display:flex;justify-content:space-between;font:11px var(--mono);color:var(--ink-3)}
+.pv{width:150px;height:267px;background:#222;border-radius:6px;position:relative;flex:none;display:flex;align-items:center;justify-content:center;color:#fff;font:700 9px var(--mono);letter-spacing:.12em}
+.pv .play{position:absolute;bottom:10px;left:10px;width:28px;height:28px;border-radius:50%;background:#fff}
+.split{display:flex;gap:16px;align-items:flex-start}
+table.v{border-collapse:collapse;width:100%;font-size:12px;margin:6px 0}
+table.v th{font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);text-align:left;padding:4px 6px;border-bottom:1px solid var(--border-strong)}
+table.v td{padding:6px;border-bottom:1px solid var(--border)}
+table.v td.r,table.v th.r{text-align:right}
+.st{display:inline-block;border:1px solid var(--border-strong);border-radius:10px;padding:2px 8px;font:700 9px/1.5 var(--mono);letter-spacing:.1em;text-transform:uppercase}
+.st.run{border-style:dashed}
+.st.win{background:var(--olive);color:#fff;border-color:var(--olive)}
+.test{border:1px solid var(--border);border-radius:6px;padding:10px 12px;margin:8px 0;background:#fff}
+.test.dim{opacity:.55}
+.line{background:var(--card);border-radius:6px;padding:8px 10px;margin:6px 0;font-size:12px}
+.inv{text-decoration:underline dotted var(--brick);text-decoration-thickness:1.5px;text-underline-offset:3px}
+table.t table.t td:first-child{width:auto;font-weight:400}
+@media (max-width:560px){table.t th[style]{width:100px!important}table.t td:first-child{width:100px}}
+.st.fail{border-color:var(--brick);color:var(--brick)}
+.line .acts{float:right;font:700 9px var(--mono);letter-spacing:.1em;text-transform:uppercase}
+.line.wait{opacity:.6}
+.line.failed{border:1px solid var(--brick);background:#f6e3dc}
+.tick{display:inline-block;width:11px;height:11px;border:1.5px solid var(--ink);border-radius:2px;margin-right:6px;vertical-align:-1px}
+.tick.on{background:var(--ink)}
+.bar{display:inline-block;height:8px;background:var(--ink-3);border-radius:2px;vertical-align:middle;margin-right:6px}
+.sbar{position:relative;display:inline-block;width:100px;height:8px;background:var(--muted);border-radius:2px;vertical-align:middle;margin-right:8px}
+.sbar i{position:absolute;left:0;top:0;bottom:0;background:var(--ink-3);border-radius:2px}
+.sbar i.lead{background:var(--olive)}
+.sbar b{position:absolute;left:60px;top:-3px;bottom:-3px;width:1px;background:var(--ink)}
+.sbar s{position:absolute;left:10px;top:-3px;bottom:-3px;width:1px;background:var(--ink-3);opacity:.6}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<p class="k">Off/Pixel · design record · creative testing · variant pairs · 18 November 2026</p>
+<h1>Variant pairs: two versions of one asset, tested against each other</h1>
+<p class="lead">Matas, 18 Nov: "Make it general, not snippet-only." A <b>variant pair</b> compares two versions of the same asset, each with an operator label:</p>
+<ul class="notes">
+<li>two windows of one track;</li>
+<li>two cuts of one clip;</li>
+<li>two framings of one card.</li>
+</ul>
+<p class="lead">It runs as its own ad set in the show's <code>{code} · Tests</code> campaign for four days, and it's called on cost per result.</p>
+<p class="lead">The first use is P26-BDAY's Luke Dean snippets. Can't Decide and Get Hard each have an "earlier drop" window and a "payoff drop" window. They go in live once Luke's management signs off.</p>
+<p class="lead">The test maker can't make a pair today:</p>
+<ul class="notes">
+<li>it takes each track once;</li>
+<li>it takes the window from the file's own drop;</li>
+<li>it labels a variant with the track's title, so both windows would read "Can't Decide";</li>
+<li>none of CT6's tests compares two versions of one asset.</li>
+</ul>
+<p class="lead">This record adds that test. Everything else stands:</p>
+<ul class="notes">
+<li><b>Snippets and audio:</b> CT1's format, CT2 with AU1–AU4, CT4 and CT5.</li>
+<li><b>The plan:</b> CT6's default plan, and the money and calling rules TF1–TF4.</li>
+<li><b>Campaigns:</b> TT8–TT11.</li>
+<li><b>Lab edits:</b> the Lab's video-window rules (VW).</li>
+<li><b>Approve:</b> the cap sentence ruled on #1297.</li>
+</ul>
+<p class="lead">The P26-BDAY windows and Drive files are real, from the Luke Dean session's table. The drop positions inside them, the track lengths, the static's name, the clip and card examples and every figure in the frames are <span class="inv">invented</span>.</p>
+
+<h2>Rulings</h2>
+<table class="t">
+<tr><th style="width:190px">#</th><th>Ruling</th></tr>
+
+<tr><td>VP1 · A variant pair</td><td>
+<ul>
+<li><b>A test of exactly two variants:</b> two versions of one asset. One thing differs between them, and everything else is held.</li>
+<li><b>What a pair always holds:</b> the copy, the audience, the placements, the optimisation and the budget. Both variants are ads in the pair's one ad set (VP4), with the same primary text, headline and link, so only the asset differs.</li>
+<li><b>Three kinds.</b> "Same asset" means:
+<table class="t" style="margin:6px 0 10px">
+<tr><th style="width:150px">Kind</th><th>Same asset</th><th>What changes</th><th>Also held</th></tr>
+<tr><td>Track pair</td><td>One track file in <code>02 Source / Audio / {artist}</code>, as an audio snippet static (CT1)</td><td>The window: where in the track the snippet starts</td><td>The static, the length (15–20 s, 16 by default), the fades and the loudness</td></tr>
+<tr><td>Clip pair</td><td>One Lab clip (<code>creative_lab_clips</code>), as a Lab video edit</td><td>The cut: where the edit starts and ends in the clip, under VW's rules (15–20 s, the drop 3–5 s in)</td><td>The caption or overlay, its style and its placement, and the 9:16 framing</td></tr>
+<tr><td>Card pair</td><td>One card: the same photo or cutout with the same words</td><td>The framing: the crop, or where the photo sits on the card</td><td>The words, the type, the colours and the format</td></tr>
+</table></li>
+<li><b>Each variant has an operator label,</b> shown on the event page, the share link and in the result (VP6). The defaults:
+<ul>
+<li>Track pair: <b>"{Track} · earlier drop"</b> and <b>"{Track} · payoff drop"</b>.</li>
+<li>Clip pair: <b>"{clip} · cut 1"</b> and <b>"{clip} · cut 2"</b>.</li>
+<li>Card pair: <b>"{name} card · framing 1"</b> and <b>"{name} card · framing 2"</b>.</li>
+</ul>
+{Track} is the variant name CT11 already uses: the Spotify title, else the file's name. {clip} is the clip's name in the Lab. {name} is the card's artist or title. The variants are ordered by start, earlier first (for a track or a clip), or in the order the operator added them (for a card).</li>
+<li><b>Changing a label:</b> an operator can change either label until Approve. After Approve the labels are fixed, because the reads, the result and the share link carry them. A label can't be empty, the two can't be the same, and each is at most 60 characters.</li>
+<li><b>Limits:</b> never two different assets, never more than one thing changed, never more than two variants.</li>
+</ul></td></tr>
+
+<tr><td>VP2 · Making a track pair</td><td>
+<ul>
+<li><b>In the Lab's Snippet tab, on the track that's open</b> (CT10): a <b>"Pair"</b> switch above the waveform turns the one window into two boxes, one per variant. Each box is titled with its label.</li>
+<li><b>Markers:</b> each box has its own drop marker, the brick line with "DROP · {m:ss}" from CT4.
+<ul>
+<li>The first box takes the drop the Lab found (CT4).</li>
+<li>The second box starts with no marker. The Lab doesn't look for a second drop.</li>
+</ul></li>
+<li><b>Two ways to set a window:</b>
+<ul>
+<li><b>A start time.</b> Type it in "Starts at" (m:ss, up to two decimals: 2:03.5, 1:46.85), or drag the box. Dragging the marker moves the box with it, as in CT4.</li>
+<li><b>A snippet file.</b> "Window from" lists the snippets the app has already made from this track's file. Picking one copies its start and length.
+<ul>
+<li>Files cut outside the app aren't listed, because the app doesn't know their window or their loudness. P26-BDAY's four in <code>Luke Dean / Statics</code> are files like that.</li>
+<li>Their starts are typed instead.</li>
+</ul></li>
+</ul></li>
+<li><b>The rule for each window:</b>
+<ul>
+<li>15–20 s long, with its drop 3 to 5 s from the start. That's VW2's shape, and CT1's default of 4 s sits inside it.</li>
+<li>CT4's "past the first 20 seconds" is where the Lab looks, not a limit on the operator: an earlier drop placed by hand can sit in the first 20 s.</li>
+<li>The two windows can't overlap.</li>
+</ul></li>
+<li><b>Each box's line:</b> <b>"{start}–{end} · {length} s · drop {d} s in"</b>, for example "2:03.5–2:19.5 · 16 s · drop 4.0 s in".
+<ul>
+<li>Times keep up to two decimals when they aren't whole.</li>
+<li>{d} has one decimal.</li>
+</ul></li>
+<li><b>Preview:</b> CT5's preview plays the box touched last.</li>
+<li><b>The button:</b> <b>"Make pair · {Track}"</b>. It renders both snippets on the chosen static ("Static: {name}", CT10).
+<ul>
+<li>Names follow CT1's S14 pattern, with the first variant as <code>_r1</code> and the second as <code>_r2</code>, as P26's files were filed by hand.</li>
+<li>They file under Videos (CT10), never overwriting (<code>_v2</code>).</li>
+</ul></li>
+</ul></td></tr>
+
+<tr><td>VP3 · Making a clip pair or a card pair</td><td>
+<ul>
+<li><b>A clip pair:</b> in the clip's edit window picker (VW5), a "Pair" switch gives two windows on the one clip, each held to VW's rules.
+<ul>
+<li>"Window from" lists the clip's own approved video renders. Picking one copies its window.</li>
+<li>The caption, its style and its placement are taken once and applied to both cuts.</li>
+</ul></li>
+<li><b>A card pair:</b> on a card, "Pair" makes a second framing of the same card.
+<ul>
+<li>The operator moves the photo or the crop on the second. Changing the words or the type is refused, because that would be a different card.</li>
+<li>"Framing from" lists the card's own approved renders.</li>
+</ul></li>
+<li><b>Each kind has its own button:</b> <b>"Make pair · {clip}"</b> or <b>"Make pair · {name} card"</b>. Both renders go through the Lab's usual render and approval (CT10: "A snippet is approved like any render", and so is a cut or a card).</li>
+<li><b>This record rules the words and the rules for clip pairs and card pairs; their frames come with their build.</b> The first build is the track pair (P26-BDAY). The clip and card makers follow in their own PRs, each shooting its own frame against this record.</li>
+</ul></td></tr>
+
+<tr><td>VP4 · The ad set</td><td>
+<ul>
+<li><b>A pair runs as its own ad set</b> in the show's one <code>{code} · Tests</code> campaign (TT8), found by its exact name and never made twice. It has no campaign budget.</li>
+<li><b>Ad set name:</b> <b>"{code} · Tests · {kind} pair · {d Mon}"</b>, where {kind} is <b>Track</b>, <b>Clip</b> or <b>Card</b> (TT10, extended).
+<ul>
+<li>For example "P26-BDAY · Tests · Track pair · 18 Nov".</li>
+<li>A same-day repeat of the same kind adds " · 2", as TT10 says. {d Mon} is the London day the ad set is made.</li>
+</ul></li>
+<li><b>Ads:</b> the two variants are its two ads, named by the render's file name.</li>
+<li><b>Four days:</b> the ad set ends at 23:59 London on the fourth day after the London day it starts (TT9).</li>
+<li><b>Lane:</b> a pair runs in a lane of its own, as A/B copy and artist-card tests do (TT9).
+<ul>
+<li>It doesn't wait on CT6's tests (Tracks, Statics, Together), and they don't wait on it.</li>
+<li>One pair runs at a time (open item 2).</li>
+<li>The app follows the ad set by its stored id (TT9).</li>
+</ul></li>
+</ul></td></tr>
+
+<tr><td>VP5 · Called on cost per result</td><td>
+<ul>
+<li><b>The result is the campaign's own</b> (R3): checkouts, else landing-page views, or signups on a signup campaign.</li>
+<li><b>TF2's read, unchanged:</b> daily from 48 h, with the last read at day 4. For a pair, that means:
+<ul>
+<li>A variant wins when it has the lower cost per result of the two, at least 3 results and at least 60 % of the spend.</li>
+<li>A variant under 10 % of the spend reads "Not enough spend to judge" and never wins.</li>
+<li>With no winner at day 4, the pair reads "No clear winner by day 4".</li>
+</ul></li>
+<li><b>"Called" means</b> Matas calls the winner once TF2's read finds one, as for every creative test ("Ready to call", then "Winner: …").</li>
+<li><b>Calling changes nothing else.</b> The track's stored window, the clip's stored window and the card's stored framing stay as they were. A later edit takes the winning version only when an operator moves it there.</li>
+</ul></td></tr>
+
+<tr><td>VP6 · The event page, the share link and the result</td><td>
+<ul>
+<li><b>The card's name:</b> <b>"Test {n} · {kind} pair · {asset}"</b>, on the Test plan panel and on the share link. {asset} is the track, the clip or "{name} card". For example "Test 1 · Track pair · Can't Decide".</li>
+<li><b>At 1280, internal only:</b> a line under the name saying what changes and what's held.
+<ul>
+<li>A track pair: <b>"{span 1} vs {span 2} · Static: {name}"</b>.</li>
+<li>A clip pair: <b>"{span 1} vs {span 2}"</b>.</li>
+<li>A card pair: <b>"Framing 1 vs framing 2"</b>.</li>
+</ul>
+It's not shown at 393.</li>
+<li><b>Rows:</b> the two labels. TF1's line names the ad set in full (TT10). TF2's states and TF3's share-first rows don't change.</li>
+<li><b>The result</b> reads with the label: <b>"Winner: {label} · {share} % of spend · £{cost} per {result}"</b> on the panel, and <b>"Winner: {label} · £{cost} per {result}"</b> on the share link, as TF-A and TF-C word them.</li>
+<li><b>The share link:</b> the card's name, its state, the labels, results and cost per result.
+<ul>
+<li>CT11's list of what the share link never shows stands.</li>
+<li>The span line and the sign-off line (VP7) aren't shown either.</li>
+</ul></li>
+</ul></td></tr>
+
+<tr><td>VP7 · Approve, going live and sign-off</td><td>
+<ul>
+<li><b>What already stands:</b> TT9 ruled that a creative test goes in live (Matas, 17 Nov), and #1297 builds it that way.
+<ul>
+<li>"Approve variants" creates the ad set and its ads ACTIVE (<code>createPaused: false</code>), behind <code>CREATIVE_TESTS_CREATE_ENABLED</code> and "Only Matas can approve a test's variants.".</li>
+<li>#1297 has no paused default. Approving is the approval.</li>
+</ul></li>
+<li><b>A pair approves the same way</b> (A below): #1297's route, gate and Matas check, TF1's budget and VP4's ad set, all ACTIVE.</li>
+<li><b>What's new is the sign-off.</b> A pair can be marked as needing someone's sign-off before it goes live: "Needs sign-off from {who}", for example "Luke Dean's management".
+<ul>
+<li>Until the sign-off is recorded, Approve is off: <b>"Waiting for sign-off from {who}."</b></li>
+<li>The operator records it on the pair: <b>"Signed off by {who} · {d Mon}"</b>, with who signed off and the day. It's kept on the test, next to the labels.</li>
+<li>It shows on the event page card at 1280 (internal only), never on the share link. It can't be changed after Approve.</li>
+</ul></li>
+<li><b>For design to rule</b> (the brief's "paused behind a gate" doesn't match #1297, so here are both ways):
+<ul>
+<li><b>A · Live at Approve, sign-off before it</b> (this record's proposal). Sign-off gates Approve, and Approve creates everything live, as TT9 says. There's no separate step.</li>
+<li><b>B · Paused, then "Go live".</b> Approve creates the ad set paused, and a "Go live · {ad set name}" button turns it on once the sign-off is in. That re-rules TT9 for pairs, and it's two writes, not one.</li>
+</ul></li>
+<li><b>Approve checks VP2's and VP3's rules again</b> and refuses with the same words (VP9). Nothing is made.</li>
+<li><b>No Approve control:</b> the event page has none yet. The sign-off and Approve controls for a pair sit on the pair in the Lab, beside "Make pair" (frame VP-A).</li>
+</ul></td></tr>
+
+<tr><td>VP8 · Money</td><td>
+<ul>
+<li><b>One budget per pair:</b> TF1 sizes the pair's ad set like any creative test's: 10 % of the event's current daily Meta spend, rounded down, at most £10 a day and the median live main ad set's budget, never under Meta's minimum. Both ads share it, and TF2 reads the spend share.</li>
+<li><b>The hold:</b> the daily budget × 4 days, for the one ad set. It's not per variant. A pair at £10 a day holds £40.00.</li>
+<li><b>R5:</b> before anything is made, the hold is checked against the 20 % cap, together with what every other test ad set of the event holds now (approved or running). That includes a CT6 test, which can run beside a pair.</li>
+<li><b>The cap sentence:</b> #1297's sentence stands word for word, shown only when the pair doesn't fit, with Approve off: <b>"This test needs £{hold} for its 4 days, and the plan's 20 % cap has £{left} left."</b></li>
+</ul></td></tr>
+
+<tr><td>VP9 · The refusals</td><td>
+<p>At "Make pair" and again at Approve. Nothing is made when one shows.</p>
+<ul>
+<li><b>"Place the second drop."</b> (a track pair)</li>
+<li><b>"{label}: the drop is {d} s in. Move the window so the drop is 3 to 5 s in."</b> (a track or a clip)</li>
+<li><b>"The two windows overlap. Move one so they don't."</b> (a track or a clip)</li>
+<li><b>"The two framings are the same. Move one."</b> (a card)</li>
+<li><b>"A card pair keeps the card's words and type. Change only the framing."</b> (a card)</li>
+<li><b>"Give each version a label."</b></li>
+<li><b>"The two labels are the same. Change one."</b></li>
+<li><b>"Waiting for sign-off from {who}."</b> (VP7)</li>
+</ul></td></tr>
+
+<tr><td>VP10 · Never</td><td>
+<ul>
+<li>A pair never compares two different assets, never changes more than one thing, and never has more than two variants.</li>
+<li>It never changes the copy, the audience, the placements or the budget between its two ads.</li>
+<li>It never takes a file cut outside the app as a variant, and never moves or deletes those files. P26-BDAY's four stay in <code>Luke Dean / Statics</code>.</li>
+<li>It never finds the second drop, cut or framing by itself, and never picks either version without an operator.</li>
+<li>It never changes a track's, clip's or card's stored window or framing because a pair won.</li>
+<li>It never goes live without Approve, or before a sign-off it's marked as needing.</li>
+<li>It never shows the span line, the sign-off, budgets or spend share on the share link.</li>
+<li>It never changes a label or a sign-off after Approve.</li>
+<li>It never makes a campaign beyond TT8, nor an ad set beyond VP4's.</li>
+</ul></td></tr>
+</table>
+
+<h2>First use: P26-BDAY</h2>
+<p class="lead">The windows and Drive files are real, from the Luke Dean session's table (18 Nov).</p>
+<ul class="notes">
+<li><b>Sources:</b> the app renders the windows again from the track files in <code>02 Source / Audio / Luke Dean</code> (Drive <code>1hjPhhFAEJ0eBsgfpuiCj2pDMqtUQ5rNU</code> and <code>1EIkDGqPayaJkN9HRre-ze0ANJrNJocVW</code>), on static card 4 (<code>1EiNeR9NNH_tVNXZbc6MQ8krt5o8EybtE</code>).</li>
+<li><b>The script cuts:</b> the four cut by script and filed in <code>Luke Dean / Statics</code> stay as they are. Each is listed below for reference.</li>
+<li><b>Sign-off:</b> both pairs are marked "Needs sign-off from Luke Dean's management", and go in live once it's recorded and Matas approves.</li>
+</ul>
+<table class="t">
+<tr><th style="width:190px">Test · ad set</th><th>Variant 1</th><th>Variant 2</th></tr>
+<tr><td>Test {n} · Track pair · Can't Decide<br><span class="fs">P26-BDAY · Tests · Track pair · {d Mon}</span></td><td>Can't Decide · earlier drop<br><span class="fs">0:07–0:23 · 16 s · script cut <code>1n4JqW92Dk3bw0PIRPh9bKOv4ZncB_-Tu</code></span></td><td>Can't Decide · payoff drop<br><span class="fs">2:03.5–2:19.5 · 16 s · script cut <code>1vmzBIhTG1aqzBteJdYwN-dibzXoKFOQq</code></span></td></tr>
+<tr><td>Test {n} · Track pair · Get Hard<br><span class="fs">P26-BDAY · Tests · Track pair · {d Mon}</span></td><td>Get Hard · earlier drop<br><span class="fs">0:34–0:50 · 16 s · script cut <code>1nZ2u0FgKoqZswUb1ICpYC173U5P-rbxZ</code></span></td><td>Get Hard · payoff drop<br><span class="fs">1:46.85–2:02.85 · 16 s · script cut <code>18EopZGQJVWhqD-Fg5cpoNF4JfuD5IUpr</code></span></td></tr>
+</table>
+<p class="notes">Make Believe isn't paired. It has one window (0:17–0:33), and no payoff drop was found in its last third. It can still run in a Tracks test.</p>
+
+<h2>Frames</h2>
+<p class="lead">The track-pair build shoots these. The drawings below are sketches, not the frames.</p>
+<table class="t">
+<tr><th style="width:190px">Frame</th><th>What it shows</th></tr>
+<tr><td>VP-A · 1280 and 393</td><td>The test maker: the Snippet tab with Can't Decide open as a pair. It shows both boxes and their markers, each box's line and label, "Window from", "Static: {name}", the sign-off line and "Make pair · Can't Decide". At 393, the second box has been moved to 2:01 (the drop 6.5 s in), so the refusal shows and the button is off.<br>The windows are real; the waveform, the drops (4.0 s in) and the track length (4:10) are invented.</td></tr>
+<tr><td>VP-B · 1280 and 393</td><td>The event page: the Test plan panel with Test 1 · Track pair · Can't Decide open at the 48-hour read, ready to call. At 1280 it shows the span line and the sign-off line. Expected figures below.</td></tr>
+<tr><td>VP-C · 1280 and 393</td><td>The share result: VP-B on the share link, called. The name, "Winner: Can't Decide · payoff drop · £1.80 per checkout", and the two labels with results and cost per result. No span, no sign-off, no share.</td></tr>
+</table>
+
+<h3>VP-B and VP-C's expected figures (invented)</h3>
+<ul class="notes">
+<li><b>Spend:</b> £20.00 at 48 h.
+<ul>
+<li>Payoff drop: £12.60, 7 checkouts, £1.80 per checkout, 63 % of spend.</li>
+<li>Earlier drop: £7.40, 3 checkouts, £2.47 per checkout, 37 %.</li>
+</ul></li>
+<li><b>State:</b> the payoff drop has the lower cost per result, 7 results and 63 % of spend, so VP5 finds a winner. VP-B reads "Ready to call" and the chip reads "Test 1 ready to call". VP-C shows it once called.</li>
+<li><b>1280 line:</b> "In P26-BDAY · Tests · Track pair · 18 Nov · £10 a day · 6 % of current daily spend (cap £10) · read at 48 h, £20.00 spent".</li>
+<li><b>The span line:</b> "0:07–0:23 vs 2:03.5–2:19.5 · Static: Luke Dean card 4".</li>
+<li><b>The sign-off line:</b> "Signed off by Luke Dean's management · 18 Nov".</li>
+<li><b>393 rows:</b>
+<ul>
+<li>"63 % of spend · Can't Decide · payoff drop · £1.80 per checkout · 7"</li>
+<li>"37 % of spend · Can't Decide · earlier drop · £2.47 per checkout · 3"</li>
+</ul></li>
+<li><b>No cap sentence:</b> the £40.00 hold fits.</li>
+</ul>
+
+<div class="frame">
+<figure><figcaption>VP-A · 1280 · sketch</figcaption>
+<div class="vp wide">
+<p class="ph">Lab · Snippet · Luke Dean</p>
+<div class="chips"><span class="chip">One window</span><span class="chip on">Pair</span></div>
+<p class="h">Can't Decide</p>
+<p class="sub">Static: Luke Dean card 4 · 16 s</p>
+<div class="wave">
+<div class="win" style="left:2.8%;width:6.4%"></div><div class="drop" style="left:4.4%"><span>DROP · 0:11</span></div>
+<div class="win" style="left:49.4%;width:6.4%"></div><div class="drop" style="left:51%"><span>DROP · 2:07.5</span></div>
+</div>
+<div class="tl"><span>0:00</span><span>4:10</span></div>
+<table class="v">
+<tr><th>Label</th><th>Starts at</th><th>Span</th><th>Window from</th></tr>
+<tr><td>Can't Decide · earlier drop</td><td>0:07</td><td>0:07–0:23 · 16 s · drop 4.0 s in</td><td>—</td></tr>
+<tr><td>Can't Decide · payoff drop</td><td>2:03.5</td><td>2:03.5–2:19.5 · 16 s · drop 4.0 s in</td><td>—</td></tr>
+</table>
+<p class="fs">Needs sign-off from Luke Dean's management · <span class="ok">Signed off by Luke Dean's management · 18 Nov</span></p>
+<p style="margin-top:12px"><span class="btn">Make pair · Can't Decide</span></p>
+</div></figure>
+
+<figure><figcaption>VP-A · 393 · sketch</figcaption>
+<div class="vp w393">
+<p class="ph">Lab · Snippet</p>
+<p class="h">Can't Decide · Pair</p>
+<div class="line">Can't Decide · earlier drop · 0:07–0:23 · 16 s · drop 4.0 s in</div>
+<div class="line">Can't Decide · payoff drop · 2:01–2:17 · 16 s · drop 6.5 s in</div>
+<p class="fs warn">Can't Decide · payoff drop: the drop is 6.5 s in. Move the window so the drop is 3 to 5 s in.</p>
+<p><span class="btn dis">Make pair · Can't Decide</span></p>
+</div></figure>
+</div>
+
+<div class="frame">
+<figure><figcaption>VP-B · 1280 · sketch</figcaption>
+<div class="vp wide">
+<p class="ph">Test plan</p>
+<div class="test">
+<p class="h">Test 1 · Track pair · Can't Decide <span class="st run" style="float:right">Ready to call</span></p>
+<p class="sub">0:07–0:23 vs 2:03.5–2:19.5 · Static: Luke Dean card 4</p>
+<p class="fs">Signed off by Luke Dean's management · 18 Nov</p>
+<p class="fs">In P26-BDAY · Tests · Track pair · 18 Nov · £10 a day · 6 % of current daily spend (cap £10) · read at 48 h, £20.00 spent</p>
+<table class="v">
+<tr><th>Variant</th><th>Spend share</th><th class="r">Spend</th><th class="r">Checkouts</th><th>Cost per checkout</th></tr>
+<tr><td>Can't Decide · payoff drop</td><td><span class="sbar"><i class="lead" style="width:63px"></i><b></b><s></s></span>63 %</td><td class="r">£12.60</td><td class="r">7</td><td>£1.80</td></tr>
+<tr><td>Can't Decide · earlier drop</td><td><span class="sbar"><i style="width:37px"></i><b></b><s></s></span>37 %</td><td class="r">£7.40</td><td class="r">3</td><td>£2.47</td></tr>
+</table>
+</div>
+</div></figure>
+
+<figure><figcaption>VP-C · 393 · sketch</figcaption>
+<div class="vp w393">
+<p class="ph">What we're testing</p>
+<p class="h">Test 1 · Track pair · Can't Decide</p>
+<p class="sub">Winner: Can't Decide · payoff drop · £1.80 per checkout</p>
+<table class="v">
+<tr><th>Variant</th><th class="r">Checkouts</th><th>Per checkout</th></tr>
+<tr><td>Can't Decide · payoff drop</td><td class="r">7</td><td>£1.80</td></tr>
+<tr><td>Can't Decide · earlier drop</td><td class="r">3</td><td>£2.47</td></tr>
+</table>
+</div></figure>
+</div>
+
+<h2>Acceptance</h2>
+<ul class="notes">
+<li><b>What a pair is:</b> one asset, one thing changed, exactly two variants.
+<ul>
+<li>A track pair holds the file, the static and the length.</li>
+<li>Copy, audience, placements and budget are the same for both ads.</li>
+</ul></li>
+<li><b>Labels:</b> they default to VP1's strings, can be changed until Approve, and are fixed after it. They show on the event page, the share link and in the result.</li>
+<li><b>Track windows:</b> set by a typed start or by one of the app's own snippets of that file. Files cut outside the app are never offered. Each drop is 3 to 5 s in, the windows never overlap, and the renders are <code>_r1</code> and <code>_r2</code>.</li>
+<li><b>The ad set:</b> its own, in <code>{code} · Tests</code>, named "{code} · Tests · {kind} pair · {d Mon}" with TT10's " · 2". It ends at 23:59 London on day 4, in a lane of its own.</li>
+<li><b>The call:</b> VP5's rule, with TF2's words.</li>
+<li><b>The hold:</b> the daily budget × 4, checked against the 20 % cap with the other test ad sets. #1297's cap sentence is word for word.</li>
+<li><b>Approve:</b> #1297's route, gate and Matas check, and VP7's sign-off gate, as design rules (A or B).</li>
+<li><b>The refusals:</b> VP9's are exact.</li>
+<li><b>Frames:</b> VP-A, VP-B and VP-C are shot at 1280 and 393, with the expected figures above.</li>
+</ul>
+
+<h2>Open for design and Matas</h2>
+<div class="open">
+<p><b>1 · Going live (VP7).</b> A: live at Approve, with the sign-off gating Approve, as TT9 and #1297 already do. B: paused at Approve, then a "Go live" step after the sign-off. The brief described #1297's Approve as paused, but it creates ACTIVE, so this is for design to rule, not for the build to pick.</p>
+<p><b>2 · One pair at a time?</b> This record runs one pair at a time: Can't Decide for four days, then Get Hard. TT10's " · 2" would name two pairs made the same day if Matas wants both live at once. Both would hold against the cap together (VP8).</p>
+<p><b>3 · "Called on cost per result" (VP5).</b> This record keeps TF2, whose winner must also be the cheaper variant. If Matas means a pure cost-per-result call, the lower cost per result wins at day 4 with at least 3 results each and no spend-share gate. That replaces TF2 for pairs.</p>
+</div>
+
+<h2>Build notes</h2>
+<ul class="notes">
+<li><b>The kind:</b> migration 255's <code>creative_tests.kind</code> check allows tracks, statics, together, copy and clip only. A <code>pair</code> kind, with the pair's kind (track, clip or card) and its sign-off kept in <code>held</code>, needs one migration that widens that check. It's unapplied; Matas applies it.
+<ul>
+<li>Storing a pair as kind <code>tracks</code> instead would avoid the migration. But then a later Statics test would take the pair's winner as its winning track, so the build doesn't do that.</li>
+</ul></li>
+<li><b>Everything else fits the existing columns:</b>
+<ul>
+<li><code>creative_lab_snippet_renders.start_s</code> and <code>length_s</code> are per render already;</li>
+<li><code>creative_test_variants.label</code> is per variant already.</li>
+</ul></li>
+<li><b>Code:</b>
+<ul>
+<li><code>makeTest1</code> stays as it is. A pair has its own maker in <code>lib/creative-tests/make-test.ts</code>.</li>
+<li><code>canApprove</code> leaves pairs out of the plan's order and checks them against one another.</li>
+<li><code>TEST_AD_SET_KINDS</code> gains "Track pair", "Clip pair" and "Card pair".</li>
+</ul></li>
+<li><b>First build:</b> the track pair only. Clip and card pairs come in their own PRs.</li>
+</ul>
+
+<h2>Invented here</h2>
+<ul class="notes">
+<li><b>Names and words:</b>
+<ul>
+<li>"Pair", "Make pair · {asset}", "Starts at", "Window from", "Framing from";</li>
+<li>the box line's "· drop {d} s in", the 1280 span line, the sign-off words and VP9's refusals;</li>
+<li>the clip and card default labels.</li>
+</ul></li>
+<li><b>Limits:</b> the 60-character label limit, and the rule that windows can't overlap.</li>
+<li><b>Names in Drive:</b> <code>_r1</code> / <code>_r2</code> for the pair's renders.</li>
+<li><b>How pairs run:</b> the pairs' own lane, and one pair at a time (open item 2).</li>
+<li><b>The ad set kind words:</b> "Track pair", "Clip pair" and "Card pair", from Matas's "{kind} pair".</li>
+</ul>
+
+</div>
+</body>
+</html>
