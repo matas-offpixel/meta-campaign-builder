@@ -41,6 +41,13 @@ function Card({ card }: { card: PanelCard }) {
         <h4 className="text-sm font-medium">{card.name}</h4>
         <p className="text-sm max-sm:w-full">{card.state}</p>
       </div>
+      {/* VP6 / VP7: a pair's span line and sign-off lines, at 1280 only. */}
+      {card.spanLine ? <p className="text-xs text-muted-foreground max-sm:hidden">{card.spanLine}</p> : null}
+      {card.approvalLines.map((line) => (
+        <p key={line} className="text-xs text-muted-foreground max-sm:hidden">
+          {line}
+        </p>
+      ))}
       {card.budgetLine ? (
         <>
           <p className="text-xs text-muted-foreground max-sm:hidden">{card.budgetLine}</p>

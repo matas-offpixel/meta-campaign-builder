@@ -343,7 +343,8 @@ describe("CT2: no way in from a link", () => {
     for (const file of sources) {
       const text = readFileSync(file, "utf8");
       const fetches = [...text.matchAll(/\bfetch\(\s*([`"'][^`"']*)/g)].map((m) => m[1]!);
-      for (const target of fetches) assert.ok(target.startsWith("`https://api.spotify.com/v1/artists/") || target.startsWith("`/api/creative-lab/events/"), `${file}: fetch(${target}`);
+      // The app's own routes: the Snippet tab's, and a variant pair's "Approve variants" (VP7).
+      for (const target of fetches) assert.ok(target.startsWith("`https://api.spotify.com/v1/artists/") || target.startsWith("`/api/creative-lab/events/") || target.startsWith("`/api/creative-lab/tests/"), `${file}: fetch(${target}`);
     }
   });
 

@@ -113,8 +113,11 @@ export function londonDayLabel(at: Date | string): string {
   return `${Number(day.slice(8, 10))} ${MONTHS[Number(day.slice(5, 7)) - 1]}`;
 }
 
-/** TT10's {kind}: Video or Statics for a creative test (by its format), AB copy, Artist cards. */
-export const TEST_AD_SET_KINDS = ["Video", "Statics", "AB copy", "Artist cards"] as const;
+/**
+ * TT10's {kind}: Video or Statics for a creative test (by its format), AB copy, Artist cards,
+ * and a variant pair's "{kind} pair" (VP4, 2026-11-18-creative-test-variant-pairs).
+ */
+export const TEST_AD_SET_KINDS = ["Video", "Statics", "AB copy", "Artist cards", "Track pair", "Clip pair", "Card pair"] as const;
 export type TestAdSetKind = (typeof TEST_AD_SET_KINDS)[number];
 
 /** A creative test's {kind}, by its format. */

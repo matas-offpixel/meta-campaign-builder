@@ -10,6 +10,7 @@
 
 import { RETARGETING_SHOTS } from "./retargeting-shots.mjs";
 import { TEST_PLAN_SHOTS } from "./test-plan-shots.mjs";
+import { VARIANT_PAIR_SHOTS } from "./variant-pair-shots.mjs";
 
 export const EVENT_CONFIG_FRAME_IDS = ["EC1", "EC2", "EC3", "EC4", "EC5", "EC6", "EC7"];
 export const EVENT_CONFIG_WIDTHS = [1280, 393];
@@ -28,4 +29,6 @@ export const EVENT_CONFIG_SHOTS = [
   ...TEST_PLAN_SHOTS,
   // The Retargeting campaign's PR A shots (RB, RD at 1280 and 393).
   ...RETARGETING_SHOTS,
+  // Creative test variant pairs (VP-A, VP-B, VP-C at 1280 and 393).
+  ...VARIANT_PAIR_SHOTS,
 ];

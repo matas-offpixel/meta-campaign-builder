@@ -95,7 +95,7 @@ describe("a test ad set's name (TT10)", () => {
   });
 
   it("takes all four kinds, a creative test's by its format, and nothing else", () => {
-    assert.deepEqual(TEST_AD_SET_KINDS, ["Video", "Statics", "AB copy", "Artist cards"]);
+    assert.deepEqual(TEST_AD_SET_KINDS, ["Video", "Statics", "AB copy", "Artist cards", "Track pair", "Clip pair", "Card pair"]);
     assert.equal(creativeTestKind("video"), "Video");
     assert.equal(creativeTestKind("statics"), "Statics");
     assert.throws(() => testsAdSetName("P26-BDAY", "Copy" as never, "2026-11-17T09:00:00Z"));

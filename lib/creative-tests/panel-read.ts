@@ -14,7 +14,7 @@ type Db = Pick<SupabaseClient, "from">;
 
 const PAGE = 1000;
 
-export const TEST_COLUMNS = "id, event_id, n, kind, format, runs_in, state, result_event, currency, daily_budget_minor, budget_pct, at_minimum, first_delivery_at, winner_variant_id, meta_adset_id";
+export const TEST_COLUMNS = "id, event_id, n, kind, format, runs_in, state, result_event, currency, daily_budget_minor, budget_pct, at_minimum, first_delivery_at, winner_variant_id, meta_adset_id, held";
 export const VARIANT_COLUMNS = "id, test_id, position, role, label, state";
 export const READ_COLUMNS = "test_id, read_at, variants";
 

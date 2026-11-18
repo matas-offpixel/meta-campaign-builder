@@ -21,6 +21,7 @@
  */
 
 import { readTest, sortByShare, type FastCallRead, type VariantFigures } from "./fast-call.ts";
+import { approvalLines, pairAdSetKind, pairTestName, readPairHeld, spanLine } from "./pair.ts";
 import { ENDED, canvasChip, type TestRow, type TestState } from "./plan.ts";
 import {
   CONTROL_HELD,
@@ -64,6 +65,8 @@ export type TestInput = {
   winner_variant_id: string | null;
   /** The test's ad set as made, "{code} · Tests · {Video | Statics} · {d Mon}" (TT8; panel-read takes it from launched_ad_sets). */
   adset_name?: string | null;
+  /** What the test holds; a variant pair's asset, windows, static and sign-offs (VP1, VP7). */
+  held?: unknown;
 };
 
 export type VariantInput = { id: string; test_id: string; position: number; role: "variant" | "control"; label: string; state: string };
@@ -88,9 +91,11 @@ export function shareHeaders(kind: TestKind, result: ResultEvent): { variant: st
   return { variant: kind === "tracks" ? "Track" : kind === "statics" ? "Static" : "Variant", results: h.results, cost: `Per ${RESULT_WORD[result].one}` };
 }
 
-/** CT-D: a copy test is named by what it compares, "Copy · Artist voice vs venue voice". */
-export function cardName(test: Pick<TestInput, "n" | "kind" | "runs_in">, labels: string[]): string {
+/** CT-D: a copy test is named by what it compares, "Copy · Artist voice vs venue voice"; a variant pair by its asset, "Test 1 · Track pair · Can't Decide" (VP6). */
+export function cardName(test: Pick<TestInput, "n" | "kind" | "runs_in" | "held">, labels: string[]): string {
   if (test.kind === "copy" && test.runs_in === "main_adsets") return `${KIND_NAME.copy} · ${labels.join(" vs ")}`;
+  const pair = test.kind === "pair" ? readPairHeld(test.held) : null;
+  if (pair) return pairTestName(test.n, pair.pair, pair.asset);
   return testName(test.n, test.kind);
 }
 
@@ -124,6 +129,10 @@ export type PanelCard = {
   rows: PanelRow[];
   /** TF-B: the pause line a test with no clear winner offers (Accept and Apply arrive with the refresh lines). */
   pause: { title: string; detail: string } | null;
+  /** VP6, a variant pair at 1280 only: "{span 1} vs {span 2} · Static: {name}". Internal, never on the share link. */
+  spanLine: string | null;
+  /** VP7, a variant pair at 1280 only: "Signed off by Matas · {d Mon}" and the artist-page line. Internal. */
+  approvalLines: string[];
 };
 
 export type ShareRow = { id: string; label: string; results: number | null; cost: string };
@@ -163,7 +172,9 @@ function restingState(b: Built, all: TestInput[], surface: "internal" | "share")
   if (test.state === "no_clear_winner") return NO_CLEAR_WINNER;
   if (test.state === "not_enough_variants") return NOT_ENOUGH_VARIANTS;
   if (test.state === "waiting" || test.state === "making") {
-    const previous = all.filter((t) => t.n < test.n).sort((a, z) => z.n - a.n)[0];
+    // VP4: a pair waits on nothing, and CT6's tests never wait on a pair.
+    if (test.kind === "pair") return "";
+    const previous = all.filter((t) => t.n < test.n && t.kind !== "pair").sort((a, z) => z.n - a.n)[0];
     if (!previous) return "";
     if (ENDED.includes(previous.state) && test.kind === "statics") return waitingForStaticsText(previous.n);
     return waitingText(previous.n);
@@ -197,8 +208,9 @@ export function buildPanel(input: { eventCode: string | null; tests: TestInput[]
     const name = cardName(test, b.variants.map((v) => v.label));
     const daily = test.daily_budget_minor != null ? test.daily_budget_minor / 100 : null;
     const line = daily != null && test.budget_pct != null && test.runs_in === "tests_adset" ? budgetLine({ daily, sharePct: Number(test.budget_pct), cap: 10, atMinimum: test.at_minimum, currency: test.currency }) : null;
-    // TT8: the full ad set name as made; before it's made, the format's name without a date.
-    const adSet = test.adset_name?.trim() || testAdSetName(input.eventCode ?? "", test.format);
+    // TT8: the full ad set name as made; before it's made, the format's name without a date (a pair's "{kind} pair", VP4).
+    const pair = test.kind === "pair" ? readPairHeld(test.held) : null;
+    const adSet = test.adset_name?.trim() || (pair ? `${input.eventCode ?? ""} · Tests · ${pairAdSetKind(pair.pair)}` : testAdSetName(input.eventCode ?? "", test.format));
     const out: PanelRow[] = sortByShare(read.variants).map((v) => {
       const cost = v.muted ? RIGHTS_MUTED : !v.judged || v.cost == null ? NOT_ENOUGH_SPEND : money(v.cost, test.currency);
       const sharePct = v.share == null ? null : pct(v.share);
@@ -228,6 +240,8 @@ export function buildPanel(input: { eventCode: string | null; tests: TestInput[]
       headers: headers(b.result),
       rows: out,
       pause: test.state === "no_clear_winner" && test.runs_in === "tests_adset" ? { title: `Pause ${adSet}`, detail: `Test ${test.n} had no clear winner` } : null,
+      spanLine: pair ? spanLine(pair) : null,
+      approvalLines: pair ? approvalLines(pair) : [],
     };
   });
   // TF-A / TF-B: with nothing running, the latest finished test stays open so its result and table can be read.

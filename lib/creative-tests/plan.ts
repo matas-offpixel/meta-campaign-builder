@@ -52,6 +52,8 @@ export const VARIANTS: Record<TestKind, { min: number; max: number }> = {
   together: { min: 2, max: 2 },
   copy: { min: 2, max: 5 },
   clip: { min: 2, max: 5 },
+  /** VP1: a variant pair is exactly two. */
+  pair: { min: 2, max: 2 },
 };
 
 export function variantCountOk(kind: TestKind, count: number): boolean {
@@ -68,14 +70,20 @@ export const ENDED: readonly TestState[] = ["called", "no_clear_winner", "not_en
  * Whether test `n` may be approved now, and the words when it can't:
  * the test before it must have ended, and no other test of its format may
  * hold its ad set (TT1). A test measured in place (CT12) holds no ad set.
+ *
+ * Variant pairs (VP4) run in a lane of their own: a pair waits on nothing,
+ * pairs run beside one another, and CT6's tests never wait on a pair. Its
+ * sign-off is checked by Approve (pair.ts, VP7).
  */
 export function canApprove(tests: TestRow[], n: number): { ok: true } | { ok: false; text: string } {
   const test = tests.find((t) => t.n === n);
   if (!test) return { ok: false, text: waitingText(Math.max(1, n - 1)) };
-  const previous = tests.filter((t) => t.n < n && !ENDED.includes(t.state)).sort((a, b) => b.n - a.n)[0];
+  if (test.kind === "pair") return { ok: true };
+  const planned = tests.filter((t) => t.kind !== "pair");
+  const previous = planned.filter((t) => t.n < n && !ENDED.includes(t.state)).sort((a, b) => b.n - a.n)[0];
   if (previous) return { ok: false, text: waitingText(previous.n) };
   if (test.runsIn === "tests_adset") {
-    const busy = tests.find((t) => t.id !== test.id && t.runsIn === "tests_adset" && t.format === test.format && HOLDS_AD_SET.includes(t.state));
+    const busy = planned.find((t) => t.id !== test.id && t.runsIn === "tests_adset" && t.format === test.format && HOLDS_AD_SET.includes(t.state));
     if (busy) return { ok: false, text: waitingText(busy.n) };
   }
   return { ok: true };
