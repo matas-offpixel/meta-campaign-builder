@@ -41,7 +41,9 @@ import { chooseVariant, describeGround, renderCutout, type CutoutResult } from "
 import { detectFaces, eyesMeasurable, faceGeometry, type FaceBox } from "../lib/creative-lab/face-detect.ts";
 import { refineAtSource, segmentPerson } from "../lib/creative-lab/segment.ts";
 import { APP_ID_KEY, APP_TAG_KEY, driveFromEnv } from "../lib/drive/client.ts";
-import { cardRuleException, exceptionLine } from "../lib/creative-lab/card-exceptions.ts";
+import { cardRuleException, exceptionAllows, exceptionLine } from "../lib/creative-lab/card-exceptions.ts";
+import { preparePhoto } from "../lib/creative-lab/photo-input.ts";
+import { photoRetirement, retiredLine } from "../lib/creative-lab/photo-retirements.ts";
 import type { DriveDb } from "../lib/drive/db.ts";
 import { ensureRouteFolder } from "../lib/drive/folders.ts";
 import { labArtistFolderName } from "../lib/drive/owner.ts";
@@ -220,7 +222,14 @@ if (scans.length) {
         say(`- ${asset.filename} (${asset.id}): logo, skipped`);
         continue;
       }
-      const j = await judge(await download(String(asset.storage_path)), artist);
+      const retired = photoRetirement(code, String(asset.id));
+      if (retired) {
+        say(`- ${asset.filename} (${asset.id}): retired — ${retiredLine(retired)}`);
+        continue;
+      }
+      const prepared = await preparePhoto(await download(String(asset.storage_path)));
+      if (prepared.note) say(`- ${asset.filename}: ${prepared.note}`);
+      const j = await judge(prepared.bytes, artist);
       say(`- ${asset.filename} (${asset.id}) → ${j.variant} · ${j.faces.length} face(s)`);
       say(`    ${ruleLine(j.a)}`);
       if (j.b) say(`    ${cutoutLine(j.b)}`);
@@ -275,7 +284,15 @@ for (const pick of picks) {
   const assetRes = await supabase.from("creative_assets").select("id, storage_path, filename").eq("id", pick.assetId).maybeSingle();
   if (assetRes.error || !assetRes.data) fail(`asset ${pick.assetId}: ${assetRes.error?.message ?? "not found"}`);
   debugTag = `${artistSlug(pick.artist)}-${pick.card}`;
-  const j = await judge(await download(String(assetRes.data.storage_path)), pick.artist);
+  const retired = photoRetirement(code, pick.assetId);
+  if (retired) {
+    say(`## ${pick.artist} · card ${pick.card} · ${assetRes.data.filename} (${pick.assetId}) → refused: ${retiredLine(retired)}`);
+    say("");
+    continue;
+  }
+  const prepared = await preparePhoto(await download(String(assetRes.data.storage_path)));
+  if (prepared.note) say(`${assetRes.data.filename}: ${prepared.note}`);
+  const j = await judge(prepared.bytes, pick.artist);
   const card = j.a;
   say(`## ${pick.artist} · card ${pick.card} · ${assetRes.data.filename} (${pick.assetId}) → variant ${j.variant}`);
   say(`${j.faces.length} face(s) · ${ruleLine(card)}`);
@@ -300,11 +317,18 @@ for (const pick of picks) {
   const cc = j.b?.charcoal;
   say(`Disclosure: ${j.variant === "A" ? card.extensionLabel || "(none: the photo covers the frame)" : chosenB ? chosenB.disclosure : "–"}${cc ? ` · charcoal ${cc.used} (ruling); re-sampled: the panel's own pixels ${cc.panelOwn ?? "–"}, the panel as seen over the paint ${cc.panelSeen ?? "–"}` : ""}`);
   // A per-asset exception (lib/creative-lab/card-exceptions.ts) draws its variant although it fails.
-  const exception = j.variant === "skip" ? cardRuleException(code, pick.assetId) : null;
+  let exception = j.variant === "skip" ? cardRuleException(code, pick.assetId, String(assetRes.data.storage_path)) : null;
   if (exception) {
     const failed = exception.variant === "A" ? card.rules.filter((r) => !r.pass) : (j.b?.rules ?? []).filter((r) => !r.pass);
-    say(exceptionLine(exception, failed));
-    say(`Ruling: ${exception.ruling}`);
+    // A capped exception covers only the rules it names, within their caps (card-exceptions.ts exceptionAllows).
+    const covers = exceptionAllows(exception, failed.map((r) => r.rule), exception.variant === "B" ? (j.b?.figures ?? {}) : {});
+    if (covers.ok) {
+      say(exceptionLine(exception, failed));
+      say(`Ruling: ${exception.ruling}`);
+    } else {
+      say(`EXCEPTION NOT APPLIED (${exception.ruledBy}, ${exception.ruledOn}): ${covers.why}.`);
+      exception = null;
+    }
   }
   const variant = exception ? exception.variant : j.variant;
   if (variant === "skip") {
