@@ -51,9 +51,9 @@ describe("TF5: the benchmark", () => {
     assert.equal(isBenchmarkCampaign("P26-BDAY · Tests", "P26-BDAY"), false);
   });
 
-  it("applies to variant pairs in this build (TF8)", () => {
-    assert.equal(benchmarkApplies("pair"), true);
-    assert.equal(benchmarkApplies("tracks"), false);
+  it("applies to every creative test TF2 calls: CT6's, the clip test and pairs, not the in-place copy test", () => {
+    for (const kind of ["tracks", "statics", "together", "clip", "pair"] as const) assert.equal(benchmarkApplies(kind), true, kind);
+    assert.equal(benchmarkApplies("copy"), false);
   });
 });
 
@@ -196,7 +196,7 @@ describe("TF7: the words", () => {
     assert.deepEqual(card.rows.map((r) => r.phone), ["63 % of spend · Get Hard · payoff drop · — per checkout · show £3.00 · 0", "37 % of spend · Get Hard · earlier drop · — per checkout · show £3.00 · 0"]);
   });
 
-  it("the stop line shows on the share link too; CT6's tests keep TF2's words in this build", () => {
+  it("the stop line shows on the share link too; CT6's tests take the benchmark, the copy test doesn't", () => {
     const pair: TestInput = { id: "p", n: 1, kind: "pair", format: "video", runs_in: "tests_adset", state: "stopped", result_event: "initiate_checkout", currency: "GBP", daily_budget_minor: 100, budget_pct: 10, at_minimum: false, first_delivery_at: START, winner_variant_id: null, extensions: 1, held: { pair: "track", asset: "Get Hard", windows: [] } };
     const variants = [
       { id: "a", test_id: "p", position: 1, role: "variant" as const, label: "Get Hard · payoff drop", state: "live" },
@@ -206,7 +206,10 @@ describe("TF7: the words", () => {
     const share = buildShareCards({ tests: [pair], variants, reads, now: at(193) });
     assert.equal(share[0]!.state, "Stopped: both above the show's £3.00 per checkout");
     assert.deepEqual(share[0]!.rows.map((r) => r.cost), ["— · show £3.00", "— · show £3.00"]);
-    const tracks = buildPanel({ eventCode: "P26-BDAY", tests: [{ ...pair, kind: "tracks", state: "running", held: {} }], variants, reads, now: at(193) });
-    assert.doesNotMatch(JSON.stringify(tracks), /show £/);
+    const tracks = buildPanel({ eventCode: "P26-BDAY", tests: [{ ...pair, kind: "tracks", state: "running", held: {}, extensions: 1 }], variants, reads, now: at(193) });
+    assert.equal(tracks.cards[0]!.state, "Stopped: both above the show's £3.00 per checkout");
+    assert.match(JSON.stringify(tracks), /show £3\.00/);
+    const copy = buildPanel({ eventCode: "P26-BDAY", tests: [{ ...pair, kind: "copy", runs_in: "main_adsets", state: "running", held: {} }], variants, reads, now: at(193) });
+    assert.doesNotMatch(JSON.stringify(copy), /show £/);
   });
 });

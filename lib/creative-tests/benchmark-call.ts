@@ -37,12 +37,15 @@ export const TF6 = {
 } as const;
 
 /**
- * Which tests TF5–TF8 apply to in this build: variant pairs (TF8). The record
- * applies it to every test TF2 calls; CT6's tests (tracks, statics, together)
- * take it in the follow-up build.
+ * The tests TF5–TF8 apply to: every creative test TF2 calls in a test ad set,
+ * CT6's (tracks, statics, together), the clip test and variant pairs (TF8). Not
+ * the CT12 copy test: it runs in place in the main ad sets, so the main
+ * campaign it would be judged against is the one it runs in.
  */
+export const BENCHMARK_KINDS: readonly TestKind[] = ["tracks", "statics", "together", "clip", "pair"];
+
 export function benchmarkApplies(kind: TestKind): boolean {
-  return kind === "pair";
+  return BENCHMARK_KINDS.includes(kind);
 }
 
 /** One variant's figures at a read, kept for the day-4 / day-8 comparison. */
