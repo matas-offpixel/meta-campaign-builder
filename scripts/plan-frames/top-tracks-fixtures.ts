@@ -13,6 +13,7 @@
  */
 
 import type { TrackFeatures } from "../../lib/creative-tests/top-tracks/analysis.ts";
+import type { StudioAnalysis } from "../../lib/creative-tests/top-tracks/studio.ts";
 
 export const BPM = 124;
 export const BEAT_S = 60 / BPM;
@@ -42,13 +43,22 @@ export const FIXTURE_TRACKS: FixtureTrack[] = [
   { id: "t5", title: "Track five", spotifyRank: 5, artists: ["Luke Dean"], durationS: 200, drops: [onGrid(150, 43), 150], phrase: null },
 ];
 
-/** A steady kick on every beat, on the grid of the track's last drop. */
-export function fixtureKicks(track: FixtureTrack): number[] {
+/**
+ * The fixture's analysis (issue 2, TK13–TK14): Beat This!'s beats on every
+ * beat and downbeats on every bar, on the grid of the track's last drop,
+ * and the Demucs bass stem's per-beat level: in (−10 dB) everywhere but a
+ * 2-bar break (−70 dB) before each drop, so TK14 finds the fixture's drops.
+ */
+export function fixtureAnalysis(track: FixtureTrack): StudioAnalysis {
   const anchor = track.drops[track.drops.length - 1]!;
-  const out: number[] = [];
-  const first = anchor - Math.floor(anchor / BEAT_S) * BEAT_S;
-  for (let k = 0; first + k * BEAT_S < track.durationS; k += 1) out.push(first + k * BEAT_S);
-  return out;
+  const firstBeat = anchor - Math.floor(anchor / BEAT_S) * BEAT_S;
+  const beats: number[] = [];
+  for (let k = 0; firstBeat + k * BEAT_S < track.durationS; k += 1) beats.push(firstBeat + k * BEAT_S);
+  const firstBar = anchor - Math.floor(anchor / BAR_S) * BAR_S;
+  const downbeats: number[] = [];
+  for (let k = 0; firstBar + k * BAR_S < track.durationS; k += 1) downbeats.push(firstBar + k * BAR_S);
+  const bassBeatDb = beats.map((b) => (track.drops.some((d) => b >= d - 2 * BAR_S - 1e-6 && b < d - 1e-6) ? -70 : -10));
+  return { durationS: track.durationS, beats, downbeats, bassBeatDb };
 }
 
 /** Deterministic PRNG (mulberry32), so the fixture's chroma is the same every run. */

@@ -224,9 +224,11 @@ export function layoutReel(input: { headline: string; artist: string; rows: read
     const r = input.rows[i]!;
     const fit = fitSteps(r.title, baseTitle, TK_TYPE.title.steps, titleWidth, TK_TYPE.title.maxLines, measure);
     if (!fit) return { refused: "title", title: r.title };
-    const withCap = Math.round(fit.capPx * TK_TYPE.withRatio * 100) / 100;
-    const withLines = r.withText ? wrap(r.withText, withCap, titleWidth, 1, measure) : [];
-    if (r.withText && !withLines) return { refused: "title", title: r.title };
+    // The "with" line: one line at 0.65 of the title's cap, taking the title's size steps if it must (a wide rung like 1000% narrows the column).
+    const withFit = r.withText ? fitSteps(r.withText, fit.capPx * TK_TYPE.withRatio, TK_TYPE.title.steps, titleWidth, 1, measure) : null;
+    if (r.withText && !withFit) return { refused: "title", title: r.title };
+    const withCap = withFit?.capPx ?? 0;
+    const withLines = withFit?.lines ?? [];
     const top = listTop + i * rowH;
     const titleLines: PlacedLine[] = fit.lines.map((text, j) => ({ text, capPx: fit.capPx, capTop: top + j * pitch(fit.capPx), left: titleLeft, width: measure(text, fit.capPx), role: "title" }));
     const afterTitle = titleLines[titleLines.length - 1]!.capTop + pitch(fit.capPx);

@@ -22,7 +22,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { AUDIO_BUCKET, AUDIO_COLUMNS, type AudioFileRow } from "../audio-intake.ts";
+import { AUDIO_BUCKET, AUDIO_COLUMNS_260, type AudioFileRow } from "../audio-intake.ts";
 import { buildReel, type BuildTrack, type FaceGeo } from "./build.ts";
 import { cutTrackSnippet } from "./ffmpeg.ts";
 import { DEFAULT_OPTIONS, type ReelOptions } from "./reel.ts";
@@ -75,7 +75,7 @@ export async function renderTopTracks(db: Db, row: TopTracksRow, deps: TickDeps)
   if (artist.error || !artist.data) throw new Error(artist.error?.message ?? "the artist is gone");
   const pieces = await deps.kitPieces(event.client_id);
   if (options.end === "date" && !pieces) throw new Error(KIT_PIECES_MISSING);
-  const files = await db.from("creative_lab_audio_files").select(AUDIO_COLUMNS).in("id", row.tracks.map((t) => t.audioFileId));
+  const files = await db.from("creative_lab_audio_files").select(AUDIO_COLUMNS_260).in("id", row.tracks.map((t) => t.audioFileId));
   if (files.error) throw new Error(files.error.message);
   const byId = new Map(((files.data ?? []) as unknown as AudioFileRow[]).map((f) => [f.id, f]));
   const asset = row.background.assetId ? await db.from("creative_assets").select("storage_bucket, storage_path").eq("id", row.background.assetId).maybeSingle() : null;

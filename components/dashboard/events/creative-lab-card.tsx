@@ -8,6 +8,8 @@ import { LabClips } from "@/components/dashboard/events/creative-lab/clips";
 import { LabLineup } from "@/components/dashboard/events/creative-lab/lineup";
 import { LabRound } from "@/components/dashboard/events/creative-lab/round";
 import { LabSnippet } from "@/components/dashboard/events/creative-lab/snippet";
+import { LabTopTracks } from "@/components/dashboard/events/creative-lab/top-tracks";
+import { TOP_TRACKS_TAB } from "@/lib/creative-tests/top-tracks/reel";
 import { LabStrip } from "@/components/dashboard/events/creative-lab/strip";
 import type { CreativeLabCardData } from "@/lib/db/creative-lab";
 import { ownerFootageGap } from "@/lib/creative-lab/footage-owner";
@@ -72,7 +74,7 @@ export function CreativeLabCard({ lab, quoteMode = false, driveFolderId = null, 
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   // CT10: the Snippet tab sits beside the writer, on the event page's owner layout (the legacy card, and its frames, are unchanged).
-  const [tab, setTab] = useState<"captions" | "snippet">("captions");
+  const [tab, setTab] = useState<"captions" | "snippet" | "top-tracks">("captions");
 
   async function run(body: Record<string, unknown>) {
     setBusy(true);
@@ -125,7 +127,7 @@ export function CreativeLabCard({ lab, quoteMode = false, driveFolderId = null, 
         <LabClips lab={lab} busy={busy} driveFolderId={driveFolderId} layout={presentation === "owner" ? "owner" : "status"} onSave={(body) => run(body)} onError={setError} />
         {presentation === "owner" ? (
           <div className="flex gap-2" role="tablist" aria-label="Writer">
-            {(["captions", "snippet"] as const).map((key) => (
+            {(["captions", "snippet", "top-tracks"] as const).map((key) => (
               <button
                 key={key}
                 type="button"
@@ -134,15 +136,17 @@ export function CreativeLabCard({ lab, quoteMode = false, driveFolderId = null, 
                 onClick={() => setTab(key)}
                 className={`rounded-full border px-3 py-1 text-xs ${tab === key ? "border-foreground bg-foreground text-background" : "border-border-strong"}`}
               >
-                {key === "captions" ? "Captions" : "Snippet"}
+                {key === "captions" ? "Captions" : key === "snippet" ? "Snippet" : TOP_TRACKS_TAB}
               </button>
             ))}
           </div>
         ) : null}
         {tab === "captions" || presentation !== "owner" ? (
           <LabCaptions lab={lab} busy={busy} quoteMode={quoteMode} ownerAngles={presentation === "owner"} onSave={(body) => run(body)} />
-        ) : (
+        ) : tab === "snippet" ? (
           <LabSnippet eventId={lab.eventId} />
+        ) : (
+          <LabTopTracks eventId={lab.eventId} />
         )}
         <LabRound lab={lab} busy={busy} onSave={(body) => run(body)} onLaunch={launchRound} />
       </div>

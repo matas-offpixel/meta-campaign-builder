@@ -11,10 +11,13 @@
  *     --event P26-BDAY --artist "Luke Dean" \
  *     --track "Can't Decide=<drive file id>" --track "…=…" --track "…=…" \   (Spotify's order, top first)
  *     --photo <drive file id of the press shot> --kit <kit folder with pieces.json> \
- *     --out <dir> [--round 1] [--framing ranked …] [--claim "…"] [--bass-stem <python>] \
+ *     --out <dir> --python <venv>/bin/python [--round 1] [--framing ranked …] [--claim "…"] \
  *     [--file "<drive folder id of {owner} / Videos>"] [--keep]
  *
- * Every reel carries the draft stamp (O36). The run prints each track's
+ * The drop, grid and hook come from issue 2 (TK13–TK16): Beat This! and the
+ * Demucs bass stem through scripts/top-tracks/analyse.py (--python: a venv
+ * with torch, demucs and beat-this). The stem is data only: never rendered,
+ * filed or kept. Every reel carries the draft stamp (O36). The run prints each track's
  * drop, hook and window, each reel's length, loudness, band step and face
  * test, and stops on any refusal with the record's words. --keep leaves the
  * work folder (audio and renders); by default it's removed after filing.
@@ -27,11 +30,10 @@ import { bundle } from "@remotion/bundler";
 import { renderMedia, selectComposition } from "@remotion/renderer";
 
 import { muxSnippet } from "../lib/creative-tests/audio-ffmpeg.ts";
-import { readEnvelopes, ENVELOPE_RATE, runFfmpegArgs } from "../lib/creative-tests/audio-ffmpeg.ts";
-import { rmsEnvelope } from "../lib/creative-tests/drop.ts";
-import { findDrops, findKicks, pcm16ToFloat, trackFeatures } from "../lib/creative-tests/top-tracks/analysis.ts";
+import { pcm16ToFloat, trackFeatures } from "../lib/creative-tests/top-tracks/analysis.ts";
+import { localStudio } from "../lib/creative-tests/top-tracks/analysis-source.ts";
 import { mmss, planTrack, type TrackPlan } from "../lib/creative-tests/top-tracks/audio-rules.ts";
-import { bassStemTop2, detectorCandidates, localDemucs } from "../lib/creative-tests/top-tracks/bass-stem.ts";
+import { dropPickerLine } from "../lib/creative-tests/top-tracks/studio.ts";
 import { cutTrackSnippet, decodeForAnalysis, loudnessOk } from "../lib/creative-tests/top-tracks/ffmpeg.ts";
 import type { Framing, ReelOptions } from "../lib/creative-tests/top-tracks/reel.ts";
 import { buildReel } from "../lib/creative-tests/top-tracks/build.ts";
@@ -59,7 +61,7 @@ if (!photoId && !photoFile) fail("--photo DRIVE_FILE_ID or --photo-file PATH (th
 const round = Number(flag("--round") ?? 1) as RoundNo;
 const onlyFramings = many("--framing") as Framing[];
 const claim = flag("--claim") ?? null;
-const stemPython = flag("--bass-stem");
+const python = flag("--python") ?? fail("--python <venv python> (Beat This! + Demucs, TK13–TK14)");
 const fileTo = flag("--file");
 const keep = argv.includes("--keep");
 // --set key=value (repeatable): the round's held options, as TK10's Edit rows (tracks, rowsAppear, ladder, end, endCard, list).
@@ -95,7 +97,7 @@ const dateText = dateRec?.label ?? "";
 
 // ─── The audio: the event's Drive files, read and kept as they are (CT2) ────
 type Track = { title: string; artists: string[]; driveId: string; file: string; spotifyRank: number; plan: Extract<TrackPlan, { ok: true }> };
-const stems = stemPython ? localDemucs({ python: stemPython }) : null;
+const studio = localStudio({ python });
 const tracks: Track[] = [];
 for (const [i, spec] of trackSpecs.entries()) {
   const meta = await drive!.getFile(spec.driveId);
@@ -103,19 +105,11 @@ for (const [i, spec] of trackSpecs.entries()) {
   const local = join(work, `track-${i + 1}${meta!.name.slice(meta!.name.lastIndexOf("."))}`);
   if (!existsSync(local)) writeFileSync(local, await drive!.download(spec.driveId));
   const f = trackFeatures(pcm16ToFloat(await decodeForAnalysis(local)));
-  const kicks = findKicks(f);
-  const drops = findDrops(f, kicks);
-  let top2: number[] | null = null;
-  // TK3: the bass stem only when VW14 finds no qualifying drop.
-  const first = planTrack({ title: spec.title, features: f, kicks, drops, bassStemTop2: null });
-  let plan = first;
-  if (!first.ok && stems) {
-    const wav = join(work, `track-${i + 1}.wav`);
-    await runFfmpegArgs(["-hide_banner", "-nostats", "-y", "-i", local, "-vn", "-ar", "44100", "-ac", "2", wav]);
-    top2 = bassStemTop2(detectorCandidates(rmsEnvelope((await readEnvelopes(local)).low, ENVELOPE_RATE)), await stems.stems(wav), kicks);
-    plan = planTrack({ title: spec.title, features: f, kicks, drops, bassStemTop2: top2 });
-  }
-  console.log(`${i + 1} · ${spec.title} · ${mmss(f.durationS)} · VW14 drops ${drops.map((d) => mmss(d.tS)).join(", ") || "none"}${top2 ? ` · bass stem top 2 ${top2.map(mmss).join(", ")}` : ""}`);
+  const analysis = await studio.analyse(local);
+  const plan = planTrack({ title: spec.title, features: f, analysis });
+  const bars = analysis.downbeats.slice(1).map((d, k) => d - analysis.downbeats[k]!).sort((x, y) => x - y);
+  const bar = bars[bars.length >> 1];
+  console.log(`${i + 1} · ${spec.title} · ${mmss(f.durationS)} · ${bar ? `bar ${bar.toFixed(3)} s (${((4 * 60) / bar).toFixed(1)} BPM)` : "no grid"} · drops: ${plan.drops.map(dropPickerLine).join("; ") || "none"}`);
   for (const line of plan.lines) console.log(`    ${line}`);
   if (!plan.ok) fail(plan.refusal);
   tracks.push({ title: spec.title, artists: spec.artists, driveId: spec.driveId, file: local, spotifyRank: i + 1, plan: plan as Extract<TrackPlan, { ok: true }> });

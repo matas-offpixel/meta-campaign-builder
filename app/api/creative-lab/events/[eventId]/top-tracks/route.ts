@@ -18,12 +18,14 @@
 
 import { NextResponse, type NextRequest } from "next/server";
 
-import { loadAudioRows, scanArtistAudio, type AudioFileRow } from "@/lib/creative-tests/audio-intake";
+import { AUDIO_BUCKET, AUDIO_COLUMNS_260, scanArtistAudio, type AudioFileRow } from "@/lib/creative-tests/audio-intake";
 import { intakeDeps, storageDeps } from "@/lib/creative-tests/snippet-server";
 import { readTopTracks } from "@/lib/creative-tests/spotify-top";
 import { renderStage } from "@/lib/drive/tree";
 import { DEFAULT_OPTIONS, type ReelOptions } from "@/lib/creative-tests/top-tracks/reel";
 import { TOP_TRACKS_TABLE, marksOf, planFile, queueReel, type PickedTrack } from "@/lib/creative-tests/top-tracks/server";
+import { dropPickerLine, snapToDownbeat } from "@/lib/creative-tests/top-tracks/studio";
+import { storedAnalysis } from "@/lib/creative-tests/top-tracks/server";
 import type { TrackInput } from "@/lib/creative-tests/top-tracks/view";
 import { driveFromEnv } from "@/lib/drive/client";
 import { displayName } from "@/lib/onsale-refresh/line-states";
@@ -48,7 +50,7 @@ async function owned(eventId: string) {
   const clientRes = await db.from("clients").select("id, name, status, drive_folder_id").eq("id", event.client_id).maybeSingle();
   if (clientRes.error) return { ok: false as const, error: NextResponse.json({ error: clientRes.error.message }, { status: 500 }) };
   if (!clientRes.data) return { ok: false as const, error: NextResponse.json({ error: "This event has no client." }, { status: 400 }) };
-  return { ok: true as const, db, user, event, client: clientRes.data as { id: string } };
+  return { ok: true as const, db, user, event, client: clientRes.data as { id: string; name: string } };
 }
 
 async function lineup(db: Service, eventId: string): Promise<{ id: string; name: string; spotifyId: string | null }[]> {
@@ -85,7 +87,9 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ eventId: st
     const act = acts.find((a) => a.id === req.nextUrl.searchParams.get("artist")) ?? acts[0] ?? null;
     const { drive } = driveFromEnv();
     if (act && drive) await scanArtistAudio(db, intakeDeps(db, drive), { event: event as never, client: client as never, artist: { libraryArtistId: act.id, name: act.name }, userId: user.id });
-    const files = act ? await loadAudioRows(db, event.id, act.id) : [];
+    const filesRes = act ? await db.from("creative_lab_audio_files").select(AUDIO_COLUMNS_260).eq("event_id", event.id).eq("artist_id", act.id).order("created_at", { ascending: true }).range(0, 999) : null;
+    if (filesRes?.error) throw new Error(`creative_lab_audio_files: ${filesRes.error.message}`);
+    const files = ((filesRes?.data ?? []) as unknown as AudioFileRow[]);
     const top = act ? await readTopTracks(db, { artistId: act.id, spotifyArtistId: act.spotifyId, userId: user.id }) : null;
     const ranks = new Map((top && top.ok ? top.tracks : []).map((t) => [t.id, t.rank]));
     const extra = await db.from("creative_lab_audio_files").select("id, drop_set_by, hook_set_by").in("id", files.map((f) => f.id));
@@ -104,22 +108,38 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ eventId: st
         durationS: Number(f.duration_s ?? 0),
         waveform: f.waveform ?? [],
         drops,
+        dropLines: plan.drops.map(dropPickerLine),
+        analysis: f.analysis_state === "running" ? "running" : f.analysis_state === "done" ? "done" : "failed",
         window: plan.ok ? plan.window : null,
         choice: plan.ok ? plan.choice : null,
         hook: plan.ok && plan.hook.kind !== "none" ? { kind: plan.hook.kind, hookS: plan.hook.hookS } : { kind: "none" },
         refusal: plan.ok ? null : plan.refusal,
       });
     }
-    const renders = await db.from(TOP_TRACKS_TABLE).select("id, status, file_name, duration_s, error, created_at").eq("event_id", event.id).order("created_at", { ascending: false }).range(0, 49);
+    const renders = await db.from(TOP_TRACKS_TABLE).select("id, status, file_name, duration_s, storage_path, error, created_at").eq("event_id", event.id).order("created_at", { ascending: false }).range(0, 49);
     // Before migration 260 is applied the table is missing: the tab shows no reels rather than failing.
-    const reelRows = renders.error ? [] : (renders.data ?? []);
-    return NextResponse.json({ ok: true, acts: acts.map(({ id, name }) => ({ id, name })), actId: act?.id ?? null, artist: act?.name ?? null, eventCode: event.event_code, tracks, renders: reelRows, driveConfigured: Boolean(drive) });
+    const reelRows = (renders.error ? [] : (renders.data ?? [])) as { id: string; status: string; file_name: string | null; duration_s: number | null; storage_path: string | null }[];
+    const latest = reelRows.find((r) => r.status === "done" && r.storage_path);
+    const previewUrl = latest ? (await db.storage.from(AUDIO_BUCKET).createSignedUrl(String(latest.storage_path), 3600)).data?.signedUrl ?? null : null;
+    const data = {
+      eventCode: event.event_code,
+      acts: acts.map(({ id, name }) => ({ id, name })),
+      actId: act?.id ?? "",
+      artist: act?.name ?? "",
+      tracks,
+      trackArtists: {} as Record<string, string[]>,
+      renders: reelRows.map((r) => ({ id: r.id, fileName: r.file_name ?? "Top tracks reel", status: (r.status === "done" ? "ready" : r.status) as "queued" | "rendering" | "ready" | "failed", lengthS: r.duration_s != null ? Number(r.duration_s) : null })),
+      previewUrl,
+      end: { lockup: client.name, date: "", claim: null },
+      kitCase: "upper" as const,
+    };
+    return NextResponse.json({ ok: true, data, driveConfigured: Boolean(drive) });
   } catch (err) {
     return NextResponse.json({ error: err instanceof Error ? err.message : "Top tracks read failed" }, { status: 500 });
   }
 }
 
-type Body = { action?: string; artistId?: string; options?: Partial<ReelOptions>; tracks?: PickedTrack[]; background?: Record<string, unknown>; fileId?: string; s?: number; clear?: boolean };
+type Body = { action?: string; artistId?: string; options?: Partial<ReelOptions>; picked?: string[]; tracks?: PickedTrack[]; background?: Record<string, unknown>; fileId?: string; s?: number; clear?: boolean };
 
 export async function POST(req: NextRequest, ctx: { params: Promise<{ eventId: string }> }): Promise<NextResponse> {
   const { eventId } = await ctx.params;
@@ -135,9 +155,23 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ eventId: s
   try {
     switch (body.action) {
       case "make": {
-        if (!body.artistId || !body.tracks?.length) return NextResponse.json({ error: "Missing artistId or tracks." }, { status: 400 });
+        if (!body.artistId || !(body.tracks?.length || body.picked?.length)) return NextResponse.json({ error: "Missing artistId or tracks." }, { status: 400 });
         const options: ReelOptions = { ...DEFAULT_OPTIONS, ...(body.options ?? {}) };
-        const queued = await queueReel(db, { userId: user.id, eventId: event.id, artistId: body.artistId, options, tracks: body.tracks, background: body.background ?? { kind: options.background }, stage: renderStage(event.status) });
+        let picked = body.tracks ?? [];
+        if (!picked.length && body.picked?.length) {
+          // The tab sends file ids in the list's order; the titles and Spotify places come from the rows.
+          const rows = await db.from("creative_lab_audio_files").select("id, spotify_track_id, spotify_title, drive_file_name").in("id", body.picked).eq("event_id", event.id);
+          if (rows.error) throw new Error(rows.error.message);
+          const art = await db.from("artists").select("id, spotify_id").eq("id", body.artistId).maybeSingle();
+          const top = await readTopTracks(db, { artistId: body.artistId, spotifyArtistId: (art.data as { spotify_id: string | null } | null)?.spotify_id ?? null, userId: user.id });
+          const ranks = new Map((top.ok ? top.tracks : []).map((t) => [t.id, t.rank]));
+          const byId = new Map(((rows.data ?? []) as { id: string; spotify_track_id: string | null; spotify_title: string | null; drive_file_name: string }[]).map((r) => [r.id, r]));
+          picked = body.picked.flatMap((id) => {
+            const r = byId.get(id);
+            return r ? [{ audioFileId: r.id, title: r.spotify_title ?? r.drive_file_name.replace(/\.[a-z0-9]{2,5}$/i, ""), artists: [], spotifyRank: r.spotify_track_id ? ranks.get(r.spotify_track_id) ?? null : null }] : [];
+          });
+        }
+        const queued = await queueReel(db, { userId: user.id, eventId: event.id, artistId: body.artistId, options, tracks: picked, background: body.background ?? { kind: options.background }, stage: renderStage(event.status) });
         if (!queued.ok) return NextResponse.json({ error: queued.error }, { status: 400 });
         return NextResponse.json({ ok: true, renderId: queued.id });
       }
@@ -145,9 +179,16 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ eventId: s
       case "hook": {
         if (!body.fileId) return NextResponse.json({ error: "Missing fileId." }, { status: 400 });
         const now = new Date().toISOString();
+        // TK14: a dragged marker snaps to the nearest downbeat of the file's stored grid.
+        let at = Number(body.s);
+        if (body.action === "drop") {
+          const row = await db.from("creative_lab_audio_files").select("analysis, analysis_key, analysis_state").eq("id", body.fileId).eq("event_id", event.id).maybeSingle();
+          const a = row.data ? storedAnalysis(row.data as never, null) : null;
+          if (a && Number.isFinite(at)) at = snapToDownbeat(at, a.downbeats);
+        }
         const patch =
           body.action === "drop"
-            ? { drop_s: Number(body.s), drop_source: "operator", drop_set_by: user.id, drop_set_at: now }
+            ? { drop_s: at, drop_source: "operator", drop_set_by: user.id, drop_set_at: now }
             : body.clear
               ? { hook_s: null, hook_source: "cleared", hook_set_by: user.id, hook_set_at: now }
               : { hook_s: Number(body.s), hook_source: "operator", hook_set_by: user.id, hook_set_at: now };

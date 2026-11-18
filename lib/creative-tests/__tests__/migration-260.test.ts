@@ -25,9 +25,10 @@ describe("migration 260", () => {
     assert.match(CODE, /check \(kind in \('tracks', 'statics', 'together', 'copy', 'clip', 'top_tracks'\)\)/);
   });
 
-  it("adds TK3's drops, choice and hook columns", () => {
-    for (const col of ["drops", "drop_choice", "hook_s", "hook_source", "hook_set_by", "hook_set_at"]) assert.match(CODE, new RegExp(`add column if not exists ${col}\\b`));
-    assert.match(CODE, /drop_choice in \('last', 'earlier', 'bass_stem'\)/);
+  it("adds TK18's analysis, TK15's choice and the hook columns", () => {
+    for (const col of ["analysis", "analysis_key", "analysis_state", "drop_choice", "hook_s", "hook_source", "hook_set_by", "hook_set_at"]) assert.match(CODE, new RegExp(`add column if not exists ${col}\\b`));
+    assert.match(CODE, /drop_choice in \('last', 'earlier'\)/);
+    assert.match(CODE, /analysis_state in \('running', 'done', 'failed'\)/);
   });
 
   it("puts owner RLS and the restrictive client-member guard on the new table", () => {

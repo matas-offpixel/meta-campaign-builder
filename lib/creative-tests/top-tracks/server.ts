@@ -19,8 +19,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { AUDIO_BUCKET, AUDIO_COLUMNS, type AudioFileRow } from "../audio-intake.ts";
-import { findDrops, findKicks, pcm16ToFloat, trackFeatures } from "./analysis.ts";
+
+import { pcm16ToFloat, trackFeatures } from "./analysis.ts";
+import { analysisKey, type StudioSource } from "./analysis-source.ts";
 import { planTrack, type OperatorMarks, type TrackPlan } from "./audio-rules.ts";
+import type { StudioAnalysis } from "./studio.ts";
 import { decodeForAnalysis } from "./ffmpeg.ts";
 import { DEFAULT_OPTIONS, canTick, type ReelOptions } from "./reel.ts";
 
@@ -50,17 +53,41 @@ export function marksOf(file: Pick<AudioFileRow, "drop_s" | "drop_source" | "hoo
 
 export type StorageRead = (bucket: string, storagePath: string) => Promise<Uint8Array>;
 
-/** TK3 for one file: download the Lab's copy, decode at 16 kHz, find the drops and the hook, and plan the window. */
-export async function planFile(file: AudioFileRow, download: StorageRead, opts: { title: string; marks?: OperatorMarks; bassStemTop2?: number[] | null }): Promise<{ plan: TrackPlan; drops: number[] }> {
+/** TK18: the stored analysis when it is this file version's and it ran; else null. */
+export function storedAnalysis(file: Pick<AudioFileRow, "analysis" | "analysis_key" | "analysis_state">, key: string | null): StudioAnalysis | null {
+  if (file.analysis_state !== "done" || !file.analysis || (key && file.analysis_key !== key)) return null;
+  const a = file.analysis as Partial<StudioAnalysis>;
+  return Array.isArray(a.beats) && Array.isArray(a.downbeats) && Array.isArray(a.bassBeatDb) && typeof a.durationS === "number" ? { durationS: a.durationS, beats: a.beats, downbeats: a.downbeats, bassBeatDb: a.bassBeatDb } : null;
+}
+
+/**
+ * TK3 / TK13–TK16 for one file: the Lab's copy decoded for the master's
+ * pitch content (the hook), the analysis from the row when it is this file
+ * version's (TK18), else from `studio` when there is one; with neither, the
+ * plan reads TK18's failure line.
+ */
+export async function planFile(
+  file: AudioFileRow & { drive_modified_time?: string | null },
+  download: StorageRead,
+  opts: { title: string; marks?: OperatorMarks; studio?: StudioSource | null; driveModifiedTime?: string | null },
+): Promise<{ plan: TrackPlan; drops: number[]; analysis: StudioAnalysis | null }> {
   if (!file.storage_path) throw new Error(`${opts.title}: no Storage copy`);
   const dir = await mkdtemp(path.join(tmpdir(), "tt-plan-"));
   try {
     const local = path.join(dir, path.basename(file.storage_path));
     await writeFile(local, await download(AUDIO_BUCKET, file.storage_path));
     const f = trackFeatures(pcm16ToFloat(await decodeForAnalysis(local)));
-    const kicks = findKicks(f);
-    const drops = findDrops(f, kicks);
-    return { plan: planTrack({ title: opts.title, features: f, kicks, drops, bassStemTop2: opts.bassStemTop2 ?? null, marks: opts.marks }), drops: drops.map((d) => d.tS) };
+    const key = opts.driveModifiedTime !== undefined ? analysisKey(file.drive_file_id, opts.driveModifiedTime) : null;
+    let analysis = storedAnalysis(file, key);
+    if (!analysis && opts.studio) {
+      try {
+        analysis = await opts.studio.analyse(local);
+      } catch {
+        analysis = null;
+      }
+    }
+    const plan = planTrack({ title: opts.title, features: f, analysis, marks: opts.marks });
+    return { plan, drops: plan.drops.map((d) => d.tS), analysis };
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

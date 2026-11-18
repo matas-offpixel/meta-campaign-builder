@@ -13,11 +13,11 @@ import path from "node:path";
 
 import { cutSnippet, parseLoudness, runFfmpegArgs, withTempDir } from "../audio-ffmpeg.ts";
 import { SNIPPET } from "../snippet.ts";
-import { VW14 } from "./analysis.ts";
+import { ANALYSIS } from "./analysis.ts";
 
-/** Mono 16 kHz s16le, the analysis rate (VW14's build check). */
+/** Mono 16 kHz s16le, the analysis rate (the hook's pitch content). */
 export function decodeArgs(input: string, output: string): string[] {
-  return ["-hide_banner", "-nostats", "-y", "-i", input, "-vn", "-map", "0:a:0", "-ac", "1", "-ar", String(VW14.sampleRate), "-f", "s16le", "-acodec", "pcm_s16le", output];
+  return ["-hide_banner", "-nostats", "-y", "-i", input, "-vn", "-map", "0:a:0", "-ac", "1", "-ar", String(ANALYSIS.sampleRate), "-f", "s16le", "-acodec", "pcm_s16le", output];
 }
 
 export async function decodeForAnalysis(file: string): Promise<Uint8Array> {

@@ -1,21 +1,22 @@
 /**
- * Top tracks (docs/design-record/2026-11-18-creative-lab-top-tracks.html):
- * HK8's unit tests. TK3's window, the drop choice and the hook on the
- * record's fixture; the bass-stem fallback's top 2; the reel's timeline
- * against the acceptance numbers; TK2's headlines; TK4's order and states;
- * TK5's row; the fit refusals; TK7's head test; TK2's Drive-only refusal.
+ * Top tracks (docs/design-record/2026-11-18-creative-lab-top-tracks.html, and
+ * issue 2, 2026-11-18-creative-lab-top-tracks-2.html): HK8's and HK13's unit
+ * tests. TK13's grid, TK14's drops on synthetic stems, TK15's choice, TK3's
+ * window on the grid's bars, TK16's hook, TK17's snippet static; the reel's
+ * timeline against the acceptance numbers; TK2's headlines; TK4's order and
+ * states; TK5's row; the fit refusals; TK7's head test; TK2's Drive-only
+ * refusal. Can't Decide's real-file acceptance is the todo at the end.
  */
 
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, it } from "node:test";
 
-import { BAR_S, FIXTURE_SNIPPETS_3, FIXTURE_SNIPPETS_5, FIXTURE_TRACKS, fixtureFeatures, fixtureKicks } from "../../../scripts/plan-frames/top-tracks-fixtures.ts";
-import { findDrops, findKicks, type TrackFeatures } from "../top-tracks/analysis.ts";
+import { BAR_S, FIXTURE_SNIPPETS_3, FIXTURE_SNIPPETS_5, FIXTURE_TRACKS, fixtureAnalysis, fixtureFeatures } from "../../../scripts/plan-frames/top-tracks-fixtures.ts";
 import {
   NO_PHRASE,
   NO_STEADY_BEAT,
-  barGrid,
-  barsNear,
   chooseDrop,
   dropRowText,
   findHook,
@@ -24,9 +25,10 @@ import {
   mmss,
   planTrack,
   snippetWindow,
-  type BarGrid,
+  uniformDownbeats,
+  type StudioGrid,
 } from "../top-tracks/audio-rules.ts";
-import { bassStemTop2, detectorCandidates, rankOnBassStem, type Stems } from "../top-tracks/bass-stem.ts";
+import { BEAT_UNREAD, dropPickerLine, findBassDrops, referenceLevel, snapToDownbeat, studioGrid, type StudioAnalysis } from "../top-tracks/studio.ts";
 import { joinArgs, loudnessOk } from "../top-tracks/ffmpeg.ts";
 import { headOnTarget, judgeContrast, placeStill, textClearOfHead, type Rect } from "../top-tracks/layout.ts";
 import {
@@ -52,16 +54,97 @@ import {
 
 const T1 = FIXTURE_TRACKS[0]!;
 const T3 = FIXTURE_TRACKS[2]!;
-const steady: BarGrid = { steady: true, beatS: BAR_S / 4, barS: BAR_S, gaps: 16 };
 const near = (a: number, b: number, tol = 0.01) => assert.ok(Math.abs(a - b) <= tol, `${a} ≠ ${b} (± ${tol})`);
+const grid = (first: number, bar: number, dur: number): StudioGrid => ({ steady: true, downbeats: uniformDownbeats(first, bar, dur), barS: bar });
 
-describe("TK3: the window", () => {
-  it("no hook: the bars nearest 6 s before (3 bars, 5.8 s) and 8 s after (4 bars, 7.7 s) at 124 BPM", () => {
-    assert.equal(barsNear(BAR_S, { target: 6, min: 4, max: 8 }), 3);
-    assert.equal(barsNear(BAR_S, { target: 8, min: 6, max: 10 }), 4);
-    const w = snippetWindow({ dropS: 106, durationS: 185, grid: steady });
+/** A synthetic studio track: 4/4 at `bpm`, the bass at `levelAt(beat time)`. */
+function synth(durationS: number, levelAt: (t: number, i: number) => number, bpm = 124): StudioAnalysis {
+  const beat = 60 / bpm;
+  const beats: number[] = [];
+  for (let t = 0.5; t < durationS; t += beat) beats.push(Math.round(t * 1000) / 1000);
+  const downbeats = beats.filter((_, i) => i % 4 === 0);
+  return { durationS, beats, downbeats, bassBeatDb: beats.map((t, i) => levelAt(t, i)) };
+}
+
+describe("TK13: the grid", () => {
+  it("bars run downbeat to downbeat; steady within ±3 % over the 16 bars around the drop", () => {
+    const a = fixtureAnalysis(T1);
+    const g = studioGrid(a.downbeats, 144);
+    assert.equal(g.steady, true);
+    if (g.steady) near(g.barS, BAR_S, 1e-6);
+  });
+
+  it("an unsteady grid cuts on seconds, with its line", () => {
+    const db = uniformDownbeats(0, BAR_S, 200).map((d, i) => d + (i % 2 ? 0.2 : 0));
+    const g = studioGrid(db, 100);
+    assert.equal(g.steady, false);
+    const w = snippetWindow({ dropS: 100, durationS: 200, grid: g });
     assert.ok(isWindow(w));
-    near(w.startS, 106 - 3 * BAR_S);
+    assert.equal(w.cut, "seconds");
+    assert.equal(w.startS, 94);
+    assert.equal(w.endS, 108);
+  });
+
+  it("no downbeats at all: no grid, the seconds cut", () => {
+    assert.deepEqual(studioGrid([], 50), { steady: false, reason: "no_grid", spread: null });
+  });
+});
+
+describe("TK14: drops on the bass stem", () => {
+  it("R is the median of the loudest half of the beats", () => {
+    assert.equal(referenceLevel([-10, -12, -40, -60, -11, -70]), -11);
+  });
+
+  it("finds a break and the return after it, at the downbeat, with the picker's words", () => {
+    const a = synth(120, (t) => (t >= 40 && t < 48 ? -70 : -10));
+    const r = findBassDrops(a);
+    assert.equal(r.drops.length, 1);
+    const d = r.drops[0]!;
+    assert.ok(a.downbeats.includes(d.tS));
+    near(d.tS, 48, BAR_S / 2);
+    assert.match(dropPickerLine(d), /^0:4\d\.\d · bass returns after \d bars?$/);
+    assert.equal(dropPickerLine({ tS: 127.28, breakBars: 1 }), "2:07.2 · bass returns after 1 bar");
+  });
+
+  it("a blip that falls away again fails the 8-beat test", () => {
+    const a = synth(120, (t) => (t >= 40 && t < 48 ? -70 : t >= 48 && t < 49.5 ? -10 : t >= 49.5 && t < 60 ? -70 : -10));
+    const drops = findBassDrops(a).drops.map((d) => d.tS);
+    assert.ok(drops.every((t) => t > 55), `no drop at 48: ${drops}`);
+  });
+
+  it("two returns under 4 bars apart are one drop, timed at the first that passes its 8-beat test", () => {
+    const bar = 4 * (60 / 124);
+    // A break to 48, the bass back for a bar (that return fails its 8 beats), out again for 1.5 bars, then back for good.
+    const a = synth(120, (t) => ((t >= 40 && t < 48) || (t >= 48 + bar && t < 48 + 2.5 * bar) ? -70 : -10));
+    const r = findBassDrops(a);
+    assert.equal(r.drops.length, 1);
+    near(r.drops[0]!.tS, 48 + 2.5 * bar, bar / 2);
+  });
+
+  it("a track that starts with the bass out: the intro's bass entry is a drop", () => {
+    const a = synth(120, (t) => (t < 16 ? -70 : -10));
+    const r = findBassDrops(a);
+    assert.equal(r.drops.length, 1);
+    near(r.drops[0]!.tS, 16, BAR_S / 2);
+  });
+
+  it("a half-bar dip isn't a break", () => {
+    const a = synth(120, (t) => (t >= 40 && t < 41 ? -70 : -10));
+    assert.deepEqual(findBassDrops(a).drops, []);
+  });
+
+  it("a dragged marker snaps to the nearest downbeat", () => {
+    assert.equal(snapToDownbeat(10.4, [8, 10, 12]), 10);
+  });
+});
+
+describe("TK3 on the grid: the window", () => {
+  const steady = grid(144 - 74 * BAR_S, BAR_S, 192);
+
+  it("no hook: the bars nearest 6 s before (3 bars, 5.8 s) and 8 s after (4 bars, 7.7 s) at 124 BPM", () => {
+    const w = snippetWindow({ dropS: 144, durationS: 192, grid: steady });
+    assert.ok(isWindow(w));
+    near(w.startS, 144 - 3 * BAR_S);
     near(w.lengthS, 13.548);
     assert.equal(w.barsBefore, 3);
     assert.equal(w.barsAfter, 4);
@@ -86,96 +169,78 @@ describe("TK3: the window", () => {
     for (let bpm = 80; bpm <= 180; bpm += 3) {
       const bar = (4 * 60) / bpm;
       for (const room of [6, 7, 8, 9, 12, 30]) {
-        const w = snippetWindow({ dropS: 40, durationS: 40 + room, grid: { steady: true, beatS: bar / 4, barS: bar, gaps: 16 } });
+        const w = snippetWindow({ dropS: 40, durationS: 40 + room, grid: grid(40 - 20 * bar, bar, 40 + room) });
         if (isWindow(w)) assert.ok(w.lengthS >= 10 - 1e-6, `${bpm} BPM, ${room} s room: ${w.lengthS}`);
       }
     }
   });
 
   it("over 20 s: the end comes in to its 6 s floor in bars, then refuses", () => {
-    const bar = 1.7; // 141 BPM: 5 bars after (8.5 s) by default, floor 4 bars (6.8 s)
-    const grid: BarGrid = { steady: true, beatS: bar / 4, barS: bar, gaps: 16 };
-    const ok = snippetWindow({ dropS: 100, durationS: 200, grid, hookS: 100 - 7 * bar });
+    const bar = 1.7;
+    const g = grid(100 - 50 * bar, bar, 200);
+    const ok = snippetWindow({ dropS: 100, durationS: 200, grid: g, hookS: 100 - 7 * bar });
     assert.ok(isWindow(ok));
     assert.equal(ok.barsAfter, 4);
     near(ok.lengthS, 18.7);
-    const refused = snippetWindow({ dropS: 100, durationS: 200, grid, hookS: 100 - 9 * bar });
-    assert.deepEqual(refused, { refused: "over_20" });
-  });
-
-  it("no steady beat: 6.0 s before and 8.0 s after, in seconds", () => {
-    const g = barGrid([1, 1.3, 1.9, 2.0, 2.8, 3.1, 4.0], 5);
-    assert.equal(g.steady, false);
-    const w = snippetWindow({ dropS: 100, durationS: 200, grid: g });
-    assert.ok(isWindow(w));
-    assert.equal(w.cut, "seconds");
-    assert.equal(w.startS, 94);
-    assert.equal(w.endS, 108);
-  });
-
-  it("reads a steady grid off steady kicks (124 BPM)", () => {
-    const g = barGrid(fixtureKicks(T1), 144);
-    assert.equal(g.steady, true);
-    if (g.steady) near(g.barS, BAR_S, 0.002);
+    assert.deepEqual(snippetWindow({ dropS: 100, durationS: 200, grid: g, hookS: 100 - 9 * bar }), { refused: "over_20" });
   });
 });
 
-describe("TK3: which drop", () => {
+describe("TK15: which drop", () => {
   it("the last of three, in the last third (track one: 2:24)", () => {
-    const c = chooseDrop({ drops: T1.drops.map((tS) => ({ tS })), durationS: T1.durationS, kicks: fixtureKicks(T1) });
-    assert.equal(c.kind, "last");
-    assert.ok("dropS" in c && c.dropS === 144);
+    const a = fixtureAnalysis(T1);
+    const drops = findBassDrops(a).drops.map((d) => d.tS);
+    assert.equal(drops.length, 3);
+    const c = chooseDrop({ drops, durationS: T1.durationS, downbeats: a.downbeats });
+    assert.ok("dropS" in c && c.kind === "last");
+    near((c as { dropS: number }).dropS, 144, 1e-3);
     assert.equal(dropRowText(c as never), "Drop 2:24 · the last drop");
   });
 
   it("a last-third drop without room after it falls back to the one before", () => {
-    const kicks = fixtureKicks(T1);
-    const c = chooseDrop({ drops: [...T1.drops, 189].map((tS) => ({ tS })), durationS: T1.durationS, kicks });
-    assert.ok("dropS" in c && c.dropS === 144 && c.kind === "last");
+    const a = fixtureAnalysis(T1);
+    const c = chooseDrop({ drops: [...T1.drops, 189], durationS: T1.durationS, downbeats: a.downbeats });
+    assert.ok("dropS" in c && c.kind === "last" && Math.abs(c.dropS - 144) < 1e-3);
   });
 
-  it("no drop in the last third: the last before it, an earlier drop, not an error (track three: 1:46)", () => {
-    const c = chooseDrop({ drops: T3.drops.map((tS) => ({ tS })), durationS: T3.durationS, kicks: fixtureKicks(T3) });
+  it("no drop in the last third: the latest earlier one (track three: 1:46)", () => {
+    const a = fixtureAnalysis(T3);
+    const c = chooseDrop({ drops: findBassDrops(a).drops.map((d) => d.tS), durationS: T3.durationS, downbeats: a.downbeats });
     assert.equal(c.kind, "earlier");
-    assert.ok("dropS" in c && c.dropS === 106);
     assert.equal(dropRowText(c as never), "Drop 1:46 · an earlier drop (no later drop fits)");
   });
 
-  it("none qualifying: the room line, naming the side", () => {
-    const c = chooseDrop({ drops: [{ tS: 2 }, { tS: 183 }], durationS: 185, kicks: fixtureKicks(T3) });
-    assert.equal(c.kind, "no_room");
-    const plan = planTrack({ title: "Track three", features: fixtureFeatures(T3), kicks: fixtureKicks(T3), drops: [{ tS: 2 }, { tS: 183 }] });
-    assert.equal(plan.ok, false);
-    if (!plan.ok) assert.equal(plan.refusal, "Track three: the drop is too close to the end of the file — move the marker or pick another track.");
-  });
-
-  it("VW14 finding none falls back to the bass-stem top 2: the later that qualifies, the last third first", () => {
-    const kicks = fixtureKicks(T1);
-    const c = chooseDrop({ drops: [], durationS: T1.durationS, kicks, bassStemTop2: [62.712, 144] });
-    assert.equal(c.kind, "bass_stem");
-    assert.ok("dropS" in c && c.dropS === 144);
-    assert.equal(dropRowText(c as never), "Drop 2:24 · the last drop · found on the bass stem");
-    const early = chooseDrop({ drops: [], durationS: T1.durationS, kicks, bassStemTop2: [62.712, 190] });
-    assert.equal(dropRowText(early as never), "Drop 1:02 · an earlier drop (no later drop fits) · found on the bass stem");
-  });
-
-  it("no drop found anywhere, and no bass stem: the no-drop line", () => {
-    const plan = planTrack({ title: "Track two", features: fixtureFeatures(FIXTURE_TRACKS[1]!), kicks: [], drops: [], bassStemTop2: null });
-    assert.equal(plan.ok, false);
-    if (!plan.ok) assert.equal(plan.refusal, "Track two: no drop found — drag the drop marker to it.");
+  it("none fitting: the room line; none found: the no-drop line; a failed analysis: TK18's line", () => {
+    const a = fixtureAnalysis(T3);
+    const tooLate = planTrack({ title: "Track three", features: fixtureFeatures(T3), analysis: { ...a, bassBeatDb: a.beats.map((b) => (b > 175 && b < 182 ? -70 : -10)) } });
+    assert.equal(tooLate.ok, false);
+    if (!tooLate.ok) assert.equal(tooLate.refusal, "Track three: the drop is too close to the end of the file — move the marker or pick another track.");
+    const none = planTrack({ title: "Track two", features: fixtureFeatures(FIXTURE_TRACKS[1]!), analysis: { ...fixtureAnalysis(FIXTURE_TRACKS[1]!), bassBeatDb: fixtureAnalysis(FIXTURE_TRACKS[1]!).beats.map(() => -10) } });
+    assert.equal(none.ok, false);
+    if (!none.ok) assert.equal(none.refusal, "Track two: no drop found — drag the drop marker to it.");
+    const failed = planTrack({ title: "Track two", features: fixtureFeatures(FIXTURE_TRACKS[1]!), analysis: null });
+    assert.equal(failed.ok, false);
+    if (!failed.ok) assert.equal(failed.refusal, BEAT_UNREAD);
+    const dragged = planTrack({ title: "Track two", features: fixtureFeatures(FIXTURE_TRACKS[1]!), analysis: null, marks: { dropS: 160, dropSetBy: "Matas" } });
+    assert.ok(dragged.ok);
+    if (dragged.ok) {
+      assert.equal(dragged.window.cut, "seconds");
+      assert.deepEqual(dragged.lines.slice(0, 2), [BEAT_UNREAD, "Drop 2:40 · Drop set by Matas"]);
+    }
   });
 });
 
-describe("TK3: the hook", () => {
+describe("TK16: the hook on the grid", () => {
   it("the last place the phrase plays before the drop (track one: HOOK · 2:14, 5 bars before 2:24)", () => {
-    const h = findHook(fixtureFeatures(T1), 144, steady, T1.drops);
+    const a = fixtureAnalysis(T1);
+    const h = findHook(fixtureFeatures(T1), 144, studioGrid(a.downbeats, 144), T1.drops);
     assert.equal(h.kind, "hook");
     if (h.kind === "hook") {
-      near(h.hookS, 144 - 5 * BAR_S);
+      near(h.hookS, 144 - 5 * BAR_S, 1e-3);
       assert.equal(h.phrase.bars, 2);
       assert.equal(h.phrase.places.length, 3);
     }
-    const plan = planTrack({ title: "Track one", features: fixtureFeatures(T1), kicks: fixtureKicks(T1), drops: T1.drops.map((tS) => ({ tS })) });
+    const plan = planTrack({ title: "Track one", features: fixtureFeatures(T1), analysis: a });
     assert.ok(plan.ok);
     if (plan.ok) {
       assert.deepEqual(plan.lines, ["Drop 2:24 · the last drop", "HOOK · 2:14", "2:14–2:31 · 17.4 s · 9 bars"]);
@@ -184,109 +249,35 @@ describe("TK3: the hook", () => {
     }
   });
 
-  it("a place too far back is left off", () => {
-    const h = hookFromPhrase({ bars: 2, places: [10, 120] }, 144, BAR_S);
-    assert.equal(h.kind, "too_far");
-    const plan = planTrack({ title: "Track one", features: fixtureFeatures(T1), kicks: fixtureKicks(T1), drops: T1.drops.map((tS) => ({ tS })), marks: {} });
+  it("a place too far back is left off; no phrase says so (track three: 1:40–1:53, 13.5 s)", () => {
+    const db = uniformDownbeats(0, BAR_S, 192);
+    assert.equal(hookFromPhrase({ bars: 2, places: [db[5]!, db[60]!] }, 144, db).kind, "too_far");
+    const plan = planTrack({ title: "Track three", features: fixtureFeatures(T3), analysis: fixtureAnalysis(T3) });
     assert.ok(plan.ok);
+    if (plan.ok) assert.deepEqual(plan.lines, ["Drop 1:46 · an earlier drop (no later drop fits)", NO_PHRASE, "1:40–1:53 · 13.5 s · 7 bars"]);
   });
 
-  it("no phrase: no hook, and the line says so (track three: 1:40–1:53, 13.5 s)", () => {
-    const plan = planTrack({ title: "Track three", features: fixtureFeatures(T3), kicks: fixtureKicks(T3), drops: T3.drops.map((tS) => ({ tS })) });
-    assert.ok(plan.ok);
-    if (plan.ok) {
-      assert.deepEqual(plan.lines, ["Drop 1:46 · an earlier drop (no later drop fits)", NO_PHRASE, "1:40–1:53 · 13.5 s · 7 bars"]);
-      near(plan.window.startS, 100.194);
+  it("operator marks: a placed hook too far back gets the 20 s refusal; set-by lines; the drop snaps to a downbeat", () => {
+    const a = fixtureAnalysis(T1);
+    const far = planTrack({ title: "Track one", features: fixtureFeatures(T1), analysis: a, marks: { hookS: 144 - 10 * BAR_S, hookSetBy: "Matas" } });
+    assert.equal(far.ok, false);
+    if (!far.ok) assert.equal(far.refusal, "Track one: from the hook to 6 s after the drop is over 20 s — move the hook marker.");
+    const set = planTrack({ title: "Track one", features: fixtureFeatures(T1), analysis: a, marks: { dropS: 107.4, dropSetBy: "Matas", hookS: null, hookSetBy: "Matas" } });
+    assert.ok(set.ok);
+    if (set.ok) {
+      assert.ok(a.downbeats.some((d) => Math.abs(d - set.window.dropS) < 1e-6));
+      assert.deepEqual(set.lines.slice(0, 2), ["Drop 1:47 · Drop set by Matas", "Hook set by Matas"]);
     }
   });
 
-  it("operator marks: a placed hook too far back gets the 20 s refusal; set-by lines", () => {
-    const far = planTrack({ title: "Track one", features: fixtureFeatures(T1), kicks: fixtureKicks(T1), drops: T1.drops.map((tS) => ({ tS })), marks: { hookS: 144 - 10 * BAR_S, hookSetBy: "Matas" } });
-    assert.equal(far.ok, false);
-    if (!far.ok) assert.equal(far.refusal, "Track one: from the hook to 6 s after the drop is over 20 s — move the hook marker.");
-    const set = planTrack({ title: "Track one", features: fixtureFeatures(T1), kicks: fixtureKicks(T1), drops: T1.drops.map((tS) => ({ tS })), marks: { dropS: 107.226, dropSetBy: "Matas", hookS: null, hookSetBy: "Matas" } });
-    assert.ok(set.ok);
-    if (set.ok) assert.deepEqual(set.lines.slice(0, 2), ["Drop 1:47 · Drop set by Matas", "Hook set by Matas"]);
-  });
-
-  it("an unsteady beat cuts on seconds and says so", () => {
-    const plan = planTrack({ title: "X", features: fixtureFeatures(T3), kicks: [100, 100.1, 100.5, 101.6, 101.7, 103, 105.5], drops: [{ tS: 106 }] });
+  it("an unsteady grid reads its line and finds no phrase", () => {
+    const a = fixtureAnalysis(T3);
+    const plan = planTrack({ title: "X", features: fixtureFeatures(T3), analysis: { ...a, downbeats: a.downbeats.map((d, i) => d + (i % 2 ? 0.25 : 0)) } });
     assert.ok(plan.ok);
     if (plan.ok) {
       assert.ok(plan.lines.includes(NO_STEADY_BEAT));
       assert.equal(plan.window.cut, "seconds");
     }
-  });
-});
-
-describe("TK3: VW14 on a track", () => {
-  /** Hand-built measures at a 10 ms hop: kicks as flux spikes, the bass and kick band quiet until 24 s, the mids flat but for two falls. */
-  function features(): TrackFeatures {
-    const hopS = 0.01;
-    const n = 4000;
-    const kickFlux = new Float64Array(n).fill(0.1);
-    const kickBandDb = new Float64Array(n).fill(-20);
-    const midsDb = new Float64Array(n).fill(-10);
-    const bassPower = new Float64Array(n).fill(1e-4);
-    const kicks: number[] = [];
-    for (let t = 1; t < 20; t += 0.48) kicks.push(t);
-    for (let t = 20; t < 24 - 1e-9; t += 0.23) kicks.push(t);
-    for (let t = 24; t < 40; t += 0.48) kicks.push(t);
-    for (const t of kicks) kickFlux[Math.round(t / hopS)] = 10;
-    for (let i = 2400; i < n; i += 1) {
-      bassPower[i] = 1;
-      kickBandDb[i] = 0;
-    }
-    // A mids fall at 10 (quiet: doesn't land loud), at 26.4 (inside 4 s of 24: the same drop) and at 33.6 (a second drop, timed at the first kick whose 1 s takes it in).
-    for (let i = 1000; i < 1100; i += 1) midsDb[i] = -14;
-    for (let i = 2640; i < 2800; i += 1) midsDb[i] = -14;
-    for (let i = 3360; i < 3500; i += 1) midsDb[i] = -14;
-    return { hopS, durationS: n * hopS, kickFlux, kickBandDb, midsDb, bassPower, chroma: new Float32Array(n * 12) };
-  }
-
-  it("times a roll giving way to the beat at the first beat kick, and merges kicks within 4 s", () => {
-    const f = features();
-    const kicks = findKicks(f);
-    assert.ok(kicks.length > 60);
-    const drops = findDrops(f, kicks);
-    assert.deepEqual(
-      drops.map((d) => [d.tS, d.test]),
-      [
-        [24, "roll"],
-        [33.12, "mids"],
-      ],
-    );
-  });
-
-  it("a breakdown where the kicks stop isn't a drop", () => {
-    const f = features();
-    assert.deepEqual(findDrops(f, findKicks(f).filter((t) => t < 20)), []);
-  });
-});
-
-describe("TK3: the bass-stem ranking", () => {
-  it("ranks the place the bass lands first, and returns its top 2", () => {
-    const frameS = 0.05;
-    const n = Math.round(120 / frameS);
-    const bass = new Float64Array(n).fill(-60);
-    const drums = new Float64Array(n).fill(-40);
-    for (let i = Math.round(80 / frameS); i < n; i += 1) bass[i] = -10;
-    for (let i = Math.round(40 / frameS); i < Math.round(44 / frameS); i += 1) bass[i] = -30;
-    const stems: Stems = { frameS, bassDb: bass, drumsDb: drums };
-    const ranked = rankOnBassStem([40, 60, 80], stems, []);
-    assert.equal(ranked[0]!.tS, 80);
-    assert.deepEqual(bassStemTop2([40, 60, 80], stems, []), [80, 40]);
-  });
-
-  it("lists every place CT4's detector would call a drop", () => {
-    const frameS = 0.05;
-    const low = new Float64Array(Math.round(120 / frameS)).fill(0.001);
-    for (let i = Math.round(50 / frameS); i < Math.round(60 / frameS); i += 1) low[i] = 0.5;
-    for (let i = Math.round(90 / frameS); i < low.length; i += 1) low[i] = 0.5;
-    const c = detectorCandidates(low, frameS);
-    assert.equal(c.length, 2);
-    near(c[0]!, 50, 0.5);
-    near(c[1]!, 90, 0.5);
   });
 });
 
@@ -459,23 +450,54 @@ describe("TK2 / TK10: picking", () => {
   });
 });
 
-describe("TK3 amends CT4: the snippet static takes the same drop choice", () => {
+describe("TK17: the snippet static takes TK14's drops and TK15's choice", () => {
   it("fits CT1's window (from 4 s before, 16 s), not Top tracks'", async () => {
-    const { snippetStaticFits } = await import("../audio-intake.ts");
+    const { snippetStaticFits, snippetDropFrom } = await import("../audio-intake.ts");
     assert.equal(snippetStaticFits(150, 192), true);
     assert.equal(snippetStaticFits(181, 192), false);
     assert.equal(snippetStaticFits(3, 192), false);
-    const kicks = fixtureKicks(T1);
-    const c = chooseDrop({ drops: [{ tS: 62.7 }, { tS: 144 }, { tS: 182 }], durationS: 192, kicks, fits: (t) => snippetStaticFits(t, 192) });
-    assert.ok("dropS" in c && c.dropS === 144 && c.kind === "last");
+    const r = snippetDropFrom(fixtureAnalysis(T1));
+    assert.equal(r.choice, "last");
+    near(r.dropS!, 144, 1e-3);
+    assert.equal((r.stored as { v: number }).v, 2);
   });
 
-  it("a file with no VW14 drop leaves the marker for the operator and keeps what was found", async () => {
-    const { tk3SnippetDrop } = await import("../audio-intake.ts");
-    const silent = new Uint8Array(16000 * 2 * 60);
-    const r = tk3SnippetDrop(silent, 60);
+  it("a file with no break leaves the marker for the operator and keeps what was found", async () => {
+    const { snippetDropFrom } = await import("../audio-intake.ts");
+    const a = fixtureAnalysis(T1);
+    const r = snippetDropFrom({ ...a, bassBeatDb: a.beats.map(() => -10) });
     assert.equal(r.dropS, null);
-    assert.equal(r.choice, null);
-    assert.deepEqual((r.drops as { vw14: unknown[] }).vw14, []);
+    assert.deepEqual((r.stored as { drops: unknown[] }).drops, []);
   });
+});
+
+describe("Acceptance (issue 2): Can't Decide on its real analysis", () => {
+  const a = JSON.parse(readFileSync(join(process.cwd(), "lib/creative-tests/__tests__/fixtures/cant-decide-analysis.json"), "utf8")) as StudioAnalysis;
+
+  it("reads Beat This!'s grid at about 130 BPM, steady around the payoff", () => {
+    const g = studioGrid(a.downbeats, 127.28);
+    assert.ok(g.steady);
+    if (g.steady) near(60 * 4 / g.barS, 130.4, 0.5);
+  });
+
+  it("finds the bass return after the 2:04 break among its drops", () => {
+    assert.ok(findBassDrops(a).drops.some((d) => d.tS >= 126.75 && d.tS <= 128.0));
+  });
+
+  it(
+    "uses the bass return after the 2:04 break, between 2:06.75 and 2:08.0",
+    { todo: "TK15 picks 2:34.98, after a 1-bar fill that meets TK14's break rule (reported on #1338 for design's re-rule; not tuned)" },
+    () => {
+      const drops = findBassDrops(a).drops.map((d) => d.tS);
+      const c = chooseDrop({ drops, durationS: a.durationS, downbeats: a.downbeats });
+      assert.ok("dropS" in c && c.dropS >= 126.75 && c.dropS <= 128.0, `chose ${"dropS" in c ? c.dropS : c.kind}`);
+    },
+  );
+
+  it("lists its drops; more than 4 is reported (TK14's acceptance)", () => {
+    const r = findBassDrops(a);
+    assert.deepEqual(r.drops.map((d) => d.tS), [7.3, 22.06, 66.36, 127.28, 154.98]);
+  });
+
+  it("is quiet about mmss: 2:07", () => assert.equal(mmss(127.5), "2:07"));
 });

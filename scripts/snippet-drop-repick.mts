@@ -1,14 +1,15 @@
 /**
- * TK3's amendment to CT4 (docs/design-record/2026-11-18-creative-lab-top-tracks.html):
- * snippet static drafts re-pick their drop with the Top tracks drop choice.
- * Approved renders and drops the operator set are kept.
+ * TK17 (docs/design-record/2026-11-18-creative-lab-top-tracks-2.html):
+ * snippet static drafts re-pick their drop with TK14's drops and TK15's
+ * choice. Approved renders and drops the operator set or dragged are kept.
  *
- *   npx tsx scripts/snippet-drop-repick.mts [--event CODE] [--apply]
+ *   npx tsx scripts/snippet-drop-repick.mts --python <venv>/bin/python [--event CODE] [--apply]
  *
  * Dry run by default: it reads creative_lab_audio_files rows whose drop the
  * Lab set (drop_source 'lab' or no drop yet), downloads each Storage copy,
- * runs TK3's choice with CT1's window as the fit, and prints old → new.
- * --apply writes the new drop, window, drops and drop_choice on those rows,
+ * runs Beat This! and Demucs on it (analyse.py), TK15's choice with CT1's
+ * window as the fit, and prints old → new. --apply writes the new drop,
+ * window, analysis (TK18, keyed by the Drive id) and drop_choice on those rows,
  * and moves each unapproved, not-yet-launched final snippet render of that
  * file to the new window (start_s) and back to queued, so the draft re-cuts.
  * An operator's drop (drop_source 'operator') and any approved render are
@@ -21,13 +22,16 @@ import path from "node:path";
 import { createClient } from "@supabase/supabase-js";
 
 import { withTempDir } from "../lib/creative-tests/audio-ffmpeg.ts";
-import { AUDIO_BUCKET, tk3SnippetDrop } from "../lib/creative-tests/audio-intake.ts";
+import { AUDIO_BUCKET, snippetDropFrom } from "../lib/creative-tests/audio-intake.ts";
 import { clampLength, mmss, windowForDrop } from "../lib/creative-tests/snippet.ts";
-import { decodeForAnalysis } from "../lib/creative-tests/top-tracks/ffmpeg.ts";
+import { analysisKey, localStudio } from "../lib/creative-tests/top-tracks/analysis-source.ts";
 
 const argv = process.argv.slice(2);
 const apply = argv.includes("--apply");
 const eventCode = argv.includes("--event") ? argv[argv.indexOf("--event") + 1] : undefined;
+const python = argv.includes("--python") ? argv[argv.indexOf("--python") + 1] : undefined;
+if (!python) throw new Error("--python <venv python> (Beat This! + Demucs)");
+const studio = localStudio({ python });
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -42,7 +46,7 @@ if (eventCode) {
   if (!eventIds.length) throw new Error(`no event ${eventCode}`);
 }
 
-let q = db.from("creative_lab_audio_files").select("id, event_id, drive_file_name, storage_path, duration_s, drop_s, drop_source, unusable_reason, length_s").not("storage_path", "is", null).is("unusable_reason", null);
+let q = db.from("creative_lab_audio_files").select("id, event_id, drive_file_id, drive_file_name, storage_path, duration_s, drop_s, drop_source, unusable_reason, length_s").not("storage_path", "is", null).is("unusable_reason", null);
 if (eventIds) q = q.in("event_id", eventIds);
 const rows = await q.order("created_at", { ascending: true }).range(0, 999);
 if (rows.error) throw new Error(rows.error.message);
@@ -59,7 +63,8 @@ for (const row of rows.data ?? []) {
     if (error || !data) throw new Error(`storage download: ${error?.message ?? "no file"}`);
     const local = path.join(dir, path.basename(String(row.storage_path)));
     await writeFile(local, new Uint8Array(await data.arrayBuffer()));
-    return tk3SnippetDrop(await decodeForAnalysis(local), duration);
+    const r = snippetDropFrom(await studio.analyse(local));
+    return { dropS: r.dropS, choice: r.choice, stored: r.stored };
   });
   const before = row.drop_s != null ? mmss(Number(row.drop_s)) : "none";
   const after = tk3.dropS != null ? `${mmss(tk3.dropS)} (${tk3.choice})` : "none";
@@ -69,7 +74,7 @@ for (const row of rows.data ?? []) {
   changed += 1;
   if (!apply) continue;
   const win = tk3.dropS != null ? windowForDrop(tk3.dropS, duration, clampLength(row.length_s)) : null;
-  const up = await db.from("creative_lab_audio_files").update({ drop_s: tk3.dropS, drop_source: tk3.dropS != null ? "lab" : null, window_start_s: win?.startS ?? null, drops: tk3.drops, drop_choice: tk3.choice }).eq("id", row.id).neq("drop_source", "operator");
+  const up = await db.from("creative_lab_audio_files").update({ drop_s: tk3.dropS, drop_source: tk3.dropS != null ? "lab" : null, window_start_s: win?.startS ?? null, analysis: tk3.stored, analysis_key: analysisKey(String(row.drive_file_id), null), analysis_state: "done", drop_choice: tk3.choice }).eq("id", row.id).neq("drop_source", "operator");
   if (up.error) throw new Error(up.error.message);
   if (!win) continue;
   const drafts = await db.from("creative_lab_snippet_renders").select("id, test_id").eq("audio_file_id", row.id).eq("purpose", "final").is("approved_at", null).in("status", ["done", "failed", "queued"]);

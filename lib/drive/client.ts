@@ -35,6 +35,8 @@ export type DriveFile = {
   shortcutTargetId?: string | null;
   trashed?: boolean;
   size?: number | null;
+  /** Drive's modified time (RFC 3339): Top tracks keys a file's analysis on it (TK18). */
+  modifiedTime?: string | null;
 };
 
 /** A media file with Drive's own measurements (files.list thumbnailLink, video/imageMediaMetadata). */
@@ -166,7 +168,7 @@ function tokenSource(sa: ServiceAccount, fetchImpl: typeof fetch): () => Promise
 
 const API = "https://www.googleapis.com/drive/v3";
 const UPLOAD = "https://www.googleapis.com/upload/drive/v3";
-const FILE_FIELDS = "id,name,mimeType,parents,appProperties,shortcutDetails(targetId),trashed,size";
+const FILE_FIELDS = "id,name,mimeType,parents,appProperties,shortcutDetails(targetId),trashed,size,modifiedTime";
 const MEDIA_FIELDS = `${FILE_FIELDS},thumbnailLink,videoMediaMetadata(width,height,durationMillis),imageMediaMetadata(width,height,rotation)`;
 
 /** Thumbnail links are Google-hosted; anything else is refused (no fetching arbitrary URLs as the account). */
@@ -215,6 +217,7 @@ function toFile(raw: Record<string, unknown>): DriveFile {
     shortcutTargetId: shortcut?.targetId ?? null,
     trashed: raw.trashed === true,
     size: raw.size == null ? null : Number(raw.size),
+    modifiedTime: typeof raw.modifiedTime === "string" ? raw.modifiedTime : null,
   };
 }
 

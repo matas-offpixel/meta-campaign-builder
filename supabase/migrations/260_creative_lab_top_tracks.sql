@@ -1,12 +1,15 @@
 -- Migration 260 — the Creative Lab "Top tracks" reel
--- (docs/design-record/2026-11-18-creative-lab-top-tracks.html, TK1–TK11).
+-- (docs/design-record/2026-11-18-creative-lab-top-tracks.html, TK1–TK11, and
+-- issue 2, 2026-11-18-creative-lab-top-tracks-2.html, TK12–TK18).
 --
 -- Adds:
---   creative_lab_audio_files      every drop the Lab found in the file (TK3:
---                                 VW14's drops and, when it ran, the
---                                 bass-stem ranking), which choice made the
---                                 drop (the last drop, an earlier drop, or
---                                 the bass stem), and the HOOK marker with
+--   creative_lab_audio_files      the file's analysis (issue 2, TK18:
+--                                 Beat This!'s beats and downbeats, the
+--                                 Demucs bass stem's per-beat levels, R and
+--                                 the drops — data only, never the stem's
+--                                 audio), keyed by the Drive id and Drive's
+--                                 modified time, its state, which choice made
+--                                 the drop (TK15), and the HOOK marker with
 --                                 who set or cleared it.
 --   creative_lab_top_tracks_renders  one row per Top tracks reel (TK1): its
 --                                 options, its ordered tracks with each
@@ -25,12 +28,14 @@
 -- the merge. Additive and idempotent.
 
 -- ---------------------------------------------------------------------------
--- 1. Drops and the hook on the audio file (TK3)
+-- 1. The analysis, the drop's choice and the hook on the audio file (TK3, TK13–TK18)
 -- ---------------------------------------------------------------------------
 
 alter table public.creative_lab_audio_files
-  add column if not exists drops       jsonb,
-  add column if not exists drop_choice text,
+  add column if not exists analysis       jsonb,
+  add column if not exists analysis_key   text,
+  add column if not exists analysis_state text,
+  add column if not exists drop_choice    text,
   add column if not exists hook_s      numeric(10, 3),
   add column if not exists hook_source text,
   add column if not exists hook_set_by uuid,
@@ -39,7 +44,12 @@ alter table public.creative_lab_audio_files
 alter table public.creative_lab_audio_files drop constraint if exists creative_lab_audio_files_drop_choice_check;
 alter table public.creative_lab_audio_files
   add constraint creative_lab_audio_files_drop_choice_check
-  check (drop_choice is null or drop_choice in ('last', 'earlier', 'bass_stem'));
+  check (drop_choice is null or drop_choice in ('last', 'earlier'));
+
+alter table public.creative_lab_audio_files drop constraint if exists creative_lab_audio_files_analysis_state_check;
+alter table public.creative_lab_audio_files
+  add constraint creative_lab_audio_files_analysis_state_check
+  check (analysis_state is null or analysis_state in ('running', 'done', 'failed'));
 
 alter table public.creative_lab_audio_files drop constraint if exists creative_lab_audio_files_hook_source_check;
 alter table public.creative_lab_audio_files
@@ -51,10 +61,14 @@ alter table public.creative_lab_audio_files
   add constraint creative_lab_audio_files_hook_s_check
   check (hook_s is null or hook_s >= 0);
 
-comment on column public.creative_lab_audio_files.drops is
-  'TK3. {v: 1, durationS, vw14: [{tS, test, measures}], bassStem: {source, ranked: [{tS, score}]} | null, grid: {steady, beatS, spread}} — every drop found, kept as data. Null: read before migration 260. Migration 260.';
+comment on column public.creative_lab_audio_files.analysis is
+  'TK18. {v: 2, durationS, beats, downbeats, bassBeatDb (the Demucs bass stem''s RMS per beat, dB), R, drops: [{tS, breakBars, breakFromS, breakToS, breakDb, testDb}], breaks, grid} or {v: 2, error}. Data only: the stem is never stored as audio. Migration 260.';
+comment on column public.creative_lab_audio_files.analysis_key is
+  'TK18: {drive_file_id}@{Drive modifiedTime}. The analysis runs again when the key changes. Migration 260.';
+comment on column public.creative_lab_audio_files.analysis_state is
+  'TK18: running ("Finding the drops…", the file can''t be ticked yet), done, or failed ("Couldn''t read this track''s beat — drag the drop marker to it."). Migration 260.';
 comment on column public.creative_lab_audio_files.drop_choice is
-  'TK3: which rule chose drop_s when the Lab set it — last (the last qualifying drop in the last third), earlier (the last before it: "an earlier drop (no later drop fits)") or bass_stem (VW14 found none; " · found on the bass stem"). Null for an operator''s drop. Migration 260.';
+  'TK15: which rule chose drop_s when the Lab set it — last (the last qualifying drop in the last third) or earlier ("an earlier drop (no later drop fits)"). Null for an operator''s drop. Migration 260.';
 comment on column public.creative_lab_audio_files.hook_s is
   'TK3: the HOOK marker, the last place the repeated phrase plays before the chosen drop; null for none. Top tracks only (the snippet static keeps CT1''s window). Migration 260.';
 comment on column public.creative_lab_audio_files.hook_source is
