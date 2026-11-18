@@ -37,6 +37,19 @@ async function snippetTick(supabase: ReturnType<typeof createServiceRoleClient>,
     throw err;
   }
 }
+/** Top tracks (TK1, HK1): one reel at a time, after the snippets. Skips cleanly before migration 262. */
+async function topTracksTick(supabase: ReturnType<typeof createServiceRoleClient>, archived: ReadonlySet<string>) {
+  try {
+    const { runTopTracksTick } = await import("@/lib/creative-tests/top-tracks/tick");
+    const { tickDeps } = await import("@/lib/creative-tests/top-tracks/tick-server");
+    return await runTopTracksTick(supabase, tickDeps(supabase), { archivedEventIds: archived });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (/creative_lab_top_tracks_renders|does not exist|schema cache/i.test(message)) return { skippedReason: "table_missing" };
+    throw err;
+  }
+}
+
 export const dynamic = "force-dynamic";
 
 async function handleGET(req: NextRequest) {
@@ -54,7 +67,8 @@ async function handleGET(req: NextRequest) {
     const result = await runRenderTick(supabase, { archivedEventIds: scope.eventIds, remotionEnabled: isRemotionEnabled() });
     // CT1 / CT10: the audio snippet statics, after the caption renders. Their own in-flight cap.
     const snippets = isRemotionEnabled() ? await snippetTick(supabase, scope.eventIds) : null;
-    return NextResponse.json({ ...result, snippets });
+    const topTracks = isRemotionEnabled() ? await topTracksTick(supabase, scope.eventIds) : null;
+    return NextResponse.json({ ...result, snippets, topTracks });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
     console.error(`[creative-lab-render-tick] ${message}`);

@@ -383,3 +383,32 @@ The figures under each frame (outside the shot) are the composer's.
 | AF-B-after | Eyes 0.500 W, 0.445 H; head 0.312, chin 0.571 H; claim on 1004 px |
 | AF-C-before | Window 1080 px, head at 0.41 W; the claim on its 1238 baseline (0.568–0.645 H) over the head |
 | AF-C-after | "Framed on the artist: crop moved 97 px left"; window 886 px (1.22×), head 0.50 W; the claim moved up under the date (from 0.382 H; the date ends 0.355 H) |
+
+## TK series
+
+Top tracks (`docs/design-record/2026-11-18-creative-lab-top-tracks.html`,
+HK8), at `/frames/top-tracks/{id}` (`components/dashboard/events/creative-lab/top-tracks-frame-mount.tsx`).
+The fixture is `top-tracks-fixtures.ts`: Luke Dean on P26-BDAY, five invented
+tracks at 124 BPM, each with its TK3 plan worked out by `planTrack` (track
+one's drop 2:24 and hook 2:14, track three's earlier drop 1:46). The
+composition stills are an HTML replica of `TopTracks` drawn from the same
+rules (`frame.ts` `rowState` / `endState`, `reel.ts` `layoutReel`,
+`layout.ts` `layoutEndCard`) at 1080 × 1920, in a stand-in condensed face
+(TikTok Sans at `wdth` 75, `wght` 700), as the record's frames are; the shot
+waits until that face has loaded and the layout has been measured with it.
+Renders set the kit's own face (O24, O49–O51). The background is a drawn press
+shot, the head at 0.74 W. No baselines are committed until design passes.
+
+| Id | Width | What to check by hand |
+|---|---|---|
+| TK-A | 1080 | TK-B's reel at 25.9 s (the third track playing) with the crops: Reels UI 0–269 and below 1248 shaded, O96's band (blue), the last baseline 1238 (dashed), Feed's 4:5 ends at 285 and 1635 (yellow), the head box grown by 0.02 H (red), the list column x 120–600. No text inside the red box or outside the band |
+| TK-B1 | 1080 | Ranked, 5 tracks, 0.3 s: ranks 1–5 at 40 %, #5 plays (accent rank, 6 px bar at x 120), "TRACK FIVE" shown |
+| TK-B2 | 1080 | 13.1 s: #4 plays, #5 played at 70 % |
+| TK-B3 | 1080 | 51.5 s: #1 plays, all five titles, "WITH GUEST ARTIST" under track three |
+| TK-B4 | 1080 | 66.0 s: the date end in the list's column: lockup from 353, LUKE DEAN, SAT 28 NOV, GENERAL SALE LIVE on 1238; the list faded |
+| TK-C1–C3 | 1080 | Level, Forever, can't-live at 25.9 s (the third track playing; the record draws every snippet 13.5 s here). Level's rungs 10 %–1000 %; Forever and can't-live have no numbers and empty rows are 2 px rules at 40 % |
+| TK-D | 1080 | Ranked, 3 tracks, 13.1 s: #2 plays; title cap 52, rank cap 72 |
+| TK-E | 1080 | The no-CTA end at 66.4 s: the full list at 100 %, no highlight, no lockup, date or claim |
+| TK-F2 | 1280 | The five-track timeline: blocks at 0, 12.8, 25.6, 38.4, 51.2; drops at 5.8, 18.6, 31.4, 44.2, 60.9; the end card 65.6–68.6 (olive) |
+| TK-F3 | 1280 | Track one 3:12: drops 1:02, 1:47, 2:24 (2:24 solid), the last third shaded, the phrase marks, HOOK · 2:14, window 2:14–2:31; Track three: "Drop 1:46 · an earlier drop (no later drop fits)", "No repeated phrase found" |
+| TK-G | 1280, 393 | The Lab tab as TK-G: P26-BDAY · Top tracks, act chips, the 9:16 preview (the replica at 25.9 s) and "9:16 · 1:09", four framing chips (narrow endings at 393), "Tracks · 5 of 5 picked · at least 3", the five picked with their lengths ("17.4 s, hook"), "Order follows Spotify's top tracks" · Change, four background chips, the summary and Edit, "Make the reel", the render row "P26-BDAY_luke-dean_top-tracks-ranked-5tracks-cta-on-sale_r1_9x16.mp4 · ready · 1:09" |

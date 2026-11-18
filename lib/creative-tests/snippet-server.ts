@@ -62,6 +62,8 @@ export function intakeDeps(db: Service, drive: DriveApi): IntakeDeps {
     upload: (storagePath, filePath, contentType) => storage.upload(AUDIO_BUCKET, storagePath, filePath, contentType),
     probe: probeAudio,
     envelopes: readEnvelopes,
+    // TK18: no analysis host in the app yet (docs/top-tracks-analysis-lambda.md), so files read the failure line.
+    studio: null,
     tempDir: (fn) => withTempDir("snippet-in-", fn),
   };
 }

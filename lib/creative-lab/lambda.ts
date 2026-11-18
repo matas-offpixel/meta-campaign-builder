@@ -129,7 +129,7 @@ async function lambdaClient(deps?: LambdaDeps): Promise<NonNullable<LambdaDeps["
 
 export type CompositionRender = {
   /** StillWithAudio is the CT1 snippet static, rendered silent (lib/creative-tests/snippet-render.ts). */
-  composition: "CaptionOnClip" | "TripleFitOnClip" | "StillWithAudio";
+  composition: "CaptionOnClip" | "TripleFitOnClip" | "StillWithAudio" | "TopTracks";
   inputProps: Record<string, unknown>;
   muted: boolean;
   frameCount: number;

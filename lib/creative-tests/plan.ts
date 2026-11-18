@@ -52,6 +52,8 @@ export const VARIANTS: Record<TestKind, { min: number; max: number }> = {
   together: { min: 2, max: 2 },
   copy: { min: 2, max: 5 },
   clip: { min: 2, max: 5 },
+  /** TK11: round 1 has four ads, round 2 three, round 3 two. */
+  top_tracks: { min: 2, max: 4 },
 };
 
 export function variantCountOk(kind: TestKind, count: number): boolean {
