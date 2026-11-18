@@ -17,6 +17,7 @@ import { FrameSheet } from "./compositions/FrameSheet";
 import { T1OnClip, type T1OnClipProps } from "./compositions/T1OnClip";
 import { TripleFitOnClip, type TripleFitOnClipProps } from "./compositions/TripleFitOnClip";
 import { StillWithAudio, type StillWithAudioProps } from "./compositions/StillWithAudio";
+import { TopTracks, type TopTracksProps } from "./compositions/TopTracks";
 import { FORMAT_SIZE } from "../../lib/creative-lab/t1-video-frame";
 import {
   captionLimits,
@@ -50,6 +51,25 @@ const t1DefaultProps: T1OnClipProps = {
   bandsUrl: "",
   topUrl: "",
   claimUrl: null,
+};
+
+const topTracksDefaultProps: TopTracksProps = {
+  fps: 30,
+  durationInSeconds: 1,
+  background: { kind: "still", url: "", width: 1080, height: 1920, scale: 1, left: 0, top: 0, push: false, pushOriginX: 540, pushOriginY: 768 },
+  bandsUrl: "",
+  headline: [],
+  rows: [],
+  playRows: [],
+  timeline: { startsS: [], dropsS: [], totalS: 1, endFromS: 1 },
+  rowsAppear: "start",
+  end: "date",
+  list: "left",
+  barColour: "#FFFFFF",
+  barLeft: 120,
+  column: { left: 120, width: 480 },
+  endCard: null,
+  stamp: null,
 };
 
 const tripleFitDefaultProps: TripleFitOnClipProps = {
@@ -169,6 +189,19 @@ function RemotionRoot() {
         height={1920}
         durationInFrames={30}
         defaultProps={tripleFitDefaultProps as unknown as Record<string, unknown>}
+      />
+      <Composition
+        id="TopTracks"
+        component={TopTracks as unknown as FC<Record<string, unknown>>}
+        calculateMetadata={({ props }) => {
+          const p = props as unknown as TopTracksProps;
+          return { width: 1080, height: 1920, fps: p.fps || 30, durationInFrames: Math.max(1, Math.round(p.durationInSeconds * (p.fps || 30))) };
+        }}
+        fps={30}
+        width={1080}
+        height={1920}
+        durationInFrames={30}
+        defaultProps={topTracksDefaultProps as unknown as Record<string, unknown>}
       />
       <Composition
         id="StillWithAudio"
