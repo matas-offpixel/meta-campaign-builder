@@ -92,7 +92,7 @@ table.t table.t td:first-child{width:auto;font-weight:400}
 
 <p class="k">Off/Pixel · design record · creative testing · issue 6 · the show's benchmark · 18 November 2026</p>
 <h1>Creative testing issue 6: a winner has to beat the show</h1>
-<p class="lead">Matas, 18 Nov, on #1339's flag: judge test variants against the show's benchmark, not just against each other. A variant that beats its rival but costs more per result than the show's main campaign isn't a winner. Nothing is promoted, the test runs 4 more days, and then it's stopped if neither variant has improved.</p>
+<p class="lead">Matas, 18 Nov, on #1339's flag: judge test variants against the show's benchmark, not just against each other. A variant that beats its rival but costs more per result than the show's main campaign isn't a winner. Nothing is promoted, the test runs 4 more days, and then it's stopped unless a variant has come close enough to earn 4 more (12 days at most).</p>
 <p class="lead"><b>What this amends:</b> TF2's call. A winner now also needs the benchmark (TF5), and the day-4 "No clear winner" gains an extension and a stop (TF6). TF3's rows and TF-A / TF-C's words gain the benchmark (TF7). It also re-rules VP5, and amends VP6 and VP8, of the variant-pair record (#1339, merged as d8974e6) (TF8).</p>
 <p class="lead"><b>What stands:</b> TF1 (the budget, always TF1's, never a fixed £10), TF2's read otherwise (daily from 48 h, 60 % of spend, 3 results, no cheaper judged variant, 10 % to be judged), TF3, TF4, TT8–TT11, R3's result, R5's cap and #1297's cap sentence. It applies to every test TF2 calls: CT6's tests and variant pairs (#1339), and any creative test after them.</p>
 <p class="lead">The figures in the example are <span class="inv">invented</span>. The £3.00 benchmark is Matas's example figure.</p>
@@ -130,9 +130,22 @@ table.t table.t td:first-child{width:auto;font-weight:400}
 <ul>
 <li>A variant has <b>improved toward the benchmark</b> when its cost per result over the 8 days is lower than at day 4's read, or it has results where it had none.</li>
 <li>Neither improved: Matas's line, <b>"Stopped: both above the show's £{benchmark} per {result}"</b>.</li>
-<li>One improved but is still above: <b>"Stopped: {label} came down to £{cost}, still above the show's £{benchmark} per {result}"</b>. There's one extension only (open below).</li>
+<li>One improved but is still above: it gets <b>one more 4-day extension</b> (Matas, 18 Nov) only when both hold:
+<ul>
+<li>its cost per result over the 8 days is at least 20 % lower than at day 4's read;</li>
+<li>it's within 30 % of the benchmark, at or under the benchmark × 1.3.</li>
+</ul>
+A variant with no results at day 4 has nothing to be 20 % lower than, so it qualifies on the 30 % test alone.</li>
+<li>Otherwise it stops at day 8: <b>"Stopped: {label} came down to £{cost}, still above the show's £{benchmark} per {result}"</b>.</li>
 <li>With more than two variants, "both" reads <b>"all {n}"</b>.</li>
 </ul></li>
+<li><b>The second extension</b> moves the ad set's end to 23:59 London on day 12, at the same daily budget. Its hold is checked against R5's cap first, as every extension's is. With no room, the test stops at day 8 with the "came down to" line.</li>
+<li><b>At day 12 with no winner,</b> the test stops and its ad set is paused. That's the most it runs: 12 days.
+<ul>
+<li>The line is "Stopped: {label} came down to £{cost}, still above the show's £{benchmark} per {result}", with the variant's cost over the 12 days, while that's still lower than at day 4.</li>
+<li>Otherwise it's Matas's "Stopped: both above the show's £{benchmark} per {result}".</li>
+</ul></li>
+<li><b>A worked case</b> (<span class="inv">invented</span>): a benchmark of £3.00 per checkout, and a variant at £5.00 at day 4 and £3.60 at day 8. That's 28 % lower and 20 % above the benchmark, so it's extended again. At £4.20 by day 8 it would be 16 % lower and 40 % above, so it stops.</li>
 </ul></td></tr>
 <tr><td>TF7 · The words</td><td>
 <ul>
@@ -144,7 +157,8 @@ table.t table.t td:first-child{width:auto;font-weight:400}
 </ul></li>
 <li><b>The state lines:</b>
 <ul>
-<li>During the extension: <b>"Extended to {d Mon}: both above the show's £{benchmark} per {result}"</b> ("all {n}" for more than two).</li>
+<li>During the first extension: <b>"Extended to {d Mon}: both above the show's £{benchmark} per {result}"</b> ("all {n}" for more than two).</li>
+<li>During the second: <b>"Extended again to {d Mon}: {label} came down to £{cost}, within 30 % of the show's £{benchmark} per {result}"</b>.</li>
 <li>After it: TF6's stop lines. Both stop lines show on the panel and on the share link.</li>
 </ul></li>
 <li><b>Without a benchmark</b>, the figure reads "£{cost} per {result}", and the result line ends " · no show benchmark for these days".</li>
@@ -154,7 +168,7 @@ table.t table.t td:first-child{width:auto;font-weight:400}
 <ul>
 <li><b>VP5 is re-ruled.</b> A pair is called by TF2's read with TF5's benchmark, and TF6's extension and stop. "TF2's read, unchanged" no longer holds.</li>
 <li><b>VP6:</b> a pair's result lines carry TF7's " · show £{benchmark}". Its stop line is Matas's: "Stopped: both above the show's £{benchmark} per {result}".</li>
-<li><b>VP8:</b> an extended pair's hold grows by its daily budget × 4. At P26-BDAY's £1.00 a day that's £4.00 to £8.00 a pair, or £16.00 if both pairs are extended. The extra hold is checked against the cap first (TF6).</li>
+<li><b>VP8:</b> an extended pair's hold grows by its daily budget × 4 for each extension. At P26-BDAY's £1.00 a day that's £4.00 to £8.00 a pair, and £12.00 after a second extension. The two pairs hold £16.00 with one extension each, and £24.00 at the most. Each extra hold is checked against the cap first (TF6).</li>
 <li><b>VP-B and VP-C's words,</b> with a £3.00 benchmark (<span class="inv">invented</span>):
 <ul>
 <li>The payoff drop's £0.84 is under it, so VP-B still reads "Ready to call".</li>
@@ -207,7 +221,8 @@ table.t table.t td:first-child{width:auto;font-weight:400}
 <tr><td>HT2 · Extend and stop</td><td>
 <ul>
 <li>At day 4: the cap check, then the end date moved to day 8 through the Tests path.</li>
-<li>At day 8: the improvement test, the pause, no promotion lines, and the two stop lines.</li>
+<li>At day 8: the improvement test, the second-extension test (20 % lower than day 4, within 30 % of the benchmark), its cap check and end date at day 12.</li>
+<li>At day 8 or day 12: the pause, no promotion lines, and the stop lines.</li>
 </ul></td></tr>
 <tr><td>HT3 · Words and frames</td><td>
 <ul>
@@ -221,6 +236,9 @@ table.t table.t td:first-child{width:auto;font-weight:400}
 <li>no benchmark;</li>
 <li>extended then won;</li>
 <li>extended then stopped, with and without improvement;</li>
+<li>extended twice then won; extended twice then stopped;</li>
+<li>improved 20 % but more than 30 % above, stopped at day 8; within 30 % but under 20 % lower, stopped at day 8;</li>
+<li>no results at day 4, then within 30 % at day 8;</li>
 <li>no room in the cap to extend;</li>
 <li>three variants.</li>
 </ul></li>
@@ -230,8 +248,8 @@ table.t table.t td:first-child{width:auto;font-weight:400}
 <h2>Acceptance</h2>
 <ul class="notes">
 <li><b>No winner above the show:</b> a variant above the benchmark never reads "Ready to call" or "Winner", and never gets a promotion line.</li>
-<li><b>The extension:</b> one extension of 4 days, only when its hold fits the cap. The end date is 23:59 London on day 8.</li>
-<li><b>The stop:</b> at day 8 with no winner, the ad set is paused and the right stop line shows.</li>
+<li><b>The extensions:</b> one of 4 days when all variants are above at day 4, and a second only on TF6's two tests. Each happens only when its hold fits the cap. The end dates are 23:59 London on day 8 and day 12. No test runs more than 12 days.</li>
+<li><b>The stop:</b> at day 8 or day 12 with no winner, the ad set is paused and the right stop line shows.</li>
 <li><b>The words:</b> every variant figure carries " · show £{benchmark}", and TF7's lines are exact.</li>
 <li><b>The example:</b> it reads as above at day 4 and day 8.</li>
 </ul>
@@ -241,13 +259,13 @@ table.t table.t td:first-child{width:auto;font-weight:400}
 <li><b>The main campaign:</b> which campaigns count, and summing them.</li>
 <li><b>No benchmark:</b> the rule and its words.</li>
 <li><b>The extension:</b> the cap check before it, and stopping when it doesn't fit.</li>
-<li><b>Improvement:</b> what counts as "improved", the improved-but-above stop line, and "all {n}".</li>
-<li><b>Words:</b> the extension line, the "· show £{benchmark}" form and "— per {result}".</li>
+<li><b>Improvement:</b> what counts as "improved", the improved-but-above stop line, "all {n}", the no-results-at-day-4 case for the second extension, and day 12's lines.</li>
+<li><b>Words:</b> both extension lines, the "· show £{benchmark}" form and "— per {result}".</li>
 <li><b>The example's figures.</b></li>
 </ul>
 
 <h2>Open for Matas</h2>
-<p class="notes">One. A variant that improved during the extension but is still above the benchmark at day 8 is drawn as stopped, with its own line, because there's one extension only. Your rule stops a test when neither variant improved. Say if a variant that improved should run on instead, and for how long.</p>
+<p class="notes">Nothing. Matas ruled the improved variant on 18 Nov: one more 4-day extension when it's 20 % lower than at day 4 and within 30 % of the benchmark, else a stop at day 8 (TF6).</p>
 
 </div>
 </body>
