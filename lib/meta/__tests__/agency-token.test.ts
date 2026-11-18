@@ -87,6 +87,7 @@ const ALLOWED_DIRECT_READS = new Set([
   // crons (CRON_SECRET, no caller)
   "app/api/cron/onsale-refresh/route.ts",
   "app/api/cron/retargeting-read/route.ts", // the Retargeting campaign's daily read, reads only (RT1)
+  "app/api/cron/creative-tests-read/route.ts", // the creative tests' daily read: a test ad set's end_time or pause, gated and ledgered (TF6)
   "app/api/cron/optimisation-tick/route.ts",
   "app/api/cron/ad-daily-insights/route.ts",
   "app/api/cron/budget-pacing-check/route.ts",

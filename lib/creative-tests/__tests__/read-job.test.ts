@@ -128,7 +128,8 @@ describe("the gates", () => {
     assert.equal(mem.tables.creative_test_reads!.length, 1);
     // The pause's own gate off: waits too.
     const stop = seed({ budget: 100 });
-    const { OFFPIXEL_META_ADSET_STATUS_WRITES_ENABLED: _off, ...noStatus } = WRITES;
+    const noStatus: Record<string, string> = { ...WRITES };
+    delete noStatus.OFFPIXEL_META_ADSET_STATUS_WRITES_ENABLED;
     const stopped = await runCreativeTestsRead({ env: noStatus, db: stop.db, graph, now: morning(23), showDays });
     assert.ok("records" in stopped);
     assert.deepEqual(stopped.records.map((r) => [r.action, r.pending]), [["stop", "writes off"]]);
