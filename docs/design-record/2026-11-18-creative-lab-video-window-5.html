@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Lab video window 5 — 18 Nov 2026</title>
+<style>
+:root{
+  --sand:#F0C9A8; --card:#e8d4c0; --edit:#f6ebe0; --paper:#fff8f0; --ink:#1e1810; --ink-2:#4a3d30; --ink-3:#6f6052;
+  --border:rgba(30,24,16,.10); --border-strong:rgba(30,24,16,.18); --muted:rgba(30,24,16,.06);
+  --olive:#4f5a1f; --ochre:#8a560c; --brick:#8f3424;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--sand);color:var(--ink);font:14px/1.5 var(--sans);font-feature-settings:"calt" 0}
+.wrap{max-width:1360px;margin:0 auto;padding:40px 24px 120px}
+h1{font-size:24px;font-weight:600;margin:0 0 6px}
+h2{font-size:20px;font-weight:600;margin:56px 0 8px}
+h3{font-size:13px;font-weight:600;margin:20px 0 6px}
+p{margin:0 0 10px;max-width:86ch}
+.lead{font-size:13px;color:var(--ink-2)}
+.k{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+code{font:12px var(--mono);background:var(--muted);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+figure{margin:0;min-width:0;max-width:100%}
+figcaption{font:700 9px/1.5 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+table.t{border-collapse:collapse;width:100%;font-size:12.5px;margin:10px 0 22px;background:var(--card);border-radius:8px;overflow:hidden;table-layout:fixed}
+table.t th,table.t td{text-align:left;vertical-align:top;padding:8px 12px;border-bottom:1px solid var(--border);overflow-wrap:anywhere}
+table.t th{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.t td:first-child{font-weight:600;width:190px}
+table.t ul{margin:4px 0 0 16px;padding:0}table.t li{margin:0 0 4px}
+.open{background:#f3e3c8;border:1px dashed var(--ochre);border-radius:8px;padding:10px 14px;font-size:12.5px;margin:10px 0 16px}
+.notes{font-size:12.5px;color:var(--ink-2)}.notes li{margin:0 0 6px;max-width:96ch}
+.frame{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start;margin:12px 0 24px}
+.vp{background:var(--paper);border:1px solid var(--border-strong);border-radius:8px;overflow:hidden;max-width:100%;padding:16px;font-size:13px}
+.vp.wide{width:760px}.vp.w393{width:393px}
+.ph{font:700 9px/1.4 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+.h{font-weight:600;font-size:14px;margin:0 0 4px}
+.sub{font-size:12px;color:var(--ink-2);margin:0 0 10px}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 10px}
+.chip{border:1px solid var(--border-strong);border-radius:999px;padding:3px 10px;font-size:12px;background:#fff}
+.chip.on{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.mono{font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase}
+.row{display:grid;grid-template-columns:22px 26px 1fr auto;gap:8px;align-items:center;padding:7px 0;border-top:1px solid var(--border)}
+.row .n{color:var(--ink-3);font:12px var(--mono)}
+.box{width:16px;height:16px;border:1.5px solid var(--ink);border-radius:3px;display:inline-block}
+.box.on{background:var(--ink)}
+.box.off{border-color:var(--ink-3);opacity:.45}
+.fs{font-size:11.5px;color:var(--ink-2)}
+.fs.warn{color:var(--brick)}
+.ok{color:var(--olive)}
+.btn{display:inline-block;border:1px solid var(--ink);border-radius:4px;padding:5px 10px;font:700 10px var(--mono);letter-spacing:.1em;text-transform:uppercase;background:var(--ink);color:var(--paper)}
+.btn.ghost{background:transparent;color:var(--ink)}
+.btn.dis{opacity:.4}
+.wave{position:relative;height:64px;background:repeating-linear-gradient(90deg,var(--ink-3) 0 2px,transparent 2px 5px);border-radius:4px;margin:26px 0 4px;opacity:.9}
+.wave .win{position:absolute;top:-4px;bottom:-4px;border:2px solid var(--ink);background:rgba(232,212,192,.55);border-radius:4px}
+.wave .drop{position:absolute;top:-10px;bottom:-10px;width:2px;background:var(--brick)}
+.wave .drop span{position:absolute;top:-16px;left:-20px;font:700 9px var(--mono);letter-spacing:.1em;color:var(--brick);white-space:nowrap}
+.tl{display:flex;justify-content:space-between;font:11px var(--mono);color:var(--ink-3)}
+.pv{width:150px;height:267px;background:#222;border-radius:6px;position:relative;flex:none;display:flex;align-items:center;justify-content:center;color:#fff;font:700 9px var(--mono);letter-spacing:.12em}
+.pv .play{position:absolute;bottom:10px;left:10px;width:28px;height:28px;border-radius:50%;background:#fff}
+.split{display:flex;gap:16px;align-items:flex-start}
+table.v{border-collapse:collapse;width:100%;font-size:12px;margin:6px 0}
+table.v th{font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);text-align:left;padding:4px 6px;border-bottom:1px solid var(--border-strong)}
+table.v td{padding:6px;border-bottom:1px solid var(--border)}
+table.v td.r,table.v th.r{text-align:right}
+.st{display:inline-block;border:1px solid var(--border-strong);border-radius:10px;padding:2px 8px;font:700 9px/1.5 var(--mono);letter-spacing:.1em;text-transform:uppercase}
+.st.run{border-style:dashed}
+.st.win{background:var(--olive);color:#fff;border-color:var(--olive)}
+.test{border:1px solid var(--border);border-radius:6px;padding:10px 12px;margin:8px 0;background:#fff}
+.test.dim{opacity:.55}
+.line{background:var(--card);border-radius:6px;padding:8px 10px;margin:6px 0;font-size:12px}
+.inv{text-decoration:underline dotted var(--brick);text-decoration-thickness:1.5px;text-underline-offset:3px}
+table.t table.t td:first-child{width:auto;font-weight:400}
+@media (max-width:560px){table.t th[style]{width:100px!important}table.t td:first-child{width:100px}}
+.st.fail{border-color:var(--brick);color:var(--brick)}
+.line .acts{float:right;font:700 9px var(--mono);letter-spacing:.1em;text-transform:uppercase}
+.line.wait{opacity:.6}
+.line.failed{border:1px solid var(--brick);background:#f6e3dc}
+.tick{display:inline-block;width:11px;height:11px;border:1.5px solid var(--ink);border-radius:2px;margin-right:6px;vertical-align:-1px}
+.tick.on{background:var(--ink)}
+.bar{display:inline-block;height:8px;background:var(--ink-3);border-radius:2px;vertical-align:middle;margin-right:6px}
+.sbar{position:relative;display:inline-block;width:100px;height:8px;background:var(--muted);border-radius:2px;vertical-align:middle;margin-right:8px}
+.sbar i{position:absolute;left:0;top:0;bottom:0;background:var(--ink-3);border-radius:2px}
+.sbar i.lead{background:var(--olive)}
+.sbar b{position:absolute;left:60px;top:-3px;bottom:-3px;width:1px;background:var(--ink)}
+.sbar s{position:absolute;left:10px;top:-3px;bottom:-3px;width:1px;background:var(--ink-3);opacity:.6}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<p class="k">Off/Pixel · design record · creative lab · video window · issue 5 · 18 November 2026</p>
+<h1>The Lab ranks the drops and picks the top one</h1>
+<p class="lead">Matas's ruling, 18 November: drop detection ships as ranked candidates. The Lab auto-picks the top-ranked drop, so no operator step is needed. The picker lists the next candidates with the reason for each, and one click switches. VW14's single definition of a drop missed all four acceptance clips. The labelled study that followed (Matas marked 20 P26-BDAY clips) found no single rule that times every drop. But a ranked list has the right drop near its top on 18 of the 20.</p>
+<p class="lead">Matas's notes on the study become rules here (VW22): wheel-ups and rewinds aren't drops, a vocal build's start isn't a drop, a drop is timed where the bass lands, and a strong crowd sing-along can beat "latest that fits". Today's measures can't yet tell the first two or the last one apart reliably. So each is ruled now and switched on once it's measured, and the study's numbers below say why.</p>
+<ul class="notes">
+<li><b>Replaced:</b> VW14's definition of a drop and VW15's choice of main drop. These become candidates, a ranking, and the top-ranked candidate as the default. VW16's picker rows also gain the rank order and a third reason, "filter opens".</li>
+<li><b>Stands:</b> VW2's window (the drop 3.0–5.0 s in, 15–20 s long), VW3's refusals, their order and words, VW4's nudges and "never a drop by hand", VW6, VW9, VW13 and VW17's handling of existing work, and VW12's bass band (150 Hz and below). VW3's "no sound" test stays on the whole mix.</li>
+<li><b>Frames:</b> VW-A is re-shot with ranked rows. VW-B stands.</li>
+<li><b>Invented:</b> the three gates' thresholds, the ranking's measures and weights (fitted on Matas's 20 clips), and showing three rows are all <span class="inv">invented</span>. The numbers below settle them on P26; a second event's labels should re-check them.</li>
+</ul>
+
+<h2>Rulings</h2>
+<table class="t">
+<tr><th style="width:190px">#</th><th>Ruling</th></tr>
+<tr><td>VW18 · Candidates</td><td>
+<ul>
+<li><b>Beats.</b> Drops are found on the clip's tracked beats. A beat tracker on the kick-onset envelope follows the clip's own drift, with its tempo (100–150 BPM) as the guide. A single grid sat 0.1–0.5 of a beat off Matas's marks.</li>
+<li><b>Kicks.</b> Kick onsets are the 30–150 Hz level's sharp rises, against the local level over ±1 s, at least 0.1 s apart. That reads 2–4.5 kicks a second where VW14's measure read 5–7. It's the measure from the drop-features table (#1329).</li>
+<li><b>A candidate</b> is a tracked beat that fits VW2 (3 s or more before it, 10 s or more after it) where at least one of these holds:
+<ul>
+<li><b>roll stops</b> — there are at most 0.6 × as many kicks a second over the 2 s after as over the 2 s before, and fewer;</li>
+<li><b>mids drop</b> — 1–4 kHz is at least 1.5 dB lower over the 1 s after than over the 2 s before;</li>
+<li><b>filter opens</b> — the low end against the top end (20–250 Hz against 2–16 kHz) rises at least 3 dB, 2 s after against 2 s before.</li>
+</ul></li>
+<li><b>Stored with each candidate:</b> its time, its reasons, its score and its rank, with the measures below as data.</li>
+</ul></td></tr>
+<tr><td>VW19 · The ranking and the default</td><td>
+<ul>
+<li><b>Each candidate is scored</b> on seven measures of the clip's own sound. The weights, fitted on Matas's 20 marked clips, are steady across every fold:
+<ul>
+<li>the bass over the 2 s after against the clip's loudest 2 s (+2.2);</li>
+<li>how much the section changes, read one beat later (+1.4);</li>
+<li>kicks a second lost (+1.2);</li>
+<li>the 1–4 kHz fall (−0.9: among candidates, the false ones fall more);</li>
+<li>the roll restarting 1–4 s later (−0.6);</li>
+<li>a dip in the kick just before (−0.5);</li>
+<li>the filter opening (+0.1).</li>
+</ul></li>
+<li><b>The top-ranked candidate is the main drop,</b> picked at import with no operator step. The window follows VW2.</li>
+<li>VW15's "latest that fits" is retired as the default. Its sense survives in the ranking: false later candidates (fills, breakdown returns) sit lower in the bass, change the section less, and their roll restarts.</li>
+</ul></td></tr>
+<tr><td>VW20 · The picker</td><td>
+<ul>
+<li><b>The picker lists three candidates,</b> best first: the main drop, then the next two by rank. Only candidates that fit VW2 are listed. That's where recall stops rising (below): three rows have the right drop on 18 of the 20 clips, and a fourth or fifth adds none.</li>
+<li><b>Each row</b> reads "{m:ss.s} · {why}". {why} is one or more of "roll stops", "mids drop" and "filter opens", joined by " · ". "crowd" is reserved for when crowd response is measured (VW22). The first row starts "Main drop" and says "in use". The others offer "Use this drop".</li>
+<li><b>Against VW16:</b>
+<ul>
+<li>"filter opens" is new;</li>
+<li>the order is by rank, not time (it replaces VW8's "main first, then time order");</li>
+<li>"· doesn't fit" rows go, because only fitting candidates are listed.</li>
+</ul>
+"rises {n} dB" stays retired.</li>
+<li><b>One click switches.</b> "Use this drop" moves the window to that candidate (VW2) and re-renders the clip's drafts. Approved renders are kept and never replaced (VW6, VW9). The switch is stored as set by hand.</li>
+<li><b>Stands:</b> VW4's "Drop in at", "Length" and "Back to the detected window", and VW5's summary line.</li>
+</ul></td></tr>
+<tr><td>VW21 · Refusals</td><td>
+<ul>
+<li><b>The order is VW3's:</b> no sound, too short, no clear drop (no candidate), then drop too soon or too little after the drop. The words are VW3's.</li>
+<li><b>A clip is refused only when no candidate fits VW2.</b> When candidates exist but none fits, the refusal names the top-ranked one. Under 10 s after it reads "Too little after the drop", otherwise "Drop too soon".</li>
+<li><b>On P26-BDAY's 51 clips,</b> 50 make an edit and one is refused ("Too short for an edit", Luke Dean #10 at 9.4 s). The earlier rules refused 11–12 (VW1–VW13) and 5 (VW14). The three gates are broad, so a clip with no real drop still gets a ranked top candidate.</li>
+</ul></td></tr>
+<tr><td>VW22 · Matas's four notes</td><td>
+<ul>
+<li><b>A wheel-up or rewind isn't a drop.</b> A candidate followed within about 8 s by a sharp collapse of the whole mix, or a rewind, is rejected. <span class="inv">When measured</span>: a 10 dB collapse within 0.5 s missed clip 24's false candidates (8.0 and 8.1 dB). At 7 dB it caught them, but it also rejected Promoter #6's true drop.</li>
+<li><b>A vocal build's start isn't a drop.</b> When the mids rise and the bass doesn't land, the beat is rejected. <span class="inv">When measured</span>: the 300 Hz–3 kHz rise rejected Promoter #3's true drop and missed clip 24's 0:19.9.</li>
+<li><b>Time is where the bass lands.</b> On the beat, never a free time. Video never sets the time (Promoter #8 drops at 0:41, not at the hands going up at 0:39). <span class="inv">When measured</span>: snapping to the bass level's landing put picks a beat late, so the tracked beat stands for now.</li>
+<li><b>A strong crowd sing-along can beat "latest that fits".</b> Promoter #9's 0:09 wins over its later drops. "crowd" is reserved as a reason. <span class="inv">When measured</span>: a mid-band crowd residual didn't separate it (+1.6 against +1.75 for the later drop). It needs a vocal/track split, which a separate study is running.</li>
+<li>A note switches on in a later record, once its measure passes leave-one-out on the labelled clips.</li>
+</ul></td></tr>
+<tr><td>VW23 · Existing work</td><td>
+<ul>
+<li><b>As VW9, VW13 and VW17:</b> approved renders and hand-set windows are kept. Detected windows are recomputed by the backfill's <code>--recheck</code>, and drafts are re-cut the next time they render.</li>
+<li><b>Storage:</b> the ranked candidates live in the drops column. Migration 260 renames <code>drops_paused</code> back to <code>drops</code>, and ops applies it at merge. Rows from earlier detectors read as unchecked.</li>
+</ul></td></tr>
+</table>
+
+<h2>The numbers</h2>
+<p class="lead">Matas's 20 marked P26-BDAY clips: whole seconds, except clips 27 (0:29.8), 29 (0:16.0), 30 (0:11.5) and 33 (0:30.0); clip 32 is "late 0:17 / early 0:18". A pick is right within ±0.5 s of his mark, which keeps the drop 3–5 s into the edit. Leave-one-out: fitted on 19 clips, tested on the 20th, for all 20.</p>
+<table class="t">
+<tr><th style="width:190px">Measure</th><th>Result</th></tr>
+<tr><td>The right drop is a candidate</td><td>19 of 20 (not Promoter #8: no gate fires near 0:41)</td></tr>
+<tr><td>The default (rank 1) is right</td><td><b>13 of 20</b></td></tr>
+<tr><td>In the top 2</td><td>17 of 20</td></tr>
+<tr><td>In the top 3 (the picker)</td><td><b>18 of 20</b></td></tr>
+<tr><td>In the top 4 / top 5</td><td>18 of 20 / 18 of 20</td></tr>
+<tr><td>Outside the top 3</td><td>Promoter #8 (0:41, not a candidate) and Promoter #9 (0:09, rank 9; the crowd note, VW22)</td></tr>
+<tr><td>Default wrong, right drop listed</td><td>Clips 23, 25, 27, 28 and 30. 27 is one beat off its default; 25 and 30 are two beats off.</td></tr>
+<tr><td>Refusals, 51 P26 clips</td><td>1 (too short); 50 make an edit</td></tr>
+<tr><td>Cost</td><td>The sound only, no video and no model. About 0.2 s a clip once the audio is decoded, at import, in the pickup sweep and in the backfill.</td></tr>
+</table>
+<div class="open"><b>Open for design:</b> Promoter #8's drop (0:41) isn't in the list, and VW4 still rules out a drop by hand. Two options:
+<ul>
+<li>a nudge of the chosen drop by ±1 beat, which would also fix clip 27's default;</li>
+<li>"Set the drop on a beat": any tracked beat that fits VW2.</li>
+</ul>
+Neither is in this record; it needs its own ruling.</div>
+
+<h2>VW-A, re-shot (ranked rows)</h2>
+<p class="lead">XMPL clip 07's hand-written fixture keeps its times and window: the main drop 0:31.2, 0:27.0–0:42.0, 15 s, with the drop 4.2 s in. Its candidates are now ranked rows with their reasons.</p>
+<div class="frame">
+<figure><figcaption>VW-A · 1280 · the window picker on a clip · ranked drops (VW20)</figcaption>
+<div class="vp wide">
+<div class="h">Edit window · XMPL clip 07</div>
+<div class="fs">Drop at 0:31.2 · 4.2 s in · 15 s long</div>
+<div class="wave">
+<div class="win" style="left:64.3%;width:35.7%"></div>
+<div class="drop" style="left:74.3%"><span>DROP</span></div>
+<div class="drop" style="left:39.0%;opacity:.35"></div>
+<div class="drop" style="left:57.1%;opacity:.35"></div></div>
+<div class="tl"><span>0:00</span><span>0:10</span><span>0:20</span><span>0:30</span><span>0:42</span></div>
+<table class="v" style="margin-top:14px">
+<tr><td style="width:300px"><b>Main drop 0:31.2</b> · roll stops · filter opens</td><td class="fs">in use</td></tr>
+<tr><td>0:16.4 · roll stops · mids drop</td><td><span class="btn ghost">Use this drop</span></td></tr>
+<tr><td>0:24.0 · filter opens</td><td><span class="btn ghost">Use this drop</span></td></tr>
+</table>
+<div class="split" style="margin-top:12px">
+<div>
+<div class="ph">Drop in at</div><span class="chip">−</span> <b>4.2 s</b> <span class="chip">+</span> <span class="fs">3.0–5.0 s</span></div>
+<div>
+<div class="ph">Length</div><span class="chip">−</span> <b>15 s</b> <span class="chip">+</span> <span class="fs">15–20 s</span></div>
+</div>
+<div style="margin-top:12px"><span class="btn ghost dis">Back to the detected window</span></div>
+</div></figure>
+<figure><figcaption>VW-A · 393 · the same</figcaption>
+<div class="vp w393">
+<div class="h">Edit window · XMPL clip 07</div>
+<div class="fs">Drop at 0:31.2 · 4.2 s in · 15 s long</div>
+<div class="wave">
+<div class="win" style="left:64.3%;width:35.7%"></div>
+<div class="drop" style="left:74.3%"><span>DROP</span></div>
+<div class="drop" style="left:39.0%;opacity:.35"></div>
+<div class="drop" style="left:57.1%;opacity:.35"></div></div>
+<div class="tl"><span>0:00</span><span>0:20</span><span>0:42</span></div>
+<div class="line"><b>Main drop 0:31.2</b> · roll stops · filter opens · in use</div>
+<div class="line">0:16.4 · roll stops · mids drop <span class="acts">Use this drop</span></div>
+<div class="line">0:24.0 · filter opens <span class="acts">Use this drop</span></div>
+<div class="ph" style="margin-top:10px">Drop in at</div>
+<div><span class="chip">−</span> <b>4.2 s</b> <span class="chip">+</span> <span class="fs">3.0–5.0 s</span></div>
+<div class="ph" style="margin-top:10px">Length</div>
+<div><span class="chip">−</span> <b>15 s</b> <span class="chip">+</span> <span class="fs">15–20 s</span></div>
+<div style="margin-top:12px"><span class="btn ghost dis">Back to the detected window</span></div>
+</div></figure>
+</div>
+
+<h2>Acceptance</h2>
+<ul class="notes">
+<li><b>Real audio:</b> on Matas's 20 marked clips, a dry run of the backfill's detection, with the weights fitted on all 20, gives the default right on at least 13 and the right drop in the picker's three rows on at least 18. Clips 27, 29, 30 and 33 are among the fixtures, holding each candidate's measures. Leave-one-out stays the study's figure (13 and 18).</li>
+<li><b>Refusals:</b> across P26-BDAY's 51 clips, refusals only where no candidate fits VW2. The dry run reports the count against this record's one.</li>
+<li><b>Synthetic tests:</b>
+<ul>
+<li>each gate on its own makes a candidate;</li>
+<li>a beat with no gate is never listed;</li>
+<li>only candidates that fit VW2 are listed, at most three, best first;</li>
+<li>the top one is the default;</li>
+<li>"Use this drop" re-renders drafts only;</li>
+<li>with no fitting candidate, the refusal names the top-ranked one in VW3's words.</li>
+</ul></li>
+<li><b>Frames:</b> VW-A at 1280 and 393 with ranked rows. The VW-B baseline stands.</li>
+<li><b>Nothing is written to prod</b> until migration 260 is applied by ops, and no <code>--apply</code> runs until the build is merged and design has passed it.</li>
+</ul>
+
+<h2>Hand-back</h2>
+<table class="t">
+<tr><th style="width:190px">Piece</th><th>Build</th></tr>
+<tr><td>HV15 · Candidates and ranking</td><td>
+<ul>
+<li>Kick onsets, tracked beats and the three gates, as named constants.</li>
+<li>The seven measures and their weights, also named constants.</li>
+<li>Each candidate's time, reasons, score, rank and measures, stored on the clip in a new stored version.</li>
+</ul></td></tr>
+<tr><td>HV16 · Default and picker</td><td>
+<ul>
+<li>Rank 1 as the main drop at import, in the sweep and in the backfill.</li>
+<li>The picker's three rows and words; "Use this drop" re-renders drafts only.</li>
+<li>"crowd" reserved and not shown.</li>
+</ul></td></tr>
+<tr><td>HV17 · Refusals and notes</td><td>
+<ul>
+<li>VW21's refusals.</li>
+<li>VW22's four notes left off until each is measured and ruled on again.</li>
+</ul></td></tr>
+<tr><td>HV18 · Fixtures, frames, backfill</td><td>
+<ul>
+<li>Matas's 20 clips as fixtures (measures, not audio).</li>
+<li>VW-A re-shot; VW-B unchanged.</li>
+<li><code>--recheck</code> recomputes detected windows only.</li>
+<li>Migration 260 for ops.</li>
+</ul></td></tr>
+</table>
+
+<h2>Invented here</h2>
+<ul class="notes">
+<li>Drops as ranked candidates, with the top one auto-picked.</li>
+<li>The three gates' thresholds (0.6 ×, 1.5 dB, 3 dB) and the seven ranking measures with their weights.</li>
+<li>Three rows in the picker.</li>
+<li>"filter opens", and "crowd" reserved.</li>
+<li>VW22's notes held until they're measured.</li>
+</ul>
+
+</div>
+</body>
+</html>
