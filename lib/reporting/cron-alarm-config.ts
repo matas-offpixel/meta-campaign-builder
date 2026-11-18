@@ -101,6 +101,8 @@ export const CRON_ALARMS: CronAlarmSpec[] = [
   { cronName: CIRQLIN_LEG_NAME, intervalMinutes: 1440, zeroRule: "never" },
 
   { cronName: "optimisation-tick", intervalMinutes: 240, zeroRule: "never" },
+  // 0 7,8 UTC, acting at 08:00 London: the creative tests' daily read (TF2, TF5–TF8). Most days it reads no running test.
+  { cronName: "creative-tests-read", intervalMinutes: 1440, zeroRule: "never" },
 
   // 15 4 UTC. One row per run (rows_written = BMs scanned OK, rows_considered
   // = BMs not under an archived client). Until 18 Nov it was left out here

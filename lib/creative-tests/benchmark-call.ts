@@ -67,7 +67,15 @@ export type ExtensionEvidence = {
 
 export type BenchmarkAction =
   | { kind: "none" }
-  | { kind: "extend"; extension: 1 | 2; endTime: string; endDay: string; extraHoldMinor: number }
+  | {
+      kind: "extend";
+      extension: 1 | 2;
+      endTime: string;
+      endDay: string;
+      extraHoldMinor: number;
+      /** The second extension's variant and its cost over 8 days (kept as extension_evidence.second). */
+      earnedBy?: { variantId: string; cost: number };
+    }
   | { kind: "stop"; line: string };
 
 export type BenchmarkRead = FastCallRead & {
@@ -143,6 +151,15 @@ export type BenchmarkInput = {
   dailyMinor: number;
   /** What R5's 20 % cap has left for this test's extra hold, minor units; null when not known (the panel), read as room. */
   capLeftMinor?: number | null;
+  /**
+   * TF9 (2026-11-18-creative-testing-7.html): the daily read knows the end day.
+   * boundaryReached: this read makes TF6's call (the end day's 08:00 read, or the
+   * missed-day fallback). tf2Final: TF2's read is the test's last (the morning
+   * after the end day), so "No clear winner by day 4" may stand. Without them (the
+   * panel), the hours decide.
+   */
+  boundaryReached?: boolean;
+  tf2Final?: boolean;
   currency?: string | null;
 };
 
@@ -174,7 +191,7 @@ function earnsSecond(now: VariantRead, day4: VariantMark | undefined, benchmark:
 export function readWithBenchmark(input: BenchmarkInput): BenchmarkRead {
   const ext = Math.max(0, Math.min(TF6.maxExtensions, Math.floor(input.extensions || 0)));
   const boundary = TF2.lastReadHours * (ext + 1);
-  const read = readTest({ firstDeliveryAt: input.firstDeliveryAt, readAt: input.readAt, variants: input.variants, result: input.result, lastReadHours: boundary });
+  const read = readTest({ firstDeliveryAt: input.firstDeliveryAt, readAt: input.readAt, variants: input.variants, result: input.result, lastReadHours: boundary, final: input.tf2Final });
   const { benchmark, result, currency } = input;
   const base: BenchmarkRead = { ...read, benchmark, action: { kind: "none" }, stage: "tf2" };
   if (benchmark == null) return base;
@@ -189,7 +206,7 @@ export function readWithBenchmark(input: BenchmarkInput): BenchmarkRead {
     const winner = inTest.find((v) => v.id === read.winnerId);
     if (winner && !above(winner, benchmark)) return base;
   }
-  const pastBoundary = read.hours != null && read.hours >= boundary;
+  const pastBoundary = input.boundaryReached ?? (read.hours != null && read.hours >= boundary);
   const allAbove = inTest.length > 0 && inTest.every((v) => above(v, benchmark));
   const extraHoldMinor = input.dailyMinor * TF6.extensionDays;
   const fits = input.capLeftMinor == null || extraHoldMinor <= input.capLeftMinor;
@@ -227,7 +244,7 @@ export function readWithBenchmark(input: BenchmarkInput): BenchmarkRead {
     const cameDown = cheapest(better)!;
     if (!second || evidence.capStoppedAt === 8 || !fits) return stop(stoppedCameDownText(cameDown.label, cameDown.cost!, benchmark, result, currency));
     const line = extendedAgainText(endDay(12), second.label, second.cost!, benchmark, result, currency);
-    return { ...base, state: "running", winnerId: null, ends: false, stage: "extended", text: line, action: { kind: "extend", extension: 2, endTime: testAdSetEndTime(start, 12), endDay: endDay(12), extraHoldMinor } };
+    return { ...base, state: "running", winnerId: null, ends: false, stage: "extended", text: line, action: { kind: "extend", extension: 2, endTime: testAdSetEndTime(start, 12), endDay: endDay(12), extraHoldMinor, earnedBy: { variantId: second.id, cost: second.cost! } } };
   }
 
   // Day 12, the most a test runs: "came down to" while its cost is still lower than at day 4 (any cost, with none at day 4).

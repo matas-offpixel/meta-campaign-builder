@@ -114,7 +114,7 @@ describe("TF5 / TF6: the call (HT3)", () => {
   it("day 8, improved 28 % and within 30 %: extended again to day 12 (the worked case, £5.00 → £3.60)", () => {
     const r = readWithBenchmark(input(192, [v("a", 10.8, 3), v("b", 7.2, 1)], { extensions: 1, evidence: day4 }));
     assert.equal(r.text, "Extended again to 30 Nov: Get Hard · payoff drop came down to £3.60, within 30 % of the show's £3.00 per checkout");
-    assert.deepEqual(r.action, { kind: "extend", extension: 2, endTime: "2026-11-30T23:59:00+0000", endDay: "2026-11-30", extraHoldMinor: 400 });
+    assert.deepEqual(r.action, { kind: "extend", extension: 2, endTime: "2026-11-30T23:59:00+0000", endDay: "2026-11-30", extraHoldMinor: 400, earnedBy: { variantId: "a", cost: 3.6 } });
   });
 
   it("day 8, improved but only 16 % and 40 % above (£4.20): stopped with the came-down line", () => {
