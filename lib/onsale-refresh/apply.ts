@@ -48,6 +48,7 @@ import { applyNewAdSet, type NewAdSetDeps } from "./apply-adsets.ts";
 import { applyPurchaseCampaign, campaignSpendGbp, type PurchaseMeta } from "./apply-purchase.ts";
 import { applyCopyAudience, applyScalePurchase } from "./apply-purchase-scale.ts";
 import { applyRetargetingCampaign, type RetargetingDeps } from "../retargeting/apply.ts";
+import { applyTestCall, type CallMeta } from "../retargeting/apply-call.ts";
 import { MIN_DAILY_BUDGET_MINOR, appliedMovesGbp, moveDeltaMinor, moveGuard, planGuard, projectedSpend, spendToDate } from "./plan-guard.ts";
 import { RETARGETING, type AddCopy } from "./rules.ts";
 import { todayLondon } from "./schedule.ts";
@@ -101,6 +102,8 @@ export type ApplyDeps = {
   purchase?: PurchaseMeta;
   /** RT1: the Retargeting campaign's Meta calls and the audience builder. Absent = that line fails without a write. */
   retargeting?: Pick<RetargetingDeps, "meta" | "ensureAudience">;
+  /** RT17: the layout test's call (pause, end the test, budgets). */
+  retargetingCall?: CallMeta;
   now?: Date;
 };
 
@@ -117,7 +120,7 @@ type ProposalRow = { id: string; campaign_key: string; campaign_ids: string[] | 
 type LineRow = {
   id: string;
   proposal_id: string;
-  kind: "add_creative" | "pause_creative" | "bring_back_audience" | "drop_audience" | "move_budget" | "missing_default" | "purchase_campaign" | "scale_purchase" | "copy_audience" | "retargeting_campaign";
+  kind: "add_creative" | "pause_creative" | "bring_back_audience" | "drop_audience" | "move_budget" | "missing_default" | "purchase_campaign" | "scale_purchase" | "copy_audience" | "retargeting_campaign" | "retargeting_test_call";
   state: string;
   title: string;
   target: Record<string, unknown> | null;
@@ -479,7 +482,7 @@ export async function applyAccepted(args: { deps: ApplyDeps; eventId: string; us
     .from("onsale_refresh_lines")
     .select("id, proposal_id, kind, state, title, target, evidence, write, applied_result")
     .in("proposal_id", [...proposals.keys()])
-    .in("kind", ["add_creative", "pause_creative", "bring_back_audience", "drop_audience", "move_budget", "missing_default", "purchase_campaign", "scale_purchase", "copy_audience", "retargeting_campaign"])
+    .in("kind", ["add_creative", "pause_creative", "bring_back_audience", "drop_audience", "move_budget", "missing_default", "purchase_campaign", "scale_purchase", "copy_audience", "retargeting_campaign", "retargeting_test_call"])
     .eq("state", from)
     .order("position", { ascending: true });
   if (lineRead.error) return { ok: false, status: 500, error: lineRead.error.message };
@@ -505,7 +508,7 @@ export async function applyAccepted(args: { deps: ApplyDeps; eventId: string; us
     let outcome: { state: "applied" | "failed"; reason: string | null; result: Record<string, unknown> };
     try {
       // R5 at apply time: the plan guard on spend lines (their spend before the show), the 20 % cap on moves.
-      const planned = isNewAdSet(line) || line.kind === "purchase_campaign" || line.kind === "scale_purchase" || line.kind === "copy_audience" || line.kind === "retargeting_campaign"
+      const planned = isNewAdSet(line) || line.kind === "purchase_campaign" || line.kind === "scale_purchase" || line.kind === "copy_audience" || line.kind === "retargeting_campaign" || line.kind === "retargeting_test_call"
         ? null // a new ad set's or a Purchase campaign's money is decided by its own rule (apply-adsets.ts, apply-purchase.ts), re-read there
         : line.kind === "move_budget"
           ? moveGuard(num(line.write?.amountGbp), budget, spend, proposal.window_end ? await appliedMovesGbp(db, event.id, proposal.window_end, line.id) : 0)
@@ -528,6 +531,10 @@ export async function applyAccepted(args: { deps: ApplyDeps; eventId: string; us
           );
         } else if (line.kind === "copy_audience") {
           outcome = await applyCopyAudience({ env: deps.env, meta: deps.purchase! }, { id: line.id, write: line.write }, { ledger, adAccountId: guard.adAccountId, plainMetaReason });
+        } else if (line.kind === "retargeting_test_call") {
+          // RT17: one call for every show in the test, under this one Accept.
+          if (!deps.retargetingCall) outcome = { state: "failed", reason: "Applying the layout test's call isn't wired on this deployment, so nothing was written.", result: {} };
+          else outcome = await applyTestCall({ db, meta: deps.retargetingCall, userId: event.user_id }, { id: line.id, write: line.write }, { plainMetaReason });
         } else if (line.kind === "retargeting_campaign") {
           if (!deps.retargeting) {
             outcome = { state: "failed", reason: "Making the Retargeting campaign isn't wired on this deployment, so nothing was built.", result: {} };

@@ -753,6 +753,25 @@ REMOTION_LAMBDA_SERVE_URL=
 > panel is Live on every show without arming; the rest of the refresh keeps
 > R4's arm. Migration 257 lets a `retargeting_campaign` row in
 > `onsale_refresh_audiences` carry its audience key as `part`.
+> PR E (RT17, the layout test; `lib/retargeting/test.ts`, `apply.ts`
+> `applyTestArms`, `apply-call.ts`): a show whose total is £6.00 a day or more
+> gets two campaigns, "{code} · Retargeting · A/B · A" (RT14's tiers by action)
+> and "· B" (J2's recency layout, `recencySpecs`), half the total each. Ops'
+> option (c): under the one Accept both arms are made PAUSED with every ad
+> set's `start_time` at the test's start (00:00 in the ad account's
+> `timezone_name`, tomorrow there), then the Meta A/B test
+> (`POST /{business_id}/ad_studies`, the two campaigns as 50 % cells, op kind
+> `retargeting_study_create`), then everything is switched on; nothing can
+> deliver before the split. If Meta refuses the test, Apply stops with all of
+> it paused and says so (no fallback without Matas). The call is pooled across
+> every show in the test (spend ÷ attributed purchases summed, from
+> `ad_daily_insights` by the arm campaigns' names): made at 14 days, 30
+> purchases per arm, 3 shows and 15 % cheaper; from 28 days under 15 %, "No
+> clear winner…" keeps A. It's a `retargeting_test_call` line on every test
+> show's panel; accepting once pauses the loser on every show, ends each test
+> (`retargeting_study_end`) and gives the winner the show's whole total. New
+> shows then build one campaign on the winner. Migration 259 adds the line kind
+> and the two op kinds.
 
 > **`ENABLE_GOOGLE_ADS_DAILY_INSIGHTS`** must be exactly `"1"` to activate
 > `/api/cron/google-ads-daily-insights` (04:00 UTC). Unset = 200 with

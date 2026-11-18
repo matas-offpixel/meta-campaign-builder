@@ -226,7 +226,9 @@ export type LineKind =
   | "scale_purchase"
   | "copy_audience"
   /** The Retargeting campaign's Create line (docs/design-record/2026-11-17-retargeting-campaign.html, RT1, RT4). */
-  | "retargeting_campaign";
+  | "retargeting_campaign"
+  /** RT17: the layout test's pooled call (migration 259). */
+  | "retargeting_test_call";
 
 export type ProposalLine = {
   kind: LineKind;

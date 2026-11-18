@@ -36,6 +36,7 @@ const KIND_LABEL: Record<PanelLine["kind"], string> = {
   scale_purchase: "Scale",
   copy_audience: "Copy into Purchase",
   retargeting_campaign: "Create",
+  retargeting_test_call: "Call",
 };
 
 const CREATIVE_KINDS = new Set<PanelLine["kind"]>(["add_creative", "claim_ready", "pause_creative"]);
@@ -912,7 +913,9 @@ export function OnSaleRefreshPanel({ eventId, eventDate }: { eventId: string; ev
         const line = proposal?.lines.find((row) => row.kind === "retargeting_campaign") ?? null;
         const view = line?.retargeting ?? proposal?.notes.retargetingView ?? panel.retargeting;
         // RT16: Live on every active show without arming the event.
-        return view ? <RetargetingPanelView key={line?.id ?? view.state} view={view} line={line} clientId={panel.clientId} eventId={eventId} apply={panel.retargetingApply ?? undefined} actions={actions} /> : null;
+        // RT17: the layout test's call, on every show in the test.
+        const callLine = proposal?.lines.find((row) => row.kind === "retargeting_test_call") ?? null;
+        return view ? <RetargetingPanelView key={line?.id ?? view.state} view={view} line={line} callLine={callLine} clientId={panel.clientId} eventId={eventId} apply={panel.retargetingApply ?? undefined} actions={actions} /> : null;
       })()}
       {/* CT9: the Test plan panel sits under the Refresh panel. It draws nothing for an event with no plan. */}
       <TestPlanPanel eventId={eventId} />

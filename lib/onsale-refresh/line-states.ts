@@ -39,7 +39,7 @@ export type WriteGates = {
 };
 
 /** P2 wrote creatives; P3 adds bring-backs (a stopped ad set, or a cluster's new ad set), drops, within-campaign moves and standing defaults. */
-export const APPLY_KINDS: readonly LineKind[] = ["add_creative", "pause_creative", "bring_back_audience", "drop_audience", "move_budget", "missing_default", "purchase_campaign", "scale_purchase", "copy_audience", "retargeting_campaign"];
+export const APPLY_KINDS: readonly LineKind[] = ["add_creative", "pause_creative", "bring_back_audience", "drop_audience", "move_budget", "missing_default", "purchase_campaign", "scale_purchase", "copy_audience", "retargeting_campaign", "retargeting_test_call"];
 
 /**
  * Lines that turn delivery on or raise a budget, so add spend: the plan
@@ -91,6 +91,8 @@ export function writeGateOpen(line: GateLine, gates: WriteGates): boolean {
   if (line.kind === "copy_audience") return Boolean(gates.campaignCreateEnabled);
   // RT1: the Purchase create's gates plus the audience-write gate.
   if (line.kind === "retargeting_campaign") return Boolean(gates.campaignCreateEnabled && gates.audienceWritesEnabled);
+  // RT17: the call pauses campaigns, ends the tests and moves ad-set budgets.
+  if (line.kind === "retargeting_test_call") return Boolean(gates.campaignCreateEnabled && gates.budgetWritesEnabled);
   return false;
 }
 

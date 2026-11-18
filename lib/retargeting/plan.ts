@@ -28,10 +28,28 @@ import { campaignFloor, shortCampaign } from "../onsale-refresh/purchase-campaig
 import { midBuildable, pagesWithoutRole, perLinkAudiences, tierSpecs, usablePages, type SourceSet } from "./audiences.ts";
 import { firedOn, landingLinks, landingShared, pixelOnOwnDomains, pixelOnPlatforms, ticketLinks, type PixelHosts } from "./links.ts";
 import { shareOn, STRETCH_LABEL } from "./shares.ts";
+import { armTiers, callFor, entered, type PooledRead } from "./test.ts";
 import { currentDailyMinor, daysToShow, fundHold, isShare, RT4, startingBudget, type Funding, type Share, type Starting } from "./budget.ts";
 import {
   audiencesNarrow,
   audiencesShort,
+  ARM_LABEL,
+  armBAudiences,
+  eachArmLine,
+  eachArmNarrow,
+  META_SPLITS,
+  callDetail,
+  callNarrow,
+  callNarrowSub,
+  callOnAccept,
+  callTitle,
+  callWrite,
+  noClearWinner,
+  notCalledYet,
+  testTitle,
+  tooCloseToCall,
+  tooSmallToTest,
+  type Arm,
   BOTTOM_NOT_BUILT,
   BY_LINK_BEFORE_CREATE,
   sizeBand,
@@ -117,6 +135,18 @@ export type ShareOption = {
   stretch?: string | null;
 };
 
+/** RT17: a running test's arm, as its table (1280) and card (393) show it. */
+export type ArmRow = { tier: Tier; label: string; audiences: string[]; pool: string | null; frequency: number | null; budgetMinor: number; cost: number | null; purchases: number | null };
+export type ArmView = { arm: Arm; label: string; halfMinor: number; rows: ArmRow[]; total: { spentMinor: number; budgetMinor: number; cost: number | null; purchases: number } };
+export type PooledRow = { arm: Arm; shows: number; days: number; spend: number; purchases: number; cost: number | null };
+export type TestView = { title: string; eachArm: string; eachArmNarrow: string; metaSplits: string; arms: ArmView[]; pooled: PooledRow[] | null; pooledDays: number | null; note: string | null };
+
+/** RT17: what the read gathered for a running test (each arm's tiers over 7 days, and the pooled read across every show). */
+export type RunningTest = {
+  arms: Record<Arm, Partial<Record<Tier, { budgetMinor: number; spendMinor: number; purchases: number; frequency: number | null; pool: string | null }>>>;
+  pooled: PooledRead | null;
+};
+
 export type CreateCard = {
   title: string;
   defaultShare: Share;
@@ -125,6 +155,10 @@ export type CreateCard = {
   legacy: string[];
   writeText: string;
   days: number;
+  /** RT17: an entered show, "£{half} a day to each arm · Meta splits people at random, so nobody sees both". */
+  eachArm?: string | null;
+  /** RT17: a show under £6.00 a day, "Too small to test: … so it runs layout A only." */
+  tooSmall?: string | null;
 };
 
 export type RetargetingView = {
@@ -139,6 +173,8 @@ export type RetargetingView = {
   tiers: TierRow[];
   /** RT8 lines that affect every tier (buyers), under the table. */
   notes: MissingLine[];
+  /** RT17: a running test's two arms and the pooled read. */
+  test?: TestView | null;
   /** Running: RT3's header lines, and RT9's "{code} · Retargeting is off." when Meta says it isn't delivering. */
   running: { totalMinor: number; share: number; since: string; showDay: string; off?: string | null } | null;
 };
@@ -172,6 +208,10 @@ export type RetargetingInput = {
   pixelHosts?: PixelHosts;
   /** RT18: landing hosts other shows' pages use (no pixel line for them). */
   otherLandingHosts?: string[];
+  /** RT17: the layout test's winner once its call was accepted (new shows start on it, as one campaign); null while it runs. */
+  testWinner?: Arm | null;
+  /** RT17: a running test's figures. */
+  test?: RunningTest | null;
   /** RT18: a running campaign's per-link audience sizes by key (Meta's approximate count); null = not read. */
   linkSizes?: Record<string, { lower: number; upper: number } | null>;
   /** Delivering ad sets with "retarget" in their name, per campaign of the show (not this one). */
@@ -213,6 +253,10 @@ export type RetargetingBuild = {
   draftId: string | null;
   adAccountId: string | null;
   campaignIds: string[];
+  /** RT17: an entered show's two arms, half the total each (50 / 25 / 25 inside the arm). Null = one campaign. */
+  test?: { halfMinor: number; arms: Record<Arm, Record<Tier, number>> } | null;
+  /** RT17: the one campaign's layout — A, or the test's winner. */
+  layout?: Arm;
 };
 
 export type RetargetingPlan = {
@@ -407,10 +451,12 @@ export function planRetargeting(input: RetargetingInput): RetargetingPlan {
     const read = input.read;
     const path = read ? signalPath(read) : null;
     const signal = read && (path === "own_domain" || path === "platform") ? { wide: signalLine(path, { pixelName: read.pixelName, domain: read.domain }), narrow: signalNarrow(path, { pixelName: read.pixelName, domain: read.domain }) } : null;
+    // RT17: a show in the layout test shows both arms and the pooled read in place of one table.
+    const test = input.test ? testView(input.test, rows, input.sources) : null;
     return {
       state: "running",
       takes: true,
-      view: { ...base, state: "running", notProposed: null, signal, tiers: rows, notes, running: input.existing.since && input.eventDate && input.existing.totalMinor != null ? { totalMinor: input.existing.totalMinor, share: input.existing.share ?? RT4.defaultShare, since: input.existing.since, showDay: input.eventDate, off: input.existing.status != null && input.existing.status !== "ACTIVE" ? retargetingOff(code) : null } : null },
+      view: { ...base, ...(test ? { title: testTitle(code), test } : {}), state: "running", notProposed: null, signal, tiers: test ? [] : rows, notes, running: input.existing.since && input.eventDate && input.existing.totalMinor != null ? { totalMinor: input.existing.totalMinor, share: input.existing.share ?? RT4.defaultShare, since: input.existing.since, showDay: input.eventDate, off: input.existing.status != null && input.existing.status !== "ACTIVE" ? retargetingOff(code) : null } : null },
       build: null,
       held: null,
     };
@@ -472,7 +518,20 @@ export function planRetargeting(input: RetargetingInput): RetargetingPlan {
   const chosen = options.find((option) => option.share === defaultShare)!;
   const { rows, notes } = tierRows({ sources: input.sources, pixelHosts: input.pixelHosts, otherLandingHosts: input.otherLandingHosts, today: input.today ?? input.runDay }, chosen.tiers);
   const legacy = input.legacy.filter((row) => row.adSets > 0).map((row) => legacyAdSets(row.adSets, shortCampaign(row.campaign)));
-  const create: CreateCard = { title, defaultShare, options, legacy, writeText: CREATE_WRITE, days };
+  // RT17: entered at £6.00 a day or more, until the call; after it, one campaign on the winner.
+  const winner = input.testWinner ?? null;
+  const testing = !winner && entered(chosen.totalMinor);
+  const arms = testing ? armTiers(chosen.totalMinor, { floorMinor: input.minDailyMinor ?? undefined, midBuildable: buildable, bottomBuildable }) : null;
+  const create: CreateCard = {
+    title,
+    defaultShare,
+    options,
+    legacy,
+    writeText: CREATE_WRITE,
+    days,
+    eachArm: arms ? eachArmLine(arms.halfMinor) : null,
+    tooSmall: !winner && !testing ? tooSmallToTest(chosen.totalMinor) : null,
+  };
   const signal = { wide: signalLine(path, { pixelName: read.pixelName, domain: read.domain }), narrow: signalNarrow(path, { pixelName: read.pixelName, domain: read.domain }) };
   const held = !input.where.draftId || !input.where.adAccountId ? NOT_OURS : input.ads.length ? null : NO_ADS;
   const customConversion = path === "own_domain" && read.domain ? { name: `${code} · Purchase on ${read.domain}`, domain: read.domain } : null;
@@ -495,6 +554,8 @@ export function planRetargeting(input: RetargetingInput): RetargetingPlan {
     draftId: input.where.draftId,
     adAccountId: input.where.adAccountId,
     campaignIds: input.where.campaignIds,
+    test: arms ? { halfMinor: arms.halfMinor, arms: { A: arms.tiers, B: arms.tiers } } : null,
+    layout: winner ?? "A",
   };
   return { state: "proposed", takes: true, view: { ...base, state: "proposed", notProposed: null, create, signal, tiers: rows, notes, running: null }, build, held };
 }
@@ -514,3 +575,53 @@ export function pickedShare(view: RetargetingView | null | undefined, value: unk
 }
 
 export { NO_FIGURE };
+
+const joinLower = (lines: readonly string[]) => lines.map((line, index) => (index === 0 ? line : line.charAt(0).toLowerCase() + line.slice(1))).join(" · ");
+
+/** RT17's running view: each arm's tiers over 7 days, its total row, the pooled block and its note. */
+export function testView(test: RunningTest, layoutA: readonly TierRow[], sources: SourceSet): TestView {
+  const signupLists = sources.lists.filter((list) => list.role === "signups").length;
+  const similarLists = sources.lists.filter((list) => list.role === "similar").length;
+  const hasLanding = Boolean(sources.pixelId) && landingLinks(sources.links).length > 0;
+  const arms: ArmView[] = (["A", "B"] as const).map((arm) => {
+    const figures = test.arms[arm];
+    const rows: ArmRow[] = TIERS.flatMap((tier) => {
+      const row = figures[tier];
+      if (!row) return [];
+      const fromA = layoutA.find((a) => a.tier === tier)?.audiences ?? [];
+      // RG: A's Bottom on two lines, its Mid Bottom on one; B's per armBAudiences.
+      const audiences = arm === "B" ? armBAudiences(tier, { signupLists, similarLists, hasLanding }) : tier === "bottom" ? [fromA[0]!, joinLower(fromA.slice(1))].filter(Boolean) : tier === "mid_bottom" ? [joinLower(fromA)] : fromA;
+      return [{ tier, label: TIER_LABEL[tier], audiences, pool: row.pool, frequency: row.frequency == null ? null : Math.round(row.frequency * 10) / 10, budgetMinor: row.budgetMinor, cost: row.purchases > 0 ? Math.round(row.spendMinor / row.purchases) / 100 : null, purchases: row.purchases }];
+    });
+    const spent = TIERS.reduce((sum, tier) => sum + (figures[tier]?.spendMinor ?? 0), 0);
+    const bought = TIERS.reduce((sum, tier) => sum + (figures[tier]?.purchases ?? 0), 0);
+    const budget = TIERS.reduce((sum, tier) => sum + (figures[tier]?.budgetMinor ?? 0), 0);
+    return { arm, label: ARM_LABEL[arm], halfMinor: budget, rows, total: { spentMinor: spent, budgetMinor: budget, cost: bought > 0 ? Math.round(spent / bought) / 100 : null, purchases: bought } };
+  });
+  const half = arms[0]!.halfMinor;
+  const call = test.pooled ? callFor(test.pooled) : null;
+  const note = !call ? null : call.kind === "not_yet" ? notCalledYet({ day: call.day, a: call.a, b: call.b, shows: call.shows }) : call.kind === "too_close" ? tooCloseToCall(call) : null;
+  return {
+    title: "",
+    eachArm: eachArmLine(half),
+    eachArmNarrow: eachArmNarrow(half),
+    metaSplits: META_SPLITS,
+    arms,
+    pooled: test.pooled ? (["A", "B"] as const).map((arm) => ({ arm, shows: test.pooled!.arms[arm].shows, days: test.pooled!.days, spend: test.pooled!.arms[arm].spend, purchases: test.pooled!.arms[arm].purchases, cost: test.pooled!.arms[arm].cost })) : null,
+    pooledDays: test.pooled?.days ?? null,
+    note,
+  };
+}
+
+/** RT17: the call's line, when the pooled read makes one (or the 28-day "no clear winner"). */
+export function callLine(read: PooledRead): { kind: "call" | "no_clear_winner"; title: string; detail: string; onAccept: string | null; writeText: string; narrow: string; narrowSub: string; winner: Arm } | null {
+  const call = callFor(read);
+  if (call.kind === "call") {
+    return { kind: "call", title: callTitle(call.winner), detail: callDetail(call), onAccept: callOnAccept(call.winner, call.shows), writeText: callWrite(call.shows), narrow: callNarrow(call), narrowSub: callNarrowSub(call.shows, call.days), winner: call.winner };
+  }
+  if (call.kind === "no_clear_winner") {
+    const text = noClearWinner(call);
+    return { kind: "no_clear_winner", title: text, detail: text, onAccept: null, writeText: callWrite(read.shows), narrow: text, narrowSub: callNarrowSub(read.shows, read.days), winner: "A" };
+  }
+  return null;
+}

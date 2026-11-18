@@ -39,7 +39,11 @@ export type MetaWriteOpKind =
   /** P4 step 6: the Purchase campaign set active (migration 243). */
   | "refresh_campaign_status_update"
   /** Retargeting RT13: a running campaign's audience rule rewritten when the show's links change (migration 257). */
-  | "retargeting_audience_rule_update";
+  | "retargeting_audience_rule_update"
+  /** Retargeting RT17: a show's Meta A/B test, its two arm campaigns as 50 % cells (migration 259). */
+  | "retargeting_study_create"
+  /** Retargeting RT17: the test ended when its call is accepted (migration 259). */
+  | "retargeting_study_end";
 
 /**
  * Thrown only when a caller passes `{ required: true }` and the ledger
