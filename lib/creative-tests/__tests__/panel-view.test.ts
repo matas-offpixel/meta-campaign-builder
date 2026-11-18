@@ -20,7 +20,8 @@ describe("TF-A: the panel at the 48-hour read", () => {
     assert.equal(card.name, "Test 1 · Tracks");
     assert.equal(card.open, true);
     assert.equal(card.state, "Winner: Track two · 66 % of spend · £1.65 per checkout");
-    assert.equal(card.budgetLine, "In P26-BDAY · Tests · Video · £10 a day · 6 % of current daily spend (cap £10) · read at 48 h, £20.00 spent");
+    // TT8: the full ad set name, as made.
+    assert.equal(card.budgetLine, "In P26-BDAY · Tests · Video · 17 Nov · £10 a day · 6 % of current daily spend (cap £10) · read at 48 h, £20.00 spent");
     assert.equal(card.budgetLineShort, "£10 a day · 6 % of current daily spend (cap £10)");
     assert.deepEqual(card.headers, { results: "Checkouts", cost: "Cost per checkout" });
   });
@@ -66,7 +67,7 @@ describe("TF-B: no clear winner at Meta's minimum", () => {
       "41 % of spend · Static B · £0.41 per signup · 4",
       "11 % of spend · Static C · £0.44 per signup · 1",
     ]);
-    assert.deepEqual(card.pause, { title: "Pause NX26-LOCKLEAD · Tests · Statics", detail: "Test 1 had no clear winner" });
+    assert.deepEqual(card.pause, { title: "Pause NX26-LOCKLEAD · Tests · Statics · 17 Nov", detail: "Test 1 had no clear winner" });
   });
 });
 

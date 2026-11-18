@@ -47,7 +47,7 @@ const variant = (testId: string, id: string, position: number, label: string, st
 // TF-A ------------------------------------------------------------------------
 
 const TFA_TESTS: TestInput[] = [
-  test("a1", 1, { state: "called", daily_budget_minor: 1000, budget_pct: 6.25, first_delivery_at: START, winner_variant_id: "a1-two" }),
+  test("a1", 1, { state: "called", daily_budget_minor: 1000, budget_pct: 6.25, first_delivery_at: START, winner_variant_id: "a1-two", adset_name: "P26-BDAY · Tests · Video · 17 Nov" }),
   test("a2", 2, { kind: "statics", state: "making" }),
   test("a3", 3, { kind: "together", state: "waiting" }),
 ];
@@ -72,7 +72,7 @@ const TFA_READS: ReadInput[] = [
 
 // TF-B ------------------------------------------------------------------------
 
-const TFB_TESTS: TestInput[] = [test("b1", 1, { kind: "statics", format: "statics", state: "no_clear_winner", result_event: "complete_registration", daily_budget_minor: 100, budget_pct: 15.38, at_minimum: true, first_delivery_at: START })];
+const TFB_TESTS: TestInput[] = [test("b1", 1, { kind: "statics", format: "statics", state: "no_clear_winner", result_event: "complete_registration", daily_budget_minor: 100, budget_pct: 15.38, at_minimum: true, first_delivery_at: START, adset_name: "NX26-LOCKLEAD · Tests · Statics · 17 Nov" })];
 const TFB_VARIANTS: VariantInput[] = [variant("b1", "b1-a", 1, "Static A"), variant("b1", "b1-b", 2, "Static B"), variant("b1", "b1-c", 3, "Static C")];
 const TFB_READS: ReadInput[] = [
   {

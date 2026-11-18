@@ -14,7 +14,7 @@ type Db = Pick<SupabaseClient, "from">;
 
 const PAGE = 1000;
 
-export const TEST_COLUMNS = "id, event_id, n, kind, format, runs_in, state, result_event, currency, daily_budget_minor, budget_pct, at_minimum, first_delivery_at, winner_variant_id";
+export const TEST_COLUMNS = "id, event_id, n, kind, format, runs_in, state, result_event, currency, daily_budget_minor, budget_pct, at_minimum, first_delivery_at, winner_variant_id, meta_adset_id";
 export const VARIANT_COLUMNS = "id, test_id, position, role, label, state";
 export const READ_COLUMNS = "test_id, read_at, variants";
 
@@ -36,14 +36,21 @@ async function paged<T>(run: (from: number, to: number) => PromiseLike<{ data: u
   }
 }
 
-export type TestInputs = { tests: (TestInput & { event_id: string })[]; variants: VariantInput[]; reads: ReadInput[] };
+export type TestInputs = { tests: (TestInput & { event_id: string; meta_adset_id?: string | null })[]; variants: VariantInput[]; reads: ReadInput[] };
 
 export async function loadTestInputs(db: Db, eventIds: readonly string[]): Promise<TestInputs> {
   const empty: TestInputs = { tests: [], variants: [], reads: [] };
   if (!eventIds.length) return empty;
-  const tests = await paged<TestInput & { event_id: string }>((a, b) => db.from("creative_tests").select(TEST_COLUMNS).in("event_id", [...eventIds]).order("id", { ascending: true }).range(a, b));
+  const tests = await paged<TestInput & { event_id: string; meta_adset_id?: string | null }>((a, b) => db.from("creative_tests").select(TEST_COLUMNS).in("event_id", [...eventIds]).order("id", { ascending: true }).range(a, b));
   if (!tests?.length) return empty;
   const ids = tests.map((t) => t.id);
+  // TT8: each test ad set's name as Approve made it (launched_ad_sets.source_name).
+  const adsetIds = [...new Set(tests.map((t) => t.meta_adset_id).filter((id): id is string => Boolean(id)))];
+  if (adsetIds.length) {
+    const named = (await paged<{ meta_adset_id: string; source_name: string | null }>((a, b) => db.from("launched_ad_sets").select("meta_adset_id, source_name").in("meta_adset_id", adsetIds).order("meta_adset_id", { ascending: true }).range(a, b))) ?? [];
+    const byId = new Map(named.map((r) => [r.meta_adset_id, r.source_name]));
+    for (const t of tests) t.adset_name = (t.meta_adset_id && byId.get(t.meta_adset_id)) || null;
+  }
   const variants = (await paged<VariantInput>((a, b) => db.from("creative_test_variants").select(VARIANT_COLUMNS).in("test_id", ids).order("id", { ascending: true }).range(a, b))) ?? [];
   const reads = (await paged<ReadInput>((a, b) => db.from("creative_test_reads").select(READ_COLUMNS).in("test_id", ids).order("read_at", { ascending: false }).order("test_id", { ascending: true }).range(a, b))) ?? [];
   return { tests, variants, reads: reads.map((r) => ({ ...r, variants: Array.isArray(r.variants) ? r.variants : [] })) };
