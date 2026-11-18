@@ -13,7 +13,7 @@
  * and moves each unapproved, not-yet-launched final snippet render of that
  * file to the new window (start_s) and back to queued, so the draft re-cuts.
  * An operator's drop (drop_source 'operator') and any approved render are
- * never touched. Needs migration 260 for --apply.
+ * never touched. Needs migration 262 for --apply.
  */
 
 import { writeFile } from "node:fs/promises";

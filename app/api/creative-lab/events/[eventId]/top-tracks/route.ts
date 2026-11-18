@@ -8,7 +8,7 @@
  *   CT3), and each matched file's TK3 plan from the Lab's copy: every drop,
  *   the one used, the hook and the window. Then the event's reel rows.
  * POST { action }:
- *   make   TK10's "Make the reel": one render row, queued (migration 260).
+ *   make   TK10's "Make the reel": one render row, queued (migration 262).
  *   drop   the operator's drop marker on a file ("Drop set by {first name}").
  *   hook   the operator's hook marker, or { clear: true } ("Hook set by …").
  *
@@ -18,7 +18,7 @@
 
 import { NextResponse, type NextRequest } from "next/server";
 
-import { AUDIO_BUCKET, AUDIO_COLUMNS_260, scanArtistAudio, type AudioFileRow } from "@/lib/creative-tests/audio-intake";
+import { AUDIO_BUCKET, AUDIO_COLUMNS_262, scanArtistAudio, type AudioFileRow } from "@/lib/creative-tests/audio-intake";
 import { intakeDeps, storageDeps } from "@/lib/creative-tests/snippet-server";
 import { readTopTracks } from "@/lib/creative-tests/spotify-top";
 import { renderStage } from "@/lib/drive/tree";
@@ -87,7 +87,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ eventId: st
     const act = acts.find((a) => a.id === req.nextUrl.searchParams.get("artist")) ?? acts[0] ?? null;
     const { drive } = driveFromEnv();
     if (act && drive) await scanArtistAudio(db, intakeDeps(db, drive), { event: event as never, client: client as never, artist: { libraryArtistId: act.id, name: act.name }, userId: user.id });
-    const filesRes = act ? await db.from("creative_lab_audio_files").select(AUDIO_COLUMNS_260).eq("event_id", event.id).eq("artist_id", act.id).order("created_at", { ascending: true }).range(0, 999) : null;
+    const filesRes = act ? await db.from("creative_lab_audio_files").select(AUDIO_COLUMNS_262).eq("event_id", event.id).eq("artist_id", act.id).order("created_at", { ascending: true }).range(0, 999) : null;
     if (filesRes?.error) throw new Error(`creative_lab_audio_files: ${filesRes.error.message}`);
     const files = ((filesRes?.data ?? []) as unknown as AudioFileRow[]);
     const top = act ? await readTopTracks(db, { artistId: act.id, spotifyArtistId: act.spotifyId, userId: user.id }) : null;
@@ -117,7 +117,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ eventId: st
       });
     }
     const renders = await db.from(TOP_TRACKS_TABLE).select("id, status, file_name, duration_s, storage_path, error, created_at").eq("event_id", event.id).order("created_at", { ascending: false }).range(0, 49);
-    // Before migration 260 is applied the table is missing: the tab shows no reels rather than failing.
+    // Before migration 262 is applied the table is missing: the tab shows no reels rather than failing.
     const reelRows = (renders.error ? [] : (renders.data ?? [])) as { id: string; status: string; file_name: string | null; duration_s: number | null; storage_path: string | null }[];
     const latest = reelRows.find((r) => r.status === "done" && r.storage_path);
     const previewUrl = latest ? (await db.storage.from(AUDIO_BUCKET).createSignedUrl(String(latest.storage_path), 3600)).data?.signedUrl ?? null : null;

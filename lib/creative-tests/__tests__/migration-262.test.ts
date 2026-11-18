@@ -1,5 +1,5 @@
 /**
- * Migration 260 (Top tracks, TK1–TK11), checked by reading the SQL (there's
+ * Migration 262 (Top tracks, TK1–TK11), checked by reading the SQL (there's
  * no local Postgres in the test setup): additive only, owner RLS and 251's
  * client-member write guard on the new table, the TK3 columns, and the
  * top_tracks test kind.
@@ -10,10 +10,10 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, it } from "node:test";
 
-const SQL = readFileSync(join(process.cwd(), "supabase/migrations/260_creative_lab_top_tracks.sql"), "utf8");
+const SQL = readFileSync(join(process.cwd(), "supabase/migrations/262_creative_lab_top_tracks.sql"), "utf8");
 const CODE = SQL.split("\n").filter((line) => !line.trim().startsWith("--")).join("\n");
 
-describe("migration 260", () => {
+describe("migration 262", () => {
   it("is additive: drops only its own constraints, policies and triggers before re-making them", () => {
     assert.doesNotMatch(CODE, /\bdrop\s+(table|column)\b/i);
     assert.doesNotMatch(CODE, /\btruncate\b|\bdelete\s+from\b|\bupdate\s+public\./i);

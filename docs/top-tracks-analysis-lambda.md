@@ -13,7 +13,7 @@ They run once per file version, keyed by the Drive id and Drive's modified time.
 | TK13 grid, TK14 drops, TK15 choice, TK16 hook | `lib/creative-tests/top-tracks/studio.ts`, `audio-rules.ts` | anywhere (pure) |
 | The analysis: `StudioSource` interface, TK18's key | `lib/creative-tests/top-tracks/analysis-source.ts` | — |
 | `localStudio`: Beat This! + htdemucs through a local Python | `analysis-source.ts`, `scripts/top-tracks/analyse.py` | the operator's machine only (drafts, acceptance and re-pick scripts) |
-| Stored with the file (TK18) | `creative_lab_audio_files.analysis`, `analysis_key`, `analysis_state` (migration 260) | — |
+| Stored with the file (TK18) | `creative_lab_audio_files.analysis`, `analysis_key`, `analysis_state` (migration 262) | — |
 
 In the app the source is **null**:
 - **Snippet and Top tracks rows:** every file reads "Couldn't read this track's beat — drag the drop marker to it." An operator's drop cuts on seconds.

@@ -1,4 +1,4 @@
--- Migration 260 — the Creative Lab "Top tracks" reel
+-- Migration 262 — the Creative Lab "Top tracks" reel
 -- (docs/design-record/2026-11-18-creative-lab-top-tracks.html, TK1–TK11, and
 -- issue 2, 2026-11-18-creative-lab-top-tracks-2.html, TK12–TK18).
 --
@@ -62,17 +62,17 @@ alter table public.creative_lab_audio_files
   check (hook_s is null or hook_s >= 0);
 
 comment on column public.creative_lab_audio_files.analysis is
-  'TK18. {v: 2, durationS, beats, downbeats, bassBeatDb (the Demucs bass stem''s RMS per beat, dB), R, drops: [{tS, breakBars, breakFromS, breakToS, breakDb, testDb}], breaks, grid} or {v: 2, error}. Data only: the stem is never stored as audio. Migration 260.';
+  'TK18. {v: 2, durationS, beats, downbeats, bassBeatDb (the Demucs bass stem''s RMS per beat, dB), R, drops: [{tS, breakBars, breakFromS, breakToS, breakDb, testDb}], breaks, grid} or {v: 2, error}. Data only: the stem is never stored as audio. Migration 262.';
 comment on column public.creative_lab_audio_files.analysis_key is
-  'TK18: {drive_file_id}@{Drive modifiedTime}. The analysis runs again when the key changes. Migration 260.';
+  'TK18: {drive_file_id}@{Drive modifiedTime}. The analysis runs again when the key changes. Migration 262.';
 comment on column public.creative_lab_audio_files.analysis_state is
-  'TK18: running ("Finding the drops…", the file can''t be ticked yet), done, or failed ("Couldn''t read this track''s beat — drag the drop marker to it."). Migration 260.';
+  'TK18: running ("Finding the drops…", the file can''t be ticked yet), done, or failed ("Couldn''t read this track''s beat — drag the drop marker to it."). Migration 262.';
 comment on column public.creative_lab_audio_files.drop_choice is
-  'TK15: which rule chose drop_s when the Lab set it — last (the last qualifying drop in the last third) or earlier ("an earlier drop (no later drop fits)"). Null for an operator''s drop. Migration 260.';
+  'TK15: which rule chose drop_s when the Lab set it — last (the last qualifying drop in the last third) or earlier ("an earlier drop (no later drop fits)"). Null for an operator''s drop. Migration 262.';
 comment on column public.creative_lab_audio_files.hook_s is
-  'TK3: the HOOK marker, the last place the repeated phrase plays before the chosen drop; null for none. Top tracks only (the snippet static keeps CT1''s window). Migration 260.';
+  'TK3: the HOOK marker, the last place the repeated phrase plays before the chosen drop; null for none. Top tracks only (the snippet static keeps CT1''s window). Migration 262.';
 comment on column public.creative_lab_audio_files.hook_source is
-  'TK3: lab (found from the file), operator ("Hook set by {first name}") or cleared (the operator removed it). Migration 260.';
+  'TK3: lab (found from the file), operator ("Hook set by {first name}") or cleared (the operator removed it). Migration 262.';
 
 -- ---------------------------------------------------------------------------
 -- 2. The reel's render rows (TK1, TK10)
@@ -115,11 +115,11 @@ create table if not exists public.creative_lab_top_tracks_renders (
 );
 
 comment on table public.creative_lab_top_tracks_renders is
-  'TK1: one Top tracks reel, a 9:16 at 1080 × 1920 and nothing else. tracks is the ordered list (play order) of {audioFileId, title, withText, spotifyRank, startS, lengthS, dropS, hookS, cut}. Migration 260.';
+  'TK1: one Top tracks reel, a 9:16 at 1080 × 1920 and nothing else. tracks is the ordered list (play order) of {audioFileId, title, withText, spotifyRank, startS, lengthS, dropS, hookS, cut}. Migration 262.';
 comment on column public.creative_lab_top_tracks_renders.options is
-  'TK10: {framing, tracks, rowsAppear, ladder, end, endCard, list, background}, defaults first. Migration 260.';
+  'TK10: {framing, tracks, rowsAppear, ladder, end, endCard, list, background}, defaults first. Migration 262.';
 comment on column public.creative_lab_top_tracks_renders.background is
-  'TK7: {kind: press | dj | montage | broll, assetIds | clipIds, ...}. One owner per reel. Migration 260.';
+  'TK7: {kind: press | dj | montage | broll, assetIds | clipIds, ...}. One owner per reel. Migration 262.';
 
 create index if not exists creative_lab_top_tracks_renders_event_idx on public.creative_lab_top_tracks_renders (event_id, created_at desc);
 create index if not exists creative_lab_top_tracks_renders_queued_idx on public.creative_lab_top_tracks_renders (status) where status in ('queued', 'rendering');
@@ -137,7 +137,7 @@ alter table public.creative_test_variants
   add column if not exists top_tracks_render_id uuid references public.creative_lab_top_tracks_renders (id) on delete set null;
 
 comment on column public.creative_test_variants.top_tracks_render_id is
-  'TK11: the Top tracks reel this ad is (one ad per variant). Migration 260.';
+  'TK11: the Top tracks reel this ad is (one ad per variant). Migration 262.';
 
 -- ---------------------------------------------------------------------------
 -- Owner RLS, updated_at, and 251's client-member write guard

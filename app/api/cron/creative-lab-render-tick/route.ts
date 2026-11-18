@@ -37,7 +37,7 @@ async function snippetTick(supabase: ReturnType<typeof createServiceRoleClient>,
     throw err;
   }
 }
-/** Top tracks (TK1, HK1): one reel at a time, after the snippets. Skips cleanly before migration 260. */
+/** Top tracks (TK1, HK1): one reel at a time, after the snippets. Skips cleanly before migration 262. */
 async function topTracksTick(supabase: ReturnType<typeof createServiceRoleClient>, archived: ReadonlySet<string>) {
   try {
     const { runTopTracksTick } = await import("@/lib/creative-tests/top-tracks/tick");

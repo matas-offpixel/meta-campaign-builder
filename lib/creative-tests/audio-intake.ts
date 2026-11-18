@@ -55,13 +55,13 @@ export type AudioFileRow = {
   matched_at: string | null;
   drop_s: number | null;
   drop_source: "lab" | "operator" | null;
-  /** TK15 (migration 260): which rule chose a Lab drop. */
+  /** TK15 (migration 262): which rule chose a Lab drop. */
   drop_choice?: "last" | "earlier" | null;
-  /** TK18 (migration 260): the stored analysis, its key and state. */
+  /** TK18 (migration 262): the stored analysis, its key and state. */
   analysis?: unknown;
   analysis_key?: string | null;
   analysis_state?: "running" | "done" | "failed" | null;
-  /** TK3 (migration 260): the HOOK marker (Top tracks only). */
+  /** TK3 (migration 262): the HOOK marker (Top tracks only). */
   hook_s?: number | null;
   hook_source?: "lab" | "operator" | "cleared" | null;
   drop_set_by: string | null;
@@ -245,8 +245,8 @@ export async function scanArtistAudio(
 export const AUDIO_COLUMNS =
   "id, event_id, artist_id, drive_file_id, drive_file_name, format, bitrate_kbps, duration_s, storage_path, unusable_reason, spotify_track_id, spotify_title, match_state, matched_by, matched_at, drop_s, drop_source, drop_set_by, drop_set_at, window_start_s, length_s, waveform, rights_flag, rights_flagged_at, created_at";
 
-/** Migration 260's columns (TK15–TK18), read only where Top tracks needs them, so the Snippet tab works before 260 is applied. */
-export const AUDIO_COLUMNS_260 = `${AUDIO_COLUMNS}, analysis, analysis_key, analysis_state, drop_choice, hook_s, hook_source, hook_set_by, hook_set_at`;
+/** Migration 262's columns (TK15–TK18), read only where Top tracks needs them, so the Snippet tab works before 262 is applied. */
+export const AUDIO_COLUMNS_262 = `${AUDIO_COLUMNS}, analysis, analysis_key, analysis_state, drop_choice, hook_s, hook_source, hook_set_by, hook_set_at`;
 
 export async function loadAudioRows(db: Db, eventId: string, artistId: string | null): Promise<AudioFileRow[]> {
   let query = db.from("creative_lab_audio_files").select(AUDIO_COLUMNS).eq("event_id", eventId);
