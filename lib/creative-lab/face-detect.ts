@@ -1,18 +1,22 @@
 /**
- * Face boxes for a still, for the artist card's face-aware crop.
+ * Face boxes for a still, for the artist card's face-aware crop and the Lab's caption face check.
  *
- * Pure JS: @vladmandic/face-api's own bundle (tfjs inside, CPU backend) with
- * the SSD MobileNet v1 weights that ship in the package. No native module,
- * no canvas: sharp decodes the image to raw RGB and that goes in as a tensor.
- * The render tick is the only route that imports it. render-caption does not.
+ * @vladmandic/face-api's Node build for the wasm backend (face-api.node-wasm.js) with the SSD MobileNet v1
+ * weights that ship in the package. It runs on @tensorflow/tfjs with @tensorflow/tfjs-backend-wasm (SIMD),
+ * about 30 times faster than the cpu backend: on Vercel 0.48 s a frame against 14.6 s, with the same boxes
+ * (17 Nov 2026, clip #22). No native module, no canvas: sharp decodes the image to raw RGB and that goes in
+ * as a tensor. The render tick is the only route that imports it. render-caption does not.
  *
- * The detector runs on a copy at most 640 px on its long side; boxes come back
- * in the source image's pixels.
+ * tfjs keeps one engine on globalThis for the whole process, so the backend is set once, here, before
+ * face-api runs, and every tfjs user in the process (the person segmenter, segment.ts) runs on it. If wasm
+ * can't start, detection falls back to the cpu backend and says so in the log: the face check still finishes,
+ * across ticks (face-check-slice.ts). faceBackend() reports which one is active.
+ *
+ * The detector runs on a copy at most 640 px on its long side; boxes come back in the source image's pixels.
  */
 
-import { copyFileSync, existsSync, readFileSync, renameSync, statSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -44,12 +48,12 @@ export const HEAD_ABOVE_BROW = 0.6;
 type FaceApi = {
   tf: {
     setBackend(name: string): Promise<boolean>;
+    getBackend(): string;
     ready(): Promise<void>;
-    setPlatform(name: string, platform: unknown): void;
+    env(): { getAsync(flag: string): Promise<unknown> };
     tensor3d(values: Uint8Array, shape: [number, number, number]): { dispose(): void };
     io: { decodeWeights(buffer: ArrayBuffer, specs: unknown): unknown };
   };
-  env: { setEnv(env: unknown): void };
   nets: {
     ssdMobilenetv1: { loadFromWeightMap(map: unknown): Promise<void> };
     faceLandmark68Net: {
@@ -62,14 +66,16 @@ type FaceApi = {
 };
 
 export const DETECT_LONG_SIDE = 640;
-export const FACE_API_MAIN = "@vladmandic/face-api/dist/face-api.esm.js";
+export const FACE_API_MAIN = "@vladmandic/face-api/dist/face-api.node-wasm.js";
+/** The backend face detection runs on. */
+export const FACE_BACKEND = "wasm";
 
 /**
- * face-api's ESM bundle on disk. In the Vercel function the traced
- * node_modules sit under the working directory (next.config.ts
- * outputFileTracingIncludes), and a bundled require.resolve or import.meta.url
- * can't be trusted to give a real path, so that copy wins. Local scripts and
- * tests resolve it from this file.
+ * face-api's Node wasm build on disk. In the Vercel function the traced node_modules sit under the working
+ * directory (next.config.ts outputFileTracingIncludes), and a bundled require.resolve or import.meta.url
+ * can't be trusted to give a real path, so that copy wins. Local scripts and tests resolve it from this file.
+ * Its own requires (@tensorflow/tfjs, @tensorflow/tfjs-backend-wasm) resolve next to it, so the function
+ * loads only traced files (scripts/check-face-detect-bundle.mts proves that on the real build).
  */
 export function faceApiMain(cwd: string = process.cwd(), exists: (path: string) => boolean = existsSync): string {
   const traced = join(cwd, "node_modules", FACE_API_MAIN);
@@ -77,83 +83,50 @@ export function faceApiMain(cwd: string = process.cwd(), exists: (path: string) 
   return createRequire(import.meta.url).resolve(FACE_API_MAIN);
 }
 
-/**
- * face-api's ESM bundle as an .mjs copy in the temp dir. Its package.json has
- * no "type", so Node only reads the .js as ESM by syntax detection, and in the
- * production function that load failed with "Unexpected token 'export'"
- * (17 Nov 2026, after #1302): the file was parsed as CommonJS. An .mjs file is
- * ESM to every loader. Copied once per instance (renamed into place, so a
- * concurrent copy never reads half a file); the size keys the name.
- */
-export function faceApiEsmPath(main: string, dir: string = tmpdir()): string {
-  const out = join(dir, `offpixel-face-api-${statSync(main).size}.mjs`);
-  if (existsSync(out)) return out;
-  const partial = `${out}.${process.pid}.${Date.now()}.tmp`;
-  copyFileSync(main, partial);
-  renameSync(partial, out);
-  return out;
-}
 /** face-api's SSD and landmark weights, next to its dist folder. */
 export function faceApiModelDir(main: string = faceApiMain()): string {
   return join(dirname(main), "..", "model");
 }
 
-let loaded: Promise<FaceApi> | null = null;
+export type FaceBackendInfo = {
+  /** tfjs's active backend: "wasm", or "cpu" after a fallback. */
+  backend: string;
+  simd: boolean | null;
+  threads: boolean | null;
+  /** Why wasm didn't start, when it didn't. */
+  fallback: string | null;
+};
 
-async function faceApi(): Promise<FaceApi> {
+let loaded: Promise<{ api: FaceApi; info: FaceBackendInfo }> | null = null;
+
+/** The wasm backend, once per process. Throws when it doesn't end up active. */
+async function startWasm(api: FaceApi): Promise<void> {
+  const ok = await api.tf.setBackend(FACE_BACKEND);
+  await api.tf.ready();
+  if (!ok || api.tf.getBackend() !== FACE_BACKEND) throw new Error(`face-detect: the wasm backend didn't start (active: ${api.tf.getBackend()})`);
+}
+
+async function faceApi(): Promise<{ api: FaceApi; info: FaceBackendInfo }> {
   if (loaded) return loaded;
   loaded = (async () => {
-    const require = createRequire(import.meta.url);
     const main = faceApiMain();
-    // The bundle is the browser build: when it sees Node it builds tfjs's Node
-    // platform from a stubbed-out `util` and throws. So it loads with
-    // process.versions.node hidden, and the platform is registered here from the
-    // real util (fetch, TextEncoder and performance are Node globals).
-    const versions = process.versions;
-    Object.defineProperty(process, "versions", { value: { ...versions, node: undefined }, configurable: true, writable: true });
-    let api: FaceApi;
+    // webpackIgnore: the URL is computed at runtime, and a bundler that can't analyse it replaces the import
+    // with a stub that throws "Cannot find module as expression is too dynamic" (production, 17 Nov 2026).
+    // The file is CommonJS (its package has no "type"), so Node hands back module.exports as the default.
+    // CI checks the built route: scripts/check-face-detect-bundle.mts.
+    const mod = (await import(/* webpackIgnore: true */ pathToFileURL(main).href)) as { default?: FaceApi } & FaceApi;
+    const api = mod.default ?? mod;
+    let fallback: string | null = null;
     try {
-      // webpackIgnore: the URL is computed at runtime, and a bundler that
-      // can't analyse it replaces the import with a stub that throws "Cannot
-      // find module as expression is too dynamic" (production, 17 Nov 2026).
-      // CI checks the built route: scripts/check-face-detect-bundle.mts.
-      api = (await import(/* webpackIgnore: true */ pathToFileURL(faceApiEsmPath(main)).href)) as unknown as FaceApi;
-    } finally {
-      Object.defineProperty(process, "versions", { value: versions, configurable: true, writable: true });
+      await startWasm(api);
+    } catch (err) {
+      fallback = (err instanceof Error ? err.message : String(err)).split("\n")[0]!.slice(0, 200);
+      await api.tf.setBackend("cpu");
+      await api.tf.ready();
+      console.warn(`face-detect: detecting on the cpu backend, about 30 times slower: ${fallback}`);
     }
-    const util = require("node:util") as typeof import("node:util");
-    const encoder = new util.TextEncoder();
-    api.tf.setPlatform("node", {
-      fetch: (input: string, init?: RequestInit) => fetch(input, init),
-      now: () => performance.now(),
-      encode: (text: string) => encoder.encode(text),
-      decode: (bytes: Uint8Array, encoding: string) => (bytes.length === 0 ? "" : new util.TextDecoder(encoding).decode(bytes)),
-      isTypedArray: (a: unknown) => util.types.isFloat32Array(a) || util.types.isInt32Array(a) || util.types.isUint8Array(a) || util.types.isUint8ClampedArray(a),
-      setTimeoutCustom: (fn: () => void, delay: number) => setTimeout(fn, delay),
-    });
-    // face-api's own environment: input is always a tensor, so its media
-    // classes only need to exist for its instanceof checks.
-    class Inert {}
-    api.env.setEnv({
-      Canvas: Inert,
-      CanvasRenderingContext2D: Inert,
-      Image: Inert,
-      ImageData: Inert,
-      Video: Inert,
-      createCanvasElement: () => {
-        throw new Error("face-detect: canvas is not available; pass a tensor");
-      },
-      createImageElement: () => {
-        throw new Error("face-detect: images are not available; pass a tensor");
-      },
-      createVideoElement: () => {
-        throw new Error("face-detect: video is not available; pass a tensor");
-      },
-      fetch: (input: string, init?: RequestInit) => fetch(input, init),
-      readFile: async (path: string) => readFileSync(path),
-    });
-    await api.tf.setBackend("cpu");
-    await api.tf.ready();
+    const flag = async (name: string) => (api.tf.getBackend() === FACE_BACKEND ? Boolean(await api.tf.env().getAsync(name)) : null);
+    const info: FaceBackendInfo = { backend: api.tf.getBackend(), simd: await flag("WASM_HAS_SIMD_SUPPORT"), threads: await flag("WASM_HAS_MULTITHREAD_SUPPORT"), fallback };
     const modelDir = faceApiModelDir(main);
     const weights = (name: string) => {
       const manifest = JSON.parse(readFileSync(join(modelDir, `${name}-weights_manifest.json`), "utf8")) as { weights: unknown }[];
@@ -163,28 +136,36 @@ async function faceApi(): Promise<FaceApi> {
     };
     await api.nets.ssdMobilenetv1.loadFromWeightMap(weights("ssd_mobilenetv1_model"));
     await api.nets.faceLandmark68Net.loadFromWeightMap(weights("face_landmark_68_model"));
-    return api;
+    return { api, info };
   })();
+  // A failed load is not cached: the next call tries again.
+  loaded.catch(() => {
+    loaded = null;
+  });
   return loaded;
 }
 
+/** Which backend detection runs on, loading the detector if it isn't yet. */
+export async function faceBackend(): Promise<FaceBackendInfo> {
+  return (await faceApi()).info;
+}
+
 /**
- * The tfjs instance inside face-api's bundle, already on the CPU backend with
- * the Node platform registered. It includes the graph-model converter, so the
- * person segmenter (segment.ts) runs on it too: one tfjs, no second bundle.
+ * The tfjs instance face-api runs on, already on the detection backend. It includes the graph-model
+ * converter, so the person segmenter (segment.ts) runs on it too: one tfjs, one backend.
  */
 export async function faceApiTf(): Promise<unknown> {
-  return (await faceApi()).tf;
+  return (await faceApi()).api.tf;
 }
 
 /**
  * Every face in the image, largest first, in source pixels (EXIF rotation applied). `longSide` is the copy's
- * long side the detector sees (640 by default; the face check's timing samples try 512 and 416). SSD MobileNet
- * v1 resizes whatever it is given to 512 × 512 inside face-api, so this changes the copy, not the network.
+ * long side the detector sees (640 by default). SSD MobileNet v1 resizes whatever it is given to 512 × 512
+ * inside face-api, so a smaller copy is no faster (Vercel, 17 Nov 2026) and placed captions worse.
  */
 export async function detectFaces(image: Buffer, opts: { minConfidence?: number; longSide?: number } = {}): Promise<FaceBox[]> {
   const sharp = (await import("sharp")).default;
-  const api = await faceApi();
+  const { api } = await faceApi();
   const rotated = sharp(image).rotate();
   const meta = await sharp(await rotated.clone().toBuffer()).metadata();
   const sourceW = meta.width ?? 0;
@@ -220,7 +201,7 @@ const LANDMARK_INPUT = 256;
  */
 export async function faceGeometry(image: Buffer, boxes: readonly FaceBox[]): Promise<FaceGeometry[]> {
   const sharp = (await import("sharp")).default;
-  const api = await faceApi();
+  const { api } = await faceApi();
   const rotated = await sharp(image).rotate().toBuffer();
   const meta = await sharp(rotated).metadata();
   const W = meta.width ?? 0;

@@ -25,9 +25,8 @@
  * neither, counted on its own.
  * Per frame: faces 640 sees that the size misses (lost), and the other way (added).
  *
- * --backend wasm (default) runs face-api's node-wasm build in this process,
- * 25× faster here with the same boxes; --backend cpu runs detectFaces itself
- * (the production path), for a control on the same frames.
+ * Detection is detectFaces itself: on wasm (the production backend) by default,
+ * or with --backend cpu on the cpu backend, for a control on the same frames.
  */
 
 import { execFileSync } from "node:child_process";
@@ -93,35 +92,15 @@ function probe(file: string): { width: number; height: number; fps: number; dura
 }
 
 // Detectors. wasm: face-api's node-wasm build in this process (no cpu tfjs is loaded here, so no shared engine).
-let wasmApi: Promise<any> | null = null; // eslint-disable-line @typescript-eslint/no-explicit-any
-async function detectWasm(frame: Buffer, side: number): Promise<Box[]> {
-  wasmApi ??= (async () => {
-    const api = require("@vladmandic/face-api/dist/face-api.node-wasm.js");
-    await api.tf.setBackend("wasm");
-    await api.tf.ready();
-    const dir = join(require.resolve("@vladmandic/face-api/package.json"), "..", "model");
-    const manifest = JSON.parse(readFileSync(join(dir, "ssd_mobilenetv1_model-weights_manifest.json"), "utf8"));
-    const bytes = readFileSync(join(dir, "ssd_mobilenetv1_model.bin"));
-    await api.nets.ssdMobilenetv1.loadFromWeightMap(api.tf.io.decodeWeights(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength), manifest[0].weights));
-    return api;
-  })();
-  const api = await wasmApi;
-  const meta = await sharp(frame).metadata();
-  const { data, info } = await sharp(frame).resize({ width: side, height: side, fit: "inside", withoutEnlargement: true }).removeAlpha().raw().toBuffer({ resolveWithObject: true });
-  const k = (meta.width ?? info.width) / info.width;
-  const tensor = api.tf.tensor3d(new Uint8Array(data), [info.height, info.width, 3]);
-  try {
-    const found = await api.detectAllFaces(tensor, new api.SsdMobilenetv1Options({ minConfidence: 0.3 }));
-    return found.map((d: { box: Box }) => ({ x: d.box.x * k, y: d.box.y * k, width: d.box.width * k, height: d.box.height * k }));
-  } finally {
-    tensor.dispose();
+/** detectFaces itself (the production path, on wasm); --backend cpu switches this process's tfjs to cpu first. */
+async function detect(frame: Buffer, side: number): Promise<Box[]> {
+  const fd = await import("../lib/creative-lab/face-detect.ts");
+  if (BACKEND === "cpu") {
+    const tf = (await fd.faceApiTf()) as { getBackend(): string; setBackend(name: string): Promise<boolean> };
+    if (tf.getBackend() !== "cpu") await tf.setBackend("cpu");
   }
+  return (await fd.detectFaces(frame, { minConfidence: 0.3, longSide: side })).map(({ x, y, width, height }) => ({ x, y, width, height }));
 }
-async function detectCpu(frame: Buffer, side: number): Promise<Box[]> {
-  const { detectFaces } = await import("../lib/creative-lab/face-detect.ts");
-  return detectFaces(frame, { minConfidence: 0.3, longSide: side });
-}
-const detect = BACKEND === "cpu" ? detectCpu : detectWasm;
 
 type WindowResult = { file: string; inS: number; outS: number; frameWidth: number; frames: { t: number; faces: Record<number, Box[]> }[] };
 
