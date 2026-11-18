@@ -9,7 +9,7 @@ import { nextRoundView } from "@/lib/creative-lab/round-next";
 import { effectiveSelection, emptySelection, noSelectedClipsSentence, notSelectedCount, notSelectedNames, renderPairs, roundBar, winnerNotSelected } from "@/lib/creative-lab/selection";
 import { adPairingName, firstPairings, groupClips, roundHasRun, roundMatrix, styleLabel } from "@/lib/creative-lab/surface";
 import { CaptionOverlay } from "@/components/dashboard/events/creative-lab/caption-overlay";
-import { FACE_CHECK_FAILED, FACE_CHECKING } from "@/lib/creative-lab/caption-placement";
+import { roundCellFaceNote } from "@/lib/creative-lab/caption-placement";
 import { RoundsTimeline } from "@/components/dashboard/events/creative-lab/rounds-timeline";
 import { VerdictChip } from "@/components/dashboard/events/creative-lab/verdict-chip";
 
@@ -223,24 +223,23 @@ function proposeReason(lab: CreativeLabCardData, clips: number, captions: number
   return null;
 }
 
-function placementNoteFor(lab: CreativeLabCardData, clipId: string, captionId: string): { text: string; failed: boolean } | null {
+function placementNoteFor(lab: CreativeLabCardData, clipId: string, captionId: string): { text: string; failed: boolean; retry: boolean } | null {
   const clip = lab.clips.find((row) => row.id === clipId);
-  if (!clip?.faceCheck) {
-    const stored = lab.renders.find((row) => row.clipId === clipId && row.captionId === captionId)?.placementNote ?? null;
-    return stored ? { text: stored, failed: false } : null;
-  }
-  if (clip.faceCheck === "failed") return { text: FACE_CHECK_FAILED, failed: true };
-  if (clip.faceCheck !== "ready") return { text: FACE_CHECKING, failed: false };
-  const line = clip.faceByCaption?.[captionId];
-  return line ? { text: line, failed: false } : null;
+  const render = lab.renders.find((row) => row.clipId === clipId && row.captionId === captionId) ?? null;
+  return roundCellFaceNote({
+    faceCheck: clip?.faceCheck,
+    faceLine: clip?.faceByCaption?.[captionId] ?? null,
+    storedNote: render?.placementNote ?? null,
+    render,
+  });
 }
 
-function PlacementLine({ note, busy, onRetry }: { note: { text: string; failed: boolean } | null; busy?: boolean; onRetry?: () => void }) {
+function PlacementLine({ note, busy, onRetry }: { note: { text: string; failed: boolean; retry: boolean } | null; busy?: boolean; onRetry?: () => void }) {
   if (!note) return null;
   return (
     <p className={`mt-1 font-mono text-[11px] ${note.failed ? "text-destructive" : "text-muted-foreground"}`}>
       {note.text}
-      {note.failed && onRetry ? (
+      {note.retry && onRetry ? (
         <button type="button" className="ml-1 underline" disabled={busy} onClick={onRetry}>Retry</button>
       ) : null}
     </p>

@@ -6,7 +6,7 @@
  * burns them side by side. No Meta calls. Auth is the cron bearer.
  *
  * A cron_runs row is written only when the tick claimed a render, timed
- * one out, or failed. /admin/cron-health does not treat a missing minute
+ * one out, failed one on its clip's face check, or failed. /admin/cron-health does not treat a missing minute
  * as a failure: it watches snapshot-table freshness and CRON_ALARMS, and
  * this cron is in neither. A quiet minute is not a heartbeat.
  */
@@ -73,11 +73,21 @@ export const GET = withCronRunLog(
       }
     },
     rows: (body) => Number(body.claimed ?? 0) + Number((body.snippets as { claimed?: number } | null)?.claimed ?? 0),
-    detail: (body) => ({ timedOut: body.timedOut ?? 0, busy: body.busy ?? false, skippedArchived: body.skippedArchived ?? 0, snippets: body.snippets ?? null }),
+    detail: (body) => ({
+      timedOut: body.timedOut ?? 0,
+      faceCheckFailed: body.faceCheckFailed ?? 0,
+      busy: body.busy ?? false,
+      skippedArchived: body.skippedArchived ?? 0,
+      snippets: body.snippets ?? null,
+    }),
     recordWhen: (body, status) => {
       if (status >= 400 || body.ok === false) return true;
       const snippets = (body.snippets ?? null) as { claimed?: number; timedOut?: number } | null;
-      return Number(body.claimed ?? 0) > 0 || Number(body.timedOut ?? 0) > 0 || Number(snippets?.claimed ?? 0) > 0 || Number(snippets?.timedOut ?? 0) > 0;
+      return Number(body.claimed ?? 0) > 0
+        || Number(body.timedOut ?? 0) > 0
+        || Number(body.faceCheckFailed ?? 0) > 0
+        || Number(snippets?.claimed ?? 0) > 0
+        || Number(snippets?.timedOut ?? 0) > 0;
     },
   },
   handleGET,

@@ -24,7 +24,40 @@ export const PLACE_REFUSAL = {
 export const QUOTE_TOO_LONG = "This quote is too long — drop a sentence from the start or end.";
 export const OLD_QUOTE_STYLE = "Old quote style — render again";
 export const FACE_CHECKING = "Checking the clip for faces…";
+/**
+ * Also the error on a render whose clip's face check failed: the render tick
+ * fails the render with it instead of leaving it queued, so its round
+ * settles. On the failed row "try again" is the retry link (surface.ts
+ * RETRY_SENTENCES); the retry clears the stored failure and queues the
+ * render, and the next tick checks the clip again.
+ */
 export const FACE_CHECK_FAILED = "Couldn't check this clip for faces — try again.";
+/**
+ * The round cell's note once its render has failed on the face check. The
+ * failed row's "try again" is then the one action (it clears the failure and
+ * queues the render), so the cell has no Retry and no "try again".
+ */
+export const FACE_CHECK_FAILED_CELL = "Couldn't check this clip for faces.";
+
+/**
+ * The face note under a round matrix cell. `retry` is the clip-level Retry,
+ * which only clears the stored failure: it is offered while the render waits,
+ * and dropped once the render itself has failed on the check (CLP8).
+ */
+export function roundCellFaceNote(args: {
+  faceCheck: "ready" | "failed" | "checking" | null | undefined;
+  faceLine?: string | null;
+  storedNote?: string | null;
+  render?: { status: string; error: string | null } | null;
+}): { text: string; failed: boolean; retry: boolean } | null {
+  if (!args.faceCheck) return args.storedNote ? { text: args.storedNote, failed: false, retry: false } : null;
+  if (args.faceCheck === "failed") {
+    const renderFailed = args.render?.status === "failed" && args.render.error === FACE_CHECK_FAILED;
+    return renderFailed ? { text: FACE_CHECK_FAILED_CELL, failed: true, retry: false } : { text: FACE_CHECK_FAILED, failed: true, retry: true };
+  }
+  if (args.faceCheck !== "ready") return { text: FACE_CHECKING, failed: false, retry: false };
+  return args.faceLine ? { text: args.faceLine, failed: false, retry: false } : null;
+}
 
 export type StoredFaceRect = { left: number; top: number; width: number; height: number };
 

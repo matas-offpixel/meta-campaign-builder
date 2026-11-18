@@ -9,10 +9,15 @@
  * never sees that: verdict stays untouched.
  *
  * Archived clients are skipped. The row stays queued.
+ *
+ * A clip whose face check failed fails its renders with
+ * FACE_CHECK_FAILED, and their round ads become render_failed, so the
+ * round settles. Left queued, a render on that clip waited forever: the claim
+ * loop only takes clips whose samples are ready.
  */
 
 import { loadArchivedClientScope } from "../db/client-status.ts";
-import { faceSampleState, readFaceSamples } from "./caption-placement.ts";
+import { FACE_CHECK_FAILED, faceSampleState, readFaceSamples } from "./caption-placement.ts";
 import { claimFaceCheck, type FaceCheckClaim } from "./face-check-lock.ts";
 import { MAX_LAB_RENDERS_AT_ONCE } from "./lambda.ts";
 import type { ServiceRoleDb } from "./load.ts";
@@ -26,6 +31,8 @@ export type RenderTickResult = {
   ok: true;
   claimed: number;
   timedOut: number;
+  /** Renders failed this tick because their clip's face check failed. */
+  faceCheckFailed: number;
   skippedArchived: number;
   busy: boolean;
   skippedReason?: string;
@@ -116,7 +123,7 @@ export async function runRenderTick(
   } = {},
 ): Promise<RenderTickResult> {
   if (opts.remotionEnabled === false) {
-    return { ok: true, claimed: 0, timedOut: 0, skippedArchived: 0, busy: false, skippedReason: "remotion_off" };
+    return { ok: true, claimed: 0, timedOut: 0, faceCheckFailed: 0, skippedArchived: 0, busy: false, skippedReason: "remotion_off" };
   }
   const now = opts.now ?? new Date();
   const archived = opts.archivedEventIds ?? (await loadArchivedClientScope(db)).eventIds;
@@ -137,7 +144,7 @@ export async function runRenderTick(
   const stillRendering = (await rows(db, "creative_lab_renders", "status", "rendering")).length;
   const slots = Math.max(0, (opts.maxAtOnce ?? MAX_LAB_RENDERS_AT_ONCE) - stillRendering);
   if (slots === 0) {
-    return { ok: true, claimed: 0, timedOut, skippedArchived: 0, busy: true };
+    return { ok: true, claimed: 0, timedOut, faceCheckFailed: 0, skippedArchived: 0, busy: true };
   }
 
   const queuedRes = await db.from("creative_lab_renders").select("*").eq("status", "queued").order("created_at", { ascending: true });
@@ -155,22 +162,40 @@ export async function runRenderTick(
       readiness.set(pending, await detect(db, pending, claim));
       // A slice of a face check takes most of the function's 800 s: this tick starts no renders it might not
       // finish. The next minute's tick claims them (it sees the lock as busy, or the samples as ready).
-      return { ok: true, claimed: 0, timedOut, skippedArchived: 0, busy: false };
+      return { ok: true, claimed: 0, timedOut, faceCheckFailed: 0, skippedArchived: 0, busy: false };
     } else if (claim.reason === "timed_out") {
       readiness.set(pending, "failed");
     }
   }
   let skippedArchived = 0;
+  let faceCheckFailed = 0;
+  const settled: string[] = [];
   const claimed: Row[] = [];
   for (const row of queued) {
     const clipId = String(row.clip_id ?? "");
-    if (clipId && readiness.get(clipId) !== "ready" && readiness.has(clipId)) continue;
-    if (claimed.length >= slots) break;
+    const state = clipId ? readiness.get(clipId) : undefined;
+    if (state === "checking") continue;
+    const faceFailed = state === "failed";
+    // A face-check failure takes no render slot, so it is settled even when the slots are full.
+    if (!faceFailed && claimed.length >= slots) continue;
     const captionRes = await db.from("creative_lab_captions").select("event_id").eq("id", String(row.caption_id)).maybeSingle();
     if (captionRes.error) throw new Error(`creative_lab_captions: ${captionRes.error.message}`);
     const eventId = (captionRes.data as { event_id?: string } | null)?.event_id;
     if (eventId && archived.has(eventId)) {
       skippedArchived += 1;
+      continue;
+    }
+    if (faceFailed) {
+      const fail = await db
+        .from("creative_lab_renders")
+        .update({ status: "failed", error: FACE_CHECK_FAILED })
+        .eq("id", row.id)
+        .eq("status", "queued")
+        .select("id");
+      if (fail.error) throw new Error(`creative_lab_renders face check: ${fail.error.message}`);
+      if (!((fail.data ?? []) as unknown[]).length) continue;
+      settled.push(...(await markAds(db, String(row.id), "render_failed", FACE_CHECK_FAILED)));
+      faceCheckFailed += 1;
       continue;
     }
     const claim = await db
@@ -204,6 +229,6 @@ export async function runRenderTick(
       }
     }),
   );
-  await refreshRounds(db, rounds.flat());
-  return { ok: true, claimed: claimed.length, timedOut, skippedArchived, busy: false };
+  await refreshRounds(db, [...settled, ...rounds.flat()]);
+  return { ok: true, claimed: claimed.length, timedOut, faceCheckFailed, skippedArchived, busy: false };
 }
