@@ -2,6 +2,16 @@
  * The creative tests' daily read (docs/design-record/2026-11-16-creative-testing-3.html
  * TF2, and docs/design-record/2026-11-18-creative-testing-6.html TF5–TF8, HT1–HT2).
  *
+ * TF9 (2026-11-18-creative-testing-7.html): the end day decides. A test ad set
+ * ends at 23:59 London on its end day (day 4, then 8 and 12 after extensions).
+ * That day's 08:00 read makes TF6's call and writes it that morning, so an
+ * extension lands before the ad set stops and a stop pauses it at that read. With
+ * no benchmark nothing is written, and the morning after is the test's last read
+ * (TF2 may still find a winner, else "No clear winner by day 4"). A missed end
+ * day (no read for it) falls back to the next morning's read, writes included.
+ * Never a write after 23:00 London, from a read that doesn't cover the whole of
+ * the day before (no successful ad-daily-insights run today), or on any other day.
+ *
  * At 08:00 London, for every running test in a {code} · Tests ad set:
  *   1. its variants' spend and results since its ad set started, to yesterday
  *      (ad_daily_insights, restated by the 02:30 UTC ad-daily-insights run);
@@ -104,6 +114,23 @@ export function capLeftMinor(input: { budget: number | null; spendToDate: number
 
 export type ShowDays = (eventCode: string, fromDay: string, toDay: string) => Promise<Row[]>;
 
+/** TF9: no write after 23:00 London on the end day. */
+export const WRITE_CUTOFF_HOUR = 23;
+
+export function londonHour(at: Date): number {
+  return Number(new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/London", hour: "2-digit", hourCycle: "h23" }).format(at));
+}
+
+/** Whether today's ad-daily-insights run restated yesterday: a successful run that started on today's London day and wasn't skipped. */
+async function insightsRestated(db: Db, readDay: string): Promise<boolean> {
+  const res = await db.from("cron_runs").select("cron_name, started_at, ok, detail").eq("cron_name", "ad-daily-insights").order("started_at", { ascending: false }).range(0, 9);
+  if (res.error) return false;
+  return ((res.data ?? []) as Row[]).some((run) => run.ok === true && londonDay(str(run, "started_at")) === readDay && !((run.detail as Row | null)?.skippedReason));
+}
+
+/** TF9: where this read sits against the test's end day. */
+export type EndDayPhase = "before" | "end_day" | "after_end";
+
 /** ad_daily_insights rows of every campaign named with the show's code, paged. */
 function showDaysFromDb(db: Db, eventCode: string, fromDay: string, toDay: string): Promise<Row[]> {
   return all(db, "ad_daily_insights", "date, meta_ad_id, campaign_name, spend, landing_page_views, registrations, actions", (q) => (q as unknown as { ilike: (c: string, v: string) => { gte: (c: string, v: string) => { lte: (c: string, v: string) => unknown } } }).ilike("campaign_name", `%${eventCode}%`).gte("date", fromDay).lte("date", toDay), "date");
@@ -126,6 +153,9 @@ export async function runCreativeTestsRead(input: {
   const readDay = londonDay(now.toISOString());
   const yesterday = addDays(readDay, -1);
   const writesOn = readWritesEnabled(input.env) && input.graph != null;
+  // TF9: a write only from a read that covers the whole of yesterday (the 02:30 UTC restate ran today), and never after 23:00 London.
+  const covered = await insightsRestated(db, readDay);
+  const late = londonHour(now) >= WRITE_CUTOFF_HOUR;
 
   const running = await all(db, "creative_tests", "*", (q) => (q as unknown as { eq: (c: string, v: string) => { eq: (c: string, v: string) => unknown } }).eq("state", "running").eq("runs_in", "tests_adset"), "id");
   const archived = await loadArchivedClientIds(db as never);
@@ -141,7 +171,7 @@ export async function runCreativeTestsRead(input: {
       if (str(event, "client_id") && archived.has(str(event, "client_id"))) continue;
       const eventCode = str(event, "event_code");
       if (input.eventCodes?.length && !input.eventCodes.includes(eventCode)) continue;
-      const record = await readOne(db, { test, event, eventCode, now, readDay, yesterday, writesOn, env: input.env, graph: input.graph, showDays: input.showDays ?? ((code, from, to) => showDaysFromDb(db, code, from, to)) });
+      const record = await readOne(db, { test, event, eventCode, now, readDay, yesterday, writesOn, covered, late, env: input.env, graph: input.graph, showDays: input.showDays ?? ((code, from, to) => showDaysFromDb(db, code, from, to)) });
       if (record.wrote) writes += 1;
       records.push(record);
     } catch (err) {
@@ -153,7 +183,7 @@ export async function runCreativeTestsRead(input: {
 
 async function readOne(
   db: Db,
-  ctx: { test: Row; event: Row; eventCode: string; now: Date; readDay: string; yesterday: string; writesOn: boolean; env: Record<string, string | undefined>; graph: ReadGraph | null; showDays: ShowDays },
+  ctx: { test: Row; event: Row; eventCode: string; now: Date; readDay: string; yesterday: string; writesOn: boolean; covered: boolean; late: boolean; env: Record<string, string | undefined>; graph: ReadGraph | null; showDays: ShowDays },
 ): Promise<ReadRecord> {
   const { test, event, eventCode, now, readDay, yesterday } = ctx;
   const testId = str(test, "id");
@@ -179,9 +209,22 @@ async function readOne(
     if (set.error) throw new Error(`creative_tests: ${set.error.message}`);
   }
 
+  // TF9: the end day (day 4, 8 or 12), and whether its read ran.
+  const extensions = num(test.extensions);
+  const endDay = addDays(startDay, 4 * (extensions + 1));
+  const phase: EndDayPhase = readDay < endDay ? "before" : readDay === endDay ? "end_day" : "after_end";
+  let endDayReadRan = false;
+  if (phase === "after_end") {
+    const prior = await db.from("creative_test_reads").select("read_day").eq("test_id", testId).eq("read_day", endDay).maybeSingle();
+    endDayReadRan = Boolean(prior.data);
+  }
+  // The missed end day: the next morning's read decides and may write.
+  const fallback = phase === "after_end" && !endDayReadRan;
+  const decides = phase === "end_day" || fallback;
+  const tf2Final = phase === "after_end";
+
   // 2. TF5's benchmark over the same days, and R5's room, for the kinds it applies to.
   const benchmarked = benchmarkApplies(kind);
-  const extensions = num(test.extensions);
   const evidence = (test.extension_evidence ?? null) as ExtensionEvidence | null;
   let read: FastCallRead | BenchmarkRead;
   let bench: { cost: number | null; spend: number; results: number } | null = null;
@@ -190,10 +233,11 @@ async function readOne(
     bench = showBenchmark(showDays as unknown as AdDay[], { eventCode, result, fromDay: startDay, toDay: yesterday });
     const held = (await all(db, "creative_tests", "id, state, hold_minor", (q) => (q as unknown as { eq: (c: string, v: string) => unknown }).eq("event_id", str(event, "id")), "id")).filter((t) => HOLDS_AD_SET.includes(str(t, "state") as TestState)).reduce((s, t) => s + num(t.hold_minor), 0);
     const budget = event.budget_marketing == null || str(event, "budget_marketing") === "" ? null : Number(event.budget_marketing);
-    const capLeft = capLeftMinor({ budget, spendToDate: budget == null ? 0 : await spendToDate(db as never, str(event, "id")), heldMinor: held });
-    read = readWithBenchmark({ firstDeliveryAt, startedAt, readAt: now.toISOString(), variants: figures, result, benchmark: bench.cost, extensions, evidence, dailyMinor: num(test.daily_budget_minor), capLeftMinor: capLeft, currency: str(test, "currency") || null });
+    // After an end day whose read ran and didn't extend, the ad set has ended: no extension is possible now, so the call can only stop.
+    const capLeft = phase === "after_end" && endDayReadRan ? 0 : capLeftMinor({ budget, spendToDate: budget == null ? 0 : await spendToDate(db as never, str(event, "id")), heldMinor: held });
+    read = readWithBenchmark({ firstDeliveryAt, startedAt, readAt: now.toISOString(), variants: figures, result, benchmark: bench.cost, extensions, evidence, dailyMinor: num(test.daily_budget_minor), capLeftMinor: capLeft, currency: str(test, "currency") || null, boundaryReached: phase !== "before", tf2Final });
   } else {
-    read = readTest({ firstDeliveryAt, readAt: now.toISOString(), variants: figures, result });
+    read = readTest({ firstDeliveryAt, readAt: now.toISOString(), variants: figures, result, final: tf2Final });
   }
   const action = "action" in read ? read.action : { kind: "none" as const };
 
@@ -216,7 +260,14 @@ async function readOne(
   const out: ReadRecord = { testId, eventCode, readDay, state: row.state, text: read.text, action: action.kind === "extend" ? "extend" : action.kind === "stop" ? "stop" : "none", wrote: false, pending: null };
 
   // 4. The decision's write and the test row.
-  if (action.kind === "extend" || action.kind === "stop") {
+  const whyNot = !decides ? "not an end day" : !ctx.covered ? "yesterday's insights aren't restated yet" : ctx.late ? "after 23:00 London" : null;
+  if ((action.kind === "extend" || action.kind === "stop") && whyNot && phase === "after_end" && action.kind === "stop") {
+    // TF9: the end day's read ran and wrote nothing; the ad set ended at 23:59, so the stop is recorded with no Meta write.
+    const done = await db.from("creative_tests").update({ state: "stopped", ended_at: now.toISOString() }).eq("id", testId).eq("state", "running");
+    if (done.error) throw new Error(`creative_tests: ${done.error.message}`);
+  } else if ((action.kind === "extend" || action.kind === "stop") && whyNot) {
+    out.pending = whyNot;
+  } else if (action.kind === "extend" || action.kind === "stop") {
     const adsetId = str(test, "meta_adset_id");
     const launched = adsetId ? ((await db.from("launched_ad_sets").select("meta_adset_id, draft_id, source_type").eq("meta_adset_id", adsetId).maybeSingle()).data as Row | null) : null;
     // Only ever the test's own ad set: never a main campaign's.

@@ -43,7 +43,14 @@ const showDays = async (_code: string, from: string, to: string) => {
   return rows;
 };
 
-function seed(opts: { extensions?: number; evidence?: unknown; budget?: number | null; spend?: number; source?: string; days?: AdDayRow[]; archived?: boolean; kind?: string } = {}) {
+/** Today's ad-daily-insights run at 02:30 UTC, every day from 18 Nov to 30 Nov, unless a day is left out (TF9's coverage). */
+function restates(skip: number[] = []) {
+  const out: Record<string, unknown>[] = [];
+  for (let d = 18; d <= 30; d += 1) if (!skip.includes(d)) out.push({ cron_name: "ad-daily-insights", started_at: `2026-11-${d}T02:30:00Z`, ok: true, detail: {} });
+  return out;
+}
+
+function seed(opts: { extensions?: number; evidence?: unknown; budget?: number | null; spend?: number; source?: string; days?: AdDayRow[]; archived?: boolean; kind?: string; reads?: Record<string, unknown>[]; skipRestate?: number[] } = {}) {
   return memoryDb({
     creative_tests: [
       {
@@ -72,8 +79,9 @@ function seed(opts: { extensions?: number; evidence?: unknown; budget?: number |
       { id: "v-earlier", test_id: "t1", position: 1, label: "Get Hard · earlier drop", meta_ad_id: "ad-earlier", state: "created" },
       { id: "v-payoff", test_id: "t1", position: 2, label: "Get Hard · payoff drop", meta_ad_id: "ad-payoff", state: "created" },
     ],
-    creative_test_reads: [],
-    ad_daily_insights: opts.days ?? variantDays(22, [2.52, 0], [1.48, 0]),
+    creative_test_reads: opts.reads ?? [],
+    cron_runs: restates(opts.skipRestate),
+    ad_daily_insights: opts.days ?? variantDays(21, [2.52, 0], [1.48, 0]),
     events: [{ id: "ev1", event_code: "P26-BDAY", client_id: "cl1", budget_marketing: opts.budget === undefined ? 5000 : opts.budget }],
     clients: [{ id: "cl1", status: opts.archived ? "archived" : "active" }],
     event_daily_rollups: [{ event_id: "ev1", date: "2026-11-10", ad_spend: opts.spend ?? 1000 }],
@@ -102,7 +110,7 @@ describe("the gates", () => {
     for (const env of [{}, { ENABLE_CREATIVE_TESTS_READ: "true" }, { ENABLE_CREATIVE_TESTS_READ: "0" }]) {
       const mem = seed();
       const { graph, calls } = fakeGraph();
-      assert.deepEqual(await runCreativeTestsRead({ env, db: mem.db, graph, now: morning(23), showDays }), { ok: true, skippedReason: "killswitch" });
+      assert.deepEqual(await runCreativeTestsRead({ env, db: mem.db, graph, now: morning(22), showDays }), { ok: true, skippedReason: "killswitch" });
       assert.equal(calls.length, 0);
       assert.equal(mem.writes.length, 0);
     }
@@ -120,7 +128,7 @@ describe("the gates", () => {
   it("writes off: the day's read lands, the decision waits, nothing is written to Meta", async () => {
     const mem = seed();
     const { graph, calls } = fakeGraph();
-    const result = await runCreativeTestsRead({ env: { ENABLE_CREATIVE_TESTS_READ: "1" }, db: mem.db, graph, now: morning(23), showDays });
+    const result = await runCreativeTestsRead({ env: { ENABLE_CREATIVE_TESTS_READ: "1" }, db: mem.db, graph, now: morning(22), showDays });
     assert.ok("records" in result);
     assert.deepEqual(result.records.map((r) => [r.action, r.wrote, r.pending]), [["extend", false, "writes off"]]);
     assert.equal(calls.length, 0);
@@ -130,18 +138,18 @@ describe("the gates", () => {
     const stop = seed({ budget: 100 });
     const noStatus: Record<string, string> = { ...WRITES };
     delete noStatus.OFFPIXEL_META_ADSET_STATUS_WRITES_ENABLED;
-    const stopped = await runCreativeTestsRead({ env: noStatus, db: stop.db, graph, now: morning(23), showDays });
+    const stopped = await runCreativeTestsRead({ env: noStatus, db: stop.db, graph, now: morning(22), showDays });
     assert.ok("records" in stopped);
     assert.deepEqual(stopped.records.map((r) => [r.action, r.pending]), [["stop", "writes off"]]);
     assert.equal(stop.tables.creative_tests![0]!.state, "running");
   });
 });
 
-describe("day 4", () => {
-  it("both above the show's £3.00: the ad set's end moves to 23:59 London on day 8, once, with its hold and the day-4 figures", async () => {
+describe("day 4: the end day's read decides (TF9)", () => {
+  it("on the end day (22 Nov, covering to 21 Nov), both above the show's £3.00: the end moves to 23:59 on day 8 that morning, once, with its hold and the day-4 figures", async () => {
     const mem = seed();
     const { graph, calls } = fakeGraph();
-    const result = await runCreativeTestsRead({ env: WRITES, db: mem.db, graph, now: morning(23), showDays });
+    const result = await runCreativeTestsRead({ env: WRITES, db: mem.db, graph, now: morning(22), showDays });
     assert.ok("records" in result && result.ok);
     assert.deepEqual(calls, ["end 222 2026-11-26T23:59:00+0000"]);
     assert.equal(result.records[0]!.text, "Extended to 26 Nov: both above the show's £3.00 per checkout");
@@ -151,10 +159,11 @@ describe("day 4", () => {
     assert.deepEqual((test.extension_evidence as { day4: unknown[] }).day4.length, 2);
     assert.deepEqual(mem.tables.meta_write_idempotency!.map((r) => [r.op_kind, r.op_status]), [["adset_end_time_update", "success"]]);
     const read = mem.tables.creative_test_reads![0]!;
-    assert.deepEqual([read.read_day, read.state, read.benchmark_cost, read.benchmark_results], ["2026-11-23", "extended", 3, 50]);
+    // Written at 08:00 on 22 Nov, before the 23:59 end: no night off.
+    assert.deepEqual([read.read_day, read.state, read.benchmark_cost, read.benchmark_results], ["2026-11-22", "extended", 3, 40]);
 
     // A rerun the same morning: no second extension, no second write.
-    const again = await runCreativeTestsRead({ env: WRITES, db: mem.db, graph, now: morning(23), showDays });
+    const again = await runCreativeTestsRead({ env: WRITES, db: mem.db, graph, now: morning(22), showDays });
     assert.ok("records" in again);
     assert.equal(calls.length, 1);
     assert.equal(mem.tables.creative_tests![0]!.hold_minor, 800);
@@ -164,9 +173,9 @@ describe("day 4", () => {
   it("a retry after the write landed but the test row didn't: the ledger answers, Meta isn't asked again", async () => {
     const mem = seed();
     const { graph, calls } = fakeGraph();
-    await runCreativeTestsRead({ env: WRITES, db: mem.db, graph, now: morning(23), showDays });
+    await runCreativeTestsRead({ env: WRITES, db: mem.db, graph, now: morning(22), showDays });
     Object.assign(mem.tables.creative_tests![0]!, { extensions: 0, hold_minor: 400 });
-    await runCreativeTestsRead({ env: WRITES, db: mem.db, graph, now: morning(23), showDays });
+    await runCreativeTestsRead({ env: WRITES, db: mem.db, graph, now: morning(22), showDays });
     assert.equal(calls.length, 1);
     assert.equal(mem.tables.creative_tests![0]!.extensions, 1);
   });
@@ -175,7 +184,7 @@ describe("day 4", () => {
     // £100 budget, £1,000 spent: no plan left, no room.
     const mem = seed({ budget: 100 });
     const { graph, calls } = fakeGraph();
-    const result = await runCreativeTestsRead({ env: WRITES, db: mem.db, graph, now: morning(23), showDays });
+    const result = await runCreativeTestsRead({ env: WRITES, db: mem.db, graph, now: morning(22), showDays });
     assert.ok("records" in result);
     assert.deepEqual(calls, ["status 222 PAUSED"]);
     assert.equal(result.records[0]!.text, "Stopped: both above the show's £3.00 per checkout");
@@ -185,9 +194,9 @@ describe("day 4", () => {
   });
 
   it("a winner at or under the benchmark is left for Matas to call: no write", async () => {
-    const mem = seed({ days: variantDays(22, [9, 3], [4, 0]) });
+    const mem = seed({ days: variantDays(21, [9, 3], [4, 0]) });
     const { graph, calls } = fakeGraph();
-    const result = await runCreativeTestsRead({ env: WRITES, db: mem.db, graph, now: morning(23), showDays });
+    const result = await runCreativeTestsRead({ env: WRITES, db: mem.db, graph, now: morning(22), showDays });
     assert.ok("records" in result);
     assert.equal(result.records[0]!.state, "ready_to_call");
     assert.equal(calls.length, 0);
@@ -198,25 +207,25 @@ describe("day 4", () => {
 describe("day 8", () => {
   const day4 = { day4: [{ variantId: "v-payoff", cost: null, results: 0 }, { variantId: "v-earlier", cost: null, results: 0 }] };
 
-  it("neither improved: stopped, paused once, never resumed", async () => {
-    const mem = seed({ extensions: 1, evidence: day4, days: variantDays(26, [5.04, 0], [2.96, 0]) });
+  it("on its end day (26 Nov), neither improved: paused at that read, once, never resumed", async () => {
+    const mem = seed({ extensions: 1, evidence: day4, days: variantDays(25, [5.04, 0], [2.96, 0]) });
     const { graph, calls } = fakeGraph();
-    const result = await runCreativeTestsRead({ env: WRITES, db: mem.db, graph, now: morning(27), showDays });
+    const result = await runCreativeTestsRead({ env: WRITES, db: mem.db, graph, now: morning(26), showDays });
     assert.ok("records" in result);
     assert.equal(result.records[0]!.text, "Stopped: both above the show's £3.00 per checkout");
     assert.deepEqual(calls, ["status 222 PAUSED"]);
     assert.equal(mem.tables.creative_tests![0]!.state, "stopped");
     // Stopped is no longer running: a later morning reads nothing and writes nothing.
-    await runCreativeTestsRead({ env: WRITES, db: mem.db, graph, now: morning(28), showDays });
+    await runCreativeTestsRead({ env: WRITES, db: mem.db, graph, now: morning(27), showDays });
     assert.deepEqual(calls, ["status 222 PAUSED"]);
     assert.ok(!calls.some((c) => c.includes("ACTIVE")));
   });
 
   it("one came within 30 % with no results at day 4: a second extension to 23:59 on day 12, keeping who earned it", async () => {
     // Payoff £11.40 / 3 = £3.80 over 8 days, within 30 % of £3.00.
-    const mem = seed({ extensions: 1, evidence: day4, days: variantDays(26, [11.4, 3], [6, 0]) });
+    const mem = seed({ extensions: 1, evidence: day4, days: variantDays(25, [11.4, 3], [6, 0]) });
     const { graph, calls } = fakeGraph();
-    const result = await runCreativeTestsRead({ env: WRITES, db: mem.db, graph, now: morning(27), showDays });
+    const result = await runCreativeTestsRead({ env: WRITES, db: mem.db, graph, now: morning(26), showDays });
     assert.ok("records" in result);
     assert.deepEqual(calls, ["end 222 2026-11-30T23:59:00+0000"]);
     const test = mem.tables.creative_tests![0]!;
@@ -226,11 +235,88 @@ describe("day 8", () => {
   });
 });
 
+describe("TF9: the end day, the morning after, and the fallback (HT4)", () => {
+  const noBenchmark = async () => [] as Record<string, unknown>[];
+
+  it("before the end day nothing is written, even with every variant above the show", async () => {
+    const mem = seed({ days: variantDays(20, [2, 0], [1.5, 0]) });
+    const { graph, calls } = fakeGraph();
+    const result = await runCreativeTestsRead({ env: WRITES, db: mem.db, graph, now: morning(21), showDays });
+    assert.ok("records" in result);
+    assert.equal(result.records[0]!.action, "none");
+    assert.equal(calls.length, 0);
+  });
+
+  it("no benchmark: nothing on the end day; the morning after is the last read and still finds a winner", async () => {
+    const mem = seed({ days: variantDays(21, [6, 2], [3, 0]) });
+    const { graph, calls } = fakeGraph();
+    const end = await runCreativeTestsRead({ env: WRITES, db: mem.db, graph, now: morning(22), showDays: noBenchmark });
+    assert.ok("records" in end);
+    assert.equal(end.records[0]!.action, "none");
+    assert.equal(mem.tables.creative_tests![0]!.state, "running");
+    // The morning after reads all the spend, 22 Nov included: the payoff drop's third checkout lands.
+    mem.tables.ad_daily_insights!.push(day("2026-11-22", "ad-payoff", 3, 1), day("2026-11-22", "ad-earlier", 1, 0));
+    const after = await runCreativeTestsRead({ env: WRITES, db: mem.db, graph, now: morning(23), showDays: noBenchmark });
+    assert.ok("records" in after);
+    assert.equal(after.records[0]!.state, "ready_to_call");
+    assert.equal(calls.length, 0);
+  });
+
+  it("no benchmark and no winner: the morning after reads \"No clear winner by day 4\", with no write", async () => {
+    const mem = seed();
+    const { graph, calls } = fakeGraph();
+    await runCreativeTestsRead({ env: WRITES, db: mem.db, graph, now: morning(22), showDays: noBenchmark });
+    mem.tables.ad_daily_insights!.push(day("2026-11-22", "ad-payoff", 0.6, 0), day("2026-11-22", "ad-earlier", 0.4, 0));
+    const after = await runCreativeTestsRead({ env: WRITES, db: mem.db, graph, now: morning(23), showDays: noBenchmark });
+    assert.ok("records" in after);
+    assert.equal(after.records[0]!.text, "No clear winner by day 4");
+    assert.equal(mem.tables.creative_tests![0]!.state, "no_clear_winner");
+    assert.equal(calls.length, 0);
+  });
+
+  it("a read that doesn't cover the whole of the day before makes no write", async () => {
+    const mem = seed({ skipRestate: [22] });
+    const { graph, calls } = fakeGraph();
+    const result = await runCreativeTestsRead({ env: WRITES, db: mem.db, graph, now: morning(22), showDays });
+    assert.ok("records" in result);
+    assert.deepEqual([result.records[0]!.action, result.records[0]!.pending], ["extend", "yesterday's insights aren't restated yet"]);
+    assert.equal(calls.length, 0);
+    assert.equal(mem.tables.creative_tests![0]!.extensions, 0);
+  });
+
+  it("nothing is written after 23:00 London", async () => {
+    const mem = seed();
+    const { graph, calls } = fakeGraph();
+    const result = await runCreativeTestsRead({ env: WRITES, db: mem.db, graph, now: new Date("2026-11-22T23:30:00Z"), force: true, showDays });
+    assert.ok("records" in result);
+    assert.equal(result.records[0]!.pending, "after 23:00 London");
+    assert.equal(calls.length, 0);
+  });
+
+  it("a missed end day falls back to the next morning's read, which extends (the ad set back after its night off)", async () => {
+    const mem = seed({ days: variantDays(22, [2.52, 0], [1.48, 0]) });
+    const { graph, calls } = fakeGraph();
+    const result = await runCreativeTestsRead({ env: WRITES, db: mem.db, graph, now: morning(23), showDays });
+    assert.ok("records" in result);
+    assert.deepEqual(calls, ["end 222 2026-11-26T23:59:00+0000"]);
+    assert.equal(mem.tables.creative_tests![0]!.extensions, 1);
+  });
+
+  it("after an end day whose read ran and wrote nothing, the next morning writes nothing either: the ad set ended, so it reads stopped", async () => {
+    const mem = seed({ days: variantDays(22, [2.52, 0], [1.48, 0]), reads: [{ test_id: "t1", read_day: "2026-11-22", variants: [], state: "extended" }] });
+    const { graph, calls } = fakeGraph();
+    const result = await runCreativeTestsRead({ env: WRITES, db: mem.db, graph, now: morning(23), showDays });
+    assert.ok("records" in result);
+    assert.equal(calls.length, 0);
+    assert.equal(mem.tables.creative_tests![0]!.state, "stopped");
+  });
+});
+
 describe("what it never does", () => {
   it("never writes to an ad set that isn't a creative test's", async () => {
     const mem = seed({ source: "launch" });
     const { graph, calls } = fakeGraph();
-    const result = await runCreativeTestsRead({ env: WRITES, db: mem.db, graph, now: morning(23), showDays });
+    const result = await runCreativeTestsRead({ env: WRITES, db: mem.db, graph, now: morning(22), showDays });
     assert.ok("records" in result);
     assert.equal(result.records[0]!.pending, "not a creative test ad set");
     assert.equal(calls.length, 0);
@@ -239,7 +325,7 @@ describe("what it never does", () => {
   it("skips an archived client's tests", async () => {
     const mem = seed({ archived: true });
     const { graph, calls } = fakeGraph();
-    const result = await runCreativeTestsRead({ env: WRITES, db: mem.db, graph, now: morning(23), showDays });
+    const result = await runCreativeTestsRead({ env: WRITES, db: mem.db, graph, now: morning(22), showDays });
     assert.ok("records" in result);
     assert.equal(result.tests, 0);
     assert.equal(calls.length, 0);
@@ -248,7 +334,7 @@ describe("what it never does", () => {
   it("a Meta error is reported, the test row stays, and the day's read says why", async () => {
     const mem = seed();
     const { graph } = fakeGraph("end");
-    const result = await runCreativeTestsRead({ env: WRITES, db: mem.db, graph, now: morning(23), showDays });
+    const result = await runCreativeTestsRead({ env: WRITES, db: mem.db, graph, now: morning(22), showDays });
     assert.ok("errors" in result);
     assert.equal(result.ok, false);
     assert.match(result.errors[0]!.error, /Invalid parameter/);
