@@ -165,6 +165,7 @@ interface Props {
     eventAt: string | null;
     artists: { name: string; addedAt: string }[];
     lastProposalAt: string | null;
+    warnings: import("@/lib/ticket-warnings/next-rung").RanRung[];
   } | null;
 }
 
@@ -373,6 +374,7 @@ export function EventDetail({
                   eventAt={bank.eventAt}
                   artists={bank.artists}
                   lastProposalAt={bank.lastProposalAt}
+                  warnings={bank.warnings}
                 />
               ) : null}
               {bank && event.status !== "cancelled" ? <OffersSheet eventId={bank.eventId} /> : null}

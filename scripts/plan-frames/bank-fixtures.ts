@@ -1,4 +1,5 @@
 import type { ReleaseRow, ClaimLine } from "@/components/dashboard/asset-bank/surface";
+import type { Release } from "@/lib/releases/types";
 
 /**
  * AB1 as drawn. Today is 7 Nov 2026. No counts.
@@ -87,6 +88,33 @@ export const AB1_CLAIMS: ClaimLine[] = [
   { text: "3rd release 90% sold out · payday window", chip: "proposed · Mon read", tone: "warn" },
   { text: "Final X · 3rd release", chip: "later · after 90%", tone: "dash" },
   { text: "General sale 90% sold out", chip: "later · needs selling fast", tone: "dash" },
+];
+
+/** AB1c. Today is 7 Nov 2026. Presale listed Wed 21 Oct, General sale Fri 30 Oct. Both on sale. */
+export const AB1C_NOW = "2026-11-07T12:00:00Z";
+
+function ab1cRelease(name: string, position: number, listAt: string): Release {
+  return {
+    id: name,
+    eventId: "puzzle",
+    position,
+    name,
+    communityAt: null,
+    listAt,
+    state: "on_sale",
+    stateAt: listAt,
+    stateSource: "entry",
+    stateSetBy: "matas",
+    price: null,
+    capacity: null,
+    sold: null,
+    remaining: null,
+  };
+}
+
+export const AB1C_RELEASES: Release[] = [
+  ab1cRelease("Presale", 1, "2026-10-21T12:00:00Z"),
+  ab1cRelease("General sale", 2, "2026-10-30T12:00:00Z"),
 ];
 
 /** AB1b. Two rows from the dates, nobody has tapped them. */

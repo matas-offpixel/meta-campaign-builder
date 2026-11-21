@@ -1,7 +1,9 @@
 import { LiveLadder } from "@/components/dashboard/asset-bank/live";
 import { AssetBoard, ClaimCards, OffersSheet, PaydayCalendar, ReleasesPanel } from "@/components/dashboard/asset-bank/surface";
-import { puzzleLadder } from "@/lib/releases/ladder";
-import { AB1_CLAIMS, AB1_ROWS, AB1B_ROWS } from "@/scripts/plan-frames/bank-fixtures";
+import { defaultLadder, puzzleLadder } from "@/lib/releases/ladder";
+import { rowsFromReleases } from "@/lib/releases/view";
+import { claimPanel } from "@/lib/ticket-warnings/next-rung";
+import { AB1_CLAIMS, AB1_ROWS, AB1B_ROWS, AB1C_NOW, AB1C_RELEASES } from "@/scripts/plan-frames/bank-fixtures";
 
 /** An AB frame. Fixture only: nothing here fetches. */
 export function AssetBankFrameMount({ id }: { id: string }) {
@@ -43,6 +45,7 @@ export function AssetBankFrameMount({ id }: { id: string }) {
           narrowFootnote="from the event's dates · tap to confirm"
         />
       ) : null}
+      {id === "AB1c" ? <Ab1c /> : null}
       {id === "AB2" ? <ClaimCards /> : null}
       {id === "AB3" ? <PaydayCalendar /> : null}
       {id === "AB4" ? <AssetBoard /> : null}
@@ -72,6 +75,38 @@ export function AssetBankFrameMount({ id }: { id: string }) {
           <OffersSheet initial={{ kind: "payment_plan", today: "10", parts: "3", condition: "final release" }} />
         </div>
       ) : null}
+    </div>
+  );
+}
+
+function Ab1c() {
+  const ladder = defaultLadder();
+  const view = rowsFromReleases(AB1C_RELEASES, ladder, AB1C_NOW);
+  const claims = claimPanel(AB1C_RELEASES, ladder, AB1C_NOW).map((row) => ({
+    text: row.text,
+    chip: row.chip,
+    tone: row.tone,
+    ...(row.needs ? { needs: row.needs } : {}),
+  }));
+  return (
+    <div>
+      <p className="text-lg font-medium">Puzzle 4th Birthday</p>
+      <p className="mb-3 text-xs text-muted-foreground">
+        <span className="hidden sm:inline">Puzzle · on sale · Next payday Friday 27 Nov · 50 days to the event</span>
+        <span className="sm:hidden">on sale · payday Fri 27 Nov · 50 days</span>
+      </p>
+      <ReleasesPanel
+        kicker="Puzzle 4th Birthday"
+        place="Sun 27 Dec · Circuit & Engine Rooms"
+        headline={view.headline}
+        headlineRest={view.headlineRest}
+        narrowRest={view.headlineRest}
+        rows={view.rows}
+        claims={claims}
+        claimSummary=""
+        footnote="tap a state to set it"
+        claimsOnNarrow
+      />
     </div>
   );
 }

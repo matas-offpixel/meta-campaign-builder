@@ -19,7 +19,27 @@ export type RungResult = {
   triggerKind: LadderRung["triggerKind"];
   triggerValue: string;
   met: boolean;
+  /** True when the rung can no longer come true. Distinct from unmet. */
+  ended: boolean;
   because: string;
+};
+
+export type RungStanding = "met" | "unmet" | "ended";
+
+/** A settled warning that already ran. The panel keeps it after the rung ends. */
+export type RanRung = {
+  releaseId: string | null;
+  claim: string;
+  state: string;
+  ranAt: string | null;
+};
+
+export type PanelClaim = {
+  text: string;
+  chip: string;
+  tone: "ok" | "dash";
+  needs: string | null;
+  kind: "done" | "now" | "later";
 };
 
 const PAST_ON_SALE = new Set(["on_sale", "selling_fast", "final_x", "sold_out"]);
@@ -53,6 +73,24 @@ function countdownMet(release: Release, nowIso: string, context: DerivedContext)
 
 function roster(release: Release, siblings: readonly Release[]): Release[] {
   return siblings.some((row) => row.id === release.id) ? [...siblings] : [...siblings, release];
+}
+
+/**
+ * A rung that can no longer come true. Rung 1 ("{release} live") has ended
+ * once a later release's list time has passed. Other kinds are not ended;
+ * a later ruling can add one here without a second copy of this test.
+ */
+export function rungHasEnded(
+  rung: Pick<LadderRung, "triggerKind" | "triggerValue">,
+  release: Release,
+  siblings: readonly Release[],
+  nowIso: string,
+): boolean {
+  if (rung.triggerKind === "state" && rung.triggerValue === "on_sale") {
+    const latest = latestListed(roster(release, siblings), nowIso);
+    return latest != null && latest.id !== release.id;
+  }
+  return false;
 }
 
 /** The latest release whose list time has passed. Rung 1 belongs to this one only. */
@@ -160,8 +198,9 @@ function because(rung: LadderRung, release: Release, siblings: readonly Release[
  * The rung this release may say now. The roll-call wins, on the one live
  * release (on sale, selling fast, or final X), when two or more are sold out.
  * Otherwise the furthest met % or state rung. Derived rungs are event-level
- * and never take a release's mark. When nothing is met, the first such rung,
- * marked unmet, so the timeline can show what is next.
+ * and never take a release's mark. An ended rung is not unmet: it is skipped,
+ * and the next rung that can still come true is the one returned. When every
+ * such rung has ended, that ended rung is returned with ended set.
  */
 export function nextRung(
   release: Release,
@@ -173,8 +212,9 @@ export function nextRung(
   if (isBackfilled(release)) return null;
   const ordered = [...ladder].sort((a, b) => a.position - b.position);
   const evaluated = ordered.map((rung) => {
-    const isMet = met(rung, release, siblings, nowIso, context);
-    return { rung, isMet, claim: claimText(rung, release, siblings, nowIso, context, ladder) };
+    const ended = rungHasEnded(rung, release, siblings, nowIso);
+    const isMet = !ended && met(rung, release, siblings, nowIso, context);
+    return { rung, isMet, ended, claim: claimText(rung, release, siblings, nowIso, context, ladder) };
   });
   const live = release.state === "on_sale" || release.state === "selling_fast" || release.state === "final_x";
   const roll = evaluated.find((row) => isRoll(row.rung) && row.isMet && row.rung.options.preferred !== false);
@@ -184,18 +224,22 @@ export function nextRung(
       triggerKind: roll.rung.triggerKind,
       triggerValue: roll.rung.triggerValue,
       met: true,
+      ended: false,
       because: because(roll.rung, release, siblings, true, nowIso, context),
     };
   }
-  const reached = evaluated.filter((row) => row.isMet && !isRoll(row.rung) && !isDerived(row.rung));
-  const pick = reached.length ? reached[reached.length - 1] : evaluated.find((row) => !isRoll(row.rung) && !isDerived(row.rung));
-  if (!pick) return null;
+  const open = (row: { rung: LadderRung; ended: boolean }) => !isRoll(row.rung) && !isDerived(row.rung) && !row.ended;
+  const reached = evaluated.filter((row) => row.isMet && open(row));
+  const pick = reached.length ? reached[reached.length - 1] : evaluated.find((row) => open(row));
+  const chosen = pick ?? evaluated.find((row) => row.ended && !isRoll(row.rung) && !isDerived(row.rung));
+  if (!chosen) return null;
   return {
-    claim: pick.claim,
-    triggerKind: pick.rung.triggerKind,
-    triggerValue: pick.rung.triggerValue,
-    met: pick.isMet,
-    because: because(pick.rung, release, siblings, pick.isMet, nowIso, context),
+    claim: chosen.claim,
+    triggerKind: chosen.rung.triggerKind,
+    triggerValue: chosen.rung.triggerValue,
+    met: chosen.isMet,
+    ended: !pick,
+    because: because(chosen.rung, release, siblings, chosen.isMet, nowIso, context),
   };
 }
 
@@ -248,7 +292,63 @@ export function derivedProposals(
 }
 
 function row(rung: LadderRung, claim: string, why: string): RungResult {
-  return { claim, triggerKind: rung.triggerKind, triggerValue: rung.triggerValue, met: true, because: why };
+  return { claim, triggerKind: rung.triggerKind, triggerValue: rung.triggerValue, met: true, ended: false, because: why };
+}
+
+const RAN = new Set(["approved", "scheduled", "live", "done"]);
+
+function ranChip(iso: string | null): string {
+  if (!iso) return "done";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "done";
+  const label = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", timeZone: "Europe/London" }).format(date);
+  return `ran ${label}`;
+}
+
+function belongsTo(past: RanRung, release: Release): boolean {
+  if (past.releaseId) return past.releaseId === release.id;
+  return past.claim === release.name || past.claim.startsWith(`${release.name} `);
+}
+
+function panelNeeds(rung: RungResult): string | null {
+  if (rung.triggerKind === "state" && rung.triggerValue === "selling_fast") return "needs selling fast";
+  return rung.because.startsWith("needs ") ? rung.because : null;
+}
+
+/**
+ * One release's claims for the panel. Done rungs that already ran stay,
+ * including after a later release goes live. Then the next rung that can
+ * still come true. An ended rung is left out, and is never shown as later.
+ */
+export function claimPanel(
+  releases: readonly Release[],
+  ladder: readonly LadderRung[],
+  nowIso: string,
+  context: DerivedContext = {},
+  history: readonly RanRung[] = [],
+): PanelClaim[] {
+  const nowRows: PanelClaim[] = [];
+  const laterRows: PanelClaim[] = [];
+  for (const release of releases) {
+    if (isBackfilled(release)) continue;
+    const ran = history.filter((past) => RAN.has(past.state) && belongsTo(past, release));
+    for (const past of ran) {
+      nowRows.push({ text: past.claim, chip: ranChip(past.ranAt), tone: "ok", needs: null, kind: "done" });
+    }
+    const rung = nextRung(release, ladder, releases, nowIso, context);
+    if (!rung || rung.ended) continue;
+    if (ran.some((past) => past.claim === rung.claim)) continue;
+    const row: PanelClaim = {
+      text: rung.claim,
+      chip: rung.met ? "met" : "later",
+      tone: rung.met ? "ok" : "dash",
+      needs: rung.met ? null : panelNeeds(rung),
+      kind: rung.met ? "now" : "later",
+    };
+    if (rung.met) nowRows.push(row);
+    else laterRows.push(row);
+  }
+  return [...nowRows, ...laterRows];
 }
 
 /** A proposal exists only when the met rung's words differ from the last one. */

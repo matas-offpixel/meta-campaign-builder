@@ -7,7 +7,9 @@ import { Button } from "@/components/ui/button";
 import { isInPaydayWindow } from "@/lib/dashboard/pacing";
 import { enteredByLine, enteredByWhen, offerRefusal, offerWords, type OfferFigures, type OfferKind } from "@/lib/releases/offers";
 import { paydayPush } from "@/lib/releases/windows";
-import { RELEASE_STATES, type ReleaseState } from "@/lib/releases/types";
+import { defaultLadder } from "@/lib/releases/ladder";
+import { RELEASE_STATES, type Release, type ReleaseState } from "@/lib/releases/types";
+import { rungHasEnded } from "@/lib/ticket-warnings/next-rung";
 
 const FULL = ["not yet", "on sale", "selling fast", "final X", "sold out"];
 const SHORT = ["not yet", "on sale", "fast", "final", "out"];
@@ -43,7 +45,7 @@ export type ReleaseRow = {
   rungs: RungMark[];
 };
 
-export type ClaimLine = { text: string; chip: string; tone: "ok" | "warn" | "dash" };
+export type ClaimLine = { text: string; chip: string; tone: "ok" | "warn" | "dash"; needs?: string };
 
 export function ReleasesPanel({
   kicker,
@@ -61,6 +63,7 @@ export function ReleasesPanel({
   onState,
   onCount,
   bare = false,
+  claimsOnNarrow = false,
 }: {
   kicker: string;
   place: string;
@@ -78,6 +81,8 @@ export function ReleasesPanel({
   onCount?: (id: string, sold: number) => Promise<void>;
   /** AB1b. The state panel only: no timeline, no claims. */
   bare?: boolean;
+  /** AB1c. The claims list is on the narrow width too. */
+  claimsOnNarrow?: boolean;
 }) {
   const [ask, setAsk] = useState<string | null>(null);
   const [counting, setCounting] = useState<string | null>(null);
@@ -211,15 +216,22 @@ export function ReleasesPanel({
             </p>
           )}
         </section>
-        {bare ? null : <section className="hidden rounded-md border border-border bg-card p-4 sm:block">
+        {bare ? null : <section className={claimsOnNarrow ? "rounded-md border border-border bg-card p-4" : "hidden rounded-md border border-border bg-card p-4 sm:block"}>
           <div className="mb-3 flex items-baseline justify-between">
             <h3 className={PANEL_TITLE}>Claims</h3>
             <span className="text-[11px] text-muted-foreground">{claimSummary}</span>
           </div>
           <ul className="space-y-1.5 text-xs">
             {claims.map((claim) => (
-              <li key={claim.text} className="flex justify-between gap-2">
-                <span>{claim.text}</span>
+              <li key={`${claim.text}-${claim.chip}`} className="flex justify-between gap-2">
+                {claim.needs ? (
+                  <span>
+                    <span className="block">{claim.text}</span>
+                    <span className="mt-0.5 block text-[11px] text-muted-foreground">{claim.needs}</span>
+                  </span>
+                ) : (
+                  <span>{claim.text}</span>
+                )}
                 <Chip tone={claim.tone}>{claim.chip}</Chip>
               </li>
             ))}
@@ -342,6 +354,29 @@ function Piece() {
 }
 
 const OFFER_ENTERED_AT = new Date("2026-11-08T14:10:00Z");
+const AB2_NOW = "2026-11-07T12:00:00Z";
+
+function ab2Release(name: string, position: number, listAt: string): Release {
+  return {
+    id: name,
+    eventId: "puzzle",
+    position,
+    name,
+    communityAt: null,
+    listAt,
+    state: "on_sale",
+    stateAt: listAt,
+    stateSource: "entry",
+    stateSetBy: "matas",
+    price: null,
+    capacity: null,
+    sold: null,
+    remaining: null,
+  };
+}
+
+const AB2_PRESALE = ab2Release("Presale", 1, "2026-10-21T12:00:00Z");
+const AB2_GENERAL = ab2Release("General sale", 2, "2026-10-30T12:00:00Z");
 
 export function ClaimCards({
   onCorrect,
@@ -352,6 +387,8 @@ export function ClaimCards({
   enteredBy?: string | null;
 }) {
   const [correcting, setCorrecting] = useState(false);
+  const liveRung = defaultLadder().find((rung) => rung.triggerKind === "state" && rung.triggerValue === "on_sale");
+  const presaleLiveEnded = liveRung != null && rungHasEnded(liveRung, AB2_PRESALE, [AB2_PRESALE, AB2_GENERAL], AB2_NOW);
   const entered = enteredByLine(enteredBy, OFFER_ENTERED_AT);
   const when = enteredByWhen(OFFER_ENTERED_AT);
   return (
@@ -387,7 +424,7 @@ export function ClaimCards({
           <Button type="button" size="sm" variant="outline">Correct</Button>
         </div>
       </article>
-      <article className="grid grid-cols-[auto_1fr] gap-3 rounded-md border border-dashed border-border bg-card p-3 sm:grid-cols-[auto_1fr_auto]">
+      {presaleLiveEnded ? <article className="grid grid-cols-[auto_1fr] gap-3 rounded-md border border-dashed border-border bg-card p-3 sm:grid-cols-[auto_1fr_auto]">
         <div className="flex h-28 w-16 shrink-0 flex-col items-center justify-center rounded px-0.5 text-center text-[8px] font-semibold leading-tight" style={{ background: "linear-gradient(160deg,#1e1810,#3a3a4a)" }}>
           <span style={{ color: "rgba(255,255,255,0.45)" }}>PRESALE<br />LIVE</span>
         </div>
@@ -406,7 +443,7 @@ export function ClaimCards({
         <div className="col-span-2 sm:col-span-1">
           <Button type="button" size="sm" variant="outline">Correct</Button>
         </div>
-      </article>
+      </article> : null}
       <article className="grid grid-cols-[auto_1fr] gap-3 rounded-md border border-warning bg-card p-3 sm:grid-cols-[auto_1fr_auto]">
         <div className="flex h-28 w-16 shrink-0 flex-col items-center justify-center rounded px-0.5 text-center text-[8px] font-semibold leading-tight text-white" style={{ background: "linear-gradient(160deg,#1e1810,#5a3a2a)" }}>
           <span style={{ color: "#FE3232" }}>EARLY BIRD, 1ST &amp; 2ND<br />RELEASE SOLD OUT</span>
