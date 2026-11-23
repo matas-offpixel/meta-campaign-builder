@@ -106,6 +106,10 @@
       "schedule": "30 3 * * *"
     },
     {
+      "path": "/api/cron/learning-findings",
+      "schedule": "15 4 * * *"
+    },
+    {
       "path": "/api/cron/onsale-refresh",
       "schedule": "0 6 * * 1"
     },

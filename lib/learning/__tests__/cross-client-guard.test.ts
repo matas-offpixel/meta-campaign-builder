@@ -3,7 +3,7 @@
  * client-status guard: follow @/ and relative imports from the share,
  * landing, client-admin and webhook trees, and fail if a reachable file
  * imports the cross-client module or names copy_performance,
- * copy_features or ad_copy.
+ * copy_features, learning_findings (migration 264) or ad_copy.
  * Every other importer of that module has to call requireOperator(.
  */
 
@@ -75,6 +75,8 @@ function namesCopyLibrary(src: string): boolean {
     /learning\/cross-client/.test(src) ||
     /\bcopy_performance\b/.test(src) ||
     /\bcopy_features\b/.test(src) ||
+    /\blearning_findings\b/.test(src) ||
+    /learning\/findings\//.test(src) ||
     /(["'`])ad_copy\1/.test(src) ||
     /components\/insights-rail\//.test(src) ||
     /lib\/insights-rail\//.test(src) ||
@@ -127,6 +129,22 @@ describe("cross-client copy guard", () => {
     for (const [file, src] of reachable()) {
       assert.doesNotMatch(src, /railData|railClusterRows|railTikTokRows/, file);
     }
+  });
+
+  it("learning_findings is named only by the findings module and its cron (RP1, migration 264)", () => {
+    // Operator-only (OP10). PR2's reader joins this list and calls requireOperator(.
+    const allowed = ["app/api/cron/learning-findings/route.ts", "lib/learning/findings/load-observed-tests.ts", "lib/learning/findings/observed-tests.ts"];
+    const users = sourceFiles().filter((file) => {
+      if (file.includes("__tests__")) return false;
+      let src: string;
+      try {
+        src = readFileSync(file, "utf8");
+      } catch {
+        return false;
+      }
+      return /\blearning_findings\b|learning\/findings\//.test(src);
+    });
+    assert.deepEqual(users.sort(), allowed);
   });
 
   it("the audience-builder and TikTok contexts are declared under the operator layout only (issue 2 guard)", () => {

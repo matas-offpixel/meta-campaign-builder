@@ -64,7 +64,7 @@ describe("share scope (D11)", () => {
     assert.deepEqual(input.rollups.map((r) => r.eventId), ["e1"]);
     assert.deepEqual(input.metaCampaignDays.map((r) => r.campaignId), ["c1"]);
     const tables = new Set(reads.map((r) => r.table));
-    for (const t of ["tag_performance", "creative_scores", "client_funnel_benchmarks", "interest_clusters", "copy_performance", "copy_features"]) {
+    for (const t of ["tag_performance", "creative_scores", "client_funnel_benchmarks", "interest_clusters", "copy_performance", "copy_features", "learning_findings"]) {
       assert.equal(tables.has(t), false, t);
     }
     const lib = reads.find((r) => r.table === "reference_lift_library");
