@@ -87,7 +87,7 @@
     },
     {
       "path": "/api/cron/bm-page-scan",
-      "schedule": "15 4 * * *"
+      "schedule": "15 21,1,4 * * *"
     },
     {
       "path": "/api/cron/optimisation-tick",

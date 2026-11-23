@@ -14,7 +14,12 @@ export interface CronAlarmSpec {
    * Which zero counts as implausible. `never` means this cron legitimately
    * writes nothing most runs, so only a missing report is worth an alarm.
    */
-  zeroRule: "never" | "rollup_meta" | "tickets" | "tier_channel" | "own_run";
+  zeroRule: "never" | "rollup_meta" | "tickets" | "tier_channel" | "night_all_zero";
+  /**
+   * `night_all_zero` only: runs scheduled per London night. A zero alarms
+   * once this many runs of the night have all done 0, or the night is over.
+   */
+  runsPerNight?: number;
 }
 
 /** A cron is "missing" after this many times its own interval. */
@@ -104,10 +109,13 @@ export const CRON_ALARMS: CronAlarmSpec[] = [
   // 0 7,8 UTC, acting at 08:00 London: the creative tests' daily read (TF2, TF5–TF8). Most days it reads no running test.
   { cronName: "creative-tests-read", intervalMinutes: 1440, zeroRule: "never" },
 
-  // 15 4 UTC. One row per run (rows_written = BMs scanned OK, rows_considered
-  // = BMs not under an archived client). Until 18 Nov it was left out here
-  // because it wrote no cron_runs row; it was being killed at 800 s every day.
-  { cronName: "bm-page-scan", intervalMinutes: 1440, zeroRule: "own_run" },
+  // 15 21,1,4 UTC: three runs a London night, each stopping at the first
+  // rate limit. One row per run (rows_written = BMs scanned OK,
+  // rows_considered = BMs not under an archived client). A failed run
+  // alarms at once; a zero (rate-limited or not) only when every run that
+  // night did 0. intervalMinutes is 1440 on purpose, not the longest real
+  // gap (17 h): "not reporting" stays at 48 h without a run.
+  { cronName: "bm-page-scan", intervalMinutes: 1440, zeroRule: "night_all_zero", runsPerNight: 3 },
   { cronName: "budget-pacing-check", intervalMinutes: 60, zeroRule: "never" },
 
   // The watcher watches itself: if the evaluator stops running, nothing

@@ -18,6 +18,11 @@ import {
   loadArchivedClientIds,
   logSkippedArchivedClients,
 } from "@/lib/db/client-status";
+import {
+  createMetaCallMeter,
+  withMetaCallMeter,
+  type AppUsageReading,
+} from "@/lib/meta/call-meter";
 import { scanBusinessManager } from "@/lib/bm/sync";
 import { scanBusinessManagerAllAssets, type AssetScanResult } from "@/lib/bm/sync-assets";
 import {
@@ -65,6 +70,15 @@ export interface BmCronScanSummary {
   rateLimitedAt: string | null;
   /** Distinct-token reads of `/me/accounts` + business-scoped ids this run. */
   tokenContextReads: number;
+  /** Graph HTTP attempts this run made, retries included (lib/meta/call-meter.ts). */
+  metaCalls: number;
+  /** The last `X-App-Usage` reading of the run (as of the last BM scanned), or null if Meta sent none. */
+  appUsageLast: AppUsageReading | null;
+  /**
+   * The `X-App-Usage` reading on the response that tripped the breaker. Null
+   * when the run was not rate-limited, or Meta sent no header on that response.
+   */
+  appUsageAtLimit: AppUsageReading | null;
   totals: { pages: number; newPages: number; missing: number; errors: number };
   assetTotals: { assets: number; newAssets: number; missing: number; errors: number };
   skippedBusinessIds: Array<{ businessId: string; reason: BmSkipReason }>;
@@ -204,9 +218,26 @@ export async function runBmCronScan(
     return { page, assets, rateLimited: assets.some((a) => a.rateLimited) };
   }
 
-  const loop = await runBmScanLoop<BusinessManager, BmOutcome>({
+  // Every Graph call below is counted on this run's own meter, so another
+  // request sharing the instance never shows up in meta_calls.
+  const meter = createMetaCallMeter();
+  let appUsageAtLimit: AppUsageReading | null = null;
+  async function scanOneMetered(bm: BusinessManager): Promise<BmOutcome> {
+    const before = meter.calls;
+    const outcome = await scanOne(bm);
+    if (outcome.rateLimited) appUsageAtLimit = meter.lastRateLimitedAppUsage;
+    const u = meter.lastAppUsage;
+    console.error(
+      `[bm-page-scan] biz=${bm.business_id} meta_calls=${meter.calls - before} total_meta_calls=${meter.calls} ` +
+        `app_usage=${u ? `${u.call_count}/${u.total_time}/${u.total_cputime}` : "none"}` +
+        (outcome.rateLimited ? " rate_limited" : ""),
+    );
+    return outcome;
+  }
+
+  const loop = await withMetaCallMeter(meter, () => runBmScanLoop<BusinessManager, BmOutcome>({
     bms,
-    scanOne,
+    scanOne: scanOneMetered,
     isRateLimited: (o) => o.rateLimited,
     onThrow: (bm, err) => {
       const msg = err instanceof Error ? err.message : String(err);
@@ -216,7 +247,7 @@ export async function runBmCronScan(
     startedAtMs,
     now,
     budgetMs: opts.budgetMs ?? BM_SCAN_TIME_BUDGET_MS,
-  });
+  }));
 
   const results = loop.scanned.map((s) => s.result.page);
   const assetResults = loop.scanned.flatMap((s) => s.result.assets);
@@ -253,7 +284,7 @@ export async function runBmCronScan(
       `skipped_rate_limited=${skippedRateLimited} skipped_time_budget=${skippedTimeBudget} ` +
       `stopped_by=${loop.stoppedBy ?? "none"}` +
       (loop.rateLimitedAt ? ` rate_limited_at=${loop.rateLimitedAt.business_id}` : "") +
-      ` token_reads=${tokenContexts.loads()} | pages=${totals.pages} new=${totals.newPages} ` +
+      ` token_reads=${tokenContexts.loads()} meta_calls=${meter.calls} | pages=${totals.pages} new=${totals.newPages} ` +
       `missing_access=${totals.missing} errors=${totals.errors} | ` +
       `assets=${assetTotals.assets} new=${assetTotals.newAssets} missing_access=${assetTotals.missing} errors=${assetTotals.errors}`,
   );
@@ -272,6 +303,9 @@ export async function runBmCronScan(
     stoppedBy: loop.stoppedBy,
     rateLimitedAt: loop.rateLimitedAt?.business_id ?? null,
     tokenContextReads: tokenContexts.loads(),
+    metaCalls: meter.calls,
+    appUsageLast: meter.lastAppUsage,
+    appUsageAtLimit: loop.stoppedBy === "rate_limited" ? appUsageAtLimit : null,
     totals,
     assetTotals,
     skippedBusinessIds: loop.skipped.map((s) => ({ businessId: s.bm.business_id, reason: s.reason })),
