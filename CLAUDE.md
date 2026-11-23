@@ -578,6 +578,24 @@ REMOTION_LAMBDA_SERVE_URL=
 > skipping ad sets with a `creative_tests` row and archived clients
 > (`lib/learning/findings/`, RP1). DB-only, never a Meta write; check with
 > `scripts/learning-findings.mts --dry-run [--date YYYY-MM-DD] [--event CODE]`.
+> Observed tests never read "Extended" / "Stopped" (design C1 / S4, 23 Nov): a
+> `test_verdict`'s `verdict` is `one_variant`, `no_result_event`, `next_read`,
+> `day8_no_call`, `ended_no_call`, `day4_no_call` or a TF2 state (`running`,
+> `first_read_pending`, `meta_favours`, `ready_to_call`, `no_clear_winner`,
+> `not_enough_variants`), never `extended` / `stopped`; this supersedes the key
+> list in migration 264's column comment, and rows stored as `extended` read on
+> into day 8 and are overwritten on the same key.
+> The same run writes `variant_pair` rows: two ads of one ad set whose names
+> differ on one axis (date, text, CTA, format, [AB-A]/[AB-B]), compared only on
+> ≥ 3 overlapping delivery days in one `phaseOf()` phase with each arm ≥ £10,
+> else "not compared" in the dry run (RP2). And `phase_curve` rows: a show's cost
+> per stage result per phase (teaser → announced → presale → general sale, from
+> `events.announcement_at` / `presale_at` / `general_sale_at` through `phaseOf()`:
+> a mid-day boundary counts from the next London day for pairs and is left out of
+> curves, days after the latest known boundary take its phase, days before the
+> earliest with no `announcement_at` are unknown, and a show with no boundary is
+> `no_phase_data`) with each phase's ratio to the teaser, null with no teaser
+> (RP3, `lib/learning/findings/phase.ts`).
 >
 > Genre pools run in shadow (`docs/design-record/2026-11-16-genre-key.html`,
 > GK1–GK8; `lib/learning/genre/`). `events.genre_family` (migration 253) is one

@@ -10,7 +10,9 @@ import { createServiceRoleClient } from "@/lib/supabase/server";
  * RP1 (docs/design-record/2026-11-23-north-star-3.html): observed tests. Every
  * ad set in a show test campaign gets TF2's read with TF5's benchmark on TF9's
  * cadence, whether or not the app made it, written to learning_findings
- * (migration 264) as a test_verdict. lib/learning/findings/.
+ * (migration 264) as a test_verdict. Then, in the same run and the same
+ * cron_runs row, RP2's variant pairs (variant_pair) and RP3's phase curves
+ * (phase_curve). lib/learning/findings/. The 23 Nov dry run took ~13 s.
  *
  * vercel.json runs "15 4 * * *" (UTC): after the 02:30 UTC ad-daily-insights
  * restate and the 03:30 UTC learning-refresh. Its own cron, not a

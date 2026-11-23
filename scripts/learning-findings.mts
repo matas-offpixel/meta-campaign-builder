@@ -11,8 +11,11 @@
  * writes nothing. It prints each test's variants with spend, spend share,
  * results and cost, the show benchmark, the read day and the verdict. It runs
  * before migration 264 is applied (no stored state: every test reads as on its
- * first night). --apply runs the cron's code, writes included. Zero Meta calls
- * either way.
+ * first night). Then RP2's variant pairs (each compared pair with its arms,
+ * overlap days, phase and ratio, and every sibling pair "not compared: <reason>")
+ * and RP3's phase curves per show (cost per stage result per phase, ratio to the
+ * teaser phase, or "no phase data"), and the run's timings. --apply runs the
+ * cron's code, writes included. Zero Meta calls either way.
  */
 
 import { createClient } from "@supabase/supabase-js";
@@ -69,8 +72,34 @@ for (const rec of result.records) {
   }
   const b = read.benchmark;
   console.log(`benchmark (main campaigns, ${read.firstDeliveryDay ?? "—"} → ${read.figuresTo}): ${b ? (b.cost != null ? `${money(b.cost, rec.currency)} per ${word} · ${money(b.spend, rec.currency)} / ${b.results}` : `none (${money(b.spend, rec.currency)}, 0 ${word}s)`) : "not read"}`);
-  console.log(`verdict: ${read.state} · "${read.text}"${read.action !== "none" ? ` · TF6 ${read.action}${read.pending ? ` (pending: ${read.pending})` : ""}` : ""}${read.after.final ? " · final" : ""}`);
+  console.log(`verdict: ${read.state} · "${read.text}"${read.action !== "none" ? ` · TF6's call on an app test would be ${read.action}; nothing is written${read.pending ? ` (pending: ${read.pending})` : ""}` : ""}${read.after.final ? " · final" : ""}`);
 }
+
+const pc = result.pairsCurves;
+const m = (n: number | null) => (n == null ? "—" : `£${n.toFixed(2)}`);
+console.log(`\n# Variant pairs (RP2) · ${pc.pairs.length} compared · ${pc.notCompared.length} not compared`);
+for (const p of pc.pairs) {
+  const word = p.result === "complete_registration" ? "signup" : p.result === "initiate_checkout" ? "checkout" : "purchase";
+  console.log(`\n## ${p.eventCode} · ${p.campaignName} / ${p.adsetName} · axis ${p.axis} · phase ${p.phase} · ${p.stage}`);
+  console.log(`overlap ${p.overlapDays.length} days: ${p.overlapDays[0]} → ${p.overlapDays[p.overlapDays.length - 1]}`);
+  for (const arm of [p.a, p.b]) console.log(`- ${arm.label} [${arm.side}] · ${m(arm.spend)} · ${arm.results} ${word}s · ${arm.cost != null ? `${m(arm.cost)} per ${word}` : `no ${word}s: cost so far ≥ ${m(arm.spend)}`}`);
+  console.log(`ratio a÷b ${p.ratio ?? "—"} (${p.ratioBound ?? "none"}) · ${p.verdict} · ${p.confidence}`);
+}
+console.log(`\n## Not compared`);
+for (const n of pc.notCompared) console.log(`- ${n.eventCode || "—"} · ${n.adsetName || n.adsetId} · ${n.axis}: "${n.a}" vs "${n.b}" · not compared: ${n.reason}`);
+
+console.log(`\n# Phase curves (RP3) · ${pc.curves.filter((c) => c.state === "curve").length} shows with phase data · ${pc.curves.filter((c) => c.state === "no_phase_data").length} with none`);
+for (const c of pc.curves.filter((x) => x.state === "curve")) {
+  const b = c.boundaries;
+  console.log(`\n## ${c.eventCode} · announced ${b.announcement_at ?? "—"} · presale ${b.presale_at ?? "—"} · general sale ${b.general_sale_at ?? "—"}`);
+  console.log("| Phase | Stage | Result | Days | Spend | Results | Cost | × teaser | Confidence |");
+  console.log("|---|---|---|---|---|---|---|---|---|");
+  if (c.state === "curve") console.log(`excluded (boundary days): ${c.excludedDays.map((x) => `${x.day} ${x.stage} ${m(x.spend)} / ${x.results}`).join(", ") || "none"} · unknown days (before the first known boundary): ${c.unknownDays.count ? `${c.unknownDays.count} (${c.unknownDays.firstDay} → ${c.unknownDays.lastDay}, ${m(c.unknownDays.spend)})` : "none"}`);
+  for (const pt of c.points) console.log(`| ${pt.phase} | ${pt.stage} | ${pt.result} | ${pt.firstDay} → ${pt.lastDay} (${pt.days}) | ${m(pt.spend)} | ${pt.results} | ${m(pt.cost)} | ${pt.ratioToTeaser ?? "—"} | ${pt.confidence} |`);
+}
+console.log(`\nno phase data: ${pc.curves.filter((c) => c.state === "no_phase_data").map((c) => c.eventCode).join(", ") || "none"}`);
+console.log(`\n# Timings\ntests ${result.timings.testsMs} ms · pairs + curves ${result.timings.pairsCurvesMs} ms (discover ${pc.timings.discoverMs}, pairs ${pc.timings.pairsMs}, curves ${pc.timings.curvesMs}) · write ${result.timings.writeMs} ms · total ${result.timings.totalMs} ms (route maxDuration 120 s)`);
+console.log(`rows: test_verdict ${result.records.filter((r) => r.row).length} · variant_pair ${pc.pairRows.length} · phase_curve ${pc.curveRows.length} · ${dryRun ? "would write" : "wrote"} ${dryRun ? result.records.filter((r) => r.row).length + pc.pairRows.length + pc.curveRows.length : result.written}`);
 
 if (result.errors.length) {
   console.log(`\n## Errors`);

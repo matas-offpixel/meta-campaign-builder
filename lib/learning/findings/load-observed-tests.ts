@@ -17,6 +17,9 @@
  *     bm_ad_accounts currencies (lib/learning/currency.ts);
  *   - the stored test_verdict findings, for the state between reads.
  *
+ * After the tests, the same run reads RP2's variant pairs and RP3's phase
+ * curves (load-pairs-curves.ts) and writes their rows in the same upsert.
+ *
  * Writes: one learning_findings row per observed test, upserted on
  * (kind, scope, scope_id, stage, week_start, subject), so a rerun replaces
  * the day's read. Never Meta, never creative_tests.
@@ -28,9 +31,9 @@
  * app reader that PR2 adds gates on OPERATOR_USER_IDS). Relative imports only.
  */
 
-import type { SupabaseClient } from "@supabase/supabase-js";
-
 import { loadArchivedClientIds } from "../../db/client-status.ts";
+import { all, chunks, str, type Db, type Row } from "./read-all.ts";
+import { deleteStaleCurveRows, readPairsAndCurves, type PairsCurvesRead } from "./load-pairs-curves.ts";
 import { GBP_PER_UNIT, KNOWN_ACCOUNT_CURRENCY } from "../currency.ts";
 import { londonDay } from "../../creative-tests/fast-call.ts";
 import { ROUND_TEST_CAMPAIGN_SUFFIXES } from "../../creative-tests/tests-campaign.ts";
@@ -47,8 +50,6 @@ import {
   type PriorRead,
 } from "./observed-tests.ts";
 
-type Db = Pick<SupabaseClient, "from">;
-type Row = Record<string, unknown>;
 
 export const FINDINGS_ENV = "ENABLE_LEARNING_FINDINGS";
 
@@ -67,39 +68,6 @@ const OBSERVED_COLUMNS =
   "date, meta_ad_id, meta_adset_id, meta_campaign_id, campaign_name, adset_name, ad_name, ad_account_id, spend, landing_page_views, registrations, actions, promoted_event, optimization_goal, campaign_objective";
 const SHOW_COLUMNS = "date, meta_ad_id, campaign_name, spend, landing_page_views, registrations, actions";
 
-type Filter = (q: FilterQuery) => FilterQuery;
-type FilterQuery = {
-  eq(c: string, v: unknown): FilterQuery;
-  in(c: string, v: readonly unknown[]): FilterQuery;
-  ilike(c: string, v: string): FilterQuery;
-  gte(c: string, v: string): FilterQuery;
-  lte(c: string, v: string): FilterQuery;
-  order(c: string, o: { ascending: boolean }): FilterQuery;
-  range(a: number, b: number): PromiseLike<{ data: unknown[] | null; error: { message: string; code?: string } | null }>;
-};
-
-/** Every row, paged by 1,000 in a unique order and deduped on it (the PostgREST cap; lib/db/paged-read.ts's rule). */
-async function all(db: Db, table: string, columns: string, filter: Filter, order: readonly string[]): Promise<Row[]> {
-  const out: Row[] = [];
-  const seen = new Set<string>();
-  for (let from = 0; ; from += 1000) {
-    let q = filter(db.from(table).select(columns) as unknown as FilterQuery);
-    for (const column of order) q = q.order(column, { ascending: true });
-    const res = await q.range(from, from + 999);
-    if (res.error) throw new Error(`${table}: ${res.error.message}`);
-    const page = (res.data ?? []) as Row[];
-    for (const row of page) {
-      const key = order.map((c) => String(row[c] ?? "")).join("\u0000");
-      if (seen.has(key)) continue;
-      seen.add(key);
-      out.push(row);
-    }
-    if (page.length < 1000) return out;
-  }
-}
-
-const str = (row: Row | null | undefined, key: string): string => String(row?.[key] ?? "").trim();
-const chunks = <T>(xs: readonly T[], n: number): T[][] => Array.from({ length: Math.ceil(xs.length / n) }, (_, i) => xs.slice(i * n, i * n + n));
 
 /** The show test campaigns' ad sets that delivered in [from, to], with every day of each (to `to`). */
 export async function loadObservedTestDays(db: Db, from: string, to: string): Promise<ObservedAdDay[]> {
@@ -151,10 +119,15 @@ export type FindingsResult =
       readOn: string;
       covered: boolean;
       tests: number;
+      /** Rows written, every kind. */
       written: number;
+      writtenByKind: { test_verdict: number; variant_pair: number; phase_curve: number };
       skipped: { appTest: number; archivedClient: number; findingStands: number };
       findingsTable: "present" | "missing";
       records: ObservedRecord[];
+      /** RP2 / RP3, after the tests. */
+      pairsCurves: PairsCurvesRead;
+      timings: { testsMs: number; pairsCurvesMs: number; writeMs: number; totalMs: number };
       errors: { adsetId: string; error: string }[];
     };
 
@@ -173,6 +146,7 @@ export async function runLearningFindings(input: {
   const readOn = input.readOn ?? londonDay(now.toISOString());
   const yesterday = addDays(readOn, -1);
   const dryRun = input.dryRun === true;
+  const started = Date.now();
 
   const days = await loadObservedTestDays(db, addDays(readOn, -DISCOVERY_DAYS), yesterday);
   let tests = groupObservedTests(days);
@@ -254,8 +228,15 @@ export async function runLearningFindings(input: {
     }
   }
 
-  let written = 0;
-  const rows = records.map((r) => r.row).filter((r): r is LearningFindingRow => r != null);
+  const testsDone = Date.now();
+
+  // RP2 / RP3: variant pairs and phase curves, over the same window.
+  const pairsCurves = await readPairsAndCurves({ db, readOn, discoveryDays: DISCOVERY_DAYS, archived, accountCurrency, eventCodes: input.eventCodes, computedAt });
+  const pairsDone = Date.now();
+
+  const writtenByKind = { test_verdict: 0, variant_pair: 0, phase_curve: 0 };
+  const testRows = records.map((r) => r.row).filter((r): r is LearningFindingRow => r != null);
+  const rows: { kind: keyof typeof writtenByKind }[] = dedupeOnKey([...testRows, ...pairsCurves.pairRows, ...pairsCurves.curveRows]);
   if (!dryRun && rows.length) {
     for (const batch of chunks(rows, 200)) {
       const res = await db.from("learning_findings").upsert(batch, { onConflict: FINDINGS_CONFLICT });
@@ -263,18 +244,45 @@ export async function runLearningFindings(input: {
         errors.push({ adsetId: "*", error: `learning_findings: ${res.error.message}` });
         break;
       }
-      written += batch.length;
+      for (const row of batch) writtenByKind[row.kind] += 1;
+    }
+    if (!errors.length) {
+      const byShow = new Map<string, string[]>();
+      for (const row of pairsCurves.curveRows) byShow.set(row.scope_id, [...(byShow.get(row.scope_id) ?? []), row.subject]);
+      const stale = await deleteStaleCurveRows(db, byShow);
+      if (stale) errors.push({ adsetId: "*", error: stale });
     }
   }
+  const written = writtenByKind.test_verdict + writtenByKind.variant_pair + writtenByKind.phase_curve;
+  const end = Date.now();
 
-  return { ok: errors.length === 0, dryRun, readOn, covered, tests: tests.length, written, skipped, findingsTable, records, errors };
+  return { ok: errors.length === 0, dryRun, readOn, covered, tests: tests.length, written, writtenByKind, skipped, findingsTable, records, pairsCurves, timings: { testsMs: testsDone - started, pairsCurvesMs: pairsDone - testsDone, writeMs: end - pairsDone, totalMs: end - started }, errors };
+}
+
+/** One row per unique key (a batch upsert can't touch a row twice); the last wins. */
+function dedupeOnKey<T extends { kind: string; scope: string; scope_id: string | null; stage: string | null; week_start: string | null; subject: string | null }>(rows: readonly T[]): T[] {
+  const byKey = new Map<string, T>();
+  for (const r of rows) byKey.set([r.kind, r.scope, r.scope_id, r.stage, r.week_start, r.subject].map((v) => v ?? "\u0001").join("\u0000"), r);
+  return [...byKey.values()];
 }
 
 /** The cron's response body: one short line per test, no ad-days. */
 export function summariseFindings(result: FindingsResult): Record<string, unknown> {
   if ("skippedReason" in result) return result;
-  const { records, ...rest } = result;
-  return { ...rest, records: records.map((r) => ({ eventCode: r.test.eventCode, adsetId: r.test.adsetId, adsetName: r.test.adsetName, state: r.read?.state ?? null, text: r.read?.text ?? null, readDay: r.read?.readDay ?? null, skipped: r.skipped })) };
+  const { records, pairsCurves, ...rest } = result;
+  return {
+    ...rest,
+    records: records.map((r) => ({ eventCode: r.test.eventCode, adsetId: r.test.adsetId, adsetName: r.test.adsetName, state: r.read?.state ?? null, text: r.read?.text ?? null, readDay: r.read?.readDay ?? null, skipped: r.skipped })),
+    pairs: { compared: pairsCurves.pairs.length, notCompared: pairsCurves.notCompared.length, verdicts: countBy(pairsCurves.pairs.map((p) => p.verdict)) },
+    curves: { shows: pairsCurves.shows, withPhaseData: pairsCurves.curves.filter((c) => c.state === "curve").length, noPhaseData: pairsCurves.curves.filter((c) => c.state === "no_phase_data").length, rows: pairsCurves.curveRows.length },
+    pairsCurvesTimings: pairsCurves.timings,
+  };
+}
+
+function countBy(values: readonly string[]): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const v of values) out[v] = (out[v] ?? 0) + 1;
+  return out;
 }
 
 /** The cron_runs detail (no rows, no names: counts only). */
@@ -292,6 +300,10 @@ export function learningFindingsRunLog(body: Record<string, unknown>): { rows: n
       covered: body.covered ?? null,
       tests: body.tests ?? 0,
       written: body.written ?? 0,
+      writtenByKind: body.writtenByKind ?? null,
+      pairs: body.pairs ?? null,
+      curves: body.curves ?? null,
+      timings: body.timings ?? null,
       skipped: skippedBy,
       verdicts,
       skippedReason: body.skippedReason ?? null,
