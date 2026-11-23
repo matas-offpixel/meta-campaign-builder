@@ -8,8 +8,10 @@
  *   - only when phaseOf() is the same on every one of those days — the landing
  *     page changes with the phase (teaser → dated → on sale), and the dated
  *     creatives launch with it, so a dated vs undated pair across a boundary
- *     measures the page, not the creative (Matas, 23 Nov). A show with no phase
- *     data (no announcement_at) can't show that, so it isn't compared;
+ *     measures the page, not the creative (Matas, 23 Nov). Pairs read phases
+ *     with phaseOf's next-London-day rule; an overlap day with no phase data
+ *     (before the show's first known boundary) can't show that, so it isn't
+ *     compared;
  *   - each arm at least £10 on those days.
  *
  * Fail any → not a pair, with its reason (the dry run prints it; nothing is
@@ -169,7 +171,7 @@ export function findPairs(input: PairsInput): { pairs: ComparedPair[]; notCompar
         }
         const phases = [...new Set(overlapDays.map((day) => phaseOf(event, day)))];
         if (phases.includes("unknown")) {
-          skip("no phase data (no announcement_at)");
+          skip("no phase data on the overlap days (before the show's first known boundary)");
           continue;
         }
         if (phases.length > 1) {

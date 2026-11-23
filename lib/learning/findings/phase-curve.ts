@@ -8,14 +8,21 @@
  * sets give cost per signup, sales ad sets cost per checkout (or purchase). Each
  * phase's row carries its ratio to the teaser phase on the same stage.
  *
- * A show with no announcement_at gets one row, verdict "no_phase_data": never a
- * phase guessed from ad names. A phase with no delivery day (presale when
- * presale and general sale open on the same day) has no row. Pure.
+ * Ops ruling (23 Nov): a London day a boundary falls on (announcement, presale
+ * or general sale, not at exactly 00:00) is left out of the curve, as neither
+ * phase's; the days left out are listed in the evidence (`excludedDays`). Days
+ * before a show's earliest known boundary, when announcement_at isn't set, are
+ * "unknown" and left out too (`unknownDays`). A show with no boundary at all
+ * gets one row, verdict "no_phase_data": never a phase guessed from ad names.
+ *
+ * A phase with no delivery day (presale when presale and general sale open on
+ * the same day) has no row. A show with no teaser days has no base: its rows
+ * read ratio null, never a base from elsewhere. Pure.
  */
 
 import { isBenchmarkCampaign } from "../../creative-tests/benchmark.ts";
 import { THIN_MIN_RESULTS, capByShows, type Confidence } from "../shrink.ts";
-import { PHASES, PHASE_SOURCE, hasPhaseData, phaseOf, type Phase, type PhaseEvent } from "./phase.ts";
+import { PHASES, PHASE_SOURCE, boundaryDays, hasPhaseData, phaseOf, type Phase, type PhaseEvent } from "./phase.ts";
 import { stageResult, stageResultKind, type FindingStage, type StageDay, type StageResultKind } from "./stage-result.ts";
 import { campaignEventCode } from "./variant-pairs.ts";
 
@@ -37,7 +44,17 @@ export type PhasePoint = {
 };
 
 export type PhaseCurve =
-  | { eventCode: string; state: "curve"; source: typeof PHASE_SOURCE; boundaries: PhaseEvent; points: PhasePoint[] }
+  | {
+      eventCode: string;
+      state: "curve";
+      source: typeof PHASE_SOURCE;
+      boundaries: PhaseEvent;
+      points: PhasePoint[];
+      /** Boundary days left out, with the spend and results they held. */
+      excludedDays: { day: string; stage: Exclude<FindingStage, "unknown">; result: StageResultKind; spend: number; results: number }[];
+      /** Delivery days before the earliest known boundary with no announcement_at, left out. */
+      unknownDays: { count: number; firstDay: string | null; lastDay: string | null; spend: number };
+    }
   | { eventCode: string; state: "no_phase_data"; source: typeof PHASE_SOURCE; boundaries: PhaseEvent; points: [] };
 
 const num = (v: unknown) => {
@@ -52,13 +69,28 @@ export function phaseCurve(input: { eventCode: string; event: PhaseEvent; days: 
   const boundaries = { announcement_at: event.announcement_at, presale_at: event.presale_at, general_sale_at: event.general_sale_at };
   if (!hasPhaseData(event)) return { eventCode, state: "no_phase_data", source: PHASE_SOURCE, boundaries, points: [] };
 
+  const skipDays = new Set(boundaryDays(event));
+  const excluded = new Map<string, { day: string; stage: Exclude<FindingStage, "unknown">; result: StageResultKind; spend: number; results: number }>();
+  const unknown = { days: new Set<string>(), spend: 0 };
   const cells = new Map<string, { phase: Exclude<Phase, "unknown">; stage: Exclude<FindingStage, "unknown">; result: StageResultKind; days: Set<string>; spend: number; results: number }>();
   for (const d of input.days) {
     if (campaignEventCode(d.campaign_name) !== eventCode || !isBenchmarkCampaign(d.campaign_name, eventCode)) continue;
     const { stage, result } = stageResultKind(d);
     if (stage === "unknown" || !result) continue;
+    if (skipDays.has(d.date)) {
+      const k = `${d.date}|${stage}|${result}`;
+      const x = excluded.get(k) ?? { day: d.date, stage, result, spend: 0, results: 0 };
+      x.spend += num(d.spend);
+      x.results += stageResult(d, result);
+      excluded.set(k, x);
+      continue;
+    }
     const phase = phaseOf(event, d.date);
-    if (phase === "unknown") continue;
+    if (phase === "unknown") {
+      if (num(d.spend) > 0) unknown.days.add(d.date);
+      unknown.spend += num(d.spend);
+      continue;
+    }
     // A sales ad set optimising for checkouts and one for purchases are different results: they don't share a cell.
     const key = `${phase}|${stage}|${result}`;
     const cell = cells.get(key) ?? { phase, stage, result, days: new Set<string>(), spend: 0, results: 0 };
@@ -91,7 +123,16 @@ export function phaseCurve(input: { eventCode: string; event: PhaseEvent; days: 
     const teaser = points.find((t) => t.phase === "teaser" && t.stage === p.stage && t.result === p.result);
     p.ratioToTeaser = teaser && teaser.cost != null && p.cost != null && teaser.cost > 0 ? round(p.cost / teaser.cost) : null;
   }
-  return { eventCode, state: "curve", source: PHASE_SOURCE, boundaries, points };
+  const unknownSorted = [...unknown.days].sort();
+  return {
+    eventCode,
+    state: "curve",
+    source: PHASE_SOURCE,
+    boundaries,
+    points,
+    excludedDays: [...excluded.values()].sort((a, b) => a.day.localeCompare(b.day) || a.stage.localeCompare(b.stage)).map((x) => ({ ...x, spend: Math.round(x.spend * 100) / 100 })),
+    unknownDays: { count: unknownSorted.length, firstDay: unknownSorted[0] ?? null, lastDay: unknownSorted[unknownSorted.length - 1] ?? null, spend: Math.round(unknown.spend * 100) / 100 },
+  };
 }
 
 export type CurveFindingRow = {
@@ -147,7 +188,7 @@ export function curveRows(curve: PhaseCurve, ctx: { eventId: string | null; clie
       results: p.results,
       confidence: p.confidence,
       verdict: p.phase,
-      evidence: { source: curve.source, boundaries: curve.boundaries, currency: ctx.currency, ...p },
+      evidence: { source: curve.source, boundaries: curve.boundaries, currency: ctx.currency, excludedDays: curve.excludedDays, unknownDays: curve.unknownDays, ...p },
     };
   });
 }

@@ -94,6 +94,7 @@ for (const c of pc.curves.filter((x) => x.state === "curve")) {
   console.log(`\n## ${c.eventCode} · announced ${b.announcement_at ?? "—"} · presale ${b.presale_at ?? "—"} · general sale ${b.general_sale_at ?? "—"}`);
   console.log("| Phase | Stage | Result | Days | Spend | Results | Cost | × teaser | Confidence |");
   console.log("|---|---|---|---|---|---|---|---|---|");
+  if (c.state === "curve") console.log(`excluded (boundary days): ${c.excludedDays.map((x) => `${x.day} ${x.stage} ${m(x.spend)} / ${x.results}`).join(", ") || "none"} · unknown days (before the first known boundary): ${c.unknownDays.count ? `${c.unknownDays.count} (${c.unknownDays.firstDay} → ${c.unknownDays.lastDay}, ${m(c.unknownDays.spend)})` : "none"}`);
   for (const pt of c.points) console.log(`| ${pt.phase} | ${pt.stage} | ${pt.result} | ${pt.firstDay} → ${pt.lastDay} (${pt.days}) | ${m(pt.spend)} | ${pt.results} | ${m(pt.cost)} | ${pt.ratioToTeaser ?? "—"} | ${pt.confidence} |`);
 }
 console.log(`\nno phase data: ${pc.curves.filter((c) => c.state === "no_phase_data").map((c) => c.eventCode).join(", ") || "none"}`);

@@ -7,8 +7,8 @@
  *     shows that delivered (one narrow read);
  *   - every day of those ad sets, for pairs (show test campaigns left out:
  *     their call is RP1's);
- *   - every day of each show's campaigns with phase data ("[CODE]" in the name),
- *     for its curve;
+ *   - every day of each show's campaigns with any phase boundary ("[CODE]" in
+ *     the name), for its curve;
  *   - events (code → client and phase dates), archived clients
  *     (lib/db/client-status.ts).
  *
@@ -19,7 +19,7 @@
 import { GBP_PER_UNIT } from "../currency.ts";
 import { addDays, eventCodeOf } from "./observed-tests.ts";
 import { curveRows, phaseCurve, type CurveDay, type CurveFindingRow, type PhaseCurve } from "./phase-curve.ts";
-import type { PhaseEvent } from "./phase.ts";
+import { hasPhaseData, type PhaseEvent } from "./phase.ts";
 import { all, chunks, str, type Db } from "./read-all.ts";
 import { campaignEventCode, findPairs, pairRow, type ComparedPair, type NotCompared, type PairAdDay, type PairFindingRow } from "./variant-pairs.ts";
 
@@ -100,7 +100,7 @@ export async function readPairsAndCurves(input: {
   const curves: PhaseCurve[] = [];
   const curveRowsOut: CurveFindingRow[] = [];
   for (const [code, show] of [...shows].sort(([a], [b]) => a.localeCompare(b))) {
-    const days = show.phase.announcement_at ? ((await all(db, "ad_daily_insights", CURVE_COLUMNS, (q) => q.ilike("campaign_name", `%[${code}]%`).lte("date", yesterday), ["date", "meta_ad_id"])) as unknown as (CurveDay & { ad_account_id: string | null })[]) : [];
+    const days = hasPhaseData(show.phase) ? ((await all(db, "ad_daily_insights", CURVE_COLUMNS, (q) => q.ilike("campaign_name", `%[${code}]%`).lte("date", yesterday), ["date", "meta_ad_id"])) as unknown as (CurveDay & { ad_account_id: string | null })[]) : [];
     const curve = phaseCurve({ eventCode: code, event: show.phase, days });
     curves.push(curve);
     const currency = input.accountCurrency(days[0]?.ad_account_id ?? null);

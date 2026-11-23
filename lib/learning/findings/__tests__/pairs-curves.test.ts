@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { curveRows, phaseCurve } from "../phase-curve.ts";
-import { hasPhaseData, phaseOf, phaseStartDay } from "../phase.ts";
+import { boundaryDays, hasPhaseData, phaseOf, phaseStartDay } from "../phase.ts";
 import { normaliseName, readAxis, siblingAxis } from "../variant-axes.ts";
 import { PAIRS, campaignEventCode, compare, findPairs, pairRow, type PairAdDay } from "../variant-pairs.ts";
 import { AD_DAYS, EVENTS, GLITTERBOX_DAYS } from "./pairs-fixtures.ts";
@@ -44,12 +44,36 @@ describe("phaseOf: events.announcement_at / presale_at / general_sale_at, London
     assert.equal(phaseStartDay("2026-07-01T23:30:00Z"), "2026-07-03");
   });
 
-  it("no announcement_at is unknown, whatever else is set: never guessed", () => {
-    for (const code of ["P26-BDAY", "NX26-ROBBIEDOHERTY", "NX26-SCHAK", "I26-NYC"]) {
+  it("ops ruling: with boundaries missing, every day after the latest known one is its phase", () => {
+    const p26 = EVENTS["P26-BDAY"]!;
+    assert.equal(hasPhaseData(p26), true);
+    // General sale 30 Oct 12:00 → general_sale from 31 Oct; a November day is general_sale.
+    assert.equal(phaseOf(p26, "2026-11-20"), "general_sale");
+    assert.equal(phaseOf(p26, "2026-10-31"), "general_sale");
+    // Presale 21 Oct 11:00 → presale 22–30 Oct.
+    assert.equal(phaseOf(p26, "2026-10-25"), "presale");
+    // Before the earliest known boundary, with no announcement_at: unknown, never teaser.
+    assert.equal(phaseOf(p26, "2026-10-21"), "unknown");
+    assert.equal(phaseOf(p26, "2026-10-01"), "unknown");
+    const robbie = EVENTS["NX26-ROBBIEDOHERTY"]!;
+    assert.equal(phaseOf(robbie, "2026-11-20"), "presale");
+    assert.equal(phaseOf(robbie, "2026-10-08"), "unknown");
+  });
+
+  it("a show with no boundary at all has no phase data on any day", () => {
+    for (const code of ["NX26-SCHAK", "I26-NYC"]) {
       assert.equal(hasPhaseData(EVENTS[code]), false, code);
       assert.equal(phaseOf(EVENTS[code], "2026-11-20"), "unknown", code);
     }
     assert.equal(phaseOf(null, "2026-11-20"), "unknown");
+  });
+
+  it("boundary days: the London day each boundary falls on, none for one at 00:00", () => {
+    assert.deepEqual(boundaryDays(EVENTS["EBR27-GLITTERBOX"]), ["2026-11-17", "2026-11-19"]);
+    assert.deepEqual(boundaryDays(EVENTS["NX27-EWANMCVICAR"]), ["2026-11-18", "2026-11-20"]);
+    assert.deepEqual(boundaryDays(EVENTS["P26-BDAY"]), ["2026-10-21", "2026-10-30"]);
+    assert.deepEqual(boundaryDays({ announcement_at: "2026-11-20T00:00:00Z", presale_at: null, general_sale_at: "2026-07-02T23:00:00Z" }), []);
+    assert.deepEqual(boundaryDays(EVENTS["NX26-SCHAK"]), []);
   });
 
   it("a missing presale goes straight from announced to general sale; a boundary before the one it follows is ignored", () => {
@@ -138,9 +162,16 @@ describe("variant pairs: like with like (23 Nov acceptance)", () => {
     assert.deepEqual(out.notCompared.map((n) => n.reason), ["phase changed on the overlap days (teaser → announced)"]);
   });
 
-  it("a show with no phase data is not compared; nor is a campaign with no event code", () => {
+  it("ops ruling: a November pair on P26-BDAY (general sale 30 Oct, no announcement_at) is compared, in general_sale", () => {
     const asP26 = AD_DAYS.filter((d) => d.adset_name === "Tech House Pages").map((d) => ({ ...d, campaign_name: "[P26-BDAY] Puzzle - Signup" }));
-    assert.deepEqual(findPairs({ days: asP26, events }).notCompared.map((n) => n.reason), ["no phase data (no announcement_at)"]);
+    const out = findPairs({ days: asP26, events });
+    assert.equal(out.pairs.length, 1);
+    assert.deepEqual([out.pairs[0]!.eventCode, out.pairs[0]!.phase], ["P26-BDAY", "general_sale"]);
+  });
+
+  it("an overlap before a show's first known boundary has no phase data and isn't compared; nor is a campaign with no event code", () => {
+    const asSchak = AD_DAYS.filter((d) => d.adset_name === "Tech House Pages").map((d) => ({ ...d, campaign_name: "[NX26-SCHAK] Signup" }));
+    assert.deepEqual(findPairs({ days: asSchak, events }).notCompared.map((n) => n.reason), ["no phase data on the overlap days (before the show's first known boundary)"]);
     const noCode = AD_DAYS.filter((d) => d.adset_name === "Tech House Pages").map((d) => ({ ...d, campaign_name: "Signup" }));
     assert.deepEqual(findPairs({ days: noCode, events }).notCompared.map((n) => n.reason), ["no event code in the campaign name"]);
   });
@@ -174,33 +205,50 @@ describe("variant pairs: like with like (23 Nov acceptance)", () => {
 });
 
 describe("phase curves", () => {
-  it("EBR27-GLITTERBOX: cost per stage result per phase, main campaigns only, ratio to teaser", () => {
+  it("EBR27-GLITTERBOX: the boundary days 17 and 19 Nov are left out (ops ruling); main campaigns only; ratio to teaser", () => {
     const curve = phaseCurve({ eventCode: "EBR27-GLITTERBOX", event: EVENTS["EBR27-GLITTERBOX"]!, days: GLITTERBOX_DAYS });
     assert.equal(curve.state, "curve");
-    const at = (phase: string, stage: string) => curve.points.find((p) => p.phase === phase && p.stage === stage)!;
-    assert.deepEqual([at("teaser", "registration").firstDay, at("teaser", "registration").lastDay, at("teaser", "registration").spend, at("teaser", "registration").results], ["2026-11-12", "2026-11-17", 989.22, 1293]);
-    assert.equal(at("teaser", "registration").cost, 0.7651);
-    assert.deepEqual([at("announced", "registration").spend, at("announced", "registration").results, at("announced", "registration").cost, at("announced", "registration").ratioToTeaser], [336.45, 447, 0.7527, 0.9838]);
-    assert.deepEqual([at("general_sale", "registration").spend, at("general_sale", "registration").results], [665.03, 796]);
-    // Retargeting is out (TF5's set): 5.33 + 11.81 + 14.74 + 12.40, never the 0.65 of "- RETARGETING".
-    assert.deepEqual([at("announced", "ticket_sale").spend, at("announced", "ticket_sale").results], [5.33, 11]);
-    assert.deepEqual([at("general_sale", "ticket_sale").spend, at("general_sale", "ticket_sale").results, at("general_sale", "ticket_sale").ratioToTeaser], [38.95, 34, null]);
-    // Presale opened and general sale followed on 19 Nov: no presale row.
+    if (curve.state !== "curve") return;
+    const at = (phase: string, stage: string) => curve.points.find((p) => p.phase === phase && p.stage === stage);
+    // Teaser 12–16 Nov (17 Nov, the announcement's day, is out).
+    assert.deepEqual([at("teaser", "registration")!.firstDay, at("teaser", "registration")!.lastDay, at("teaser", "registration")!.spend, at("teaser", "registration")!.results, at("teaser", "registration")!.cost], ["2026-11-12", "2026-11-16", 810.29, 1195, 0.6781]);
+    // Announced is 18 Nov alone (19 Nov, presale and general sale, is out).
+    assert.deepEqual([at("announced", "registration")!.firstDay, at("announced", "registration")!.lastDay, at("announced", "registration")!.spend, at("announced", "registration")!.results, at("announced", "registration")!.cost, at("announced", "registration")!.ratioToTeaser], ["2026-11-18", "2026-11-18", 151.51, 58, 2.6122, 3.8522]);
+    assert.deepEqual([at("general_sale", "registration")!.spend, at("general_sale", "registration")!.results, at("general_sale", "registration")!.ratioToTeaser], [665.03, 796, 1.2321]);
+    // The only checkouts on 19 Nov are out with the day; retargeting is out (TF5's set).
+    assert.equal(at("announced", "ticket_sale"), undefined);
+    assert.deepEqual([at("general_sale", "ticket_sale")!.spend, at("general_sale", "ticket_sale")!.results, at("general_sale", "ticket_sale")!.ratioToTeaser], [38.95, 34, null]);
     assert.ok(!curve.points.some((p) => p.phase === "presale"));
+    // The days left out are logged.
+    assert.deepEqual(curve.excludedDays, [
+      { day: "2026-11-17", stage: "registration", result: "complete_registration", spend: 178.93, results: 98 },
+      { day: "2026-11-19", stage: "registration", result: "complete_registration", spend: 184.94, results: 389 },
+      { day: "2026-11-19", stage: "ticket_sale", result: "initiate_checkout", spend: 5.33, results: 11 },
+    ]);
     const rows = curveRows(curve, ctx);
     assert.deepEqual(rows.map((r) => [r.subject, r.stage, r.verdict]), [
       ["teaser", "registration", "teaser"],
       ["announced", "registration", "announced"],
-      ["announced", "ticket_sale", "announced"],
       ["general_sale", "registration", "general_sale"],
       ["general_sale", "ticket_sale", "general_sale"],
     ]);
-    assert.equal(rows[1]!.value_b, 0.7651);
+    assert.equal(rows[1]!.value_b, 0.6781);
     assert.equal(rows[0]!.week_start, null);
+    assert.equal((rows[0]!.evidence.excludedDays as unknown[]).length, 3);
   });
 
-  it("shows with no announcement_at: one no_phase_data row each", () => {
-    for (const code of ["P26-BDAY", "NX26-ROBBIEDOHERTY", "NX26-SCHAK", "I26-NYC"]) {
+  it("a show with no teaser days has no base: its rows read ratio null", () => {
+    const asP26 = GLITTERBOX_DAYS.map((d) => ({ ...d, campaign_name: (d.campaign_name ?? "").replace("EBR27-GLITTERBOX", "P26-BDAY") }));
+    const curve = phaseCurve({ eventCode: "P26-BDAY", event: EVENTS["P26-BDAY"]!, days: asP26 });
+    assert.equal(curve.state, "curve");
+    if (curve.state !== "curve") return;
+    assert.ok(curve.points.length > 0);
+    assert.ok(curve.points.every((p) => p.phase === "general_sale" && p.ratioToTeaser === null));
+    assert.ok(curveRows(curve, ctx).every((r) => r.ratio === null && r.value_b === null));
+  });
+
+  it("shows with no boundary at all: one no_phase_data row each", () => {
+    for (const code of ["NX26-SCHAK", "I26-NYC"]) {
       const curve = phaseCurve({ eventCode: code, event: EVENTS[code]!, days: GLITTERBOX_DAYS });
       assert.equal(curve.state, "no_phase_data", code);
       const rows = curveRows(curve, ctx);
