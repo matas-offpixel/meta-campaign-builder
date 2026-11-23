@@ -14,15 +14,23 @@
  *   last read. There is no separate 7-day stop (§9.1);
  * - the same words (words.ts, benchmark-call.ts).
  *
- * New cases, before the call: one ad → "One variant: no call"; an ad set
- * whose result event no test reads (Add to cart, Purchase) → "Optimises for
- * {event}: no call".
+ * Before the call, one reason per ad set, in order: one ad → "One variant: no
+ * call"; an ad set optimising for an event no test reads → "Optimises for
+ * {event}: no call" ({event} from OPTIMISATION_EVENT_WORDS); then the read lines.
  *
- * Observed tests are never written to Meta. Where TF6 would extend the app's
- * own ad set, an observed test's next read simply moves to day 8 (or 12): the
- * state machine (extensions, the day-4 / day-8 marks) lives in the finding's
- * evidence, not in creative_tests. One ad set, one finding: an ad set with a
- * creative_tests row is the app's own read's (the loader skips it).
+ * Observed tests are never written to Meta, and their words never say the app
+ * did anything (design C1 / S4, 23 Nov). Where TF6 would extend the app's own
+ * ad set, an observed test reads "Next read {d Mon}: {TF6's clause}" and its
+ * next read is day 8. Its day-8 read is its last: TF6's stop or second
+ * extension reads "Day 8: {clause} · no call"; no delivery after day 4 reads
+ * "Ended {last day with spend} before day 8: no call". An end-day read with
+ * TF2's own call (a winner, no clear winner) is final too. So an observed test
+ * never has a day-12 read. Verdict keys: OBSERVED_VERDICTS plus TF2's states;
+ * never "extended" / "stopped". The state machine (the next read, the day-4
+ * marks) lives in the finding's evidence, not in creative_tests; a row #1352
+ * stored (verdict "extended", extensions 1) reads on into day 8 the same way.
+ * One ad set, one finding: an ad set with a creative_tests row is the app's
+ * own read's (the loader skips it).
  *
  * The insights are daily, so first delivery is the start of the first London
  * day the ad set spent on (the app's read takes the ad set's start time).
@@ -34,7 +42,7 @@ import { resultsOf, type AdDay } from "../../creative-tests/approve.ts";
 import { showBenchmark, type ShowBenchmark } from "../../creative-tests/benchmark.ts";
 import { marks, readWithBenchmark, type BenchmarkRead, type ExtensionEvidence } from "../../creative-tests/benchmark-call.ts";
 import { londonDay, type VariantFigures, type VariantRead } from "../../creative-tests/fast-call.ts";
-import { isShowTestCampaign } from "../../creative-tests/tests-campaign.ts";
+import { isShowTestCampaign, londonDayLabel } from "../../creative-tests/tests-campaign.ts";
 import type { ResultEvent } from "../../creative-tests/words.ts";
 import { phaseFromMetaObjective } from "../../launched-ad-sets/snapshot.ts";
 
@@ -42,10 +50,77 @@ import { phaseFromMetaObjective } from "../../launched-ad-sets/snapshot.ts";
 
 export const ONE_VARIANT = "One variant: no call";
 
-/** "Optimises for add to cart: no call". */
-export function noResultEventText(event: string): string {
-  return `Optimises for ${event.trim().toLowerCase().replace(/_/g, " ") || "an unknown event"}: no call`;
+/**
+ * The optimisation event in the app's lower-case words (design C1 / S4, 23 Nov),
+ * by Meta's promoted event, else its optimisation goal. No existing map covers
+ * these in lower case (lib/meta/attach-optimisation.ts's labels are private,
+ * sentence case and have no Add to cart), so this is the one. Never Meta's raw
+ * enum: an event not listed reads "an event no test reads".
+ */
+export const OPTIMISATION_EVENT_WORDS: Readonly<Record<string, string>> = {
+  ADD_TO_CART: "add to cart",
+  ADD_PAYMENT_INFO: "payment info",
+  PURCHASE: "purchases",
+  VALUE: "purchase value",
+  VIEW_CONTENT: "content views",
+  SEARCH: "searches",
+  CONTACT: "contacts",
+  SUBSCRIBE: "subscriptions",
+  START_TRIAL: "trials",
+  LANDING_PAGE_VIEWS: "landing page views",
+  LINK_CLICKS: "link clicks",
+  REACH: "reach",
+  IMPRESSIONS: "impressions",
+  POST_ENGAGEMENT: "post engagement",
+  THRUPLAY: "video views",
+  OFFSITE_CONVERSIONS: "conversions",
+};
+
+export function optimisationEventWords(promotedEvent: string | null | undefined, optimizationGoal: string | null | undefined): string {
+  const event = (promotedEvent ?? "").trim().toUpperCase();
+  const goal = (optimizationGoal ?? "").trim().toUpperCase();
+  return OPTIMISATION_EVENT_WORDS[event] ?? OPTIMISATION_EVENT_WORDS[goal] ?? "an event no test reads";
 }
+
+/** "Optimises for add to cart: no call". */
+export function noResultEventText(promotedEvent: string | null | undefined, optimizationGoal?: string | null): string {
+  return `Optimises for ${optimisationEventWords(promotedEvent, optimizationGoal)}: no call`;
+}
+
+/**
+ * Observed tests' read lines (design C1 / S4, 23 Nov). The app never extends or
+ * stops these ad sets, so TF6's "Extended" / "Stopped" never show: the words
+ * before the colon change, TF6's evidence clause after it stays.
+ */
+export function nextReadText(day: string, clause: string): string {
+  return `Next read ${dayLabel(day)}: ${clause}`;
+}
+
+export function day8NoCallText(clause: string): string {
+  return `Day 8: ${clause} · no call`;
+}
+
+/** TF6's own stop at day 4 (an observed test only reaches it when its day-4 read already ran without a call). */
+export function day4NoCallText(clause: string): string {
+  return `Day 4: ${clause} · no call`;
+}
+
+export function endedText(lastDeliveryDay: string): string {
+  return `Ended ${dayLabel(lastDeliveryDay)} before day 8: no call`;
+}
+
+/** TF6's line after its first colon: "Extended to 25 Nov: both above the show's £1.44 per checkout" → "both above …". */
+export function tf6Clause(text: string): string {
+  const at = text.indexOf(": ");
+  return at >= 0 ? text.slice(at + 2) : text;
+}
+
+function dayLabel(day: string): string {
+  return londonDayLabel(`${day}T12:00:00Z`);
+}
+
+/** Observed tests' own verdict keys, besides TF2's states (running, first_read_pending, meta_favours, ready_to_call, no_clear_winner, not_enough_variants). Never "extended" / "stopped". */
+export const OBSERVED_VERDICTS = ["one_variant", "no_result_event", "next_read", "day8_no_call", "ended_no_call", "day4_no_call"] as const;
 
 // ── Inputs ──────────────────────────────────────────────────────────────────
 
@@ -259,13 +334,14 @@ export function readObservedTest(input: ReadInput): ObservedRead | null {
 
   // The new cases: no call is made.
   if (test.ads.length < 2) return plain("one_variant", ONE_VARIANT);
-  if (!result) return plain("no_result_event", noResultEventText(sample?.promoted_event || sample?.optimization_goal || ""));
+  if (!result) return plain("no_result_event", noResultEventText(sample?.promoted_event, sample?.optimization_goal));
 
   const firstDeliveryAt = firstDeliveryDay ? londonAt(firstDeliveryDay, 0) : null;
   const startDay = firstDeliveryDay ?? readOn;
 
-  // TF9: the end day (day 4, 8 or 12), and whether its read ran.
-  const extensions = Math.max(0, Math.floor(before.extensions || 0));
+  // TF9: the end day (day 4, then day 8), and whether its read ran. An observed test never reaches day 12: its
+  // day-8 read is always its last (the app never extends these ad sets, so there's nothing for a second extension to do).
+  const extensions = Math.max(0, Math.min(1, Math.floor(before.extensions || 0)));
   const endDay = addDays(startDay, 4 * (extensions + 1));
   const phase: EndDayPhase = readOn < endDay ? "before" : readOn === endDay ? "end_day" : "after_end";
   const endDayReadRan = phase === "after_end" && before.reads.includes(endDay);
@@ -292,28 +368,60 @@ export function readObservedTest(input: ReadInput): ObservedRead | null {
     tf2Final,
   });
 
-  // The state after this read, as read-job.ts moves creative_tests.
+  // The state after this read, as read-job.ts moves creative_tests, then the observed test's own words.
   const covered = input.covered ?? true;
-  const action = read.action.kind;
+  const tf6 = read.action.kind;
   const whyNot = !decides ? "not an end day" : !covered ? "yesterday's insights aren't restated yet" : null;
   let pending: string | null = null;
   let after: ObservedState = { ...before, reads: [...new Set([...before.reads, readOn])] };
-  if (action === "stop" && whyNot && phase === "after_end") {
+  let state: string = read.stage !== "tf2" ? read.stage : read.state;
+  let text = read.text;
+  const clause = tf6Clause(read.text);
+  const nextReadDay = addDays(startDay, 8);
+  const day4End = addDays(startDay, 4);
+  const lastDelivery = firstDeliveryDay ? delivered.reduce((m, d) => (d.date > m ? d.date : m), firstDeliveryDay) : null;
+
+  if (extensions === 1 && decides && covered && lastDelivery && lastDelivery <= day4End) {
+    // No delivery after day 4 by the day-8 read: the ad set ended (or was paused; the daily rows can't tell which) on
+    // its last day with spend. No end_time is read.
+    state = "ended_no_call";
+    text = endedText(lastDelivery);
     after = { ...after, final: true };
-  } else if ((action === "extend" || action === "stop") && whyNot) {
-    pending = whyNot;
-  } else if (read.action.kind === "extend") {
-    const kept: ExtensionEvidence = { ...before.evidence, ...(read.action.extension === 1 ? { day4: marks(read.variants) } : { day8: marks(read.variants), second: read.action.earnedBy }) };
-    after = { ...after, extensions: read.action.extension, evidence: kept };
-  } else if (action === "stop") {
+  } else if (whyNot && (tf6 === "extend" || tf6 === "stop")) {
+    if (tf6 === "stop" && phase === "after_end" && covered) {
+      // read-job's case: the end day's read ran and made no call, so the test ends here with TF6's clause.
+      state = extensions === 1 ? "day8_no_call" : "day4_no_call";
+      text = extensions === 1 ? day8NoCallText(clause) : day4NoCallText(clause);
+      after = { ...after, final: true };
+    } else {
+      // Not this read's call, or yesterday isn't restated: the state waits for the next read.
+      pending = whyNot;
+      state = "next_read";
+      text = nextReadText(nextReadDay, clause);
+      // A read that doesn't cover yesterday doesn't count as the end day's read, so tomorrow's can still decide.
+      if (!covered) after = { ...after, reads: before.reads };
+    }
+  } else if (read.stage === "extended" && extensions === 0) {
+    // Day 4, every judged variant above the show: TF6 would extend; an observed test's next read is day 8.
+    state = "next_read";
+    text = nextReadText(nextReadDay, clause);
+    if (tf6 === "extend" && read.action.kind === "extend") after = { ...after, extensions: 1, evidence: { ...before.evidence, day4: marks(read.variants) } };
+  } else if (read.stage === "extended" && extensions === 1 && !decides) {
+    state = "next_read";
+    text = nextReadText(nextReadDay, clause);
+  } else if (read.stage === "extended" || read.stage === "stopped") {
+    // The day-8 read: TF6's stop, or a second extension the app would make. Either way the observed test's last read.
+    state = extensions === 1 ? "day8_no_call" : "day4_no_call";
+    text = extensions === 1 ? day8NoCallText(clause) : day4NoCallText(clause);
     after = { ...after, final: true };
-  } else if (read.state === "no_clear_winner" || read.state === "not_enough_variants") {
+  } else if (decides || read.state === "no_clear_winner" || read.state === "not_enough_variants") {
+    // TF2's own call on an end day (a winner, or no clear winner) stands: one ad set, one verdict.
     after = { ...after, final: true };
   }
 
   return {
-    state: read.stage !== "tf2" ? read.stage : read.state,
-    text: read.text,
+    state,
+    text,
     readOn,
     readDay: firstDeliveryDay ? daysBetween(firstDeliveryDay, readOn) : null,
     hours: read.hours,
@@ -324,7 +432,7 @@ export function readObservedTest(input: ReadInput): ObservedRead | null {
     endDay,
     phase,
     decides,
-    action,
+    action: tf6,
     pending,
     spendTotal: read.spendTotal,
     results,

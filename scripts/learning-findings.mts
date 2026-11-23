@@ -72,7 +72,7 @@ for (const rec of result.records) {
   }
   const b = read.benchmark;
   console.log(`benchmark (main campaigns, ${read.firstDeliveryDay ?? "—"} → ${read.figuresTo}): ${b ? (b.cost != null ? `${money(b.cost, rec.currency)} per ${word} · ${money(b.spend, rec.currency)} / ${b.results}` : `none (${money(b.spend, rec.currency)}, 0 ${word}s)`) : "not read"}`);
-  console.log(`verdict: ${read.state} · "${read.text}"${read.action !== "none" ? ` · TF6 ${read.action}${read.pending ? ` (pending: ${read.pending})` : ""}` : ""}${read.after.final ? " · final" : ""}`);
+  console.log(`verdict: ${read.state} · "${read.text}"${read.action !== "none" ? ` · TF6's call on an app test would be ${read.action}; nothing is written${read.pending ? ` (pending: ${read.pending})` : ""}` : ""}${read.after.final ? " · final" : ""}`);
 }
 
 const pc = result.pairsCurves;

@@ -95,8 +95,10 @@ describe("observed tests: the 23 Nov read (figures 17–22 Nov)", () => {
     assert.notEqual(r.state, "ready_to_call");
     assert.equal(r.winnerId, null);
     // TF6: all above the show at the end day → the next read is day 8.
-    assert.equal(r.state, "extended");
-    assert.equal(r.text, "Extended to 27 Nov: all 4 above the show's £4.04 per checkout");
+    // Design C1 / S4: never TF6's "Extended"; TF6's clause stays, "all 4" for more than two.
+    assert.equal(r.state, "next_read");
+    assert.equal(r.text, "Next read 27 Nov: all 4 above the show's £4.04 per checkout");
+    assert.equal(r.action, "extend");
     assert.equal(r.after.extensions, 1);
     assert.equal(r.after.evidence.day4?.length, 4);
     assert.equal(r.after.final, false);
@@ -127,8 +129,8 @@ describe("observed tests: the 23 Nov read (figures 17–22 Nov)", () => {
     assert.equal(Math.round(b.share! * 100), 91);
     assert.equal(r.leaderId, b.adId);
     assert.equal(r.winnerId, null);
-    assert.equal(r.state, "extended");
-    assert.equal(r.text, "Extended to 25 Nov: both above the show's £1.44 per checkout");
+    assert.equal(r.state, "next_read");
+    assert.equal(r.text, "Next read 25 Nov: both above the show's £1.44 per checkout");
   });
 
   it("EBR26-KREAM · Artist cards test: no checkouts, no winner", () => {
@@ -140,7 +142,7 @@ describe("observed tests: the 23 Nov read (figures 17–22 Nov)", () => {
       ["[CARD-SUPPORT-Estiva]", 0.58, 0],
     ]);
     assert.equal(r.winnerId, null);
-    assert.equal(r.text, "Extended to 27 Nov: all 4 above the show's £1.55 per checkout");
+    assert.equal(r.text, "Next read 27 Nov: all 4 above the show's £1.55 per checkout");
   });
 
   it("P26-BDAY · AB copy test: one ad → one variant, no call", () => {
@@ -156,7 +158,13 @@ describe("observed tests: the 23 Nov read (figures 17–22 Nov)", () => {
     const r = read(JULIAN);
     assert.equal(r.state, "no_result_event");
     assert.equal(r.text, "Optimises for add to cart: no call");
-    assert.equal(noResultEventText("PURCHASE"), "Optimises for purchase: no call");
+    assert.equal(noResultEventText("PURCHASE"), "Optimises for purchases: no call");
+    assert.equal(noResultEventText(null, "LANDING_PAGE_VIEWS"), "Optimises for landing page views: no call");
+    assert.equal(noResultEventText(null, "LINK_CLICKS"), "Optimises for link clicks: no call");
+    // Never Meta's raw enum.
+    assert.equal(noResultEventText("SOME_NEW_EVENT", "SOME_GOAL"), "Optimises for an event no test reads: no call");
+    // The figures still show.
+    assert.deepEqual(r.variants.map((v) => v.spend), [2.56, 0.73]);
     assert.equal(r.after.final, true);
   });
 });
@@ -171,21 +179,79 @@ describe("observed tests: TF9's cadence, kept in the finding", () => {
     assert.equal(r.after.extensions, 0);
   });
 
-  it("an extended test reads again on day 8, and stops when nothing came down", () => {
+  it("an ad set with no delivery after day 4 reads \"Ended {d Mon} before day 8\" at its day-8 read, and stands", () => {
+    // EBR26-KREAM's AB copy test last spent on 21 Nov (day 4).
     const day4 = read(KREAM_AB);
     const prior = { readOn: day4.readOn, before: day4.before, after: day4.after };
     const between = read(KREAM_AB, { readOn: "2026-11-24", prior });
     assert.equal(between.phase, "before");
     assert.equal(between.endDay, "2026-11-25");
     assert.equal(between.after.extensions, 1);
-    assert.equal(between.text, "Extended to 25 Nov: both above the show's £1.44 per checkout");
+    assert.equal(between.state, "next_read");
+    assert.equal(between.text, "Next read 25 Nov: both above the show's £1.44 per checkout");
     const day8 = read(KREAM_AB, { readOn: "2026-11-25", prior: { readOn: between.readOn, before: between.before, after: between.after } });
     assert.equal(day8.phase, "end_day");
-    assert.equal(day8.state, "stopped");
-    assert.equal(day8.text, "Stopped: both above the show's £1.44 per checkout");
+    assert.equal(day8.state, "ended_no_call");
+    assert.equal(day8.text, "Ended 21 Nov before day 8: no call");
     assert.equal(day8.after.final, true);
-    // The finding stands from here: no later read.
+    // The finding stands from here: no later read, never a day 12.
     assert.equal(readObservedTest({ test: testOf(KREAM_AB), showDays: showDaysOf("EBR26-KREAM") as never, readOn: "2026-11-26", prior: { readOn: day8.readOn, before: day8.before, after: day8.after } }), null);
+  });
+
+  it("a test still delivering after day 4 reads \"Day 8: … · no call\" at day 8, and stands", () => {
+    // Top tracks reels kept spending 23–26 Nov with no checkout: still all above the show at day 8.
+    const later = ["2026-11-23", "2026-11-24", "2026-11-25", "2026-11-26"];
+    const base = testOf(TOP_TRACKS);
+    const extra = later.flatMap((date) => base.ads.map((ad) => ({ ...base.days.find((d) => d.meta_ad_id === ad.adId)!, date, spend: 2, landing_page_views: 1, actions: [] })));
+    const test = { ...base, days: [...base.days, ...extra] };
+    const show = showDaysOf("P26-BDAY");
+    const day4 = readObservedTest({ test, showDays: show as never, readOn: READ_ON, currency: "GBP" })!;
+    assert.equal(day4.text, "Next read 27 Nov: all 4 above the show's £4.04 per checkout");
+    const day8 = readObservedTest({ test, showDays: show as never, readOn: "2026-11-27", prior: { readOn: day4.readOn, before: day4.before, after: day4.after }, currency: "GBP" })!;
+    assert.equal(day8.phase, "end_day");
+    assert.equal(day8.state, "day8_no_call");
+    assert.match(day8.text, /^Day 8: .+ · no call$/);
+    assert.doesNotMatch(day8.text, /Stopped|Extended/);
+    assert.equal(day8.after.final, true);
+    assert.equal(readObservedTest({ test, showDays: show as never, readOn: "2026-12-01", prior: { readOn: day8.readOn, before: day8.before, after: day8.after } }), null);
+  });
+
+  it("a row #1352 stored (verdict extended, TF6's words) reads on cleanly with the new keys", () => {
+    // What tonight's 04:15 run on #1352's code stores for EBR26-KREAM's AB copy test.
+    const old = {
+      kind: "test_verdict",
+      subject: KREAM_AB,
+      verdict: "extended",
+      evidence: {
+        observed: true,
+        text: "Extended to 25 Nov: both above the show's £1.44 per checkout",
+        readOn: READ_ON,
+        state: {
+          before: { extensions: 0, evidence: {}, reads: [], final: false },
+          after: { extensions: 1, evidence: { day4: [{ variantId: "120250552884850716", cost: 4.05, results: 2 }, { variantId: "120250552877890716", cost: null, results: 0 }] }, reads: [READ_ON], final: false },
+        },
+      },
+    };
+    const prior = priorOf(old);
+    assert.ok(prior);
+    // A rerun the same London day starts again from before that read: the same key, the new words.
+    const same = read(KREAM_AB, { prior });
+    assert.deepEqual([same.state, same.text], ["next_read", "Next read 25 Nov: both above the show's £1.44 per checkout"]);
+    assert.deepEqual(same.after.reads, [READ_ON]);
+    // The next morning: "extended" isn't final; it reads on to day 8 without counting a read day twice.
+    const next = read(KREAM_AB, { readOn: "2026-11-24", prior });
+    assert.equal(next.state, "next_read");
+    assert.deepEqual(next.after.reads, [READ_ON, "2026-11-24"]);
+    const row = findingRow(testOf(KREAM_AB), next, { eventId: "e", clientId: "c", gbpRate: 1, currency: "GBP", computedAt: "2026-11-24T04:15:00Z" });
+    assert.deepEqual([row.kind, row.scope_id, row.subject, row.week_start, row.verdict], ["test_verdict", "EBR26-KREAM", KREAM_AB, "2026-11-16", "next_read"]);
+  });
+
+  it("observed tests never carry TF6's keys or words", () => {
+    for (const id of [TOP_TRACKS, ROBBIE, KREAM_AB, KREAM_CARDS, P26_AB, JULIAN]) {
+      const r = read(id);
+      assert.ok(!["extended", "stopped"].includes(r.state), `${id} ${r.state}`);
+      assert.doesNotMatch(r.text, /^(Extended|Stopped)/, id);
+    }
   });
 
   it("a rerun on the same day starts from the state before that day's read", () => {
@@ -200,6 +266,9 @@ describe("observed tests: TF9's cadence, kept in the finding", () => {
     assert.equal(r.action, "extend");
     assert.equal(r.pending, "yesterday's insights aren't restated yet");
     assert.equal(r.after.extensions, 0);
+    // It doesn't count as the end day's read, so tomorrow's can still decide.
+    assert.deepEqual(r.after.reads, []);
+    assert.equal(r.state, "next_read");
   });
 });
 
@@ -364,7 +433,7 @@ describe("observed tests: the run", () => {
     const { deletes } = fakeRun;
     assert.deepEqual(deletes.find((d) => d.filters.includes("eq scope_id P26-BDAY"))?.filters, ["eq kind phase_curve", "eq scope event", "eq scope_id P26-BDAY", 'not subject in ("no_phase_data")']);
     const body = summariseFindings(result);
-    assert.deepEqual(learningFindingsRunLog(body).detail.verdicts, { extended: 3, ready_to_call: 1, one_variant: 1, no_result_event: 1 });
+    assert.deepEqual(learningFindingsRunLog(body).detail.verdicts, { next_read: 3, ready_to_call: 1, one_variant: 1, no_result_event: 1 });
   });
 
   it("skips an ad set the app's own test owns, and archived clients", async () => {
@@ -401,9 +470,9 @@ describe("observed tests: the run", () => {
     const next = fakeDb(tables);
     const result = await runLearningFindings({ env: ENV, db: next.db, readOn: "2026-11-24" });
     assert.ok(!("skippedReason" in result));
-    // one_variant and no_result_event are final; the others read again.
-    assert.equal(result.skipped.findingStands, 2);
-    assert.equal(result.writtenByKind.test_verdict, 4);
+    // one_variant, no_result_event and the day's ready_to_call (an end-day call) are final; the three next_read tests read again.
+    assert.equal(result.skipped.findingStands, 3);
+    assert.equal(result.writtenByKind.test_verdict, 3);
   });
 });
 

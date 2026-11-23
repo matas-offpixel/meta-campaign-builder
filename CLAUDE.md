@@ -578,6 +578,13 @@ REMOTION_LAMBDA_SERVE_URL=
 > skipping ad sets with a `creative_tests` row and archived clients
 > (`lib/learning/findings/`, RP1). DB-only, never a Meta write; check with
 > `scripts/learning-findings.mts --dry-run [--date YYYY-MM-DD] [--event CODE]`.
+> Observed tests never read "Extended" / "Stopped" (design C1 / S4, 23 Nov): a
+> `test_verdict`'s `verdict` is `one_variant`, `no_result_event`, `next_read`,
+> `day8_no_call`, `ended_no_call`, `day4_no_call` or a TF2 state (`running`,
+> `first_read_pending`, `meta_favours`, `ready_to_call`, `no_clear_winner`,
+> `not_enough_variants`), never `extended` / `stopped`; this supersedes the key
+> list in migration 264's column comment, and rows stored as `extended` read on
+> into day 8 and are overwritten on the same key.
 > The same run writes `variant_pair` rows: two ads of one ad set whose names
 > differ on one axis (date, text, CTA, format, [AB-A]/[AB-B]), compared only on
 > ≥ 3 overlapping delivery days in one `phaseOf()` phase with each arm ≥ £10,
