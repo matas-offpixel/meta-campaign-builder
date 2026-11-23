@@ -110,6 +110,10 @@
       "schedule": "15 4 * * *"
     },
     {
+      "path": "/api/cron/learning-digest",
+      "schedule": "0 10 * * 1"
+    },
+    {
       "path": "/api/cron/onsale-refresh",
       "schedule": "0 6 * * 1"
     },

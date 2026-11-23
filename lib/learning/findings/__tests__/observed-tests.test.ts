@@ -331,6 +331,15 @@ function fakeDb(tables: Tables) {
           said.push(`eq ${c} ${String(v)}`);
           return q;
         },
+        lt(c: string, v: string) {
+          said.push(`lt ${c}`);
+          if (deleting) {
+            deletes.push({ table, filters: said });
+            return Promise.resolve({ error: null });
+          }
+          filters.push((r) => String(r[c]) < v);
+          return q;
+        },
         not(c: string, op: string, v: string) {
           said.push(`not ${c} ${op} ${v}`);
           if (deleting) {
@@ -395,6 +404,9 @@ function baseTables(): Tables {
     bm_ad_accounts: [],
     cron_runs: [{ cron_name: "ad-daily-insights", started_at: "2026-11-23T02:30:05.000Z", ok: true, detail: {} }],
     learning_findings: [],
+    copy_features: [],
+    ad_copy: [],
+    campaign_drafts: [],
   };
 }
 
@@ -417,8 +429,9 @@ describe("observed tests: the run", () => {
     assert.equal(result.ok, true);
     assert.equal(result.tests, 6);
     // Six test verdicts, and one no_phase_data curve row for each show whose main campaigns delivered (no announcement_at in this fixture).
-    assert.deepEqual(result.writtenByKind, { test_verdict: 6, variant_pair: 0, phase_curve: 3 });
-    assert.equal(result.written, 9);
+    // PR1c: a show_week row for each show whose main campaigns spent in 16–22 Nov, and the test verdicts rolled up (3 test kinds × scopes).
+    assert.deepEqual(result.writtenByKind, { test_verdict: 6, variant_pair: 0, phase_curve: 3, show_week: 3, axis_rollup: 8, copy_rule: 0 });
+    assert.equal(result.written, 20);
     assert.equal(upserts.length, 1);
     assert.equal(upserts[0]!.table, "learning_findings");
     assert.equal(upserts[0]!.onConflict, FINDINGS_CONFLICT);
@@ -432,6 +445,10 @@ describe("observed tests: the run", () => {
     // Stale curve rows of each show are cleared, keeping this night's subjects.
     const { deletes } = fakeRun;
     assert.deepEqual(deletes.find((d) => d.filters.includes("eq scope_id P26-BDAY"))?.filters, ["eq kind phase_curve", "eq scope event", "eq scope_id P26-BDAY", 'not subject in ("no_phase_data")']);
+    // Rollup and copy-rule rows this run didn't write are cleared by computed_at.
+    assert.deepEqual(deletes.filter((d) => d.filters.some((f) => f === "eq kind axis_rollup" || f === "eq kind copy_rule")).map((d) => d.filters), [["eq kind axis_rollup", "lt computed_at"], ["eq kind copy_rule", "lt computed_at"]]);
+    const weeks = (upserts[0]!.rows as { kind: string; scope_id: string; week_start: string }[]).filter((r) => r.kind === "show_week");
+    assert.deepEqual(weeks.map((r) => [r.scope_id, r.week_start]).sort(), [["EBR26-KREAM", "2026-11-16"], ["NX26-ROBBIEDOHERTY", "2026-11-16"], ["P26-BDAY", "2026-11-16"]]);
     const body = summariseFindings(result);
     assert.deepEqual(learningFindingsRunLog(body).detail.verdicts, { next_read: 3, ready_to_call: 1, one_variant: 1, no_result_event: 1 });
   });
@@ -446,8 +463,12 @@ describe("observed tests: the run", () => {
     assert.deepEqual(result.skipped, { appTest: 1, archivedClient: 2, findingStands: 0 });
     const subjects = (upserts[0]!.rows as { kind: string; subject: string }[]).filter((r) => r.kind === "test_verdict").map((r) => r.subject).sort();
     assert.deepEqual(subjects, [JULIAN, P26_AB, ROBBIE].sort());
-    // The archived client's show gets no curve either.
-    assert.ok(!(upserts[0]!.rows as { kind: string; scope_id: string }[]).some((r) => r.kind === "phase_curve" && r.scope_id === "EBR26-KREAM"));
+    // The archived client's show gets no curve, no show week and no part in any rollup.
+    assert.ok(!(upserts[0]!.rows as { kind: string; scope_id: string }[]).some((r) => (r.kind === "phase_curve" || r.kind === "show_week") && r.scope_id === "EBR26-KREAM"));
+    for (const r of (upserts[0]!.rows as { kind: string; scope_id: string | null; evidence: { shows?: string[] } }[]).filter((x) => x.kind === "axis_rollup")) {
+      assert.ok(r.scope_id !== "c-ebr", JSON.stringify(r));
+      assert.ok(!(r.evidence.shows ?? []).includes("EBR26-KREAM"), JSON.stringify(r));
+    }
   });
 
   it("dry run writes nothing and runs before migration 264; the cron refuses without it", async () => {
@@ -491,5 +512,17 @@ describe("migration 264", () => {
     assert.match(sql, /for select to authenticated using \(false\)/);
     assert.doesNotMatch(sql, /for (insert|update|delete|all) to authenticated/);
     assert.match(sql, /OPERATOR_USER_IDS/);
+  });
+});
+
+describe("observed tests: a run narrowed to events", () => {
+  it("writes no rollup or copy-rule rows and deletes none", async () => {
+    const fake = fakeDb(baseTables());
+    const result = await runLearningFindings({ env: ENV, db: fake.db, readOn: READ_ON, eventCodes: ["P26-BDAY"] });
+    assert.ok(!("skippedReason" in result));
+    assert.equal(result.writtenByKind.axis_rollup, 0);
+    assert.equal(result.writtenByKind.copy_rule, 0);
+    assert.ok(result.rollup.rollupRows.length > 0);
+    assert.ok(!fake.deletes.some((d) => d.filters.some((f) => f === "eq kind axis_rollup" || f === "eq kind copy_rule")));
   });
 });
