@@ -147,6 +147,22 @@ describe("cross-client copy guard", () => {
     assert.deepEqual(users.sort(), allowed);
   });
 
+  it("ad_library_pages and ad_library_ads are named only by the E9 store module (migration 265)", () => {
+    // Operator-only (OP10): watched pages' Ad Library ads, written by scripts/ad-library-ingest.mts. A reader joins this list and calls requireOperator(.
+    const allowed = ["lib/ad-library/db.ts"];
+    const users = sourceFiles().filter((file) => {
+      if (file.includes("__tests__")) return false;
+      let src: string;
+      try {
+        src = readFileSync(file, "utf8");
+      } catch {
+        return false;
+      }
+      return /\bad_library_(pages|ads)\b|ad-library\/db/.test(src);
+    });
+    assert.deepEqual(users.sort(), allowed);
+  });
+
   it("the audience-builder and TikTok contexts are declared under the operator layout only (issue 2 guard)", () => {
     const declared = sourceFiles().filter((file) => {
       if (file.includes("__tests__") || file.startsWith("scripts/plan-frames/") || file.startsWith("components/insights-rail/")) return false;
