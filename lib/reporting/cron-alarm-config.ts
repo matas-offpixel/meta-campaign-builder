@@ -98,6 +98,8 @@ export const CRON_ALARMS: CronAlarmSpec[] = [
 
   { cronName: "ad-daily-insights", intervalMinutes: 1440, zeroRule: "never" },
   { cronName: "learning-refresh", intervalMinutes: 1440, zeroRule: "never" },
+  // 15 4 UTC: the observed tests' verdicts (RP1). Most nights it reads few or no test ad sets.
+  { cronName: "learning-findings", intervalMinutes: 1440, zeroRule: "never" },
   { cronName: "benchmark-alerts", intervalMinutes: 1440, zeroRule: "never" },
   { cronName: "snapshot-tier-channel-sales-daily", intervalMinutes: 1440, zeroRule: "tier_channel" },
 
