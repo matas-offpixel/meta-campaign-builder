@@ -233,44 +233,101 @@ describe("the agreed alarm set", () => {
   });
 });
 
-describe("own_run zero rule (bm-page-scan)", () => {
-  const BM: CronAlarmSpec[] = [{ cronName: "bm-page-scan", intervalMinutes: 1440, zeroRule: "own_run" }];
-  const ev = (r: CronRunFact) =>
+describe("night_all_zero rule (bm-page-scan, three runs a London night)", () => {
+  const BM: CronAlarmSpec[] = [
+    { cronName: "bm-page-scan", intervalMinutes: 1440, zeroRule: "night_all_zero", runsPerNight: 3 },
+  ];
+  // Night of 22 Nov 2026 (GMT, so UTC = London): runs 21:15, 01:15, 04:15.
+  const R1 = "2026-11-22T21:15:00Z";
+  const R2 = "2026-11-23T01:15:00Z";
+  const R3 = "2026-11-23T04:15:00Z";
+  const bmRun = (startedAt: string, over: Partial<CronRunFact> = {}) =>
+    run({ cronName: "bm-page-scan", startedAt, rowsWritten: 0, rowsConsidered: 70, ...over });
+  const ev = (runs: CronRunFact[]) =>
     evidence({
-      latestRunByCron: new Map([["bm-page-scan", r]]),
+      latestRunByCron: new Map([["bm-page-scan", runs[0]]]),
+      recentRunsByCron: new Map([["bm-page-scan", runs]]),
       firstSeenByCron: new Map([["bm-page-scan", SETTLED]]),
     });
-  const bmRun = (over: Partial<CronRunFact>) => run({ cronName: "bm-page-scan", ...over });
+  const at = (iso: string) => new Date(iso);
 
-  it("is silent when some BMs were scanned", () => {
-    assert.deepEqual(evaluateCronAlarms(ev(bmRun({ rowsWritten: 30, rowsConsidered: 64 })), NOW, BM), []);
+  it("puts 21:15, 01:15 and 04:15 UTC in one London night, in GMT and in BST", async () => {
+    const { londonNightKey } = await import("../cron-alarm-rules.ts");
+    assert.equal(londonNightKey(R1), "2026-11-22");
+    assert.equal(londonNightKey(R2), "2026-11-22");
+    assert.equal(londonNightKey(R3), "2026-11-22");
+    // BST: 21:15 UTC is 22:15 London, 04:15 UTC is 05:15 London.
+    assert.equal(londonNightKey("2026-06-10T21:15:00Z"), "2026-06-10");
+    assert.equal(londonNightKey("2026-06-11T04:15:00Z"), "2026-06-10");
+    // Noon London starts the next night.
+    assert.equal(londonNightKey("2026-11-23T12:00:00Z"), "2026-11-23");
   });
 
-  it("alarms 0 done of N candidates", () => {
-    const out = evaluateCronAlarms(ev(bmRun({ rowsWritten: 0, rowsConsidered: 64 })), NOW, BM);
+  it("is silent after a rate-limited zero while the night's other runs are still to come", () => {
+    const out = evaluateCronAlarms(ev([bmRun(R1)]), at("2026-11-22T22:15:00Z"), BM);
+    assert.deepEqual(out, []);
+    const out2 = evaluateCronAlarms(ev([bmRun(R2), bmRun(R1)]), at("2026-11-23T02:15:00Z"), BM);
+    assert.deepEqual(out2, []);
+  });
+
+  it("is silent when any run that night scanned a BM", () => {
+    const runs = [bmRun(R3), bmRun(R2, { rowsWritten: 18 }), bmRun(R1)];
+    assert.deepEqual(evaluateCronAlarms(ev(runs), at("2026-11-23T05:15:00Z"), BM), []);
+  });
+
+  it("alarms once all three runs that night scanned 0", () => {
+    const runs = [bmRun(R3), bmRun(R2), bmRun(R1)];
+    const out = evaluateCronAlarms(ev(runs), at("2026-11-23T05:15:00Z"), BM);
     assert.equal(out.length, 1);
     assert.equal(out[0].kind, "implausible_zero");
-    assert.match((out[0] as { reason: string }).reason, /0 of 64/);
+    assert.match((out[0] as { reason: string }).reason, /0 of 70 done in all 3 run\(s\) on the night of 2026-11-22/);
   });
 
-  it("alarms a failed run even with nothing considered", () => {
-    const out = evaluateCronAlarms(ev(bmRun({ ok: false, rowsWritten: 0, rowsConsidered: 0 })), NOW, BM);
+  it("ignores the previous night's runs", () => {
+    // Last night's three zeros, then tonight's first zero: tonight isn't complete.
+    const runs = [
+      bmRun("2026-11-23T21:15:00Z"),
+      bmRun(R3), bmRun(R2), bmRun(R1),
+    ];
+    assert.deepEqual(evaluateCronAlarms(ev(runs), at("2026-11-23T22:15:00Z"), BM), []);
+  });
+
+  it("alarms a night that ended with fewer runs, all zero", () => {
+    const runs = [bmRun(R2), bmRun(R1)];
+    const out = evaluateCronAlarms(ev(runs), at("2026-11-23T13:15:00Z"), BM);
+    assert.equal(out.length, 1);
+    assert.match((out[0] as { reason: string }).reason, /all 2 run\(s\)/);
+  });
+
+  it("alarms a hard failure at once, even on the night's first run", () => {
+    const out = evaluateCronAlarms(
+      ev([bmRun(R1, { ok: false, rowsConsidered: 0 })]),
+      at("2026-11-22T22:15:00Z"),
+      BM,
+    );
     assert.equal(out.length, 1);
     assert.match((out[0] as { reason: string }).reason, /failed/);
   });
 
-  it("is silent on 0 of 0 (every BM under an archived client)", () => {
-    assert.deepEqual(evaluateCronAlarms(ev(bmRun({ rowsWritten: 0, rowsConsidered: 0 })), NOW, BM), []);
+  it("is silent on 0 of 0 all night (every BM under an archived client)", () => {
+    const runs = [R3, R2, R1].map((t) => bmRun(t, { rowsConsidered: 0 }));
+    assert.deepEqual(evaluateCronAlarms(ev(runs), at("2026-11-23T05:15:00Z"), BM), []);
   });
 
-  it("alarms a daily scan that stopped reporting for two days", () => {
-    const out = evaluateCronAlarms(ev(bmRun({ startedAt: "2026-10-12T04:15:00Z" })), NOW, BM);
+  it("still alarms a scan that stopped reporting for two days", () => {
+    const out = evaluateCronAlarms(ev([bmRun("2026-11-21T04:15:00Z")]), at("2026-11-23T05:15:00Z"), BM);
     assert.equal(out[0]?.kind, "not_reporting");
   });
 
-  it("is wired into CRON_ALARMS with the own_run rule", async () => {
-    const { CRON_ALARMS } = await import("../cron-alarm-config.ts");
+  it("is wired into CRON_ALARMS with the night rule and the 48 h no-run window", async () => {
+    const { CRON_ALARMS, MISSING_INTERVAL_MULTIPLIER } = await import("../cron-alarm-config.ts");
     const spec = CRON_ALARMS.find((s) => s.cronName === "bm-page-scan");
-    assert.deepEqual(spec, { cronName: "bm-page-scan", intervalMinutes: 1440, zeroRule: "own_run" });
+    assert.deepEqual(spec, {
+      cronName: "bm-page-scan",
+      intervalMinutes: 1440,
+      zeroRule: "night_all_zero",
+      runsPerNight: 3,
+    });
+    assert.equal(spec!.intervalMinutes * MISSING_INTERVAL_MULTIPLIER, 48 * 60);
   });
 });

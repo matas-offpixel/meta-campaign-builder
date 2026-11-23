@@ -70,7 +70,11 @@ export function parseAppUsageHeader(
   if (!value) return null;
   let parsed: Record<string, unknown>;
   try {
-    parsed = JSON.parse(value) as Record<string, unknown>;
+    const raw: unknown = JSON.parse(value);
+    // `null`, a number or an array is valid JSON but not a usage object;
+    // reading `.call_count` off null would throw.
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+    parsed = raw as Record<string, unknown>;
   } catch {
     return null;
   }

@@ -5,7 +5,7 @@ import { runBmCronScan } from "@/lib/bm/cron-scan";
 import { withCronRunLog } from "@/lib/reporting/with-cron-run-log";
 
 /**
- * GET /api/cron/bm-page-scan  (Vercel Cron — daily 04:15 UTC)
+ * GET /api/cron/bm-page-scan  (Vercel Cron — 21:15, 01:15 and 04:15 UTC)
  *
  * For every connected Business Manager, re-enumerate every asset type — pages
  * (migration 145) plus ad accounts, pixels and Instagram accounts (migration
@@ -27,17 +27,29 @@ import { withCronRunLog } from "@/lib/reporting/with-cron-run-log";
  * no BM starts after 650 s. The token-wide reads (`/me/accounts`, the
  * business-scoped user ids) happen once per run, not once per BM. Each run
  * writes a `cron_runs` row (`bm-page-scan`), alarmed in CRON_ALARMS
- * (lib/reporting/cron-alarm-config.ts, rule `own_run`). BMs whose client is
+ * (lib/reporting/cron-alarm-config.ts, rule `night_all_zero`). BMs whose client is
  * archived are skipped, like every other cron; a BM with no client is
  * scanned. See lib/bm/scan-run.ts and lib/bm/cron-scan.ts.
  *
- * Schedule (04:15 UTC, was 08:00): Meta's app request limit is shared by
- * every cron on this app. At 08:00 the scan ran with budget-pacing-check
- * (hourly, :00) and optimisation-tick (every 4 h, :00). 04:15 starts after
- * both have finished (their maxDuration is 120 s and 300 s) and, with the
- * 650 s budget, ends before the 05:00 budget-pacing tick. The other jobs
- * around then (google-ads-daily-insights, benchmark-alerts at 04:00) make
- * no Meta calls.
+ * Schedule (three runs a night since 23 Nov; 04:15 alone before, 08:00
+ * before 18 Nov): Meta's app request limit is a rolling hour shared by every
+ * cron on this app, and each run stops at the first rate limit, which on
+ * the first 04:15 run came 193 s in after 18 BMs. Three runs at least 3 h
+ * apart each start on a fresh hour, and the least-recently-scanned-first
+ * order makes each pick up where the last stopped.
+ *
+ * The times keep an hour clear after each run for the night's heavy Meta
+ * readers, which would otherwise inherit a spent hour:
+ *   21:15  after scan-enhancement-flags 18:45; next Meta job optimisation-tick 00:00
+ *   01:15  after scan-enhancement-flags 00:45 (≤ 800 s); ad-daily-insights 02:30
+ *   04:15  after optimisation-tick 04:00 (≤ 300 s); IG clip discovery runs 03:45
+ * budget-pacing-check runs every hour at :00 (≤ 120 s) and can't be avoided.
+ * 00:15 and 02:15 were the first proposal; they sit 30 and 15 minutes before
+ * scan-enhancement-flags and ad-daily-insights.
+ *
+ * Each run logs `meta_calls` (every Graph attempt, retries included) and the
+ * X-App-Usage readings `app_usage_last` / `app_usage_at_limit` in its
+ * cron_runs detail (lib/meta/call-meter.ts).
  *
  * Auth: Bearer CRON_SECRET (same pattern as the other crons).
  */
@@ -108,6 +120,9 @@ export const GET = withCronRunLog(
       stopped_by: typeof body.stoppedBy === "string" ? body.stoppedBy : null,
       rate_limited_at: typeof body.rateLimitedAt === "string" ? body.rateLimitedAt : null,
       token_context_reads: num(body.tokenContextReads),
+      meta_calls: num(body.metaCalls),
+      app_usage_last: body.appUsageLast ?? null,
+      app_usage_at_limit: body.appUsageAtLimit ?? null,
       totals: body.totals ?? null,
       asset_totals: body.assetTotals ?? null,
     }),
