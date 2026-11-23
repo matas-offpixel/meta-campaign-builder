@@ -1,0 +1,1374 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Off/Pixel Agency OS — north star — issue 3 — 23 Nov 2026</title>
+<style>
+:root{
+  --sand:#F0C9A8; --card:#e8d4c0; --edit:#f6ebe0; --ink:#1e1810; --ink-2:#4a3d30; --ink-3:#7A6A5C;
+  --border:rgba(30,24,16,.10); --border-strong:rgba(30,24,16,.18); --muted:rgba(30,24,16,.06);
+  --olive:#5F6B2A; --ochre:#A86B12; --brick:#9B3B28; --meta:#5B7FA6;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--sand);color:var(--ink);font:14px/1.5 var(--sans)}
+.wrap{max-width:1360px;margin:0 auto;padding:40px 24px 120px}
+h1{font-size:24px;font-weight:600;margin:0 0 6px}
+h2{font-size:20px;font-weight:600;margin:56px 0 8px}
+h3{font-size:13px;font-weight:600;margin:20px 0 6px}
+p{margin:0 0 10px;max-width:86ch}
+.lead{font-size:13px;color:var(--ink-2)}
+.k{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+code{font:12px var(--mono);background:var(--muted);padding:1px 5px;border-radius:4px}
+.frame{display:flex;gap:28px;align-items:flex-start;flex-wrap:wrap;margin:12px 0}
+figure{margin:0}
+figcaption{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+.vp{background:var(--sand);border:1px solid var(--border-strong);border-radius:8px;overflow:hidden;position:relative}
+table.t{border-collapse:collapse;width:100%;font-size:12.5px;margin:10px 0 22px;background:var(--card);border-radius:8px;overflow:hidden}
+table.t th,table.t td{text-align:left;vertical-align:top;padding:7px 12px;border-bottom:1px solid var(--border)}
+table.t th{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.t td:first-child{font-weight:600;white-space:nowrap}
+.btn{display:inline-flex;align-items:center;height:26px;padding:0 11px;border-radius:6px;border:1px solid var(--border-strong);background:transparent;color:var(--ink);font:600 12px var(--sans);white-space:nowrap}
+.btn.solid{background:var(--ink);color:var(--sand);border-color:var(--ink)}
+.btn.tan{background:#c4a882;border-color:#c4a882}
+/* states */
+.st{display:inline-flex;align-items:center;height:18px;padding:0 7px;border-radius:99px;font:600 10px/1 var(--sans);white-space:nowrap}
+.st.live{background:var(--olive);color:#fff}
+.st.part{border:1.5px solid var(--ochre);color:var(--ochre)}
+.st.des{border:1.5px dashed var(--ink-2);color:var(--ink-2)}
+.st.none{border:1.5px dashed var(--ink-3);color:var(--ink-3);opacity:.85}
+.mk{display:inline-flex;align-items:center;gap:3px;height:18px;padding:0 6px;border-radius:4px;font:600 10px/1 var(--sans);white-space:nowrap}
+.mk.you{background:var(--ink);color:var(--sand)}
+.mk.auto{border:1px solid var(--border-strong);color:var(--ink-2);background:var(--edit)}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;align-items:center;margin:8px 0 14px}
+/* changelog */
+.log{background:var(--card);border-radius:10px;padding:12px 16px;margin:14px 0 18px;font-size:12.5px}
+.log li{margin:2px 0}
+/* map */
+.map{padding:18px}
+.lane{display:grid;grid-template-columns:repeat(4,1fr) ;gap:0;align-items:stretch}
+.stage{padding:10px 10px 12px;border-radius:10px;background:rgba(255,255,255,.18);border:1px solid var(--border);position:relative;margin-right:26px}
+.stage:last-child{margin-right:0}
+.stage:not(:last-child)::after{content:"→";position:absolute;right:-21px;top:44%;font:700 18px var(--sans);color:var(--ink-2)}
+.stage .sn{font:700 9px/1 var(--mono);letter-spacing:.14em;color:var(--ink-3);text-transform:uppercase;margin-bottom:6px}
+.stage .sh{font-weight:700;font-size:13.5px;margin-bottom:8px}
+.ac{background:var(--edit);border:1px solid var(--border);border-radius:8px;padding:7px 9px;margin:0 0 7px}
+.ac b{font-size:12.5px;display:block}
+.ac p{font-size:11.5px;color:var(--ink-2);margin:3px 0 4px;line-height:1.35}
+.ac .row{display:flex;gap:4px;flex-wrap:wrap;align-items:center}
+.ac.dim{background:transparent;border-style:dashed}
+.turn{display:flex;justify-content:flex-end;align-items:center;gap:8px;font:600 11.5px var(--sans);color:var(--ink-2);margin:6px 2px}
+.loop{margin-top:10px;border:1.5px dashed var(--olive);border-radius:10px;padding:8px 12px;font-size:12.5px;color:var(--ink-2);display:flex;justify-content:space-between;align-items:center}
+.loop b{color:var(--olive)}
+.loop .k{flex:none;white-space:nowrap;margin-left:14px}
+.around{margin-top:16px;display:grid;grid-template-columns:repeat(6,1fr);gap:7px}
+.around .ac{margin:0}
+/* app shell */
+.app{display:flex}
+.nav{width:172px;flex:none;background:#e3d1bf;border-right:1px solid var(--border);padding:14px 12px;font-size:12px;color:var(--ink-2)}
+.nav b{display:block;font:700 12px var(--sans);color:var(--ink);letter-spacing:.04em;margin-bottom:6px}
+.nav .it{padding:4px 8px;border-radius:5px;margin:1px 0}.nav .it.on{background:var(--muted);color:var(--ink)}
+.nav .g{font:700 8.5px/1 var(--mono);letter-spacing:.14em;color:var(--ink-3);margin:10px 8px 4px}
+.main{flex:1;min-width:0;padding:16px 22px}
+.ttl{font:700 19px/1.1 var(--sans);letter-spacing:.03em;text-transform:uppercase}
+.sub{font-size:11.5px;color:var(--ink-3);margin-top:3px}
+.tabs{display:flex;gap:18px;font-size:12.5px;color:var(--ink-2);border-bottom:1px solid var(--border-strong);margin:10px 0 12px}
+.tabs span{padding:6px 0}.tabs span.on{color:var(--ink);border-bottom:2px solid var(--ink)}
+.card{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:11px 13px;margin:0 0 9px}
+.ch{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px}
+.ch b{font-size:13px}
+.r{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;padding:7px 0;border-top:1px solid var(--border);font-size:12.5px}
+.r:first-of-type{border-top:0}
+.r small{display:block;color:var(--ink-3);font-size:11.5px}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;vertical-align:middle}
+.ph{height:9px;border-radius:3px;background:var(--muted);margin:5px 0}
+.week{display:grid;grid-template-columns:repeat(7,1fr);gap:5px;font-size:11px}
+.week div{background:var(--edit);border-radius:6px;padding:6px;min-height:74px}
+.week div.pay{outline:2px solid var(--ink)}
+.week small{display:block;font-size:10.5px;line-height:1.25;margin-top:3px}
+.pk{display:inline-block;width:7px;height:7px;border-radius:2px;margin-right:3px}
+.strip{display:grid;grid-template-columns:repeat(4,1fr);text-align:center;font-size:11px}
+.strip div{padding:7px 4px;border-radius:5px}.strip .n{font:600 18px/1.1 var(--sans)}
+.strip .now{background:var(--ink);color:var(--sand)}
+.facts{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;font-size:11.5px}
+.facts div{background:var(--edit);border-radius:6px;padding:6px 8px}
+.facts b{display:block;font-size:13px}
+.secrow{display:flex;justify-content:space-between;align-items:center}
+.rail{width:300px;flex:none;background:var(--edit);border-left:1px solid var(--border-strong);padding:12px 14px;font-size:12px}
+.rail .rk{font:700 9px/1 var(--mono);letter-spacing:.14em;color:var(--ink-3);margin:12px 0 5px;text-transform:uppercase}
+.bar{height:7px;border-radius:4px;background:var(--muted);position:relative;margin:3px 0 6px}
+.bar i{position:absolute;left:0;top:0;bottom:0;border-radius:4px}
+.tab{width:30px;flex:none;background:var(--edit);border-left:1px solid var(--border-strong);display:flex;flex-direction:column;align-items:center;padding-top:12px;gap:8px}
+.tab span{writing-mode:vertical-rl;font:600 11.5px var(--sans);color:var(--ink-2)}
+.chip{display:inline-flex;align-items:center;height:19px;padding:0 7px;border-radius:4px;font:600 10.5px/1 var(--sans);white-space:nowrap;border:1px solid var(--border-strong);color:var(--ink-2)}
+.chip.ok{border-color:var(--olive);color:var(--olive)}
+.chip.warn{border-color:var(--ochre);color:var(--ochre)}
+.chip.bad{border-color:var(--brick);color:var(--brick)}
+.chip.win{background:var(--olive);color:#fff;border-color:var(--olive)}
+.big{font:600 22px/1.1 var(--sans);font-variant-numeric:tabular-nums}
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.kpis div{background:var(--edit);border-radius:6px;padding:8px 10px;font-size:11.5px;color:var(--ink-2)}
+.mini{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.mini .vp{padding:10px}
+.pill{display:inline-flex;align-items:center;height:24px;padding:0 10px;border:1px solid var(--border-strong);border-radius:99px;font:600 11.5px var(--sans);background:var(--edit)}
+/* 393 */
+.phone{width:393px;position:relative;background:var(--sand);padding:12px 14px;font-size:12.5px}
+.phone .ac{margin-bottom:6px}
+.vline{border-left:2px solid var(--ink-2);margin:0 0 0 8px;padding:0 0 4px 14px}
+.vst{font:700 9px/1 var(--mono);letter-spacing:.14em;color:var(--ink-3);text-transform:uppercase;margin:8px 0 6px -22px;background:var(--sand);padding:2px 0}
+.ph393 .r{grid-template-columns:1fr auto}
+.notes{font-size:12.5px;color:var(--ink-2)}
+.notes li{margin:0 0 6px;max-width:96ch}
+/* issue 2 */
+.rw{display:flex;justify-content:space-between;gap:8px;align-items:baseline;font-size:11px;color:var(--ink-2);padding:3px 0;border-top:1px dashed var(--border);line-height:1.3}
+.rw:first-of-type{border-top:0}
+.s{font:600 9.5px/1.2 var(--sans);white-space:nowrap;text-align:right}
+.s.l{color:var(--olive)}.s.p{color:var(--ochre)}.s.b{color:var(--brick)}.s.d{color:var(--ink-2);border-bottom:1px dashed var(--ink-2)}.s.n{color:var(--ink-3)}.s.m{color:var(--brick)}
+.ac .row{margin-top:6px}
+.inv td:nth-child(2){min-width:260px}.inv td:first-child{white-space:normal;max-width:130px}.inv{font-size:12px}
+.node{padding:10px 10px 12px;border-radius:10px;background:var(--edit);border:1px solid var(--border);position:relative;margin-right:26px;font-size:11.5px;color:var(--ink-2)}
+.node:last-child{margin-right:0}
+.node:not(:last-child)::after{content:"→";position:absolute;right:-21px;top:44%;font:700 18px var(--sans);color:var(--ink-2)}
+.node .sn{font:700 9px/1 var(--mono);letter-spacing:.14em;color:var(--ink-3);text-transform:uppercase;margin-bottom:6px}
+.node .st-list{line-height:1.5;margin-bottom:6px}.node .st-list code{font-size:10.5px;padding:0 3px}
+.node .rd{font-size:11px;color:var(--ink-3);margin-bottom:8px}
+.lk{display:inline-block;border-radius:4px;padding:3px 7px;font:600 10.5px/1.3 var(--sans)}
+.lk.l{background:var(--olive);color:#fff}.lk.p{border:1.5px solid var(--ochre);color:var(--ochre)}.lk.m{background:var(--brick);color:#fff}
+.xp{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}
+.xc{background:var(--edit);border:1px solid var(--border);border-radius:10px;padding:10px 11px;font-size:11px;color:var(--ink-2)}
+.xc .sh{font-weight:700;font-size:13px;color:var(--ink);margin-bottom:6px}
+.xc .k{margin:8px 0 4px}
+.xc ul{margin:0;padding-left:14px}.xc li{margin:0 0 4px;line-height:1.35}
+.xc code{font-size:10px;padding:0 3px}
+.tg{display:inline-block;border:1px solid var(--border-strong);border-radius:4px;padding:0 5px;font:600 10px/1.5 var(--sans);color:var(--ink);white-space:nowrap}
+
+/* issue 3 */
+.lay{display:inline-block;margin-left:4px;padding:0 5px;border-radius:3px;font:700 8.5px/1.6 var(--mono);letter-spacing:.1em;text-transform:uppercase;vertical-align:1px;white-space:nowrap}
+.lay.signal{background:#d9e3ec;color:#2f4f6e}.lay.memory{background:#e6dcc9;color:#5a4320}.lay.decide{background:#efe0b8;color:#6e4a06}
+.lay.act{background:#dfe5cc;color:#3e4a16}.lay.learn{background:#f1d3cb;color:#7a2a1a}.lay.ops{background:var(--muted);color:var(--ink-2)}
+.ac b+.lay{margin-left:6px}
+.loopmap{padding:18px}
+.lcols{display:grid;grid-template-columns:repeat(5,1fr);gap:0}
+.lc{margin-right:26px;position:relative;background:rgba(255,255,255,.18);border:1px solid var(--border);border-radius:10px;padding:10px 10px 12px}
+.lc:last-child{margin-right:0}
+.lc:not(:last-child)::after{content:"→";position:absolute;right:-21px;top:40%;font:700 18px var(--sans);color:var(--ink-2)}
+.lc.learn{border:2px dashed var(--brick);background:rgba(155,59,40,.06)}
+.lc .sn{font:700 9px/1 var(--mono);letter-spacing:.14em;color:var(--ink-3);text-transform:uppercase;margin-bottom:4px}
+.lc .sh{font-weight:700;font-size:14px;margin-bottom:2px}
+.lc .q{font-size:11px;color:var(--ink-2);margin-bottom:8px}
+.who{font:700 8.5px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);margin:8px 0 4px}
+.it2{display:flex;justify-content:space-between;gap:6px;align-items:baseline;font-size:11px;color:var(--ink-2);padding:3px 0;border-top:1px dashed var(--border);line-height:1.3}
+.it2:first-of-type{border-top:0}
+.ret{margin-top:10px;border:2px dashed var(--brick);border-radius:10px;padding:8px 12px;font-size:12.5px;color:var(--ink-2);display:flex;justify-content:space-between;align-items:center}
+.ret b{color:var(--brick)}
+.ret .k{flex:none;white-space:nowrap;margin-left:14px}
+.inputs{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:12px}
+.inputs .ac{margin:0}
+.qrow{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;padding:8px 0;border-top:1px solid var(--border);font-size:12.5px}
+.qrow:first-of-type{border-top:0}
+.qrow small{display:block;color:var(--ink-3);font-size:11.5px}
+.src{display:inline-flex;align-items:center;height:18px;padding:0 6px;border-radius:4px;font:700 9px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;white-space:nowrap;border:1px solid var(--border-strong);color:var(--ink-2);background:var(--edit)}
+.src.lrn{border-color:var(--brick);color:var(--brick)}.src.ref{border-color:var(--ochre);color:var(--ochre)}.src.mcp{border-color:var(--meta);color:var(--meta)}
+.brief{background:var(--ink);color:var(--sand);border-radius:8px;padding:11px 13px;margin:0 0 9px;font-size:12.5px}
+.brief b{color:#fff}.brief .k{color:#c9b59f}
+.brief ul{margin:6px 0 0;padding-left:16px}.brief li{margin:0 0 3px}
+.hz{font:700 9px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3)}
+table.t td.ex{min-width:240px}
+.flag{background:var(--card);border-left:3px solid var(--brick);border-radius:6px;padding:9px 12px;margin:0 0 10px;font-size:12.5px;max-width:110ch}
+.flag b{display:block;margin-bottom:3px}
+.subs{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.subs .ac{margin:0}
+@media (max-width:600px){.subs{grid-template-columns:1fr 1fr}}
+
+.invx{overflow-x:auto;max-width:100%}
+.frame{overflow-x:auto;max-width:100%}
+.mini{overflow-x:auto;max-width:100%}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<div class="k">OFF/PIXEL · DESIGN RECORD · NORTH STAR · 23 NOVEMBER 2026 · ISSUE 3 · SUPERSEDES ISSUE 2</div>
+<h1>Off/Pixel × CIRQLIN — one loop, and the tool around it</h1>
+<p class="lead">Issue 3 is the design side of the ops map "Off/Pixel × CIRQLIN — Roadmap to the North Star" (23 Nov). It keeps issue 2's shape: the map, the inventory, the learning chain, the expert layer, the gaps and Today. It puts one spine under all of them, the loop:</p>
+<ul class="notes">
+<li><b>Signal:</b> what we can see.</li>
+<li><b>Memory:</b> what we keep.</li>
+<li><b>Decide:</b> what we propose.</li>
+<li><b>Act:</b> what gets done.</li>
+<li><b>Learn:</b> what the outcome teaches.</li>
+</ul>
+<p class="lead">CIRQLIN and Off/Pixel each own part of it. Every capability row now names its layer. The rest of this issue does five things:</p>
+<ul class="notes">
+<li>It adds the return path the map calls missing: observed tests, variant pairs, phase curves, the decision log, playbook evidence, the exploration budget and the inspiration feed.</li>
+<li>It places the Off/Pixel MCP and CIRQLIN Phases on the Act layer.</li>
+<li>It re-ranks the gaps against the map's horizons.</li>
+<li>It makes Today the approvals queue, with the morning brief at the top.</li>
+<li>It rules the map's 12 operating principles as OP1–OP12 for the deck.</li>
+</ul>
+
+<div class="log"><div class="k" style="margin-bottom:6px">Changelog — each re-issue adds a line at the top, never edits an older one</div>
+<ul style="margin:0;padding-left:18px">
+<li><b>Issue 3 · 23 Nov 2026.</b> Sources: the ops map (23 Nov), the learnings engine brief (E1–E9, S1–S4), and the Creative Services handover (Workflows A–C). The Commercial + Ops reflection of 23 Nov is cited through the map; this thread couldn't open it directly. Changes:
+<ul style="margin:4px 0 0;padding-left:16px">
+<li><b>Spine:</b> §0 the loop is new (NS0). §1's stage map is kept as the stage view, with a layer chip on every card.</li>
+<li><b>Inventory (§1A):</b> a Layer column on every row. Issue 2's 99 rows are kept, and five are moved by the map (rail live on three surfaces, learning tables since 15 Oct, the Lab judge on its own rounds, budget pacing live, attribution at ~3 % traced). 41 rows are added from the map's "Where we stand", including the 23 Nov findings: <code>creative_tests</code> has 0 rows while about 10 tests ran; <code>onsale_refresh_outcomes</code> is empty; the Meta connector is refused on some accounts.</li>
+<li><b>Chain (§1B):</b> issue 2's 8 links stand. 11 return-path links are added (RP1–RP11), 1 partly and 10 missing.</li>
+<li><b>New sections:</b> §2 the Act layer (MCP v1, Phases as the moment engine); §3 Today as the approvals queue, with the morning brief first. Its frames replace issue 2's §2 Today frames; issue 2's rules for Today stand. Issue 2's event and client pages move to §4A and §4B, unchanged.</li>
+<li><b>Gaps (§5):</b> re-ranked by horizon, each with its record status and exit test.</li>
+<li><b>Rules:</b> six rules added in §6; OP1–OP12 ruled for the deck (§7). Four records are queued before 4 Dec (§8), and seven places where this record rules the map differently are flagged (§9).</li>
+<li><b>Counts:</b> live counts in §1A are issue 2's (7 Nov) unless the map gave a new figure. A full recount is hand-back H3.</li>
+</ul></li>
+<li><b>Issue 2 · 8 Nov 2026.</b> Matas: nothing may be lost along the way, and the pieces must feed each other until the tool is a hive mind of his own knowledge. Added §1A the inventory (99 capabilities from the code, schema, crons and docs; 40 cards, 28 on the spine and 12 around it: 7 new, 3 folded into rows), §1B the learning chain (8 links, 1 live, 7 partly, attribution missing), §1C the expert layer (5 disciplines, 25 should-knows: 13 deck rules, 9 learning jobs, 3 watches). Card states corrected from the walk: Brief intake, Health, Clip import → partly built; Ticket tiers live with a stale tickets leg. §5 re-ranked: closing the chain enters at 3; After-show drops out of the five. Three rules added in §6. State as of main after #1103 opened, #1102 at PASS awaiting the design-pass label.</li>
+<li><b>Issue 1 · 8 Nov 2026.</b> First map: 36 area cards, 24 on the 8-stage spine and 12 operator pages around it. Today, the event page (3 stages) and the client page (operator and portal) are redrawn. Top five gaps ranked. State as of main after #1092 and #1096, with #1102 (Insights rail build 1) in review.</li>
+</ul></div>
+
+<h3>How to read it</h3>
+<ul class="notes">
+<li><b>§0 The loop</b> is the spine. Five layers, left to right. CIRQLIN's part sits on the top line of each column and Off/Pixel's on the bottom line. The Learn column is outlined in brick because it's the return path the map calls missing. Outside world and Fans feed in underneath.</li>
+<li><b>Layer chips</b> carry the same five colours everywhere: <span class="lay signal">Signal</span> <span class="lay memory">Memory</span> <span class="lay decide">Decide</span> <span class="lay act">Act</span> <span class="lay learn">Learn</span>. <span class="lay ops">Ops</span> marks the five operator cards that sit outside the loop (Invoicing, Health, Operator tools, Business Managers, Settings). On the 393 map, a grouped card carries its primary layer.</li>
+<li><b>§1 and §1A</b> are issue 2's map and inventory with a layer on every card and row. Rows the map moved are rewritten, with "(map, 23 Nov)" beside the new state. Rows added in issue 3 come last in §1A, under their own heading.</li>
+<li><b>§1B</b> keeps issue 2's chain and adds the return path. <b>§2</b> is the Act layer: the MCP and Phases. <b>§3</b> is Today. <b>§4A–4B</b> are issue 2's event and client pages, unchanged. <b>§5</b> is the gaps by horizon. <b>§7</b> holds the principles as rules. <b>§8</b> holds the records queued before 4 Dec. <b>§9</b> holds where this record rules the map differently.</li>
+<li><b>To check a PR:</b> find its row, its layer and its horizon. The PR moves the row's state, or it shouldn't touch that area. A PR whose row has no exit test in §5 isn't ready.</li>
+</ul>
+
+<!-- ======================= 0 THE LOOP ======================= -->
+<h2>0 · The loop — Signal → Memory → Decide → Act → Learn</h2>
+<p class="lead">One loop runs across CIRQLIN, Off/Pixel and every ad channel. Each layer has one question:</p>
+<ul class="notes">
+<li><b>Signal:</b> what happened?</li>
+<li><b>Memory:</b> what do we keep, and with what evidence?</li>
+<li><b>Decide:</b> what should change?</li>
+<li><b>Act:</b> who or what makes the change, and through which gate?</li>
+<li><b>Learn:</b> did the change work?</li>
+</ul>
+<p class="lead">The two products split the loop as the map says. CIRQLIN feeds Signal (pages, signups, consent, community, ticket clicks) and Act (Phases, sends). Off/Pixel runs Memory, Decide and Act across Meta, TikTok and Google. Claude operates Act through the MCP, from a phone. Learn feeds Memory, which closes the loop. Today it's the missing return path: actions don't become evidence.</p>
+<div class="legend" style="font-size:11.5px"><span class="k">item states:</span> <span class="s l">live</span> <span class="s p">partly</span> <span class="s d">designed / record queued</span> <span class="s m">missing</span> <span class="k">· from the map's "Where we stand", 23 Nov</span></div>
+<div class="frame"><figure><figcaption>NS0-1280 · the loop, with each product placed on it</figcaption>
+<div class="vp loopmap" style="width:1280px">
+ <div class="lcols">
+  <div class="lc"><div class="sn">1 · signal</div><div class="sh">Signal</div><div class="q">What happened?</div>
+   <div class="who">CIRQLIN</div>
+   <div class="it2"><span>Pages (53), signups, consent snapshot</span><span class="s l">live</span></div>
+   <div class="it2"><span>Ticket-link clicks, community joins</span><span class="s l">live</span></div>
+   <div class="it2"><span>Consent wording that lets signups feed ads</span><span class="s m">missing</span></div>
+   <div class="who">Off/Pixel</div>
+   <div class="it2"><span>Meta ad-day insights nightly · Google daily · TikTok rollups</span><span class="s l">live</span></div>
+   <div class="it2"><span>D2C send stats · Mailchimp tags</span><span class="s l">live</span></div>
+   <div class="it2"><span>Ticket sales (by hand; Electric as PDFs)</span><span class="s p">partly</span></div>
+   <div class="it2"><span>Owned purchase signal (~3 % traced)</span><span class="s m">missing</span></div>
+   <div class="it2"><span>Google conversions · TikTok purchases per ad</span><span class="s m">missing</span></div></div>
+  <div class="lc"><div class="sn">2 · memory</div><div class="sh">Memory</div><div class="q">What do we keep, with what evidence?</div>
+   <div class="who">CIRQLIN</div>
+   <div class="it2"><span>Fan records, crossover (e.g. 19 %)</span><span class="s l">live</span></div>
+   <div class="it2"><span>Phase history per page (PH1–PH13)</span><span class="s d">designed</span></div>
+   <div class="who">Off/Pixel</div>
+   <div class="it2"><span>Learning tables nightly since 15 Oct: tags, copy shapes, artists, funnel benchmarks</span><span class="s l">live</span></div>
+   <div class="it2"><span>Lab corpus and voice</span><span class="s l">live</span></div>
+   <div class="it2"><span>Findings from what ran (<code>learning_findings</code>)</span><span class="s p">PR1</span></div>
+   <div class="it2"><span>Playbook: house rules with evidence</span><span class="s m">in Claude's memory</span></div></div>
+  <div class="lc"><div class="sn">3 · decide</div><div class="sh">Decide</div><div class="q">What should change?</div>
+   <div class="who">CIRQLIN</div>
+   <div class="it2"><span>Phase plan: which moment is next</span><span class="s d">designed</span></div>
+   <div class="who">Off/Pixel</div>
+   <div class="it2"><span>On-sale refresh proposals (shadow, 7 armed)</span><span class="s l">live</span></div>
+   <div class="it2"><span>Test calls TF2 / TF5–TF9 (app tests)</span><span class="s l">live</span></div>
+   <div class="it2"><span>Budget pacing alerts · optimisation tick</span><span class="s l">live</span></div>
+   <div class="it2"><span>Insights rail (tags, clusters)</span><span class="s p">partly</span></div>
+   <div class="it2"><span>Verdicts on tests run outside the app</span><span class="s m">0 of ~10</span></div>
+   <div class="it2"><span>Monday digest · creation-time chips · morning brief</span><span class="s m">missing</span></div></div>
+  <div class="lc"><div class="sn">4 · act</div><div class="sh">Act</div><div class="q">Who makes the change, through which gate?</div>
+   <div class="who">CIRQLIN</div>
+   <div class="it2"><span>Phase switches · sends (Bird, Mailchimp)</span><span class="s p">by hand</span></div>
+   <div class="who">Off/Pixel</div>
+   <div class="it2"><span>Meta, TikTok, Google launchers · MML fan-out</span><span class="s l">live</span></div>
+   <div class="it2"><span>Lab renders (Lambda) · Drive automation</span><span class="s l">live</span></div>
+   <div class="it2"><span>On-sale refresh Apply behind gates</span><span class="s l">live</span></div>
+   <div class="who">Claude, from a phone</div>
+   <div class="it2"><span>Meta connector (refused on some accounts)</span><span class="s p">partly</span></div>
+   <div class="it2"><span>Off/Pixel MCP: guarded actions</span><span class="s d">record queued</span></div></div>
+  <div class="lc learn"><div class="sn">5 · learn</div><div class="sh">Learn</div><div class="q">Did it work?</div>
+   <div class="who">Off/Pixel</div>
+   <div class="it2"><span>Lab judge on its own rounds · show-close</span><span class="s l">live</span></div>
+   <div class="it2"><span>Decision log, 7-day outcomes (<code>onsale_refresh_outcomes</code> empty)</span><span class="s m">missing</span></div>
+   <div class="it2"><span>Observed tests · variant pairs · phase curves</span><span class="s p">PR1</span></div>
+   <div class="it2"><span>Rule evidence: for / against / untested</span><span class="s m">missing</span></div>
+   <div class="it2"><span>Buyer-quality scoring · signup value</span><span class="s m">missing</span></div>
+   <div class="who">CIRQLIN</div>
+   <div class="it2"><span>Which crowd and phase bought (funnel)</span><span class="s p">partly</span></div></div>
+ </div>
+ <div class="ret"><span><b>↺ Learn → Memory.</b> An outcome becomes evidence on a rule, the rule changes the next proposal, and the proposal is judged again at 7 days. Until the decision log carries rows, the loop closes in Matas's head, as issue 2 said of the chain.</span><span class="k">the missing return path</span></div>
+ <div class="inputs">
+  <div class="ac"><b>Outside world</b> <span class="lay signal">Signal</span><p>Ad Library through the Meta connector (UK ads): live. The inspiration feed (watchlist plus derived artists) and the platform-change watch: missing.</p></div>
+  <div class="ac"><b>Fans</b> <span class="lay signal">Signal</span> <span class="lay act">Act</span><p>CIRQLIN pages, WhatsApp communities and crossover: live. Phases: designed (#666). CRM (WhatsApp direct, segments, journeys): missing; paid to Bird and Mailchimp today.</p></div>
+  <div class="ac"><b>Gates on every arrow</b><p>Consent gates CIRQLIN → ads (OP11). Matas's Apply gates Decide → Act (OP4). Kill switches gate every write. The decision log records every crossing (OP5).</p></div>
+ </div>
+</div></figure></div>
+<div class="frame"><figure><figcaption>NS0-393 · the loop, as a column</figcaption>
+<div class="vp" style="width:393px"><div class="phone">
+ <div class="vline">
+  <div class="vst">1 · Signal</div><div class="ac"><div class="rw"><span>CIRQLIN pages · ad-day insights · sends</span><span class="s l">live</span></div><div class="rw"><span>Tickets · owned purchases · consent for ads</span><span class="s m">gaps</span></div></div>
+  <div class="vst">2 · Memory</div><div class="ac"><div class="rw"><span>Learning tables since 15 Oct · Lab corpus</span><span class="s l">live</span></div><div class="rw"><span>Findings · playbook with evidence</span><span class="s m">gaps</span></div></div>
+  <div class="vst">3 · Decide</div><div class="ac"><div class="rw"><span>Refresh proposals · test calls · pacing</span><span class="s l">live</span></div><div class="rw"><span>Observed tests · digest · chips · brief</span><span class="s m">gaps</span></div></div>
+  <div class="vst">4 · Act</div><div class="ac"><div class="rw"><span>Launchers · renders · Apply</span><span class="s l">live</span></div><div class="rw"><span>Off/Pixel MCP · Phases engine</span><span class="s d">queued</span></div></div>
+  <div class="vst">5 · Learn</div><div class="ac" style="border:2px dashed var(--brick)"><div class="rw"><span>Lab judge · show-close</span><span class="s l">live</span></div><div class="rw"><span>Decision log · rule evidence · buyer quality</span><span class="s m">missing</span></div></div>
+ </div>
+ <div class="ret" style="font-size:11.5px"><span><b>↺</b> Learn → Memory is the missing return path.</span></div>
+</div></div></figure>
+<div style="max-width:620px">
+<p class="lead"><b>Where each product sits.</b> CIRQLIN is Signal and Act for fans: it owns the page, the consent, the phase and the send. Off/Pixel is Memory, Decide and Act for ads: it owns the learnings, the proposals and the launches. Neither owns Learn alone. A phase change (CIRQLIN) is the boundary every ad learning is cut at (phase curves, E2b). A purchase traced back to a CIRQLIN signup is what Off/Pixel's buyer-quality score needs.</p>
+<p class="lead"><b>Claude's place.</b> Claude operates Act, through the MCP, and is never the only route to a learning (OP8). Every Learn and Decide item above runs on the platform's own crons and key. Claude only makes them faster to act on.</p>
+</div></div>
+<!-- ======================= 1 MAP ======================= -->
+<h2>1 · The map by stage</h2>
+<p class="lead">Issue 2 opens every card. Each card now lists its capabilities as rows, read from the code, the schema, the crons and the docs on 7 Nov, with the state of each row. A card's own state is the state of its weakest row that matters. The full list with code paths, stores and row counts is the inventory in §1A; the map is the short form.</p>
+<div class="legend"><span class="st live">Live</span><span class="st part">Partly built</span><span class="st des">Designed, not built</span><span class="st none">Not designed</span><span class="mk you">✋ You approve</span><span class="mk auto">⚙ Runs itself</span><span class="k">◆ = where the Insights rail sits</span></div>
+<div class="legend" style="font-size:11.5px"><span class="k">row states:</span> <span class="s l">live</span> <span class="s p">partly · flag off · 0 rows</span> <span class="s b">stale · bug</span> <span class="s d">designed</span> <span class="s n">not designed</span> <span class="k">· counts are live rows on 7 Nov</span></div>
+<div class="frame"><figure><figcaption>NS1-1280 · the map by stage, issue 3 — each card names its layer</figcaption>
+<div class="vp map" style="width:1280px">
+  <div class="lane">
+    <div class="stage"><div class="sn">1 · a brief arrives</div><div class="sh">Brief</div>
+      <div class="ac"><b>Brief intake</b> <span class="lay signal">Signal</span><p>One brief becomes the event, its page, its sends and its plan.</p>
+        <div class="rw"><span>D2C brief ingest: PDF → event + 6 sends</span><span class="s l">live</span></div>
+        <div class="rw"><span>Brief → page → audiences → plan</span><span class="s n">not designed</span></div>
+        <div class="row"><span class="st part">Partly built</span><span class="mk you">✋ read-back</span></div></div>
+      <div class="ac"><b>Client onboarding</b> <span class="lay signal">Signal</span><p>Accounts, pixel, BM, brand kit, senders.</p>
+        <div class="rw"><span>BM asset sync · channel defaults</span><span class="s l">live</span></div>
+        <div class="rw"><span>Platform connections · D2C credentials</span><span class="s l">live</span></div>
+        <div class="rw"><span>Ticketing connect (Eventbrite, 4theFans, manual)</span><span class="s l">live</span></div>
+        <div class="rw"><span>The checklist itself</span><span class="s n">not designed</span></div>
+        <div class="row"><span class="st part">Partly built</span></div></div>
+    </div>
+    <div class="stage"><div class="sn">2 · event and lineup</div><div class="sh">Event</div>
+      <div class="ac"><b>Event page ◆</b> <span class="lay memory">Memory</span><p>Facts, milestones, plan, Lab, campaigns.</p>
+        <div class="rw"><span>Event record · milestones · key moments (80)</span><span class="s l">live</span></div>
+        <div class="rw"><span>Activity: news, releases, weather</span><span class="s l">live</span></div>
+        <div class="row"><span class="st live">Live</span></div></div>
+      <div class="ac"><b>Lineup &amp; artists</b> <span class="lay memory">Memory</span><p>Artists, enrichment, rights.</p>
+        <div class="rw"><span>Artists (5) · Spotify / MusicBrainz enrichment</span><span class="s l">live</span></div>
+        <div class="rw"><span>Rights rule (promoter page vs artist channels)</span><span class="s l">live</span></div>
+        <div class="rw"><span>Lineup module on the page (B1)</span><span class="s d">designed</span></div>
+        <div class="row"><span class="st part">Partly built</span><span class="mk you">✋ rights</span></div></div>
+      <div class="ac"><b>Ticket tiers &amp; sales</b> <span class="lay signal">Signal</span><p>What's sold, by tier and channel.</p>
+        <div class="rw"><span>Ticketing sync (53,419 snapshots)</span><span class="s l">live</span></div>
+        <div class="rw"><span>Tier × channel sales + daily history (6,409)</span><span class="s l">live</span></div>
+        <div class="rw"><span>Rollup tickets leg</span><span class="s b">stale since 3 Sep</span></div>
+        <div class="rw"><span>Outlet sync (RA, Dice, Skiddle) · Electric PDFs</span><span class="s n">by hand · ingest queued</span></div>
+        <div class="row"><span class="st part">Partly built</span><span class="mk auto">⚙ 5×/day</span></div></div>
+    </div>
+    <div class="stage"><div class="sn">3 · page and D2C</div><div class="sh">Landing &amp; D2C</div>
+      <div class="ac"><b>CIRQLIN page</b> <span class="lay signal">Signal</span><p>Signup page; CQ- list sync.</p>
+        <div class="rw"><span>crqln.com pages · consent · Bird sync</span><span class="s l">live · own app</span></div>
+        <div class="rw"><span>Legacy /l pages · Turnstile · Pixel + CAPI</span><span class="s l">live</span></div>
+        <div class="rw"><span>Cirqlin signup counts → tracker (121)</span><span class="s l">live</span></div>
+        <div class="row"><span class="st live">Live</span><span class="mk auto">⚙ list sync</span></div></div>
+      <div class="ac"><b>D2C comms</b> <span class="lay act">Act</span><p>Six milestones, two providers, one gate.</p>
+        <div class="rw"><span>Orchestration · Bird + Mailchimp providers</span><span class="s l">live</span></div>
+        <div class="rw"><span>3-of-3 gate + per-send approval</span><span class="s l">live</span></div>
+        <div class="rw"><span>Autoresponder: Bird poll · backfill</span><span class="s p">email backfill off</span></div>
+        <div class="rw"><span>Delivery metrics · signup stats · share</span><span class="s l">live</span></div>
+        <div class="rw"><span>Bird journeys</span><span class="s p">stub · by hand</span></div>
+        <div class="rw"><span>Section on the event page</span><span class="s n">not designed</span></div>
+        <div class="row"><span class="st part">Partly built</span><span class="mk you">✋ every send</span></div></div>
+      <div class="ac"><b>Signup growth</b> <span class="lay signal">Signal</span><p>Who signed up, by day.</p>
+        <div class="rw"><span>Mailchimp tags: webhook · EOD · backfill · daily</span><span class="s l">live</span></div>
+        <div class="rw"><span>WA Communities /j/ aliases (16)</span><span class="s l">live</span></div>
+        <div class="row"><span class="st live">Live</span><span class="mk auto">⚙ nightly</span></div></div>
+    </div>
+    <div class="stage"><div class="sn">4 · audiences</div><div class="sh">Audiences</div>
+      <div class="ac"><b>Audience Builder ◆</b> <span class="lay act">Act</span><p>Custom audiences, lookalikes, uploads.</p>
+        <div class="rw"><span>Custom audiences (201) · lookalikes · presets</span><span class="s l">live · write flag</span></div>
+        <div class="rw"><span>Customer list upload (hashed, no PII kept)</span><span class="s l">live</span></div>
+        <div class="rw"><span>Seed remediation (ADVERTISE grant)</span><span class="s l">live</span></div>
+        <div class="row"><span class="st live">Live</span></div></div>
+      <div class="ac"><b>Interest discovery</b> <span class="lay decide">Decide</span><p>Personas, scene hints, clusters.</p>
+        <div class="rw"><span>Personas · scene presets · diversity · targetability</span><span class="s l">live</span></div>
+        <div class="rw"><span>Interest clusters (36) with nightly live evidence</span><span class="s l">live</span></div>
+        <div class="rw"><span>Genre classification (15 buckets)</span><span class="s l">live</span></div>
+        <div class="rw"><span>Audience seeds table</span><span class="s p">0 rows</span></div>
+        <div class="row"><span class="st live">Live</span></div></div>
+      <div class="ac"><b>Lookalike / retargeting results</b> <span class="lay learn">Learn</span><p>Which audiences convert.</p>
+        <div class="rw"><span>Audience over/under-perform alerts (325)</span><span class="s l">live</span></div>
+        <div class="rw"><span>Stored learnings per audience</span><span class="s n">not designed</span></div>
+        <div class="row"><span class="st part">Partly built</span></div></div>
+    </div>
+  </div>
+  <div class="turn">continues ↓ then left to right again</div>
+  <div class="lane">
+    <div class="stage"><div class="sn">5 · campaign</div><div class="sh">Build in MML</div>
+      <div class="ac"><b>MML planner ◆</b> <span class="lay act">Act</span><p>One plan, three platforms.</p>
+        <div class="rw"><span>Canvas · drawers · blockers · phases</span><span class="s l">live</span></div>
+        <div class="rw"><span>Asset routing · copy suggest (Haiku)</span><span class="s l">live</span></div>
+        <div class="rw"><span>Fan-out "Launch all (paused)"</span><span class="s l">live</span></div>
+        <div class="row"><span class="st live">Live</span></div></div>
+      <div class="ac"><b>Platform drafts ◆</b> <span class="lay act">Act</span><p>Wizards and launchers.</p>
+        <div class="rw"><span>Meta wizard · launch · bulk-attach · idempotency</span><span class="s l">live</span></div>
+        <div class="rw"><span>TikTok wizard + writes (Smart+ blocked)</span><span class="s l">live</span></div>
+        <div class="rw"><span>Google Search push · YouTube Editor CSV</span><span class="s l">live</span></div>
+        <div class="rw"><span>Per-placement 4:5 + 9:16 creatives</span><span class="s p">flag off</span></div>
+        <div class="row"><span class="st live">Live</span><span class="mk you">✋ launch</span></div></div>
+      <div class="ac"><b>Benchmarks &amp; targets</b> <span class="lay memory">Memory</span><p>What this client usually pays.</p>
+        <div class="rw"><span>Plan benchmarks view (672 runs) · median + IQR</span><span class="s l">live</span></div>
+        <div class="rw"><span>Funnel targets (21) · client funnel benchmarks (17)</span><span class="s l">live · thin</span></div>
+        <div class="rw"><span>Per-venue conversion overrides</span><span class="s p">0 rows · no reader</span></div>
+        <div class="rw"><span>Predictions at launch → actual at close</span><span class="s p">0 rows</span></div>
+        <div class="rw"><span>Optimisation presets per client</span><span class="s p">0 rows · never read</span></div>
+        <div class="row"><span class="st part">Partly built</span></div></div>
+      <div class="ac"><b>Insights rail ◆</b> <span class="lay decide">Decide</span><p>What's working, beside the build.</p>
+        <div class="rw"><span>Event, MML and audience pages (tags, clusters)</span><span class="s l">live</span></div>
+        <div class="rw"><span>"This week": findings, tests called (S1)</span><span class="s n">record queued</span></div>
+        <div class="row"><span class="st part">Partly built</span></div></div>
+    </div>
+    <div class="stage"><div class="sn">6 · creative</div><div class="sh">Lab &amp; asset bank</div>
+      <div class="ac"><b>Creative Lab ◆</b> <span class="lay act">Act</span><p>Clips × captions → rounds.</p>
+        <div class="rw"><span>Artists · clips (5) · caption writer + fact rules</span><span class="s l">live</span></div>
+        <div class="rw"><span>Renders (Remotion Lambda) · render tick</span><span class="s l">live</span></div>
+        <div class="rw"><span>Rounds · round ads · judge</span><span class="s l">judge on its own rounds</span></div>
+        <div class="rw"><span>Launch (paused ads)</span><span class="s p">flag off</span></div>
+        <div class="row"><span class="st part">Partly built</span><span class="mk you">✋ captions</span></div></div>
+      <div class="ac"><b>Clip import</b> <span class="lay signal">Signal</span><p>Where clips come from.</p>
+        <div class="rw"><span>Drive / Dropbox clip sync (≤10 per artist)</span><span class="s l">live</span></div>
+        <div class="rw"><span>Instagram candidates (B2) · crop picker · TikTok Spark (B6)</span><span class="s d">designed · 0 rows</span></div>
+        <div class="row"><span class="st part">Partly built</span><span class="mk auto">⚙ nightly</span></div></div>
+      <div class="ac"><b>Creative intelligence</b> <span class="lay memory">Memory</span><p>Every ad, tagged and scored.</p>
+        <div class="rw"><span>Asset registry (445) · asset queue · bulk attach</span><span class="s l">live</span></div>
+        <div class="rw"><span>AI auto-tagger (33,337 tags, 8 dimensions)</span><span class="s l">live</span></div>
+        <div class="rw"><span>Creative scores (11,784) · heatmap · health SCALE/OK/ROTATE</span><span class="s l">live</span></div>
+        <div class="rw"><span>Copy library (10,675 ads) → copy performance</span><span class="s p">0 scored rows</span></div>
+        <div class="rw"><span>Enhancement-flag scan (Advantage+ policy)</span><span class="s l">live</span></div>
+        <div class="rw"><span>Canva / Bannerbear / Placid / Remotion stills</span><span class="s p">flags off</span></div>
+        <div class="row"><span class="st live">Live · 1 empty</span><span class="mk auto">⚙ 3×/day</span></div></div>
+      <div class="ac dim"><b>Asset bank + brand kit</b> <span class="lay act">Act</span><p>One board per event; PSD variants (B5, B7).</p>
+        <div class="row"><span class="st des">Designed</span></div></div>
+      <div class="ac dim"><b>Ticket warnings + payday</b> <span class="lay decide">Decide</span><p>Pushes grounded in tier data (M6).</p>
+        <div class="rw"><span>Payday rule · caption scarcity rules</span><span class="s l">live in code</span></div>
+        <div class="rw"><span>Warnings as approval cards</span><span class="s d">designed</span></div>
+        <div class="row"><span class="st des">Designed</span><span class="mk you">✋ every warning</span></div></div>
+    </div>
+    <div class="stage"><div class="sn">7 · launch</div><div class="sh">Launch</div>
+      <div class="ac"><b>Attach to ad set</b> <span class="lay act">Act</span><p>Ads onto campaigns.</p>
+        <div class="rw"><span>Bulk-attach · relaunch guard · template match</span><span class="s l">live</span></div>
+        <div class="rw"><span>Audience write onto a live ad set</span><span class="s l">live · write flag</span></div>
+        <div class="rw"><span>Lab round launch</span><span class="s p">flag off</span></div>
+        <div class="row"><span class="st part">Partly built</span><span class="mk you">✋ each round</span></div></div>
+      <div class="ac dim"><b>Round cadence</b> <span class="lay decide">Decide</span><p>Proposes the next round when due (M5).</p>
+        <div class="row"><span class="st des">Designed</span><span class="mk auto">⚙ propose only</span></div></div>
+      <div class="ac"><b>Budget pacing</b> <span class="lay decide">Decide</span><p>Planned vs spent, every hour.</p>
+        <div class="rw"><span>25–100 % thresholds → Slack</span><span class="s l">live</span></div>
+        <div class="rw"><span>Campaign ceiling for the optimiser</span><span class="s l">live</span></div>
+        <div class="row"><span class="st part">Partly built</span><span class="mk auto">⚙ hourly</span></div></div>
+    </div>
+    <div class="stage"><div class="sn">8 · results</div><div class="sh">Reporting &amp; learning</div>
+      <div class="ac"><b>Reporting</b> <span class="lay signal">Signal</span><p>Every number a client or Matas reads.</p>
+        <div class="rw"><span>Event daily rollups (32,617) · Meta · TikTok · Google legs</span><span class="s l">live</span></div>
+        <div class="rw"><span>Presale / opponent spend allocator at a venue</span><span class="s l">live</span></div>
+        <div class="rw"><span>Awareness rollup (reach, plays, engagements)</span><span class="s l">live</span></div>
+        <div class="rw"><span>Google Ads daily snapshots · search terms · geo</span><span class="s l">live · flag on</span></div>
+        <div class="rw"><span>TikTok snapshots (34,360) · breakdowns (27,981)</span><span class="s l">live</span></div>
+        <div class="rw"><span>Daily tracker · funnel planner · marketing actions</span><span class="s l">live</span></div>
+        <div class="rw"><span>Share report · venue share · season report · portal snapshots</span><span class="s l">live</span></div>
+        <div class="rw"><span>Reporting page: TikTok and Google</span><span class="s p">"soon"</span></div>
+        <div class="row"><span class="st live">Live</span></div></div>
+      <div class="ac"><b>Judging</b> <span class="lay decide">Decide</span><p>Who won, what to do.</p>
+        <div class="rw"><span>Optimisation tick: 41,999 decisions, 87 applied</span><span class="s l">live · shadow by default</span></div>
+        <div class="rw"><span>Cross-channel (TikTok, Google) rules</span><span class="s p">shadow only</span></div>
+        <div class="rw"><span>Benchmark alerts (492) · account benchmarks ±10 %</span><span class="s l">live</span></div>
+        <div class="rw"><span>Lab judge (winner / flagged / untested)</span><span class="s p">nothing to judge</span></div>
+        <div class="row"><span class="st part">Partly built</span><span class="mk auto">⚙ 4-hourly</span></div></div>
+      <div class="ac"><b>Learning loop</b> <span class="lay memory">Memory</span><p>Nightly: what to keep.</p>
+        <div class="rw"><span>Ad daily insights (65,144) · ad copy capture</span><span class="s l">live</span></div>
+        <div class="rw"><span>Tag performance (420) · creative scores · interest evidence</span><span class="s l">live</span></div>
+        <div class="rw"><span>Copy shapes · artists · funnel benchmarks (since 15 Oct)</span><span class="s l">live</span></div>
+        <div class="rw"><span>Learnings from what ran (E1–E5)</span><span class="s p">PR1 in build</span></div>
+        <div class="rw"><span>Vertical rollup = all clients</span><span class="s b">bug</span></div>
+        <div class="row"><span class="st part">Live · 2 bugs</span><span class="mk auto">⚙ nightly</span></div></div>
+      <div class="ac"><b>Attribution</b> <span class="lay signal">Signal</span><p>Click → order, for real.</p>
+        <div class="rw"><span>Owned purchase signal (traced share)</span><span class="s p">~3 % · Ironworks</span></div>
+        <div class="rw"><span>Attribution tiles</span><span class="s p">flag off</span></div>
+        <div class="row"><span class="st part">Partly built</span></div></div>
+      <div class="ac dim"><b>After-show report</b> <span class="lay learn">Learn</span><p>What won, cost per ticket, what carries.</p>
+        <div class="rw"><span>Show-close writes prediction actuals</span><span class="s p">runs · 0 rows</span></div>
+        <div class="rw"><span>The report itself</span><span class="s n">not designed</span></div>
+        <div class="row"><span class="st none">Not designed</span></div></div>
+    </div>
+  </div>
+  <div class="loop"><span><b>↺ The learning loop.</b> Every ad-day and every judged round feeds <code>tag_performance</code>, <code>creative_scores</code>, <code>copy_performance</code>, funnel benchmarks and <code>interest_clusters.live_evidence</code> → the Insights rail ◆ in stages 2, 4, 5 and 6. Drawn link by link in §1B.</span><span class="k">8 → 5</span></div>
+  <div class="k" style="margin:16px 0 6px">Around the spine — pages that serve every stage</div>
+  <div class="around">
+    <div class="ac"><b>Today</b> <span class="lay decide">Decide</span><p>The start page (§3).</p><span class="st part">Live · redraw</span></div>
+    <div class="ac"><b>Overview</b> <span class="lay signal">Signal</span><p>Every event's budget and pace.</p><span class="st live">Live</span></div>
+    <div class="ac"><b>Calendar</b> <span class="lay memory">Memory</span><p>Milestones by month.</p><span class="st live">Live</span></div>
+    <div class="ac"><b>Client page ◆</b> <span class="lay signal">Signal</span><p>Per-client hub (§4B).</p><span class="st live">Live</span></div>
+    <div class="ac"><b>Client portal</b> <span class="lay act">Act</span><p>Share links, no rail.</p><span class="st live">Live</span></div>
+    <div class="ac"><b>Invoicing</b> <span class="lay ops">Ops</span><p>Quotes, 75/25, bonus.</p><span class="st part">Live · 0 rows</span></div>
+    <div class="ac"><b>Creatives library</b> <span class="lay memory">Memory</span><p>Heatmap per account.</p><span class="st live">Live</span></div>
+    <div class="ac"><b>Venues</b> <span class="lay memory">Memory</span><p>Empty; events carry a venue key instead.</p><span class="st part">Partly built</span></div>
+    <div class="ac"><b>Business Managers</b> <span class="lay ops">Ops</span><p>Asset access sync, daily scan.</p><span class="st live">Live</span></div>
+    <div class="ac"><b>Settings</b> <span class="lay ops">Ops</span><p>Connections, pixels, defaults.</p><span class="st live">Live</span></div>
+    <div class="ac"><b>Health</b> <span class="lay ops">Ops</span><p>Cron runs, health check, alarm evaluator, Slack. Tokens, Lambda and API errors on Today: not designed.</p><span class="st part">Partly built</span></div>
+    <div class="ac"><b>Operator tools</b> <span class="lay ops">Ops</span><p>⌘K search · archived-client scope · ad-copy read (service only).</p><span class="st live">Live</span></div>
+  </div>
+</div></figure></div>
+
+<div class="frame"><figure><figcaption>NS1-393 · the map, as one column (rows counted; the list is in §1A)</figcaption>
+<div class="vp" style="width:393px"><div class="phone">
+  <div class="legend" style="gap:6px;margin:0 0 8px"><span class="st live">Live</span><span class="st part">Partly</span><span class="st des">Designed</span><span class="st none">Not designed</span></div>
+  <div class="vline">
+    <div class="vst">1 · Brief</div><div class="ac"><b>Brief intake · onboarding</b> <span class="lay signal">Signal</span><div class="rw"><span>6 rows</span><span class="s l">4 live</span><span class="s n">2 not designed</span></div><div class="row"><span class="st part">Partly</span><span class="mk you">✋</span></div></div>
+    <div class="vst">2 · Event</div><div class="ac"><b>Event page ◆ · lineup · tiers</b> <span class="lay memory">Memory</span><div class="rw"><span>9 rows</span><span class="s l">6 live</span><span class="s b">1 stale</span><span class="s d">1 designed</span><span class="s n">1 manual</span></div><div class="row"><span class="st part">Partly</span><span class="mk you">✋ rights</span></div></div>
+    <div class="vst">3 · Landing &amp; D2C</div><div class="ac"><b>CIRQLIN · D2C comms · growth</b> <span class="lay signal">Signal</span><div class="rw"><span>11 rows</span><span class="s l">8 live</span><span class="s p">2 partly</span><span class="s n">1 not designed</span></div><div class="row"><span class="st part">Partly</span><span class="mk you">✋ sends</span></div></div>
+    <div class="vst">4 · Audiences</div><div class="ac"><b>Builder ◆ · discovery · results</b> <span class="lay act">Act</span><div class="rw"><span>9 rows</span><span class="s l">7 live</span><span class="s p">1 partly</span><span class="s n">1 not designed</span></div><div class="row"><span class="st live">Live</span></div></div>
+    <div class="vst">5 · Campaign</div><div class="ac"><b>MML ◆ · drafts · benchmarks · rail</b> <span class="lay act">Act</span><div class="rw"><span>14 rows</span><span class="s l">7 live</span><span class="s p">6 partly</span><span class="s d">1 designed</span></div><div class="row"><span class="st part">Partly</span><span class="mk you">✋ launch</span></div></div>
+    <div class="vst">6 · Lab &amp; asset bank</div><div class="ac"><b>Lab ◆ · clips · intelligence · bank · warnings</b> <span class="lay act">Act</span><div class="rw"><span>14 rows</span><span class="s l">8 live</span><span class="s p">4 partly</span><span class="s d">2 designed</span></div><div class="row"><span class="st part">Partly</span><span class="mk you">✋ captions</span></div></div>
+    <div class="vst">7 · Launch</div><div class="ac"><b>Attach · cadence · pacing</b> <span class="lay decide">Decide</span><div class="rw"><span>5 rows</span><span class="s l">3 live</span><span class="s p">2 partly</span></div><div class="row"><span class="st part">Partly</span><span class="mk you">✋ rounds</span></div></div>
+    <div class="vst">8 · Results</div><div class="ac"><b>Reporting · judging · learning · attribution · after-show</b> <span class="lay learn">Learn</span><div class="rw"><span>20 rows</span><span class="s l">11 live</span><span class="s p">7 partly</span><span class="s b">1 bug</span><span class="s n">1 not designed</span></div><div class="row"><span class="st part">Partly</span><span class="mk auto">⚙ nightly</span></div></div>
+  </div>
+  <div class="loop" style="font-size:11.5px"><span><b>↺</b> Results feed the rail ◆ in 2, 4, 5, 6 (§1B).</span></div>
+  <div class="k" style="margin:12px 0 6px">Around the spine</div>
+  <div style="font-size:12px;color:var(--ink-2)">Today · Overview · Calendar · Client page · Client portal · Invoicing (0 rows) · Creatives · Venues (empty) · BMs · Settings · Health (partly) · Operator tools</div>
+</div></div></figure>
+<div style="max-width:620px">
+<p class="lead"><b>What moved since issue 1.</b> Brief intake is partly built, not undesigned: the D2C brief parser already turns a PDF into an event and six sends. Health alerts are partly built: cron runs, the health check, the alarm evaluator and Slack exist; only the Today surface is missing. Clip import is partly built: the Drive/Dropbox sync runs nightly. Ticket tiers are live but the rollup tickets leg has been stale since 3 September. After-show stays not designed, though show-close already runs. Seven new cards (Signup growth, Interest discovery, Benchmarks &amp; targets, Creative intelligence, Budget pacing, Attribution, Operator tools) and three folded into rows (WA Communities into Signup growth, Audience Seeds into Interest discovery, Copy scoring into Creative intelligence): 40 cards, 28 on the spine and 12 around it.</p>
+<p class="lead"><b>Where Matas approves</b>, and nowhere else: the brief read-back (1), artist rights (2), every D2C send (3), each launch (5, 7), every caption (6) and every ticket warning (6).</p>
+<p class="lead"><b>Where the tool acts on its own</b>, and reports on Today: ticket and tier sync, Mailchimp and Cirqlin counts, clip sync, auto-tagging, rollups, snapshots, the optimisation tick (shadow unless armed), benchmark alerts, the nightly learning refresh. It never launches, pauses, sends or deletes by itself.</p>
+</div></div>
+
+<!-- ======================= 1A INVENTORY ======================= -->
+<h2>1A · The inventory — every capability, its layer, its card and its state</h2>
+<p class="lead">Read from <code>CLAUDE.md</code>, every folder under <code>lib/</code>, every cron in <code>vercel.json</code>, <code>supabase/schema.sql</code>, migrations 166–168 and 180–208, and the architecture and strategy docs, on 7 Nov. Row counts are live. A capability that is not on this table is the record's failure, not Matas's: add the row, then move the card.</p>
+<div class="invx"><table class="t inv">
+<tr><th>Layer</th><th>Card</th><th>Capability</th><th>Code</th><th>Store</th><th>State</th></tr>
+<tr><td><span class="lay signal">Signal</span></td><td>Brief intake</td><td>D2C brief ingest: PDF → Claude → event + six scheduled sends</td><td><code>lib/d2c/brief-parser</code></td><td>d2c_brief_ingest_jobs (2), d2c_scheduled_sends (32)</td><td>live</td></tr>
+<tr><td><span class="lay signal">Signal</span></td><td>Brief intake</td><td>Brief → page → audiences → plan in one run (Task #28)</td><td>—</td><td>—</td><td>not designed</td></tr>
+<tr><td><span class="lay signal">Signal</span></td><td>Client onboarding</td><td>BM asset sync, daily detect-only scan, ADVERTISER grants by click</td><td><code>lib/bm</code>, cron bm-page-scan</td><td>client_business_managers (71), bm_pages (1,479), bm_pixels (37)</td><td>live</td></tr>
+<tr><td><span class="lay signal">Signal</span></td><td>Client onboarding</td><td>Channel defaults per client (page, IG, pixel, TikTok identity, Google)</td><td><code>lib/clients/channel-defaults.ts</code></td><td>clients (17)</td><td>live</td></tr>
+<tr><td><span class="lay signal">Signal</span></td><td>Client onboarding</td><td>Platform connection status (Meta, TikTok, Google, Mailchimp, ticketing)</td><td><code>lib/settings/connection-status.ts</code></td><td>user_facebook_tokens, tiktok_accounts, google_ads_accounts, mailchimp_accounts</td><td>live</td></tr>
+<tr><td><span class="lay signal">Signal</span></td><td>Client onboarding</td><td>D2C credentials, self-service, encrypted; per-client live_enabled + approved_by_matas</td><td><code>lib/actions/crm-connections.ts</code>, <code>lib/d2c/secrets.ts</code></td><td>d2c_connections (5)</td><td>live</td></tr>
+<tr><td><span class="lay signal">Signal</span></td><td>Client onboarding</td><td>Ticketing connections (Eventbrite, 4theFans, manual, foursomething_internal)</td><td><code>lib/ticketing</code></td><td>client_ticketing_connections (2), event_ticketing_links (67)</td><td>live</td></tr>
+<tr><td><span class="lay signal">Signal</span></td><td>Client onboarding</td><td>The onboarding checklist as a surface</td><td>—</td><td>—</td><td>not designed</td></tr>
+<tr><td><span class="lay memory">Memory</span></td><td>Event page</td><td>Event record, milestones, event code, venue key; key moments with budget multiplier</td><td><code>lib/campaign-event.ts</code>, <code>lib/db/event-key-moments.ts</code></td><td>events (182), event_key_moments (80)</td><td>live</td></tr>
+<tr><td><span class="lay signal">Signal</span></td><td>Event page</td><td>Event activity enrichment: news, Spotify releases, weather</td><td><code>lib/enrichment</code></td><td>event_activity_snapshots</td><td>live</td></tr>
+<tr><td><span class="lay memory">Memory</span></td><td>Lineup &amp; artists</td><td>Artists with Spotify / MusicBrainz enrichment; Lab link</td><td><code>app/api/artists</code>, mig 205</td><td>artists (5), event_artists</td><td>live</td></tr>
+<tr><td><span class="lay memory">Memory</span></td><td>Lineup &amp; artists</td><td>Rights rule: promoter-page ads need no clearance; artist-voice ads need approved_at</td><td><code>lib/creative-lab/rounds.ts</code></td><td>creative_lab_artists (2)</td><td>live</td></tr>
+<tr><td><span class="lay signal">Signal</span></td><td>Ticket tiers &amp; sales</td><td>Ticketing sync 5×/day; append-only snapshots</td><td>cron sync-ticketing</td><td>ticket_sales_snapshots (53,419)</td><td>live</td></tr>
+<tr><td><span class="lay signal">Signal</span></td><td>Ticket tiers &amp; sales</td><td>Tier × channel sales, allocations, nightly daily history; latest tiers per event</td><td><code>lib/db/tier-channels.ts</code>, cron snapshot-tier-channel-sales-daily</td><td>tier_channel_sales (604), tier_channel_sales_daily_history (6,409), event_ticket_tiers (841)</td><td>live</td></tr>
+<tr><td><span class="lay signal">Signal</span></td><td>Ticket tiers &amp; sales</td><td>Rollup tickets leg + freshness alarm</td><td><code>lib/ticketing/rollup-tickets-freshness.ts</code></td><td>event_daily_rollups.tickets_sold</td><td><b>stale: last tickets&gt;0 day 3 Sep</b>; alarm fires</td></tr>
+<tr><td><span class="lay signal">Signal</span></td><td>Ticket tiers &amp; sales</td><td>Manual entries: daily tracking, additional spend, additional tickets</td><td>portal actions</td><td>daily_tracking_entries (20)</td><td>live</td></tr>
+<tr><td><span class="lay signal">Signal</span></td><td>CIRQLIN page</td><td>Legacy landing pages /l: signup, Turnstile, geo, modules, palette, countdown, Pixel + CAPI</td><td><code>lib/landing-pages</code></td><td>event_signups (1), page_events (2), lp_page_views (0)</td><td>live, legacy</td></tr>
+<tr><td><span class="lay signal">Signal</span></td><td>CIRQLIN page</td><td>Client admin dashboard /admin/{slug}: pages, fans, insights, integrations, branding</td><td><code>lib/admin</code></td><td>client_users, client_landing_pages (2)</td><td>live</td></tr>
+<tr><td><span class="lay signal">Signal</span></td><td>CIRQLIN page</td><td>Cirqlin signup counts into the Daily Tracker (counts only, no PII)</td><td><code>lib/cirqlin</code></td><td>signup_source_snapshots (121)</td><td>live when CIRQLIN_PARTNER_READ_SECRET set</td></tr>
+<tr><td><span class="lay act">Act</span></td><td>D2C comms</td><td>Send cron every 5 min; orchestration of announce / reminder / community_early / presale_live / gen_sale / autoresp_setup; Mailchimp + Bird providers; Klaviyo, Firetext stubs</td><td><code>lib/d2c/orchestration</code>, cron d2c-send</td><td>d2c_scheduled_sends (32), d2c_templates (42), d2c_event_copy (4)</td><td>live; dry-run unless 3-of-3</td></tr>
+<tr><td><span class="lay act">Act</span></td><td>D2C comms</td><td>3-of-3 gate (FEATURE_D2C_LIVE + live_enabled + approved_by_matas) + per-send approval by allow-listed approver</td><td><code>lib/d2c/types.ts</code>, <code>lib/auth/operator-allowlist.ts</code></td><td>d2c_scheduled_sends.approval_status</td><td>live</td></tr>
+<tr><td><span class="lay act">Act</span></td><td>D2C comms</td><td>Verbatim audience routing (exact list/tag match, never create)</td><td><code>lib/d2c/audience/brief-routing.ts</code></td><td>—</td><td>live</td></tr>
+<tr><td><span class="lay act">Act</span></td><td>D2C comms</td><td>Artwork resolver chain (event copy → asset queue → Bird media → client fallback)</td><td><code>lib/d2c/assets/resolver.ts</code></td><td>d2c_event_copy.artwork_url</td><td>live</td></tr>
+<tr><td><span class="lay act">Act</span></td><td>D2C comms</td><td>Bird event pipeline: WA template drafts + broadcast drafts, never activated, never deleted</td><td><code>lib/d2c/bird</code></td><td>Bird (drafts)</td><td>live, drafts only</td></tr>
+<tr><td><span class="lay act">Act</span></td><td>D2C comms</td><td>Bird journeys</td><td><code>lib/d2c/bird/journeys/client.ts</code></td><td>—</td><td>stub: JOURNEY_CREATE_VERIFIED=false; Matas by hand</td></tr>
+<tr><td><span class="lay act">Act</span></td><td>D2C comms</td><td>Autoresponder: Mailchimp webhook email, Bird poll WhatsApp (every minute), backfill</td><td><code>lib/d2c/autoresp</code>, crons d2c-autoresp-*</td><td>d2c_autoresp_fires (150)</td><td>live behind gate; email backfill disabled (PR #704); Bird contacts shape unverified</td></tr>
+<tr><td><span class="lay signal">Signal</span></td><td>D2C comms</td><td>Delivery metrics refresh (14-day window) · signup stats · public share</td><td><code>lib/d2c/metrics</code>, <code>lib/d2c/stats.ts</code></td><td>result_jsonb.metrics, d2c_event_shares</td><td>live</td></tr>
+<tr><td><span class="lay signal">Signal</span></td><td>Signup growth</td><td>Mailchimp tag growth: real-time webhook, EOD reconcile (drift &gt; 5), resumable backfill (200/min), daily audience sync</td><td><code>lib/mailchimp</code>, 3 crons + webhook</td><td>mailchimp_tag_snapshots (1,790), mailchimp_tag_event_log (687), mailchimp_audience_snapshots (169)</td><td>live</td></tr>
+<tr><td><span class="lay signal">Signal</span></td><td>Signup growth</td><td>WA community aliases /j/{slug}; new templates use crqln.com/j</td><td><code>lib/wa-communities</code></td><td>wa_community_aliases (16)</td><td>live; offpixel host deprecated Sep 2026</td></tr>
+<tr><td><span class="lay act">Act</span></td><td>Audience Builder</td><td>Custom audiences from pages, pixels, campaign video; lookalikes; funnel presets; naming</td><td><code>lib/audiences</code>, <code>lib/meta/audience-write.ts</code></td><td>meta_custom_audiences (201), meta_audience_write_idempotency (142), audience_source_cache (12)</td><td>live; writes need OFFPIXEL_META_AUDIENCE_WRITES_ENABLED</td></tr>
+<tr><td><span class="lay act">Act</span></td><td>Audience Builder</td><td>Customer list upload: CSV/paste → browser SHA-256 → Meta; no PII persisted</td><td><code>lib/customer-audience</code></td><td>—</td><td>live</td></tr>
+<tr><td><span class="lay act">Act</span></td><td>Audience Builder</td><td>Seed remediation: grants ADVERTISE on a refused seed page (subcode 1713140)</td><td><code>lib/audiences/seed-remediation.ts</code></td><td>—</td><td>live</td></tr>
+<tr><td><span class="lay decide">Decide</span></td><td>Interest discovery</td><td>Personas, scene-hint presets, diversity ranking, targetability validation, suggestions</td><td><code>lib/audience-personas.ts</code> and siblings</td><td>—</td><td>live</td></tr>
+<tr><td><span class="lay decide">Decide</span></td><td>Interest discovery</td><td>Interest clusters: 16 seed + 20 library, evidence (6 Oct snapshot) + live evidence (nightly), use_count</td><td><code>lib/interest-clusters.ts</code>, migs 181–183, 186</td><td>interest_clusters (36; use_count Σ 7)</td><td>live</td></tr>
+<tr><td><span class="lay decide">Decide</span></td><td>Interest discovery</td><td>Genre classification of Facebook pages, 15 buckets, client-side</td><td><code>lib/genre-classification.ts</code></td><td>localStorage</td><td>live</td></tr>
+<tr><td><span class="lay decide">Decide</span></td><td>Interest discovery</td><td>Audience seeds store</td><td><code>lib/db/audience-seeds.ts</code></td><td>audience_seeds (0)</td><td>0 rows</td></tr>
+<tr><td><span class="lay decide">Decide</span></td><td>LAL / RT results</td><td>Audience over/under-perform alerts</td><td><code>lib/dashboard/benchmark-alert-engine.ts</code></td><td>benchmark_alerts (325 audience rows)</td><td>live</td></tr>
+<tr><td><span class="lay learn">Learn</span></td><td>LAL / RT results</td><td>Stored learnings per audience (which lookalike range / source converts)</td><td>—</td><td>launched_ad_sets.lookalike_range, source_type exist (728 rows)</td><td>not designed</td></tr>
+<tr><td><span class="lay act">Act</span></td><td>MML planner</td><td>Plan spine: canvas, drawers, blockers, phase derivation (presale / on_sale / waiting_list), gate</td><td><code>lib/plan</code></td><td>campaign_plans (5), *_launch (3)</td><td>live</td></tr>
+<tr><td><span class="lay act">Act</span></td><td>MML planner</td><td>Creative intake, match groups, asset routing (TikTok toggle), live mirror</td><td><code>lib/plan/asset-routing*.ts</code>, migs 193–194</td><td>campaign_plan_intake_assets (3), _creative_groups (2), _asset_routes</td><td>live</td></tr>
+<tr><td><span class="lay act">Act</span></td><td>MML planner</td><td>Copy suggest (Claude Haiku) from page-scrape fact corpus</td><td><code>lib/plan/copy-suggest.ts</code></td><td>campaign_plan_copy (1)</td><td>live</td></tr>
+<tr><td><span class="lay act">Act</span></td><td>MML planner</td><td>Fan-out: one Meta plan → derived TikTok + Google drafts → three paused launches</td><td><code>lib/plan/gate.ts</code></td><td>—</td><td>flag ENABLE_PLAN_FANOUT</td></tr>
+<tr><td><span class="lay act">Act</span></td><td>Platform drafts</td><td>Meta wizard (8 steps), standalone launch, ad-set suggestions (tiers × audiences), write idempotency, launched bookkeeping</td><td><code>lib/wizard</code>, <code>lib/meta</code>, <code>lib/launched-*</code></td><td>campaign_drafts (230), launched_ad_sets (728), launched_ads (6,439), meta_write_idempotency (8,311)</td><td>live</td></tr>
+<tr><td><span class="lay act">Act</span></td><td>Platform drafts</td><td>Bulk-attach ads to existing campaigns; relaunch guard; template matcher; one ad per Dynamic Creative ad set</td><td><code>lib/bulk-attach</code></td><td>bulk_attach_drafts, _templates</td><td>live</td></tr>
+<tr><td><span class="lay act">Act</span></td><td>Platform drafts</td><td>Per-placement creative (4:5 feed + 9:16 stories)</td><td><code>lib/meta/creative.ts</code></td><td>—</td><td>flag ENABLE_MULTI_PLACEMENT_ASSETS</td></tr>
+<tr><td><span class="lay act">Act</span></td><td>Platform drafts</td><td>TikTok wizard, write launcher (Smart+ blocked, enhancements off), genre presets, hashtag/keyword recommend</td><td><code>lib/tiktok</code>, <code>lib/tiktok-wizard</code></td><td>tiktok_campaign_drafts, tiktok_write_idempotency (95)</td><td>live (writes on since 20 Aug)</td></tr>
+<tr><td><span class="lay act">Act</span></td><td>Platform drafts</td><td>Google Search plan import (xlsx) → push; YouTube video plan → Editor CSV, never pushed</td><td><code>lib/google-search</code>, <code>lib/google-video</code></td><td>google_search_plans (33), google_video_plans (3)</td><td>live</td></tr>
+<tr><td><span class="lay memory">Memory</span></td><td>Benchmarks &amp; targets</td><td>Plan benchmarks view: cost per result per (client, venue, event, unit, channel); median + IQR; excludes own event</td><td><code>lib/plan/benchmarks.ts</code>, mig 168</td><td>campaign_plan_benchmarks_v (672)</td><td>live</td></tr>
+<tr><td><span class="lay memory">Memory</span></td><td>Benchmarks &amp; targets</td><td>Funnel planner: targets derived nightly from sold-out events; seeds 14 / 50 / 5 %</td><td><code>lib/reporting/funnel-pacing*.ts</code>, cron funnel-pacing-refresh</td><td>event_funnel_targets (21)</td><td>live</td></tr>
+<tr><td><span class="lay memory">Memory</span></td><td>Benchmarks &amp; targets</td><td>Client funnel benchmarks (seed → learned; manual override wins)</td><td><code>lib/learning/funnel-benchmarks.ts</code></td><td>client_funnel_benchmarks (17)</td><td>live · thin</td></tr>
+<tr><td><span class="lay memory">Memory</span></td><td>Benchmarks &amp; targets</td><td>Per-event / per-venue conversion overrides</td><td>mig 060 only</td><td>event_funnel_overrides (0)</td><td>0 rows · no reader in lib/</td></tr>
+<tr><td><span class="lay learn">Learn</span></td><td>Benchmarks &amp; targets</td><td>Predictions written at launch, actual at show close; LEARN face reads them</td><td><code>lib/plan/predictions.ts</code>, <code>show-close.ts</code>, <code>learn-face.ts</code></td><td>campaign_plan_predictions (0)</td><td>code runs, 0 rows</td></tr>
+<tr><td><span class="lay decide">Decide</span></td><td>Benchmarks &amp; targets</td><td>Optimisation presets per client, baked into drafts</td><td><code>lib/optimisation/presets.ts</code></td><td>client_optimisation_presets (0)</td><td>0 rows · never read by the tick</td></tr>
+<tr><td><span class="lay memory">Memory</span></td><td>Benchmarks &amp; targets</td><td>Ad-account rolling benchmarks (CTR, CPM, CPR; ±10 % verdict)</td><td><code>lib/reporting/ad-account-benchmarks.ts</code></td><td>— (60 s cache)</td><td>live</td></tr>
+<tr><td><span class="lay decide">Decide</span></td><td>Insights rail</td><td>Rail on the event, MML and audience pages (caption angle, hook, visual format, asset type, clusters, copy shapes)</td><td><code>components/insights-rail</code>, <code>lib/insights-rail</code></td><td>reads tag_performance, copy_features, interest_clusters</td><td>live; tags and clusters only (map, 23 Nov)</td></tr>
+<tr><td><span class="lay act">Act</span></td><td>Creative Lab</td><td>Artists, clip intake, caption writer (Opus) with fact rules, corpus, caption_style tag</td><td><code>lib/creative-lab</code></td><td>creative_lab_clips (5), _captions (5), _event_facts (2)</td><td>live</td></tr>
+<tr><td><span class="lay act">Act</span></td><td>Creative Lab</td><td>Render queue → Remotion Lambda eu-west-2, tick every minute</td><td><code>lib/creative-lab/render*.ts</code>, cron creative-lab-render-tick</td><td>creative_lab_renders (2)</td><td>live when REMOTION_LAMBDA_SERVE_URL set</td></tr>
+<tr><td><span class="lay learn">Learn</span></td><td>Creative Lab</td><td>Rounds, propose, round ads, judge (7-day window, lagged 3 days)</td><td><code>lib/creative-lab/{propose,judge}.ts</code></td><td>creative_lab_rounds, _round_ads</td><td>live: the judge runs on the Lab's own rounds (map, 23 Nov)</td></tr>
+<tr><td><span class="lay act">Act</span></td><td>Creative Lab</td><td>Round launch (always createPaused)</td><td><code>lib/creative-lab/launch.ts</code></td><td>creative_lab_round_ad_launches (0)</td><td>flag CREATIVE_LAB_LAUNCH_ENABLED</td></tr>
+<tr><td><span class="lay signal">Signal</span></td><td>Clip import</td><td>Drive / Dropbox clip sync, ≤10 new clips per approved artist, nightly</td><td>cron creative-lab-clip-sync</td><td>creative_lab_clips, creative_assets</td><td>live</td></tr>
+<tr><td><span class="lay signal">Signal</span></td><td>Clip import</td><td>Instagram candidate listing; crop picker; TikTok Spark posts</td><td>mig 204; B2, B6</td><td>creative_lab_ig_candidates (0)</td><td>designed, 0 rows</td></tr>
+<tr><td><span class="lay memory">Memory</span></td><td>Creative intelligence</td><td>Asset registry (sha256 identity, channel ids, aspect); asset queue (Dropbox / Sheet → prepared rows, Haiku copy) → bulk attach</td><td><code>lib/creatives/asset-registry.ts</code>, <code>lib/clients/asset-queue</code></td><td>creative_assets (445), client_asset_queue</td><td>live</td></tr>
+<tr><td><span class="lay memory">Memory</span></td><td>Creative intelligence</td><td>Creative tags (8 dimensions + caption_style) and AI auto-tagger (Anthropic vision, once per day per event)</td><td><code>lib/intelligence/auto-tagger.ts</code></td><td>creative_tags (90), creative_tag_assignments (33,337), thumbnail index (2,782)</td><td>live, flag ENABLE_AI_AUTOTAG on</td></tr>
+<tr><td><span class="lay memory">Memory</span></td><td>Creative intelligence</td><td>Creative insights heatmap cache; active-creatives snapshots; health scorer SCALE / OK / ROTATE / FATIGUED / KILL; concept grouping</td><td><code>lib/meta/creative-insights.ts</code>, <code>lib/reporting/creative-health.ts</code></td><td>creative_insight_snapshots (82,388), active_creatives_snapshots (498)</td><td>live</td></tr>
+<tr><td><span class="lay memory">Memory</span></td><td>Creative intelligence</td><td>Creative scores per (event, creative, axis: click / convert / hook / watch), restated nightly</td><td><code>lib/learning/creative-scores.ts</code></td><td>creative_scores (11,784)</td><td>live</td></tr>
+<tr><td><span class="lay memory">Memory</span></td><td>Creative intelligence</td><td>Copy library: per-ad bodies and titles captured with insights; copy performance by template × stage × voice</td><td><code>lib/ad-daily-insights/copy-capture.ts</code>, <code>lib/learning/copy-performance.ts</code></td><td>ad_copy (10,675), copy_performance (0)</td><td>captured; scoring writes 0 rows though the job reports ok</td></tr>
+<tr><td><span class="lay memory">Memory</span></td><td>Creative intelligence</td><td>Enhancement-flag scan: Advantage+ features that must not be on</td><td><code>lib/meta/enhancement-policy.ts</code></td><td>creative_enhancement_flags (1,678,462)</td><td>live; largest table</td></tr>
+<tr><td><span class="lay memory">Memory</span></td><td>Creative intelligence</td><td>Template render providers: Canva, Bannerbear, Placid, Remotion stills</td><td><code>lib/creatives/*/provider.ts</code></td><td>creative_renders (0), creative_templates (0)</td><td>flags off</td></tr>
+<tr><td><span class="lay memory">Memory</span></td><td>Creative intelligence</td><td>Video thumbnail cache and proxy (the one place allowed to call /thumbnails)</td><td><code>lib/meta/video-thumbnail-cache.ts</code></td><td>Storage creative-thumbnails</td><td>live; ENABLE_META_THUMBNAIL_FETCH killswitch</td></tr>
+<tr><td><span class="lay act">Act</span></td><td>Asset bank + brand kit</td><td>Board per event, PSD text slots, fonts, variants</td><td>B5, B7</td><td>—</td><td>designed</td></tr>
+<tr><td><span class="lay decide">Decide</span></td><td>Ticket warnings + payday</td><td>Payday = last Friday of the London month; 18-day payday window; caption scarcity rules need tier data</td><td><code>lib/creative-lab/payday.ts</code>, <code>lib/dashboard/pacing.ts</code>, <code>caption-facts.ts</code></td><td>—</td><td>live in code; warnings surface designed (M6)</td></tr>
+<tr><td><span class="lay act">Act</span></td><td>Attach to ad set</td><td>Audience write onto a live ad set from the Published library</td><td><code>lib/meta/adset-targeting-write.ts</code></td><td>meta_write_idempotency</td><td>flag OFFPIXEL_META_ADSET_TARGETING_WRITES_ENABLED</td></tr>
+<tr><td><span class="lay decide">Decide</span></td><td>Round cadence</td><td>Next round proposed when due; never launches</td><td>M5</td><td>—</td><td>designed</td></tr>
+<tr><td><span class="lay decide">Decide</span></td><td>Budget pacing</td><td>Hourly: 25 / 50 / 60 / 70 / 80 / 90 / 100 % of planned spend → Slack, once per campaign ever</td><td><code>lib/budget-pacing/tick-runner.ts</code></td><td>notification_dedupe_state</td><td>live (map, 23 Nov)</td></tr>
+<tr><td><span class="lay signal">Signal</span></td><td>Reporting</td><td>Event daily rollups: Meta spend and awareness (impressions, reach, video plays, engagements), tickets, TikTok, Google legs; 3×/day; ±60 days of sale dates</td><td><code>lib/dashboard/rollup-sync-runner.ts</code> (1,848 lines)</td><td>event_daily_rollups (32,617)</td><td>live</td></tr>
+<tr><td><span class="lay signal">Signal</span></td><td>Reporting</td><td>Presale / opponent spend allocator: ad-level → campaign remainder → history; presale split evenly across siblings</td><td><code>lib/dashboard/venue-spend-allocator.ts</code></td><td>event_daily_rollups.ad_spend_allocated / _presale</td><td>live</td></tr>
+<tr><td><span class="lay decide">Decide</span></td><td>Reporting</td><td>Unmatched [CODE] campaign guard; show-week burst (3 extra refreshes within 7 days of the show)</td><td><code>lib/dashboard/unmatched-campaign-code-scan.ts</code>, cron show-week-burst</td><td>unmatched_campaign_findings</td><td>live</td></tr>
+<tr><td><span class="lay signal">Signal</span></td><td>Reporting</td><td>Google Ads daily snapshots: campaign × day, search terms, locations, enabled conversion actions; "running blind" badge</td><td><code>lib/google-ads/campaign-insights/runner.ts</code></td><td>google_ads_daily_snapshots (265), _search_terms (4,464), _location (373)</td><td>live, flag on</td></tr>
+<tr><td><span class="lay signal">Signal</span></td><td>Reporting</td><td>TikTok active creatives + durable thumbnails; breakdowns (country, region, age, gender, interest); vertical classifier</td><td><code>lib/tiktok</code></td><td>tiktok_active_creatives_snapshots (34,360), tiktok_breakdown_snapshots (27,981)</td><td>live</td></tr>
+<tr><td><span class="lay signal">Signal</span></td><td>Reporting</td><td>Awareness rollup: lifetime reach / regs per event code</td><td><code>lib/insights</code></td><td>event_code_lifetime_meta_cache (80)</td><td>live</td></tr>
+<tr><td><span class="lay signal">Signal</span></td><td>Reporting</td><td>Daily tracker: presale bucket, tracker phase labels, signup-phase CPR, S-curve sell-out pacing (k 0.15, midpoint 0.7)</td><td><code>lib/dashboard/{presale-bucket,tracker-phase,pacing}.ts</code></td><td>—</td><td>live</td></tr>
+<tr><td><span class="lay decide">Decide</span></td><td>Reporting</td><td>Marketing-action recommender: promote / release tier, premium underperforming, scale spend</td><td><code>lib/dashboard/marketing-actions.ts</code></td><td>—</td><td>live</td></tr>
+<tr><td><span class="lay act">Act</span></td><td>Reporting</td><td>Share report (token, 5-min snapshot), venue share, plan share, client portal share, season report (uploaded HTML ≤ 4.5 MiB)</td><td><code>lib/share</code>, <code>lib/db/client-portal-server.ts</code> (1,911 lines), <code>lib/client-reports</code></td><td>report_shares (45), share_insight_snapshots (21), client_reports (1), client_report_weekly_snapshots (118)</td><td>live</td></tr>
+<tr><td><span class="lay act">Act</span></td><td>Reporting</td><td>Client portal snapshots, warm cache (header says 15 min; cron runs 3×/day)</td><td><code>lib/reporting/client-portal-snapshot-runner.ts</code></td><td>client_portal_snapshots (17)</td><td>live · cadence mismatch</td></tr>
+<tr><td><span class="lay decide">Decide</span></td><td>Reporting</td><td>Off-funnel audit: live campaigns pointing away from the instrumented page</td><td><code>lib/dashboard/off-funnel-audit.ts</code></td><td>—</td><td>live</td></tr>
+<tr><td><span class="lay signal">Signal</span></td><td>Reporting</td><td>Reporting page: TikTok and Google columns</td><td>/reporting</td><td>—</td><td>"soon"</td></tr>
+<tr><td><span class="lay decide">Decide</span></td><td>Judging</td><td>Optimisation tick every 4 h: eligibility → evaluate → shadow or live budget write; pause recommend; 24 h cooldown, 25 writes / 2 pauses per run, min 15 conversions to pause; never auto-resume</td><td><code>lib/optimisation</code>, <code>lib/optimisation-rules.ts</code></td><td>campaign_automation_decisions (41,999; 87 applied)</td><td>live; writes need ENABLE_OPTIMISATION_WRITES + draft armed; pause writes unset</td></tr>
+<tr><td><span class="lay decide">Decide</span></td><td>Judging</td><td>Cross-channel rules for TikTok and Google</td><td><code>lib/optimisation/cross-channel.ts</code></td><td>same, dry_run = true</td><td>shadow only</td></tr>
+<tr><td><span class="lay decide">Decide</span></td><td>Judging</td><td>Benchmark alerts nightly: fatigue, scaling, CPA stress, stalled, audience CPC, breakout (env-tunable thresholds)</td><td><code>lib/dashboard/benchmark-alert-engine.ts</code></td><td>benchmark_alerts (492)</td><td>live</td></tr>
+<tr><td><span class="lay learn">Learn</span></td><td>Judging</td><td>Lab judge: untested &lt; 1,000 impressions, starved &lt; 0.5 fair share, dear CPR &gt; 1.5× anchor</td><td><code>lib/creative-lab/judge.ts</code></td><td>creative_lab_round_ads.verdict</td><td>nothing to judge</td></tr>
+<tr><td><span class="lay signal">Signal</span></td><td>Learning loop</td><td>Ad daily insights, last 3 complete days, every ad on client accounts; objective + promoted event per ad-day</td><td><code>lib/ad-daily-insights</code>, migs 185 / 187</td><td>ad_daily_insights (65,144; 8 accounts; 1 Jun → 6 Nov)</td><td>live, flag on</td></tr>
+<tr><td><span class="lay memory">Memory</span></td><td>Learning loop</td><td>Learning refresh, five jobs, nightly 03:30: creative scores, tag performance (shrinkage k = 10), funnel benchmarks, interest live evidence, copy performance</td><td><code>lib/learning/runner.ts</code></td><td>tag_performance (420; 274 non-thin)</td><td>live; seven jobs since 15 Oct (copy shapes, artists, funnel benchmarks added); copy and tag learnings read only by the Lab writer (map, 23 Nov)</td></tr>
+<tr><td><span class="lay memory">Memory</span></td><td>Learning loop</td><td>Cross-client copy templates, operator-only read</td><td><code>lib/learning/cross-client</code></td><td>reads copy_performance</td><td>live code, empty source</td></tr>
+<tr><td><span class="lay signal">Signal</span></td><td>Attribution</td><td>Meta click capture (60/min per IP), 4theFans purchase webhook, matcher cron every 6 h (0.95 / 0.90 / 0.70 confidence), tiles with trust and coverage bands</td><td><code>lib/attribution</code>, <code>lib/cron/match-attribution.ts</code></td><td>meta_click_touchpoints (0), ticketing_purchase_events (0), attribution_order_matches (0)</td><td>partly: ~3 % of tickets traced to a source (1,337 of 38,894, Ironworks; map, 23 Nov)</td></tr>
+<tr><td><span class="lay learn">Learn</span></td><td>After-show</td><td>Show close: writes prediction actuals at the end of each rollup tick</td><td><code>lib/plan/show-close.ts</code></td><td>campaign_plan_predictions.actual</td><td>runs · 0 rows</td></tr>
+<tr><td><span class="lay ops">Ops</span></td><td>Invoicing</td><td>Quotes, invoices, retainers: £750 minimum, caps £4,000 / £4,500 / £5,000, sell-out bonus £0.10</td><td><code>lib/pricing/calculator.ts</code></td><td>quotes (0), invoices (0)</td><td>live · unused</td></tr>
+<tr><td><span class="lay ops">Ops</span></td><td>Health</td><td>Cron run log (rows written / considered), health check every 30 min, alarm evaluator hourly (not_reporting, implausible_zero), Slack ads_ops / ads_urgent / ads_automation with business hours and dedupe</td><td><code>lib/reporting/cron-*.ts</code>, <code>lib/notify</code></td><td>cron_runs (3,976), cron_health_reports (10,136)</td><td>live; alarm entry internal-counts-ingest has no route; Slack needs ENABLE_SLACK_NOTIFICATIONS</td></tr>
+<tr><td><span class="lay ops">Ops</span></td><td>Health</td><td>Token, Lambda, API-error and failed-cron rows on Today</td><td>—</td><td>—</td><td>not designed</td></tr>
+<tr><td><span class="lay ops">Ops</span></td><td>Operator tools</td><td>⌘K search index; archived-client scope (hidden from views and every cron); visual tokens (status, platform, provenance)</td><td><code>lib/dashboard/cmd-k-search.ts</code>, <code>lib/db/client-status.ts</code>, <code>lib/viz</code></td><td>—</td><td>live</td></tr>
+<tr><td colspan="6" style="background:var(--muted)"><b>Added in issue 3</b>: from the map's "Where we stand" (23 Nov), the learnings engine brief and the Creative Services handover. Code and store are named where a source names them; otherwise "—".</td></tr>
+<tr><td><span class="lay signal">Signal</span></td><td>CIRQLIN page</td><td>CIRQLIN pages on crqln.com: signups, consent snapshot per signup, ticket-link clicks, community CTA</td><td>cirqlin repo</td><td>53 pages (map)</td><td>live</td></tr>
+<tr><td><span class="lay signal">Signal</span></td><td>CIRQLIN page</td><td>Consent wording that lets CIRQLIN data feed ads and cross-show use, with a consented-count report</td><td>—</td><td>—</td><td>missing; record queued (§8, C4)</td></tr>
+<tr><td><span class="lay signal">Signal</span></td><td>Ticket tiers &amp; sales</td><td>Electric internal counts arrive as PDFs and are entered by hand; ingest from the inbox</td><td>—</td><td>—</td><td>partly; Now → 4 Dec</td></tr>
+<tr><td><span class="lay signal">Signal</span></td><td>Ticket tiers &amp; sales</td><td>Ticket export uploads (Skiddle, RA, DICE): daily sales per tier</td><td>—</td><td>—</td><td>missing; December</td></tr>
+<tr><td><span class="lay signal">Signal</span></td><td>Attribution</td><td>Owned signal: show tag on the CIRQLIN pixel and server events, ticket-link click as Initiate Checkout per show, offline purchases from ticket exports</td><td>—</td><td>—</td><td>missing; December</td></tr>
+<tr><td><span class="lay signal">Signal</span></td><td>Reporting</td><td>Google conversions; TikTok purchases below campaign level</td><td>—</td><td>—</td><td>missing (Google) · partly (TikTok, campaign level only)</td></tr>
+<tr><td><span class="lay signal">Signal</span></td><td>D2C comms</td><td>D2C send stats</td><td><code>lib/d2c/metrics</code></td><td>result_jsonb.metrics</td><td>live</td></tr>
+<tr><td><span class="lay signal">Signal</span></td><td>Outside world</td><td>Ad Library search through the Meta connector (UK ads)</td><td>connector <code>ads_library_search</code></td><td>—</td><td>live, through Claude only</td></tr>
+<tr><td><span class="lay signal">Signal</span></td><td>Outside world</td><td>Ad Library probe: what <code>ads_archive</code> returns for UK promoter, brand and artist pages (PR3a)</td><td><code>scripts/probe-ad-library.mts</code></td><td>—</td><td>missing; Now → 4 Dec</td></tr>
+<tr><td><span class="lay signal">Signal</span></td><td>Outside world</td><td>Inspiration feed (E9): ~25 seed pages, derived artist pages (≤ 100, 30-day expiry, <code>via</code> row), weekly ingest, tagged; operator-only</td><td>—</td><td>—</td><td>missing; December</td></tr>
+<tr><td><span class="lay signal">Signal</span></td><td>Outside world</td><td>Platform-change watch (issue 2's three watches)</td><td>—</td><td>—</td><td>missing</td></tr>
+<tr><td><span class="lay signal">Signal</span></td><td>Fans</td><td>Crossover between a client's lists (e.g. Ewan McVicar's list overlaps Locklead's by 19 %)</td><td>cirqlin repo</td><td>—</td><td>live</td></tr>
+<tr><td><span class="lay memory">Memory</span></td><td>Learning loop</td><td>Copy shapes per show and voice, proven rows (promoter vs artist page)</td><td><code>lib/learning/copy</code></td><td>copy_features</td><td>live since 15 Oct; read only by the Lab writer</td></tr>
+<tr><td><span class="lay memory">Memory</span></td><td>Learning loop</td><td>Artist library: artists extracted from ad copy, confirmed on Spotify</td><td><code>lib/learning/copy/artist-extraction.ts</code></td><td>artist_library</td><td>live since 15 Oct</td></tr>
+<tr><td><span class="lay memory">Memory</span></td><td>Creative Lab</td><td>Lab corpus and voice (quote mode, V1–V13)</td><td><code>lib/creative-lab</code></td><td>—</td><td>live</td></tr>
+<tr><td><span class="lay memory">Memory</span></td><td>Learning loop</td><td>Findings store for what ran: test verdicts, variant pairs, phase curves, axis rollups, show week, copy rules</td><td><code>lib/learning/findings</code> (PR1)</td><td>learning_findings (migration 264)</td><td>missing; PR1 in build</td></tr>
+<tr><td><span class="lay memory">Memory</span></td><td>Playbook</td><td>House rules (retargeting tiers, ticket-warning ladder, payday cadence, teaser with no date or venue, the 2-week refresh), versioned, each with running evidence</td><td>—</td><td>—</td><td>partly: held in Claude's memory and design records, not in the product</td></tr>
+<tr><td><span class="lay decide">Decide</span></td><td>On-sale refresh</td><td>Refresh proposals per armed event, Apply, per-write gates</td><td><code>lib/onsale-refresh</code>, migrations 232–244</td><td>proposals; onsale_refresh_outcomes</td><td>live in shadow; 7 events armed</td></tr>
+<tr><td><span class="lay decide">Decide</span></td><td>Creative tests</td><td>Test calls for tests the app made: TF2 spend share, TF5 benchmark, TF6 extend and stop, TF9 end-day read</td><td><code>lib/creative-tests/fast-call.ts</code>, <code>benchmark.ts</code></td><td>creative_tests</td><td>live; 0 rows while about 10 tests ran in the week of 16–22 Nov through the Meta connector</td></tr>
+<tr><td><span class="lay decide">Decide</span></td><td>Creative tests</td><td>Observed tests (E1): every ad set in a show test campaign is a test, whoever launched it</td><td><code>lib/learning/findings/observed-tests.ts</code></td><td>learning_findings</td><td>missing; PR1</td></tr>
+<tr><td><span class="lay decide">Decide</span></td><td>Learnings surfaces</td><td>Rail "This week" (S1), creation-time chips (S2), /learnings (S3), digest and chip words (S4)</td><td>—</td><td>—</td><td>missing; record queued (§8, C1)</td></tr>
+<tr><td><span class="lay decide">Decide</span></td><td>Learnings surfaces</td><td>Monday digest (E8), Slack ads_ops, Mondays 10:00 London</td><td>cron learning-digest (PR1)</td><td>—</td><td>missing; PR1, behind ENABLE_LEARNING_DIGEST</td></tr>
+<tr><td><span class="lay decide">Decide</span></td><td>Today</td><td>Morning brief: a scheduled Claude task first, in-app later</td><td>—</td><td>—</td><td>missing; Now → 4 Dec (§3)</td></tr>
+<tr><td><span class="lay decide">Decide</span></td><td>Exploration</td><td>Exploration share of tests with the idea's source tagged (inspiration feed, hunch, platform change)</td><td>—</td><td>—</td><td>missing; January (§9 flag 4)</td></tr>
+<tr><td><span class="lay decide">Decide</span></td><td>Signup value</td><td>Signup value model: target cost per signup per client from presale conversion and ticket price</td><td>—</td><td>—</td><td>missing; Feb → Mar</td></tr>
+<tr><td><span class="lay act">Act</span></td><td>Creative Services</td><td>Workflow A, CTA refresh push into a key moment (render → contact sheet → approval → Drive → parallel push campaign → pause old → end at the moment)</td><td>render scripts, Drive connector</td><td>—</td><td>live by hand; MCP v1 target</td></tr>
+<tr><td><span class="lay act">Act</span></td><td>Creative Services</td><td>Workflow B, teaser kit from a press pack (3 artwork videos, 1 static with audio, 3 statics, captions only from the artist's team)</td><td>—</td><td>—</td><td>live by hand</td></tr>
+<tr><td><span class="lay act">Act</span></td><td>Creative Services</td><td>Workflow C, promo montage: kick grid, big moments, three versions</td><td><code>scratch/puzzle_promo_montage/</code></td><td>—</td><td>live by hand; Lab feature in January</td></tr>
+<tr><td><span class="lay act">Act</span></td><td>Drive automation</td><td>Drive filing by event, week and owner</td><td>Drive connector</td><td>—</td><td>live; files ≤ 7.5 MB through the connector</td></tr>
+<tr><td><span class="lay act">Act</span></td><td>Claude via connectors</td><td>Claude through the Meta connector: reads, creates, uploads</td><td>connector</td><td>—</td><td>partly: some accounts refuse it (e.g. the NX promoter account); <code>ads_duplicate_entity</code> unavailable</td></tr>
+<tr><td><span class="lay act">Act</span></td><td>Claude via connectors</td><td>Chrome → Storage → Meta upload by hand (public campaign-assets bucket)</td><td>—</td><td>campaign-assets bucket</td><td>partly; replaced by MCP v1</td></tr>
+<tr><td><span class="lay act">Act</span></td><td>Off/Pixel MCP</td><td>Guarded actions callable by Claude from a phone: read event state, CTA refresh render, push-campaign template, Drive → Meta upload, pause and budget moves through the existing gates, all logged</td><td>—</td><td>decision log</td><td>missing; record queued (§8, C2)</td></tr>
+<tr><td><span class="lay act">Act</span></td><td>Phases</td><td>CIRQLIN Phases (PH1–PH13): stages made in advance, timed switches, guard rails</td><td>cirqlin repo</td><td>—</td><td>designed (cirqlin #666)</td></tr>
+<tr><td><span class="lay act">Act</span></td><td>Phases</td><td>Phases as the moment engine: one change starts and stops the push campaign, re-renders the CTA, sends D2C and marks the dashboard</td><td>—</td><td>—</td><td>missing; record queued (§8, C3)</td></tr>
+<tr><td><span class="lay act">Act</span></td><td>Fans</td><td>CRM v1: WhatsApp direct through Meta, segments from crossover, journeys on Phases; email later</td><td>—</td><td>—</td><td>missing; Feb → Mar</td></tr>
+<tr><td><span class="lay learn">Learn</span></td><td>Decision log</td><td>Every recommendation and action with its hypothesis, status (proposed, applied, dismissed, expired) and a 7-day outcome against the show's benchmark (E7)</td><td>extends onsale_refresh_outcomes</td><td>onsale_refresh_outcomes (0)</td><td>missing: empty</td></tr>
+<tr><td><span class="lay learn">Learn</span></td><td>Learning loop</td><td>Variant pairs (E2): same ad set, ≥ 3 overlapping days, same destination in the same phase, one axis different</td><td><code>variant-pairs.ts</code> (PR1)</td><td>learning_findings</td><td>missing; PR1</td></tr>
+<tr><td><span class="lay learn">Learn</span></td><td>Learning loop</td><td>Phase curves (E2b): cost per signup and per checkout by rollout phase, per show and pooled</td><td><code>phase-curve.ts</code> (PR1)</td><td>learning_findings</td><td>missing; PR1</td></tr>
+<tr><td><span class="lay learn">Learn</span></td><td>Learning loop</td><td>Cross-show rollup (E3), show week (E4), copy rules surfaced (E5)</td><td>PR1</td><td>learning_findings</td><td>missing; PR1</td></tr>
+<tr><td><span class="lay learn">Learn</span></td><td>Playbook</td><td>Rule evidence: for / against / untested, with n shows, fed by the decision log and findings</td><td>—</td><td>—</td><td>missing; January</td></tr>
+<tr><td><span class="lay learn">Learn</span></td><td>Buyer quality</td><td>Buyer-quality scoring (ad → signup → buyer)</td><td>—</td><td>—</td><td>missing; Feb → Mar</td></tr>
+</table></div>
+<p class="lead"><b>Discrepancies found on the walk (issue 2, kept), for the ops thread:</b> <code>event_funnel_overrides</code> has no reader; <code>refresh-client-portal-snapshots</code> says 15 minutes but runs 3×/day; <code>refresh-active-creatives</code> says 6-hourly but runs at 07:30 / 13:30 / 19:30; the alarm config lists <code>internal-counts-ingest</code>, a cron that does not exist; <code>campaign_daily_insights</code> (62 rows) is superseded and nothing writes it; <code>copy_performance</code> stays empty across 48 successful runs; the rollup tickets leg has written no sold tickets since 3 September. None of these are design items; each is a row above until fixed.</p>
+
+<!-- ======================= 1B CHAIN ======================= -->
+<h2>1B · The learning chain — every flow, its source, its store, its reader</h2>
+<p class="lead">One frame. Eight links, read left to right then down; each arrow carries the state of the link, not of the node. A link is <b>live</b> when rows flow and something reads them, <b>partly</b> when the store exists but is thin, stale or half-read, <b>missing</b> when nothing writes or nothing reads. Every missing or partly link is a gap in §5.</p>
+<div class="legend" style="font-size:12px"><span class="lk l">→ live</span><span class="lk p">→ partly</span><span class="lk m">→ missing</span><span class="k">· stores in mono · reader in italics</span></div>
+<div class="frame"><figure><figcaption>NS1B-1280 · the chain</figcaption>
+<div class="vp map" style="width:1280px">
+  <div class="lane">
+    <div class="node"><div class="sn">1 · event facts &amp; tiers</div>
+      <div class="st-list"><code>events</code> (182, venue_key on 160) · <code>event_ticket_tiers</code> (841) · <code>tier_channel_sales_daily_history</code> (6,409) · <code>ticket_sales_snapshots</code> (53,419) · <code>creative_lab_event_facts</code> (2) · <code>event_key_moments</code> (80)</div>
+      <div class="rd"><i>read by</i> benchmark view, pacing, caption fact rules, Lab</div>
+      <div class="lk p">→ partly: tickets leg of the rollup stale since 3 Sep; venue overrides 0 rows</div></div>
+    <div class="node"><div class="sn">2 · audiences</div>
+      <div class="st-list"><code>interest_clusters</code> (36, live_evidence 36/36, use_count 7) · <code>meta_custom_audiences</code> (201) · <code>launched_ad_sets</code>.interest_ids, lookalike_range, source_type (728)</div>
+      <div class="rd"><i>read by</i> Audiences strip, ad-set targeting, nightly evidence job</div>
+      <div class="lk p">→ partly: cluster evidence flows; lookalike / retargeting results have no learnings store, only alerts</div></div>
+    <div class="node"><div class="sn">3 · campaign build</div>
+      <div class="st-list"><code>campaign_plan_benchmarks_v</code> (672) · <code>campaign_plan_predictions</code> (0) · <code>client_funnel_benchmarks</code> (17) · <code>event_funnel_targets</code> (21) · <code>tag_performance</code> → the rail · <code>campaign_automation_decisions</code> (41,999)</div>
+      <div class="rd"><i>read by</i> MML canvas chips, the rail, pacing, Armed tab</div>
+      <div class="lk p">→ partly: benchmarks and rail live; predictions never written; presets never read</div></div>
+    <div class="node"><div class="sn">4 · creatives</div>
+      <div class="st-list"><code>creative_tag_assignments</code> (33,337) · <code>creative_scores</code> (11,784) · <code>ad_copy</code> (10,675) · <code>creative_assets</code> (445) · <code>creative_lab_rounds</code> (0) · <code>creative_lab_captions</code> (5)</div>
+      <div class="rd"><i>read by</i> learning refresh, heatmap, Lab round builder</div>
+      <div class="lk p">→ partly: tags and copy flow to every ad; the Lab's own ads (round_ads, caption_style tags) are 0 — the Lab has not yet produced a learnable ad</div></div>
+  </div>
+  <div class="turn">continues ↓</div>
+  <div class="lane">
+    <div class="node"><div class="sn">5 · results</div>
+      <div class="st-list"><code>ad_daily_insights</code> (65,144) · <code>event_daily_rollups</code> (32,617) · <code>google_ads_daily_snapshots</code> (265) · <code>tiktok_*_snapshots</code> (62,341) · <code>event_code_lifetime_meta_cache</code> (80) · attribution tables (0)</div>
+      <div class="rd"><i>read by</i> judge, optimiser, alerts, learning refresh, every report</div>
+      <div class="lk l">→ live for Meta, TikTok, Google</div> <div class="lk m" style="margin-top:4px">attribution missing: click → order never fed</div></div>
+    <div class="node"><div class="sn">6 · judging</div>
+      <div class="st-list"><code>campaign_automation_decisions</code> (87 applied) · <code>benchmark_alerts</code> (492) · <code>creative_lab_round_ads</code>.verdict (0) · creative health pill</div>
+      <div class="rd"><i>read by</i> Armed tab, Today alerts, rounds timeline</div>
+      <div class="lk p">→ partly: optimiser and alerts judge every day; the Lab judge has had nothing to judge</div></div>
+    <div class="node"><div class="sn">7 · learnings</div>
+      <div class="st-list"><code>tag_performance</code> (420; 274 non-thin; 3 scopes × 2 stages) · <code>creative_scores</code> (11,784) · <code>copy_performance</code> (0) · <code>client_funnel_benchmarks</code> (17) · <code>interest_clusters.live_evidence</code> (36) · <code>campaign_plan_predictions</code>.actual (0)</div>
+      <div class="rd"><i>written by</i> learning-refresh 03:30 nightly, show-close</div>
+      <div class="lk p">→ partly: tags, scores, evidence live; copy performance and prediction actuals missing; vertical scope = all clients (bug)</div></div>
+    <div class="node"><div class="sn">8 · back to the rail and the next brief</div>
+      <div class="st-list">rail ◆ (event page, build 1) · Audiences strip · MML benchmark chips · copy suggestions · LEARN face · brief intake</div>
+      <div class="rd"><i>read by</i> Matas, at the moment of the next decision</div>
+      <div class="lk p">→ partly: rail and chips live; copy suggestions and LEARN read empty tables; the next brief reads nothing yet</div></div>
+  </div>
+  <div class="loop"><span><b>↺ 8 → 1.</b> The chain closes only when a learning changes the next event's facts: a venue's own conversion rate, a client's usual cost per signup, the angle that sold last time. Today that happens in Matas's head. The gaps in §5 are the links that would let it happen in the tool.</span><span class="k">1 of 8 links live end to end</span></div>
+</div></figure></div>
+<div class="frame"><figure><figcaption>NS1B-393 · the chain, as a column</figcaption>
+<div class="vp" style="width:393px"><div class="phone">
+  <div class="vline">
+    <div class="vst">1 · event facts &amp; tiers</div><div class="ac"><div class="lk p">→ partly · tickets leg stale</div></div>
+    <div class="vst">2 · audiences</div><div class="ac"><div class="lk p">→ partly · no LAL/RT learnings</div></div>
+    <div class="vst">3 · campaign build</div><div class="ac"><div class="lk p">→ partly · predictions 0 rows</div></div>
+    <div class="vst">4 · creatives</div><div class="ac"><div class="lk p">→ partly · Lab rounds 0</div></div>
+    <div class="vst">5 · results</div><div class="ac"><div class="lk l">→ live</div> <div class="lk m">attribution missing</div></div>
+    <div class="vst">6 · judging</div><div class="ac"><div class="lk p">→ partly · Lab judge idle</div></div>
+    <div class="vst">7 · learnings</div><div class="ac"><div class="lk p">→ partly · copy 0 · actuals 0 · vertical bug</div></div>
+    <div class="vst">8 · back to the rail</div><div class="ac"><div class="lk p">→ partly · rail live, LEARN and copy empty</div></div>
+  </div>
+  <div class="loop" style="font-size:11.5px"><span><b>↺</b> Closes in Matas's head today.</span></div>
+</div></div></figure>
+<div style="max-width:620px">
+<div class="invx"><table class="t"><tr><th>Link</th><th>What would make it live</th><th>Kind</th></tr>
+<tr><td>1 → 2</td><td>Rollup tickets leg repaired; venue overrides read or dropped</td><td>data fix</td></tr>
+<tr><td>2 → 3</td><td>A learnings row per audience (source, lookalike range, cost per result, n)</td><td>learning job</td></tr>
+<tr><td>3 → 4</td><td>Predictions written at launch (the code exists; find why 0)</td><td>data fix</td></tr>
+<tr><td>4 → 5</td><td>One Lab round launched, so round_ads and caption_style tags carry rows</td><td>launch on (§5 gap 4)</td></tr>
+<tr><td>5 → 6</td><td>4theFans webhook secret set; attribution fed</td><td>Joe's step</td></tr>
+<tr><td>6 → 7</td><td>Copy performance writer producing rows; vertical scope excluding other verticals</td><td>data fix</td></tr>
+<tr><td>7 → 8</td><td>LEARN face and copy suggestions reading real rows; rail build 2</td><td>build</td></tr>
+<tr><td>8 → 1</td><td>Brief intake reading the client's own benchmarks into the new event's targets</td><td>record + build (§5 gap 2)</td></tr>
+</table></div></div></div>
+
+
+<h3>1B+ · The return path — what issue 3 adds to the chain</h3>
+<p class="lead">Issue 2's eight links (above) run forward, from facts to the rail. The map's finding on 23 Nov is that the path back is missing. About ten tests ran in the week of 16–22 Nov and the app recorded none of them, because they were launched through the Meta connector. <code>onsale_refresh_outcomes</code> is empty, so no decision has an outcome. These eleven links are the return path, in loop order. Every one of them reads what ran (OP2), compares like with like (OP3) and ends in evidence on a rule (OP6).</p>
+<div class="frame"><figure><figcaption>NS1B3-1280 · the return path, eleven links</figcaption>
+<div class="vp map" style="width:1280px">
+  <div class="lane" style="grid-template-columns:repeat(6,1fr)">
+    <div class="node"><div class="sn">RP1 · observed tests <span class="lay learn">Learn</span></div>
+      <div class="st-list"><code>ad_daily_insights</code> + campaign and ad set names (<code>isShowTestCampaign</code>) → <code>learning_findings</code> test_verdict</div>
+      <div class="rd"><i>read by</i> digest, rail S1, Today</div><div class="lk m">→ missing · creative_tests 0 of ~10</div></div>
+    <div class="node"><div class="sn">RP2 · variant pairs <span class="lay learn">Learn</span></div>
+      <div class="st-list">same ad set · ≥ 3 overlapping days · same destination in the same phase · one axis (date, text, CTA, format, AB copy)</div>
+      <div class="rd"><i>read by</i> E3 rollup</div><div class="lk m">→ missing · PR1</div></div>
+    <div class="node"><div class="sn">RP3 · phase curves <span class="lay learn">Learn</span></div>
+      <div class="st-list">CIRQLIN phase history (PH1–PH13) → else <code>event_config</code>, <code>presale_log</code> → else dates in ad names; cost per stage result per phase</div>
+      <div class="rd"><i>read by</i> budget split, S2 teaser chip</div><div class="lk m">→ missing · PR1</div></div>
+    <div class="node"><div class="sn">RP4 · cross-show rollup <span class="lay memory">Memory</span></div>
+      <div class="st-list">pairs and curves pooled by axis × stage × voice; shrunk ratio, n shows, confidence capped by shows</div>
+      <div class="rd"><i>read by</i> playbook evidence, digest top 3</div><div class="lk m">→ missing · PR1</div></div>
+    <div class="node"><div class="sn">RP5 · recommendation <span class="lay decide">Decide</span></div>
+      <div class="st-list">one proposed action per finding (E6) → an on-sale refresh line on armed events, else advice with an Ads Manager link</div>
+      <div class="rd"><i>read by</i> Today queue, rail S1</div><div class="lk p">→ partly · Apply exists, shadow</div></div>
+    <div class="node"><div class="sn">RP6 · decision log <span class="lay learn">Learn</span></div>
+      <div class="st-list">every Apply, dismiss and MCP action with its hypothesis and who approved it (E7)</div>
+      <div class="rd"><i>read by</i> RP7, MCP audit</div><div class="lk m">→ missing · 0 rows</div></div>
+  </div>
+  <div class="turn">continues ↓</div>
+  <div class="lane" style="grid-template-columns:repeat(5,1fr)">
+    <div class="node"><div class="sn">RP7 · 7-day outcome <span class="lay learn">Learn</span></div>
+      <div class="st-list">each logged decision scored at 7 days, or at show close if sooner, against the show's own benchmark (TF5's definition)</div>
+      <div class="rd"><i>read by</i> RP8, Today "Done"</div><div class="lk m">→ missing</div></div>
+    <div class="node"><div class="sn">RP8 · playbook evidence <span class="lay memory">Memory</span></div>
+      <div class="st-list">each house rule: for / against / untested, n shows, last outcome; versioned</div>
+      <div class="rd"><i>read by</i> proposals, chips, Matas</div><div class="lk m">→ missing · rules in memory</div></div>
+    <div class="node"><div class="sn">RP9 · exploration <span class="lay decide">Decide</span></div>
+      <div class="st-list">a share of tests that break a house rule on purpose, each tagged with its source (feed, hunch, platform change)</div>
+      <div class="rd"><i>read by</i> quarterly source view</div><div class="lk m">→ missing</div></div>
+    <div class="node"><div class="sn">RP10 · inspiration feed <span class="lay signal">Signal</span></div>
+      <div class="st-list">~25 seed pages → derived artist pages (≤ 100, <code>via</code> row, 30-day expiry, localised ads) → tagged findings</div>
+      <div class="rd"><i>read by</i> /learnings Inspiration, RP9</div><div class="lk m">→ missing · probe first</div></div>
+    <div class="node"><div class="sn">RP11 · back to creation <span class="lay decide">Decide</span></div>
+      <div class="st-list">findings at the moment of the next decision: rail "This week" (S1), chips on drafts (S2), Today, the brief</div>
+      <div class="rd"><i>read by</i> Matas, at the next build</div><div class="lk m">→ missing · record queued</div></div>
+  </div>
+  <div class="ret"><span><b>↺ RP11 → issue 2's link 3.</b> A finding changes the next campaign build. Its outcome comes back through RP6–RP8 as evidence for or against the rule it applied.</span><span class="k">0 of 11 live · 1 partly</span></div>
+</div></figure></div>
+<div class="frame"><figure><figcaption>NS1B3-393 · the return path, as a column</figcaption>
+<div class="vp" style="width:393px"><div class="phone">
+  <div class="vline">
+    <div class="vst">RP1 · observed tests</div><div class="ac"><div class="lk m">→ missing · 0 of ~10</div></div>
+    <div class="vst">RP2 · variant pairs</div><div class="ac"><div class="lk m">→ missing · PR1</div></div>
+    <div class="vst">RP3 · phase curves</div><div class="ac"><div class="lk m">→ missing · PR1</div></div>
+    <div class="vst">RP4 · cross-show rollup</div><div class="ac"><div class="lk m">→ missing · PR1</div></div>
+    <div class="vst">RP5 · recommendation</div><div class="ac"><div class="lk p">→ partly · Apply in shadow</div></div>
+    <div class="vst">RP6 · decision log</div><div class="ac"><div class="lk m">→ missing · 0 rows</div></div>
+    <div class="vst">RP7 · 7-day outcome</div><div class="ac"><div class="lk m">→ missing</div></div>
+    <div class="vst">RP8 · playbook evidence</div><div class="ac"><div class="lk m">→ missing</div></div>
+    <div class="vst">RP9 · exploration</div><div class="ac"><div class="lk m">→ missing</div></div>
+    <div class="vst">RP10 · inspiration feed</div><div class="ac"><div class="lk m">→ missing · probe</div></div>
+    <div class="vst">RP11 · back to creation</div><div class="ac"><div class="lk m">→ missing · record</div></div>
+  </div>
+</div></div></figure>
+<div style="max-width:660px">
+<div class="invx"><table class="t"><tr><th>Link</th><th>What makes it live</th><th>Exit test</th></tr>
+<tr><td>RP1</td><td>PR1 E1, reusing TF2, TF5, TF6 and TF9 unchanged (§9 flag 1)</td><td>The dry run on 16–22 Nov calls P26-BDAY "Top tracks reels" not a winner (best £8.01 against the £3.34 benchmark).</td></tr>
+<tr><td>RP2</td><td>PR1 E2 with the like-with-like test</td><td>NX Loves "Static" (16–18 Nov) vs "Static with date" (18–20 Nov) is <b>not</b> a pair, and nor are the Glitterbox and LP Rhythm date pairs.</td></tr>
+<tr><td>RP3</td><td>PR1 E2b, reading CIRQLIN phase history once PH ships, and recording its source</td><td>NX27-EWANMCVICAR teaser ≈ £0.54 → dated ≈ £3.31; EBR27-GLITTERBOX ≈ £1.33 → £3.53; ES27-LPRHYTHM ≈ £2.68 → £3.67.</td></tr>
+<tr><td>RP4</td><td>PR1 E3</td><td>"teaser → dated: signup cost rises · ≥ 3 shows" at confidence ok or above.</td></tr>
+<tr><td>RP5</td><td>PR2 E6 through the on-sale refresh</td><td>One finding on an armed event appears as a refresh line with Apply. One on an unarmed event appears as advice.</td></tr>
+<tr><td>RP6–RP7</td><td>PR2 E7, extending <code>onsale_refresh_outcomes</code>; MCP v1 writes its actions to the same log</td><td>One Apply logged with its hypothesis, and its outcome read at 7 days.</td></tr>
+<tr><td>RP8</td><td>The playbook in the product (January)</td><td>Every house rule shows for / against / untested with n shows.</td></tr>
+<tr><td>RP9</td><td>The exploration share (January), as a share of tests (§9 flag 4)</td><td>Each test carries its source; a quarterly view shows which sources paid off.</td></tr>
+<tr><td>RP10</td><td>PR3a probe, then E9</td><td>A table of what <code>ads_archive</code> returns for UK pages, then weekly rows for ~25 seeds plus derived artists.</td></tr>
+<tr><td>RP11</td><td>Record C1 (S1–S4), then PR2</td><td>Monday's findings visible in the rail and on Today. A teaser draft with a date gets the chip with its evidence.</td></tr>
+</table></div></div></div>
+<!-- ======================= 1C EXPERT LAYER ======================= -->
+<h2>1C · The expert layer — what the tool knows, and what it should (issue 2, unchanged)</h2>
+<p class="lead"><b>What moved in issue 3:</b> every "deck rule" below becomes a playbook rule with running evidence once the playbook is in the product (OP6, §5 row 13); every "learning job" names its store in <code>learning_findings</code> or its own table; the paid media and promoter cards gain the inspiration feed as an outside source (E9).</p>
+<p class="lead">Matas wants the tool to hold five disciplines: senior promoter, paid media manager, graphic designer, D2C specialist, behavioural psychologist. Each card names what the tool knows today, with the code that knows it, and what it should know. Every "should know" is tagged: <span class="tg">deck rule</span> goes into the Off/Pixel deck as a rule Cursor builds to; <span class="tg">learning job</span> is a nightly job writing a store the rail reads; <span class="tg">watch</span> is a dated platform fact the tool checks for change. The paid media card owns the platform-change watch.</p>
+<div class="frame"><figure><figcaption>NS1C-1280 · five discipline cards</figcaption>
+<div class="vp map" style="width:1280px">
+<div class="xp">
+  <div class="xc"><div class="sh">Senior promoter</div>
+    <div class="k">knows today</div>
+    <ul><li>Phase vocabularies: Pre-announce → Announce → Presale → On sale → Final push (event −3 d) <code>lib/wizard/phase.ts</code>; presale / onsale_payday / onsale_slowdown / final10 / event with traffic:conversion splits 0/100, 50/50, 75/25 <code>lib/dashboard/pacing.ts</code>; presale / on_sale / waiting_list for plans <code>lib/plan/phase.ts</code></li>
+    <li>Payday: last Friday of the London month; 18-day window from the Thursday before <code>payday.ts</code>, <code>isInPaydayWindow</code></li>
+    <li>Capacity maths: sell-through from <code>events.capacity</code>; S-curve pacing (midpoint 0.7 of campaign, k 0.15) <code>computeSellOutPacing</code></li>
+    <li>Tier facts for captions: £ must equal a tier price; "final" only when one tier left <code>caption-facts.ts</code></li>
+    <li>Marketing actions: promote / release tier, premium underperforming, scale spend <code>marketing-actions.ts</code></li>
+    <li>Benchmark ladder: venue (≥3 runs) → client → starting point; never cross-client <code>lib/plan/benchmarks.ts</code></li>
+    <li>Outlet reality: RA, Dice, Skiddle have no API; tickets enter by hand or 4theFans</li></ul>
+    <div class="k">should know</div>
+    <ul><li>Release timing: when the next tier opens, by sell-through and days out <span class="tg">learning job</span> from <code>tier_channel_sales_daily_history</code></li>
+    <li>Lineup value: a headliner's draw in signups and tickets, from Spotify listeners already enriched and past shows <span class="tg">learning job</span></li>
+    <li>Venue capacity maths per venue: usual sell-through curve, final-week share; needs <code>venue_key</code> benchmarks (venues table empty) <span class="tg">learning job</span></li>
+    <li>Announce → presale → general sale offsets as each client usually runs them, not the fixed schedule rules <span class="tg">learning job</span></li>
+    <li>Show-week playbook: what to do with 7 days left, by sell-through band <span class="tg">deck rule</span></li></ul></div>
+  <div class="xc"><div class="sh">Paid media manager</div>
+    <div class="k">knows today</div>
+    <ul><li>Objective ladders per goal: registration CPR &lt; £1 +30 %, £1–2 +10 %, £2–3 hold, £3–5 −25 %, &gt; £5 pause; traffic by LPV cost; purchase by CPA (3 d) + ROAS <code>lib/optimisation-rules.ts</code></li>
+    <li>Runtime limits: 24 h cooldown, 25 writes and 2 pauses per run, 15 conversions before a pause, never auto-resume, campaign ceiling = planned total <code>lib/optimisation</code></li>
+    <li>Budget pacing thresholds 25–100 %; plan line = daily × days elapsed</li>
+    <li>Creative health: frequency ≤ 2.5 fresh, ≥ 4.0 fatigued; inline CTR ≥ 1.5 % strong <code>creative-health.ts</code>; alerts for fatigue, scaling, CPA ×2, stalled £100, breakout 25 regs</li>
+    <li>Advantage+ policy: which enhancements must stay off <code>enhancement-policy.ts</code>; one ad per Dynamic Creative ad set; per-placement 4:5 + 9:16</li>
+    <li>Targeting: interest ids ≥ 10 digits, pending validation, diversity ranking, personas; TikTok has no genre nodes; Smart+ blocked</li>
+    <li>Platform limits on record: Meta ≈ 200 calls/h soft + 80004 lockout; Google Basic Access 15k ops/day; PostgREST 1,000-row cap</li>
+    <li>Fan-out shape: 80 / 15 / 5 Meta / TikTok / Google default; derived TikTok and Google drafts, paused</li></ul>
+    <div class="k">should know</div>
+    <ul><li>Objective by phase: Registration before sale, Sales after, Traffic only for awareness clients, with the switch date <span class="tg">deck rule</span></li>
+    <li>CBO vs ABO: not written anywhere; a rule per campaign size <span class="tg">deck rule</span></li>
+    <li>Creatives per ad set, and when a round replaces rather than adds <span class="tg">deck rule</span></li>
+    <li>Placement rules and a placement read (no production read today, CANON 7.1 item 22) <span class="tg">learning job</span></li>
+    <li>Learning-phase resets: budget edits that reset delivery, and the 20 % rule <span class="tg">deck rule</span></li>
+    <li><b>Platform-change watch:</b> Meta Graph API version and deprecation dates, Advantage+ changes, TikTok Smart+ semantics, Google PMax, WhatsApp marketing policy (US numbers blocked since 1 Apr 2025; template buttons reject raw links). No version or date is on record in the repo today <span class="tg">watch</span></li></ul></div>
+  <div class="xc"><div class="sh">Graphic designer</div>
+    <div class="k">knows today</div>
+    <ul><li>Asset taxonomy: channel meta | tiktok, media image | video, aspect 1:1 | 4:5 | 9:16 <code>asset-registry.ts</code>; tag dimensions asset_type, visual_format, messaging_angle, intended_audience, hook_tactic, headline_tactic, offer_type, seasonality + caption_style <code>creative-tags.ts</code></li>
+    <li>Caption style locked (rule 13): TikTok Sans 400, 5.1 % of width, white with black stroke, centred 36 % down</li>
+    <li>Renders: 9:16 video and 1080×1080 stills on Remotion Lambda; palette derived from artwork on landing pages</li>
+    <li>Viz tokens: sand palette, four type sizes, olive / ochre / brick for judgement, platform tints <code>lib/viz/tokens.ts</code></li></ul>
+    <div class="k">should know</div>
+    <ul><li>Brand kit: PSD text slots, fonts uploaded or missing, locked layers (B7) <span class="tg">deck rule</span> (record exists, not built)</li>
+    <li>Format per placement: feed 4:5, stories 9:16, TikTok 9:16, Google responsive sizes, YouTube; safe areas per placement <span class="tg">deck rule</span></li>
+    <li>File limits per platform (video length, size, codecs) with the date checked <span class="tg">watch</span></li>
+    <li>Which asset type wins per client and stage, fed from <code>tag_performance</code> asset_type rows (Hybrid 30 % under today) <span class="tg">learning job</span> (live, read by the rail)</li></ul></div>
+  <div class="xc"><div class="sh">D2C specialist</div>
+    <div class="k">knows today</div>
+    <ul><li>Six milestones and their offsets: reminder = presale −1 day 16:45 venue-local; community link = presale −30 min <code>brief-parser/schedule.ts</code></li>
+    <li>Fire types: draft for review, direct fire (community), configure autoresponder <code>fire-type.ts</code></li>
+    <li>The gate: FEATURE_D2C_LIVE + client live_enabled + approved_by_matas + per-send approval; clients cannot toggle it</li>
+    <li>Audience names verbatim; never create a missing list <code>brief-routing.ts</code>; artwork chain; Bird drafts never activated or deleted</li>
+    <li>WhatsApp rules on record: raw community links rejected in buttons (use /j/), US numbers unreachable, 2,000/24 h tiers, templates immutable while pending</li></ul>
+    <div class="k">should know</div>
+    <ul><li>Send windows learned from delivery and opens (metrics are captured; nothing learns from them) <span class="tg">learning job</span></li>
+    <li>Sequence per phase, including the Phase 3 (post-general-sale) autoresponder, decided once <span class="tg">deck rule</span></li>
+    <li>Language rule (Spain → Spanish) and the house formats live in chat memory, not code <span class="tg">deck rule</span></li>
+    <li>Frequency cap per contact across email and WhatsApp <span class="tg">deck rule</span></li>
+    <li>WhatsApp policy and quality-rating changes, Bird email channel status <span class="tg">watch</span></li></ul></div>
+  <div class="xc"><div class="sh">Behavioural psychologist</div>
+    <div class="k">knows today</div>
+    <ul><li>No fabricated scarcity (rule 11): "final", "last", "under N", "sold out" only when the tier data makes them true <code>caption-facts.ts</code></li>
+    <li>Social proof: signup counts allowed as proof on the reminder, not at announce (house format)</li>
+    <li>Hooks and angles named as tags: social_proof, curiosity, fomo, urgency; urgency_scarcity_fomo, artist_headliner, high_energy_atmosphere; and measured: scarcity 25 % under, social-proof hook 54 % under (all clients, ticket sale)</li>
+    <li>Defaults: derived values shown as done with a badge; one button; honest empties (creator standing rules)</li></ul>
+    <div class="k">should know</div>
+    <ul><li>Loss aversion as a named device: "£28 → £32 on payday" is the price rising, not the ticket running out; a rule for when each is true <span class="tg">deck rule</span></li>
+    <li>Anchoring: the tier ladder shown with the current tier marked <span class="tg">deck rule</span></li>
+    <li>Commitment ladder: signup → community → presale → share, each step's conversion learned per client <span class="tg">learning job</span></li>
+    <li>Mechanism per angle: every caption angle maps to one named mechanism so <code>copy_performance</code> scores mechanisms, not just words <span class="tg">learning job</span></li>
+    <li>Timing: payday window and show-week as behavioural moments, not just budget moments <span class="tg">deck rule</span></li></ul></div>
+</div>
+</div></figure></div>
+<div class="frame"><figure><figcaption>NS1C-393 · one card (the others stack the same way)</figcaption>
+<div class="vp" style="width:393px"><div class="phone">
+  <div class="xc" style="margin:0"><div class="sh">Senior promoter</div>
+    <div class="k">knows today · 7</div><ul><li>Phases (3 vocabularies) · payday · S-curve pacing · tier facts · marketing actions · benchmark ladder · outlet reality</li></ul>
+    <div class="k">should know · 5</div><ul><li>Release timing <span class="tg">learning job</span></li><li>Lineup value <span class="tg">learning job</span></li><li>Venue capacity maths <span class="tg">learning job</span></li><li>Client's own offsets <span class="tg">learning job</span></li><li>Show-week playbook <span class="tg">deck rule</span></li></ul></div>
+</div></div></figure>
+<div style="max-width:620px"><p class="lead"><b>Count:</b> 25 "should know" items: 13 deck rules, 9 learning jobs, 3 watches. The deck rules go into <code>2026-11-08-offpixel-deck.html</code> (the next record); the learning jobs are rows on the Learning loop card once a store and a reader are named; the watches are rows on a Platform-change card under Health, each with a date last checked.</p></div></div>
+
+
+<!-- ======================= 2 ACT LAYER ======================= -->
+<h2>2 · The Act layer — the Off/Pixel MCP, and Phases as the moment engine</h2>
+<p class="lead">Act is where most of the operator's day goes. Two pieces change it. The Off/Pixel MCP makes Claude a guarded operator on the app's own tokens. That works on accounts the Meta connector refuses, and it removes the Chrome → Storage → Meta steps. Phases makes one moment (an announce, a presale, a lineup drop, a sell-out) move everything that hangs off it. Both write to the same decision log, which is how Act feeds Learn.</p>
+
+<h3>2A · The MCP is the operator surface</h3>
+<p class="lead"><b>OP9, as this record rules it:</b> screens for clients and fans, Claude for the operator. A workflow only Matas runs, with one decision and known steps, becomes a guarded MCP action, not a new screen. Operator screens stay in three places only:</p>
+<ul class="notes">
+<li><b>Approvals:</b> Today. It must work without Claude (OP8).</li>
+<li><b>Visual judgement:</b> frames, contact sheets and the Lab.</li>
+<li><b>Decisions inside a build:</b> the rail and the creation-time chips.</li>
+</ul>
+<div class="invx"><table class="t">
+<tr><th>MCP v1 action</th><th>What it does</th><th>Gate</th><th>Approval</th><th>Logged as</th></tr>
+<tr><td>Read event state</td><td>The event's phase, tiers, live campaigns and ads with results, the show benchmark, its findings and the pending approvals</td><td>Read scope only</td><td>None</td><td>Nothing (reads aren't decisions)</td></tr>
+<tr><td>CTA refresh render</td><td>Workflow A step 4: the existing render with only the CTA layer changed, in the right type style; returns a contact sheet</td><td>Render kill switch</td><td>None: no spend, nothing published</td><td>A render row, linked to the decision that asks for it</td></tr>
+<tr><td>Drive → Meta upload</td><td>Files approved renders into the w/c folder and uploads them to the ad account by the app's token</td><td>Upload switch; refuses renders with no client approval recorded</td><td>The client's approval, recorded by Matas, covers it</td><td>Decision row: "upload", with asset ids</td></tr>
+<tr><td>Push campaign from template</td><td>Workflow A step 8: the parallel push campaign, named <code>[CODE]</code>, CBO, ending at the moment, the same approved ads in every ad set</td><td>Launch switch; spend checked against the plan</td><td>Each time, on the phone</td><td>Decision row with its hypothesis and end time</td></tr>
+<tr><td>Pause and budget moves</td><td>Pause the previous ads, or move a budget, through the existing optimisation and refresh gates</td><td>The existing per-write gates and caps (24 h cooldown, pause limits)</td><td>Each time, unless covered by a standing approval</td><td>Decision row; scored at 7 days</td></tr>
+<tr><td>Apply a proposal</td><td>Applies an on-sale refresh or learnings proposal already on Today</td><td>The proposal's own gate</td><td>The Apply is the approval</td><td>The proposal's decision row moves to applied</td></tr>
+</table></div>
+<ul class="notes">
+<li><b>Standing approvals are explicit, few and listed</b> (OP4): each has its own row in Settings, with who granted it and when.
+<ul>
+<li>"Test ad sets launch live at Approve" (TT9) is already one.</li>
+<li>"Pause the ads a push replaces, when the push starts" is the second, granted per push with the push's own approval.</li>
+<li>Nothing else is standing until Matas grants it.</li>
+</ul></li>
+<li><b>A phone approval carries:</b>
+<ul>
+<li>the hypothesis, in one line;</li>
+<li>the evidence (numbers, n shows, confidence);</li>
+<li>the exact writes, by name (campaign, ad sets, ads, budget, end time);</li>
+<li>the gate state;</li>
+<li>Approve and Decline. Nothing on the card is editable. A change goes back to Claude as a new request.</li>
+</ul></li>
+<li><b>The audit is the decision log.</b> One row per crossing from Decide to Act, whether Claude asked, Matas applied, or a moment fired. It's the same table E7 scores at 7 days. An MCP action with no log row is a defect.</li>
+<li><b>Auth model:</b> an operator token or OAuth is Matas's decision (the map's list). This record needs only two things of it: actions run on the app's own tokens, never Claude's connector session; and the approval lands as Matas, by name.</li>
+</ul>
+<div class="frame"><figure><figcaption>NS2B-393 · a phone approval for an MCP action</figcaption>
+<div class="vp" style="width:393px"><div class="phone ph393">
+  <div class="ttl" style="font-size:15px">Approve</div><div class="sub">Asked by Claude · 10:42 · P26-BDAY</div>
+  <div class="card" style="margin-top:10px"><div class="ch"><b>Lineup push to 12PM Thursday</b><span class="src mcp">MCP</span></div>
+    <div style="font-size:12.5px;margin-bottom:6px">The best ad per headliner, CTA changed only, beats a fresh render into a moment.</div>
+    <div style="font-size:11.5px;color:var(--ink-3);margin-bottom:6px">4 ads · best cost per checkout per artist from live data · client approved 09:58</div>
+    <div class="r"><span>Campaign<small>[P26-BDAY] Puzzle - 27 Dec - Lineup Push (to 12PM Thu)</small></span><span></span></div>
+    <div class="r"><span>Budget<small>CBO £100 lifetime · ends Thu 26 Nov 12:00</small></span><span></span></div>
+    <div class="r"><span>Ad sets<small>Adv+ Broad · Similar Pages · Retargeting · same 4 ads in each</small></span><span></span></div>
+    <div class="r"><span>Pauses when it starts<small>On Sale V2 · Tests · AB copy test</small></span><span></span></div>
+    <div class="r"><span>Gate<small>Launch switch on · within plan</small></span><span></span></div>
+    <div style="display:flex;gap:8px;margin-top:8px"><span class="btn solid">Approve</span><span class="btn">Decline</span></div>
+  </div>
+</div></div></figure>
+<div style="max-width:640px"><p class="lead">The figures are the Creative Services handover's Puzzle Lineup Push, as the template's worked example. The hypothesis line is <span class="inv">invented</span>. The card is Today's row (§3), opened. The same row shows on desktop.</p></div></div>
+
+<h3>2B · Phases is the moment engine</h3>
+<p class="lead">CIRQLIN Phases (cirqlin #666, PH1–PH13) makes each stage of a page a saved phase that switches by hand or on a timer. Issue 3 makes that switch the one clock for the show. A phase switch, a scheduled update (such as the lineup drop) or a return from Final tickets emits one <b>moment</b>: page, show code, phase, time, and who or what fired it. Off/Pixel subscribes.</p>
+<div class="frame"><figure><figcaption>NS2A-1280 · one moment, its subscribers</figcaption>
+<div class="vp map" style="width:1280px">
+  <div style="display:grid;grid-template-columns:260px 1fr;gap:26px;align-items:start">
+    <div class="ac" style="border:2px solid var(--ink)"><b>Moment</b> <span class="lay act">Act</span><p>Final tickets → On sale · Thu 26 Nov 12:00 · EBR27-GLITTERBOX · timed switch (CIRQLIN)</p>
+      <div class="rw"><span>Source</span><span class="s l">CIRQLIN phase plan</span></div>
+      <div class="rw"><span>Approval</span><span class="s l">the moment's, once</span></div>
+      <div class="rw"><span>Log</span><span class="s l">one row per subscriber</span></div></div>
+    <div class="subs">
+      <div class="ac"><b>Push campaign</b> <span class="lay act">Act</span><p>Starts the moment's push from the template, or ends the one aimed at it.</p><div class="rw"><span>gate</span><span class="s p">launch switch</span></div></div>
+      <div class="ac"><b>CTA re-render</b> <span class="lay act">Act</span><p>Asset bank CTAs move to the phase's line (ticket-warning ladder); contact sheet to Today.</p><div class="rw"><span>gate</span><span class="s p">render switch</span></div></div>
+      <div class="ac"><b>D2C send</b> <span class="lay act">Act</span><p>The phase's send to consented signups only; the existing per-send approval stands.</p><div class="rw"><span>gate</span><span class="s p">3-of-3 + approval</span></div></div>
+      <div class="ac"><b>Phase-specific ads</b> <span class="lay act">Act</span><p>Ads tagged to the outgoing phase (a teaser with no date) are paused, never deleted.</p><div class="rw"><span>gate</span><span class="s p">pause gate</span></div></div>
+      <div class="ac"><b>Dashboard marker</b> <span class="lay signal">Signal</span><p>A boundary on every report and the client's share link, by phase name.</p><div class="rw"><span>gate</span><span class="s l">read only</span></div></div>
+      <div class="ac"><b>Learnings</b> <span class="lay learn">Learn</span><p>The phase boundary E2 and E2b cut at; recorded as <code>phase_source = cirqlin</code>.</p><div class="rw"><span>gate</span><span class="s l">read only</span></div></div>
+      <div class="ac"><b>Today and the brief</b> <span class="lay decide">Decide</span><p>"Moments today" in the brief; a failed subscriber is a red row.</p><div class="rw"><span>gate</span><span class="s l">read only</span></div></div>
+      <div class="ac dim"><b>CRM journeys</b> <span class="lay act">Act</span><p>February → March: journeys start and stop on moments.</p><div class="rw"><span>state</span><span class="s n">later</span></div></div>
+    </div>
+  </div>
+  <div class="loop"><span><b>A moment moved once moves everything.</b> Move the presale in the phase plan and the push, the CTA line, the send, the marker and the learnings boundary all move with it. Nothing is re-keyed by hand.</span><span class="k">map exit test, January</span></div>
+</div></figure></div>
+<div class="frame"><figure><figcaption>NS2A-393 · the same, as a column</figcaption>
+<div class="vp" style="width:393px"><div class="phone">
+  <div class="ac" style="border:2px solid var(--ink)"><b>Moment</b><p>Final tickets → On sale · Thu 26 Nov 12:00</p></div>
+  <div class="vline">
+    <div class="vst">subscribers</div>
+    <div class="ac"><div class="rw"><span>Push campaign</span><span class="s p">launch switch</span></div><div class="rw"><span>CTA re-render</span><span class="s p">render switch</span></div><div class="rw"><span>D2C send</span><span class="s p">3-of-3 + approval</span></div><div class="rw"><span>Phase-specific ads paused</span><span class="s p">pause gate</span></div><div class="rw"><span>Dashboard marker · learnings · Today</span><span class="s l">read only</span></div></div>
+  </div>
+</div></div></figure>
+<div style="max-width:640px">
+<p class="lead"><b>Rules for the engine:</b></p>
+<ul class="notes">
+<li><b>One clock.</b> For a show with a CIRQLIN page, the page's phase plan is the source of the moments. Off/Pixel's <code>event_key_moments</code> and milestones mirror it read-only. A show with no page keeps Off/Pixel's own moments. There are never two clocks for one show.</li>
+<li><b>Approve the moment, not each subscriber.</b> The spending subscribers (push, pauses) are approved when the moment is scheduled, as one card listing every write. Changing the moment's time keeps the approval. Changing what it writes asks again.</li>
+<li><b>Each subscriber is idempotent</b> on the moment's id, has its own kill switch and runs in shadow first (OP: "kill switch on every write path, default off; shadow before live").</li>
+<li><b>A failed subscriber never blocks the others.</b> It shows on Today as a red row naming what didn't happen. The ticket-link guard (PH9 a) blocks only the switch itself.</li>
+<li><b>Consent first (OP11).</b> The D2C subscriber sends only to signups whose consent snapshot covers the channel. CIRQLIN audiences reach ads only under the new wording (§8, C4).</li>
+</ul></div></div>
+
+<!-- ======================= 3 TODAY ======================= -->
+<h2>3 · Today — the approvals queue, with the morning brief first</h2>
+<p class="lead">Issue 2's Today stands: Needs you, Done overnight, Next 7 days, a row only when it can be acted on, and its button is the action. Issue 3 changes what feeds it and what opens it.</p>
+<ul class="notes">
+<li><b>The morning brief opens the page.</b> At most eight lines:
+<ul>
+<li>since yesterday;</li>
+<li>moments today, from the phase plans;</li>
+<li>on Mondays, the week's three strongest learnings.</li>
+</ul>
+Every number carries its comparison, and every line links to the row it's about. Until it's built in the app, a scheduled Claude task writes it. That task writes into the app's own store, and Today reads the store. Replacing the writer later changes nothing on the page (§9 flag 5).</li>
+<li><b>Needs you is one approvals queue with five sources.</b> Each row carries a source chip:
+<ul>
+<li><span class="src lrn">Learning</span>: findings with a recommendation (E6);</li>
+<li><span class="src ref">Refresh</span>: on-sale refresh proposals;</li>
+<li><span class="src mcp">MCP</span>: actions Claude has asked for (§2A);</li>
+<li><span class="src">Moment</span>: a phase moment's spending subscribers, approved once (§2B);</li>
+<li><span class="src">Send</span> / <span class="src">Warning</span> / <span class="src">Health</span>, as in issue 2.</li>
+</ul>
+Each row shows its evidence line (numbers, n shows, confidence) and the gate state. Apply and Approve write a decision-log row. Dismiss writes one too, as "dismissed", because a dismissal is a decision.</li>
+<li><b>Done overnight</b> adds what the platform did on its own (end-day test reads, extensions and stops under TF9) and each decision whose 7-day outcome came in, with its result against the show's benchmark.</li>
+<li><b>The same page on the phone</b> is where MCP approvals land. A push notification opens the row. The row opened is the approval card (NS2B-393).</li>
+</ul>
+<div class="frame"><figure><figcaption>NST-1280 · Today, Monday 23 Nov</figcaption>
+<div class="vp" style="width:1280px"><div class="app">
+  <div class="nav"><b>OFF/PIXEL</b><div class="it on">Today</div><div class="it">Overview</div><div class="it">Calendar</div><div class="it">Clients</div><div class="it">Events</div><div class="it">Learnings</div><div class="it">Reporting</div><div class="g">PLATFORMS</div><div class="it">MML</div><div class="it">Meta</div><div class="it">TikTok</div><div class="it">Google Ads</div></div>
+  <div class="main">
+    <div class="ttl">Today</div><div class="sub">Monday 23 November · 5 need you · payday Friday 27 Nov</div>
+    <div style="display:grid;grid-template-columns:1.35fr 1fr;gap:12px;margin-top:12px">
+      <div>
+        <div class="brief"><div class="k" style="margin-bottom:6px">Morning brief · 08:30</div>
+          <b>Since yesterday</b><ul><li>P26-BDAY £3.34 per checkout this week, from £4.67 last week.</li><li>Locklead £7.59 per checkout, from £3.60. Refresh proposed below.</li><li>Robbie Doherty £5.42 per checkout, from £4.14.</li></ul>
+          <b>Moments today</b><ul><li>Glitterbox Bristol → Final tickets at 17:00. Its push and send are waiting for you.</li></ul>
+          <b>This week's learnings</b><ul><li>Teaser → dated phase: signup cost × 3.4 median · 4 shows · a phase effect, not a creative one.</li><li>P26-BDAY Top tracks reels: no winner; best £8.01 against the show's £3.34.</li><li>"Final X" copy: 0.88 from the promoter's page, 1.86 from the artist's · proven.</li></ul></div>
+        <div class="card"><div class="ch"><b>Needs you · 5</b><span class="k">oldest first</span></div>
+          <div class="qrow"><span class="src">Moment</span><span>Glitterbox Bristol · Final tickets at 17:00<small>Push from template £60 · CTA re-render · WhatsApp + email send · consented only</small></span><span class="btn solid">Approve</span></div>
+          <div class="qrow"><span class="src mcp">MCP</span><span>Lineup push to 12PM Thursday · P26-BDAY<small>4 ads · CBO £100 · ends Thu 12:00 · client approved 09:58</small></span><span class="btn solid">Approve</span></div>
+          <div class="qrow"><span class="src ref">Refresh</span><span>Locklead · swap the 2 weakest ads for the bank's best<small>£7.59 vs £3.60 last week per checkout · armed · Apply writes through the refresh gates</small></span><span class="btn solid">Apply</span></div>
+          <div class="qrow"><span class="src lrn">Learning</span><span>P26-BDAY Tracks · keep Make Believe, pause Get Hard<small>£1.82 vs £5.63 per checkout · show £3.34 · not armed: opens Ads Manager</small></span><span class="btn">Open in Ads Manager</span></div>
+          <div class="qrow"><span class="src">Warning</span><span>"Final release on sale now" · AZYR<small>Matas confirms every warning before it runs</small></span><span class="btn">Review</span></div>
+        </div>
+      </div>
+      <div>
+        <div class="card"><div class="ch"><b>Done overnight</b><span class="k">read-only</span></div>
+          <div class="r" style="grid-template-columns:1fr"><span>Day-4 read · Get Hard pair extended to 26 Nov: both above the show's £3.00 per checkout<small>08:00 · TF9 · decision logged</small></span></div>
+          <div class="r" style="grid-template-columns:1fr"><span>7-day outcome · "Pause the no-text promo video in the teaser ad sets": £0.50 → £0.46 per signup<small>applied 16 Nov · for the rule, 1 show</small></span></div>
+          <div class="r" style="grid-template-columns:1fr"><span>Findings refreshed: 6 test verdicts, 3 phase curves, 2 copy rules<small>03:30 · learning refresh</small></span></div>
+        </div>
+        <div class="card"><div class="ch"><b>Next 7 days</b><span class="k">23–29 Nov</span></div>
+          <div class="week"><div>Mon 23<small><span class="pk" style="background:var(--brick)"></span>GB Bristol final tickets 17:00</small></div><div>Tue 24</div><div>Wed 25</div><div>Thu 26<small><span class="pk" style="background:var(--brick)"></span>P26 lineup 12:00 · GB return 12:00</small></div><div class="pay">Fri 27<small>payday</small></div><div>Sat 28</div><div>Sun 29</div></div></div>
+      </div>
+    </div>
+  </div>
+</div></div></figure>
+<figure><figcaption>NST-393 · Today on the phone</figcaption>
+<div class="vp" style="width:393px"><div class="phone ph393">
+  <div class="ttl" style="font-size:16px">Today</div><div class="sub">5 need you · payday Fri 27 Nov</div>
+  <div class="brief" style="margin-top:10px"><div class="k" style="margin-bottom:4px">Morning brief</div>P26-BDAY £3.34 per checkout (was £4.67). Locklead £7.59 (was £3.60): refresh below. GB Bristol → Final tickets at 17:00.</div>
+  <div class="card"><div class="ch"><b>Needs you · 5</b></div>
+    <div class="qrow"><span class="src">Moment</span><span>GB Bristol · Final tickets 17:00<small>push · CTA · send</small></span><span class="btn solid">Approve</span></div>
+    <div class="qrow"><span class="src mcp">MCP</span><span>P26 lineup push<small>CBO £100 · to Thu 12:00</small></span><span class="btn solid">Approve</span></div>
+    <div class="qrow"><span class="src ref">Refresh</span><span>Locklead · 2 ads<small>£7.59 vs £3.60</small></span><span class="btn solid">Apply</span></div>
+    <div class="r" style="color:var(--ink-3)"><span>+2 more</span><span></span></div></div>
+  <div class="card"><div class="ch"><b>Done overnight · 3</b><span class="k">show</span></div></div>
+</div></div></figure></div>
+<p class="lead"><b>Figures:</b> the week-on-week costs, the Top tracks and Tracks figures, the copy indices and the teaser → dated ratio are the learnings engine brief's 16–22 Nov examples. The ratio is the brief's stated example of E3's output, not a measured result. The P26 push is the Creative Services handover's. The Glitterbox moment is the phases record's fixture. The Get Hard extension is TF-D's example. The Locklead refresh, the £60 push, the 7-day outcome, the overnight counts and the AZYR warning row are <span class="inv">invented</span> to show each source.</p>
+<!-- ======================= 3 EVENT ======================= -->
+<h2>4A · The event page, whole (issue 2's §3, unchanged)</h2>
+<p class="lead">Header: title, client · state · payday · days to go; View client and Edit. Tabs stay as they are (Overview, Plan, Campaigns, Reporting, Activity), and <b>Active Creatives</b> folds into Campaigns. The Overview tab runs top to bottom: <b>Facts</b> → <b>Lineup</b> → <b>Creative Lab</b> → <b>Asset bank</b> → <b>D2C comms</b> → <b>Campaigns</b> → <b>Reporting</b>. Lineup moves out of the Lab, because the landing page, D2C and SEO read it too. The Insights rail sits beside the page (its own record).</p>
+<div class="frame"><figure><figcaption>NS3-1280 · on sale (the middle stage), rail open</figcaption>
+<div class="vp" style="width:1280px"><div class="app">
+  <div class="nav" style="width:150px"><b>OFF/PIXEL</b><div class="it">Today</div><div class="it on">Events</div><div class="it">Clients</div><div class="it">MML</div></div>
+  <div class="main">
+    <div class="secrow"><div><div class="ttl">Puzzle 4th Birthday</div><div class="sub">Puzzle · on sale · Next payday Friday 27 Nov · 50 days to the event</div></div><span><span class="btn">View client</span> <span class="btn">Edit</span></span></div>
+    <div class="tabs"><span class="on">Overview</span><span>Plan</span><span>Campaigns 7</span><span>Reporting</span><span>Activity</span></div>
+    <div class="card"><div class="ch"><b>Facts</b><span class="k">from the event record</span></div>
+      <div class="facts"><div>Event<b>Sun 27 Dec</b>Circuit &amp; Engine Rooms</div><div>Presale<b>21 Oct</b>done</div><div>General sale<b>30 Oct</b>done</div><div>Tickets<b>1,240 / 2,000</b>62% · Skiddle</div><div>Next tier<b>£28 → £32</b>on payday</div></div></div>
+    <div class="card"><div class="ch"><b>Lineup · 5</b><span class="k">rights per artist</span></div><div class="ph" style="width:70%"></div><div class="ph" style="width:55%"></div></div>
+    <div class="card"><div class="ch"><b>Creative Lab</b><span class="k">strip · clips · captions · round</span></div>
+      <div class="strip"><div><div class="n">5</div>on the bill</div><div><div class="n">5</div>ready</div><div class="now"><div class="n">1</div>need approval</div><div><div class="n">—</div>not started</div></div></div>
+    <div class="card"><div class="ch"><b>Asset bank</b><span class="k">B5 · 14 of 22 cells ready</span></div><div class="ph" style="width:80%"></div></div>
+    <div class="card"><div class="ch"><b>D2C comms</b><span class="k">next: presale reminder · sent</span></div><div class="ph" style="width:60%"></div></div>
+    <div class="card"><div class="ch"><b>Campaigns · 7</b><span class="k">£1,240 of £3,000 spent</span></div><div class="ph" style="width:50%"></div></div>
+    <div class="card"><div class="ch"><b>Reporting</b><span class="k">£2.41 / ticket · vs £2.90 last show</span></div><div class="ph" style="width:40%"></div></div>
+  </div>
+  <div class="rail"><b>Insights</b><div class="sub">Puzzle 4th Birthday · Ticket sale</div>
+    <div class="rk">Caption angle · all clients</div><div style="font-weight:600">Urgency / scarcity costs 25% less than usual.</div>
+    <div class="bar"><i style="width:44%;background:var(--olive)"></i></div><div class="bar"><i style="width:57%;background:var(--ink-2)"></i></div><div class="bar"><i style="width:66%;background:var(--brick)"></i></div>
+    <span class="btn solid" style="height:24px">Use Scarcity</span>
+    <div class="rk">Hook · visual format · asset type</div><div class="ph"></div><div class="ph" style="width:70%"></div>
+    <div class="rk">In the Lab</div><div style="color:var(--ink-2)">No round judged yet.</div></div>
+</div></div></figure></div>
+
+<div class="mini">
+<figure><figcaption>NS3-before · before sale (signup stage)</figcaption>
+<div class="vp"><div class="k" style="margin-bottom:6px">Facts</div><div style="font-size:12px">Announce 12 Oct · presale 21 Oct · <b>tiers not set</b></div>
+<div class="k" style="margin:10px 0 4px">What leads</div><ul class="notes" style="margin:0;padding-left:16px;font-size:12px"><li><b>D2C comms</b> sits second: signups, CQ list count, the teaser autoresponder.</li><li><b>Lab</b> runs signup captions (no scarcity: no tiers).</li><li>Asset bank shows warnings dashed, "unlocks once tiers are set".</li><li>Rail opens on <b>Signup</b>.</li></ul></div></figure>
+<figure><figcaption>NS3-on · on sale (drawn above)</figcaption>
+<div class="vp"><div class="k" style="margin-bottom:6px">Facts</div><div style="font-size:12px">Tickets <b>1,240 / 2,000</b> · next tier on payday</div>
+<div class="k" style="margin:10px 0 4px">What leads</div><ul class="notes" style="margin:0;padding-left:16px;font-size:12px"><li><b>Lab and asset bank</b> lead: rounds, renders, warnings.</li><li>Ticket warnings appear as approval cards with the count that makes them true.</li><li>Payday pushes on the push calendar.</li><li>Rail opens on <b>Ticket sale</b>.</li></ul></div></figure>
+<figure><figcaption>NS3-after · after the show (the report)</figcaption>
+<div class="vp"><div class="k" style="margin-bottom:6px">The report</div>
+<div class="kpis" style="grid-template-columns:repeat(2,1fr)"><div><span class="big">1,980</span><br>of 2,000 sold · 99%</div><div><span class="big">£2.41</span><br>/ ticket · vs £2.90 last</div></div>
+<ul class="notes" style="margin:8px 0 0;padding-left:16px;font-size:12px"><li>What won: rounds timeline, winning clip × caption.</li><li>Learnings written back to the client (§4) and the rail.</li><li>Settlement: 25% balance, sell-out bonus £0.10 × tickets → Invoicing.</li><li>Lab, asset bank and D2C collapse to one line each.</li></ul></div></figure>
+</div>
+
+<div class="frame" style="margin-top:18px"><figure><figcaption>NS3-393 · on sale</figcaption>
+<div class="vp" style="width:393px"><div class="phone">
+  <div class="secrow"><div><div class="ttl" style="font-size:15px">Puzzle 4th Birthday</div><div class="sub">on sale · 50 days</div></div><span class="pill">Insights ‹</span></div>
+  <div class="tabs" style="gap:12px;font-size:12px;overflow:hidden"><span class="on">Overview</span><span>Plan</span><span>Campaigns</span><span>Reporting</span></div>
+  <div class="card"><b>Facts</b><div style="font-size:12px">27 Dec · 1,240 / 2,000 sold · £28 → £32 on payday</div></div>
+  <div class="card"><b>Lineup · 5</b></div>
+  <div class="card"><b>Creative Lab</b><div class="strip" style="margin-top:6px"><div><div class="n">5</div>on bill</div><div><div class="n">5</div>ready</div><div class="now"><div class="n">1</div>waiting</div><div><div class="n">—</div>none</div></div></div>
+  <div class="card"><b>Asset bank</b> <span class="k">14 of 22</span></div>
+  <div class="card"><b>D2C comms</b> <span class="k">reminder sent</span></div>
+  <div class="card"><b>Campaigns · 7</b> <span class="k">£1,240 of £3,000</span></div>
+  <div class="card"><b>Reporting</b> <span class="k">£2.41 / ticket</span></div>
+</div></div></figure></div>
+
+<!-- ======================= 4 CLIENT ======================= -->
+<h2>4B · The client page (issue 2's §4, unchanged)</h2>
+<p class="lead">The client page today has ten tabs. The north star keeps them but opens on an <b>Overview</b> that answers five questions in order: what's on (events by stage), how it's going (rollups against the client's own band), what we've learned for this client, what's connected, and which artists are cleared. The client's own portal is a separate, smaller page: their events, their sales and spend, their reports. It never shows other clients, the rail, cross-client learnings, internal notes or fees beyond their own invoices (rule 12).</p>
+<div class="frame"><figure><figcaption>NS4-1280 · client page, Matas's view</figcaption>
+<div class="vp" style="width:1280px"><div class="app">
+  <div class="nav" style="width:150px"><b>OFF/PIXEL</b><div class="it">Today</div><div class="it on">Clients</div><div class="it">Events</div></div>
+  <div class="main">
+    <div class="secrow"><div><div class="ttl">Puzzle</div><div class="sub">promoter · music · Southampton · since Feb 2026</div></div><span><span class="btn">Open portal as client</span> <span class="btn">Edit</span></span></div>
+    <div class="tabs"><span class="on">Overview</span><span>Events 5</span><span>Ticketing</span><span>D2C</span><span>Campaigns</span><span>Optimisation</span><span>Creatives</span><span>Templates</span><span>Invoicing</span><span>Asset queue</span></div>
+    <div style="display:grid;grid-template-columns:1.3fr 1fr;gap:12px">
+      <div>
+        <div class="card"><div class="ch"><b>Events by stage</b></div>
+          <div class="r"><span>Puzzle 4th Birthday<small>on sale · 27 Dec · 1,240 / 2,000</small></span><span class="chip warn">1 approval</span></div>
+          <div class="r"><span>Puzzle Circuit<small>after the show · 17 Oct · report drafting</small></span><span class="chip warn">Report to check</span></div>
+          <div class="r"><span>Puzzle Open Air<small>after the show · 13 Jun · report sent</small></span><span class="chip ok">Report</span></div></div>
+        <div class="card"><div class="ch"><b>Rollups · last 90 days</b><span class="k">vs Puzzle's own band</span></div>
+          <div class="kpis"><div><span class="big">£4.16</span><br>/ signup · level</div><div><span class="big">£—</span><br>/ ticket · no sales reach Meta</div><div><span class="big">£6,420</span><br>spent · of £8,000</div><div><span class="big">62%</span><br>sell-through · avg</div></div></div>
+        <div class="card"><div class="ch"><b>Learnings for Puzzle</b><span class="k">client scope · strong / ok only</span></div>
+          <div style="font-size:12.5px">Headline visuals cost 6% less than usual · Lifestyle images with text 7% less · No clear winner between Artist / headliner and Event announcement.</div></div>
+      </div>
+      <div>
+        <div class="card"><div class="ch"><b>Connected</b></div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap"><span class="chip ok">Meta · ad account</span><span class="chip ok">Pixel</span><span class="chip ok">TikTok</span><span class="chip warn">Bird email · unproven</span><span class="chip">Google Ads · not set</span><span class="chip">Mailchimp · not set</span><span class="chip warn">Ticket sync · none</span></div></div>
+        <div class="card"><div class="ch"><b>Artists · clearance</b><span class="k">B1</span></div>
+          <div class="r"><span>Enzo Siragusa<small>Cleared · artist channels too · 6 Nov</small></span><span class="chip win">Cleared</span></div>
+          <div class="r"><span>Luke Dean<small>Promoter page only</small></span><span class="btn">Clear</span></div>
+          <div class="r"><span>Reeshy · Phill de Janeiro · Benji King<small>Promoter page only</small></span><span></span></div></div>
+      </div>
+    </div>
+  </div>
+  <div class="tab"><span>Insights ‹</span></div>
+</div></div></figure></div>
+
+<div class="frame"><figure><figcaption>NS4-portal-1280 · the client's own portal (no rail, no other clients)</figcaption>
+<div class="vp" style="width:900px;padding:18px">
+  <div class="secrow"><div><div class="ttl">Puzzle</div><div class="sub">Your events with Off/Pixel</div></div><span class="btn">Download report</span></div>
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:12px">
+    <div class="card"><b>Puzzle 4th Birthday</b><div class="sub">on sale · 27 Dec</div><div class="big" style="margin-top:6px">1,240</div><div style="font-size:11.5px">of 2,000 sold · £1,240 of £3,000 spent</div></div>
+    <div class="card"><b>Puzzle Circuit</b><div class="sub">17 Oct · report coming</div><div class="big" style="margin-top:6px">2,310</div><div style="font-size:11.5px">signups · £0.71 / signup</div></div>
+    <div class="card"><b>Puzzle Open Air</b><div class="sub">report ready</div><div class="big" style="margin-top:6px">99%</div><div style="font-size:11.5px">sold · £2.41 / ticket</div></div>
+  </div>
+  <p class="lead" style="margin-top:10px">Never shown here: other clients, cross-client learnings, the rail, internal notes, rights paperwork, other clients' benchmarks.</p>
+</div></figure>
+<figure><figcaption>NS4-portal-393</figcaption>
+<div class="vp" style="width:393px"><div class="phone">
+  <div class="ttl" style="font-size:15px">Puzzle</div><div class="sub">Your events</div>
+  <div class="card" style="margin-top:8px"><b>Puzzle 4th Birthday</b><div class="big">1,240</div><div style="font-size:11.5px">of 2,000 sold · £1,240 of £3,000 spent</div></div>
+  <div class="card"><b>Puzzle Circuit</b><div class="big">2,310</div><div style="font-size:11.5px">signups · report coming</div></div>
+  <div class="card"><b>Puzzle Open Air</b><div style="font-size:11.5px">Report ready · 99% sold</div></div>
+</div></div></figure></div>
+
+
+
+<!-- ======================= 5 GAPS ======================= -->
+<h2>5 · The gaps, by horizon</h2>
+<p class="lead">Issue 2 ranked by hours saved. Issue 3 ranks by the map's horizons, because two gates set the order. Cursor returns on 4 Dec, which unlocks the MCP and the learnings screens. The CIRQLIN consent wording gates any CIRQLIN audience reaching ads. Within a horizon, rows run in build order. Each row has:</p>
+<ul class="notes">
+<li>its layer;</li>
+<li>its record status: <b>ruled</b> (a merged record exists), <b>open</b> (a record PR is open), <b>queued</b> (owed before the build; §8), <b>needed</b> (owed, not yet queued) or <b>none</b> (data or cron work: a dry run with expected figures instead, per the map's rule);</li>
+<li>an exit test a reviewer can check.</li>
+</ul>
+<p class="lead">Issue 2's gaps the map doesn't schedule are placed at the end, with the horizon this record recommends.</p>
+<div class="invx"><table class="t">
+<tr><th>#</th><th>Item</th><th>Layer</th><th>Record</th><th>Exit test</th><th>Owner</th></tr>
+<tr><td colspan="6"><span class="hz">Now → 4 Dec · foundations</span></td></tr>
+<tr><td>1</td><td>Learnings engine PR1: E1–E5, the E8 digest, migration 264</td><td><span class="lay learn">Learn</span></td><td>none (no screen); digest words plain until C1's S4</td><td class="ex">The dry run reproduces the brief's 16–22 Nov figures, including the three negative date pairs (RP1–RP4 in §1B).</td><td>Claude Code, on Matas's yes</td></tr>
+<tr><td>2</td><td>CIRQLIN consent wording and the consented-count report</td><td><span class="lay signal">Signal</span></td><td>queued: C4 (cirqlin)</td><td class="ex">Live on every page. Consented counts per show for the new purposes. Signups before it keep their own snapshot (§9 flag 3).</td><td>CIRQLIN thread → Claude Code</td></tr>
+<tr><td>3</td><td>Electric internal counts ingest (PDF from the inbox)</td><td><span class="lay signal">Signal</span></td><td>none</td><td class="ex">NX shows' daily tickets land without hand entry.</td><td>Claude Code</td></tr>
+<tr><td>4</td><td>Ad Library probe (PR3a)</td><td><span class="lay signal">Signal</span></td><td>none</td><td class="ex">A table of what <code>ads_archive</code> returns for UK promoter, brand and artist pages, GB vs EU countries.</td><td>Claude Code</td></tr>
+<tr><td>5</td><td>Morning brief as a scheduled Claude task</td><td><span class="lay decide">Decide</span></td><td>ruled here (§3)</td><td class="ex">Arrives daily on the phone, written into the app's store, and reads on Today unchanged when the in-app writer replaces it.</td><td>Ops thread</td></tr>
+<tr><td>6</td><td>Records: this issue, C1 learnings surfaces, C2 MCP v1, C3 Phases as the moment engine</td><td>all</td><td>this issue: open; C1–C3: queued</td><td class="ex">Each merged with frames at 1280 and 393 and a hand-back, before 4 Dec.</td><td>Design thread</td></tr>
+<tr><td colspan="6"><span class="hz">December · the action layer and the owned signal</span></td></tr>
+<tr><td>7</td><td>Off/Pixel MCP v1: read event state, CTA refresh render, push-campaign template, Drive → Meta upload, pause and budget moves, all logged</td><td><span class="lay act">Act</span></td><td>queued: C2</td><td class="ex">A full CTA push (render → Drive → Meta → pause the old ads) runs from the phone with no Chrome steps, on an account the Meta connector refuses. Each step is a decision-log row.</td><td>Cursor</td></tr>
+<tr><td>8</td><td>Learnings PR2: rail "This week", creation-time chips, /learnings, Apply through the on-sale refresh, the decision log</td><td><span class="lay decide">Decide</span> <span class="lay learn">Learn</span></td><td>queued: C1</td><td class="ex">Monday's findings visible in the app. One Apply logged, with its outcome read at 7 days.</td><td>Cursor</td></tr>
+<tr><td>9</td><td>Owned signal: show tag on the CIRQLIN pixel and server events, ticket-link click as Initiate Checkout per show, offline purchases from ticket exports</td><td><span class="lay signal">Signal</span></td><td>needed, small (event names on the page; consent per C4)</td><td class="ex">The share of tickets traced to a source is measured per client, with Ironworks' ~3 % as the first baseline.</td><td>Claude Code</td></tr>
+<tr><td>10</td><td>Ticket export uploads (Skiddle, RA, DICE)</td><td><span class="lay signal">Signal</span></td><td>none</td><td class="ex">Daily sales per tier for every live show.</td><td>Claude Code</td></tr>
+<tr><td>11</td><td>Inspiration feed E9, with the derived artist watchlist</td><td><span class="lay signal">Signal</span></td><td>covered by C1's Inspiration tab; another record only if shown elsewhere</td><td class="ex">Weekly rows for ~25 seed pages plus derived artists, tagged, operator-only. Each derived page names the promoter that brought it in.</td><td>Claude Code</td></tr>
+<tr><td colspan="6"><span class="hz">January · the loop closes</span></td></tr>
+<tr><td>12</td><td>Phases as the moment engine</td><td><span class="lay act">Act</span></td><td>queued: C3; cirqlin #666 (PH1–PH13) open</td><td class="ex">A moment moved once moves the push, the CTA line, the send, the marker and the learnings boundary, with no hand steps. One clock per show (§2B).</td><td>Cursor</td></tr>
+<tr><td>13</td><td>Playbook in the product: versioned house rules with running evidence</td><td><span class="lay memory">Memory</span></td><td>needed</td><td class="ex">Every house rule shows for / against / untested with n shows, fed by RP7.</td><td>Cursor</td></tr>
+<tr><td>14</td><td>Exploration share of tests, with the idea's source tagged</td><td><span class="lay decide">Decide</span></td><td>needed, small; can ride C1</td><td class="ex">Each test carries its source, and a quarterly view shows which sources paid off. The share is counted in tests, not test spend (§9 flag 4).</td><td>Claude Code</td></tr>
+<tr><td>15</td><td>Creative Lab cadence, judge on real rounds and the launch switch; promo montage as a Lab feature (kick grid, moment picker, three versions)</td><td><span class="lay act">Act</span></td><td>cadence ruled (M5); montage needed (Workflow C is the source)</td><td class="ex">A round runs end to end. A montage renders from the event's clips without hand edits, with cuts on measured kicks to within a frame.</td><td>Cursor</td></tr>
+<tr><td>16</td><td>Asset bank and the ticket-warning ladder (issue 2's gap 1)</td><td><span class="lay act">Act</span> <span class="lay decide">Decide</span></td><td>ruled (asset bank 1–4, B5, B7, M6)</td><td class="ex">Weekly CTA variants proposed from tier state. Each warning is confirmed by Matas before it runs.</td><td>Cursor</td></tr>
+<tr><td colspan="6"><span class="hz">February → March · compounding</span></td></tr>
+<tr><td>17</td><td>CRM v1, internal first: WhatsApp direct through Meta for Electric, Puzzle and GMC; segments from crossover; journeys on moments</td><td><span class="lay act">Act</span></td><td>needed</td><td class="ex">Bird's markup (£8.7k on the Ironworks season) gone for internal clients.</td><td>Cursor</td></tr>
+<tr><td>18</td><td>Signup value model driving the split between signup and purchase budgets</td><td><span class="lay decide">Decide</span></td><td>needed, small</td><td class="ex">A target cost per signup per client, from presale conversion and ticket price.</td><td>Claude Code</td></tr>
+<tr><td>19</td><td>Buyer-quality creative scoring (ad → signup → buyer)</td><td><span class="lay learn">Learn</span></td><td>none until shown; then C1's surfaces</td><td class="ex">Creative ranked by buyers, not cost per result, on shows with traced purchases.</td><td>Claude Code</td></tr>
+<tr><td>20</td><td>Dashboard v2 with the first-party funnel; the after-show report</td><td><span class="lay signal">Signal</span></td><td>needed (the after-show report is issue 2's unplaced gap)</td><td class="ex">Client links show sales against spend, and the funnel.</td><td>Cursor</td></tr>
+<tr><td>21</td><td>Email in the CRM (domain authentication, suppression, warm-up)</td><td><span class="lay act">Act</span></td><td>needed</td><td class="ex">Internal clients' email moves off Mailchimp.</td><td>Cursor</td></tr>
+<tr><td>22</td><td>Creative Services and tracking-health priced and packaged</td><td><span class="lay ops">Ops</span></td><td>— (commercial)</td><td class="ex">On the quote page.</td><td>Matas + Commercial</td></tr>
+<tr><td colspan="6"><span class="hz">Q2 onward · product</span></td></tr>
+<tr><td>23</td><td>CIRQLIN self-serve (Founding Brands), then the unified consumer product; the MCP endpoint hardened into the public API</td><td>all</td><td>needed, each</td><td class="ex">Set when the horizon opens. Mostly UI once the data is joined.</td><td>—</td></tr>
+<tr><td colspan="6"><span class="hz">Issue 2 gaps the map doesn't schedule · this record's placement</span></td></tr>
+<tr><td>U1</td><td>Brief intake: brief → event, page, phase plan, audiences and plan in one run (issue 2's gap 2)</td><td><span class="lay signal">Signal</span></td><td>needed</td><td class="ex">One brief creates the event and the page's phase plan, so the moments exist before the first switch. Place it in January with #12 (§9 flag 7).</td><td>Cursor</td></tr>
+<tr><td>U2</td><td>Health rows on Today; the platform-change watch</td><td><span class="lay ops">Ops</span></td><td>needed</td><td class="ex">A token, Lambda, connector refusal or failed subscriber appears as a red row within an hour. Place it in December with the MCP, whose failures need a home.</td><td>Claude Code</td></tr>
+<tr><td>U3</td><td>Lookalike and retargeting learnings; client onboarding checklist; venues library</td><td><span class="lay learn">Learn</span> <span class="lay signal">Signal</span></td><td>needed / none</td><td class="ex">As issue 2. Place them after February.</td><td>—</td></tr>
+</table></div>
+<!-- ======================= 6 RULES ======================= -->
+<h2>6 · Keeping it current (issue 2's rules, then issue 3's)</h2>
+<ul class="notes">
+<li><b>Same PR, same card.</b> A PR that changes an area's state also changes that card's state in this map, by issuing the next map record with the card moved and a changelog line, in the same PR or its paired docs PR. The reviewer checks the card moved.</li>
+<li><b>Card before build.</b> A new area gets its card (state <span class="st none">Not designed</span> or <span class="st des">Designed</span>) before any build PR for it. No card, no build.</li>
+<li><b>Every capability has a row.</b> (Issue 2.) Anything that runs, a cron, a table with a writer, a flag-gated path, is a row on a card with its state. A capability with no row is this record's failure: add the row, then move the card. Removing a row needs a changelog line saying why.</li>
+<li><b>A chain link is a gap until it carries rows.</b> (Issue 2.) The learning chain in §1B is checked on every re-issue against live counts. A link marked missing or partly stays in §5 until rows flow and something reads them.</li>
+<li><b>Expert items have a home before they're built.</b> (Issue 2.) A deck rule goes into the deck record; a learning job names its store and reader on the Learning loop card; a watch names its platform fact and date. None is built from a chat message.</li>
+<li><b>Re-issue, never edit.</b> The map is re-issued as <code>docs/design-record/YYYY-MM-DD-north-star-{n}.html</code>. The new issue copies the last one, extends the changelog at the top, and changes only what moved. Old issues stay as they were.</li>
+<li><b>States mean exactly this.</b> Live = on main, used on real data, with rows. Partly built = on main with a named part missing, empty, flag-off or stale. Designed = a record exists. Not designed = no record yet.</li>
+<li><b>Markers are rules, not decoration.</b> A ✋ on a card means no code path may act there without Matas's yes. Adding or removing one is a design ruling, so it needs a record.</li>
+<li><b>Review checklist addition.</b> Every design review states the card(s) and row(s) it touched and their state after the PR.</li>
+<li><b>Every row names its layer.</b> (Issue 3.) A capability row or a gap row without one of Signal, Memory, Decide, Act or Learn (or Ops, for the five operator cards outside the loop) is incomplete. A row that sits in two layers names both, primary first.</li>
+<li><b>A finding type ships with a negative test.</b> (Issue 3.) Every new kind of finding comes with at least one case it must not report, from real data. The date pairs of 16–22 Nov are the first. Without one, the type stays in shadow (OP3).</li>
+<li><b>A link on the return path is a gap until a decision has its outcome.</b> (Issue 3.) RP6–RP8 count as live only when a logged decision has been scored at 7 days and the score reached a rule.</li>
+<li><b>Claude-only paths are interim and labelled.</b> (Issue 3.) Anything that only works through Claude (the morning brief task, the interim inspiration task, the Meta connector) writes into the app's own store and carries an "interim" label wherever it shows, until the platform's own writer replaces it (OP8).</li>
+<li><b>Operator work becomes an action, not a screen.</b> (Issue 3.) A new operator-only screen needs a record showing why an MCP action can't do the job (OP9, as ruled in §2A).</li>
+<li><b>Gaps carry an exit test.</b> (Issue 3.) A §5 row without a checkable exit test can't be built against. The test uses real figures where the data exists (the map's acceptance rule).</li>
+</ul>
+
+
+<!-- ======================= 7 PRINCIPLES ======================= -->
+<h2>7 · The operating principles, ruled for the deck (OP1–OP12)</h2>
+<p class="lead">The map's twelve principles, in its order. Where two conflict, the higher one wins. That order is part of the ruling. Each one becomes a rule a reviewer can check, with the place it bites in this issue. They're ruled here. The Off/Pixel deck cites rulings and doesn't make them, so deck issue 3 adds an "Operating principles" page that copies this table, with OP ids unchanged (hand-back H4). Until it merges, cite them as "North Star 3 · OP n".</p>
+<div class="invx"><table class="t">
+<tr><th>#</th><th>Principle (the map's)</th><th>As a rule</th><th>A reviewer checks</th><th>Bites in</th></tr>
+<tr><td>OP1</td><td>Truth before features</td><td>A data fix that a screen depends on ships before the screen. A screen over a store with 0 rows or a writer that's silent doesn't pass.</td><td>The store has rows from real data on the PR's date.</td><td>§5 order; the C1 surfaces wait on PR1</td></tr>
+<tr><td>OP2</td><td>Learn from what ran</td><td>Learnings read platform results and names: app-launched, connector-launched and hand-built ads count the same. App ledgers (<code>creative_tests</code>, <code>creative_lab_rounds</code>) add detail and never gate a finding.</td><td>The dry run includes an ad the app didn't launch.</td><td>RP1; the 0 of ~10 finding</td></tr>
+<tr><td>OP3</td><td>Compare like with like</td><td>A pair is the same ad set, ≥ 3 overlapping days, the same destination in the same phase, and one axis. A change of phase is a phase curve, never a creative finding.</td><td>The negative test: NX Loves "Static" vs "Static with date" isn't a pair.</td><td>RP2, RP3</td></tr>
+<tr><td>OP4</td><td>Proposals, not autopilot</td><td>Every write is proposed with evidence and confidence and applied by Matas, unless covered by a standing approval in the listed set. Every write path has a kill switch, default off.</td><td>The write's switch, its approval, and its standing-approval row if it skips one.</td><td>§2A, §3</td></tr>
+<tr><td>OP5</td><td>Every decision is logged</td><td>Each Apply, dismiss, MCP action and moment subscriber writes a decision row with its hypothesis. Each row is scored at 7 days, or at show close if sooner (§9 flag 6), against the show's own benchmark.</td><td>The action's log row exists in the test.</td><td>RP6, RP7; the MCP audit</td></tr>
+<tr><td>OP6</td><td>House rules are data</td><td>A house rule lives in the versioned playbook with for, against and untested counts. A rule held only in memory or a record is a gap (§5 row 13).</td><td>A rule a PR applies has its playbook row.</td><td>RP8</td></tr>
+<tr><td>OP7</td><td>Explore on purpose</td><td>A share of tests breaks a house rule on purpose, each tagged with its source. The share is counted in tests, not spend (§9 flag 4).</td><td>The test carries a source tag.</td><td>RP9</td></tr>
+<tr><td>OP8</td><td>The platform runs without Claude</td><td>Crons, the app's own key and in-app surfaces carry every learning. A Claude-only path is interim: it writes into the app's store and is labelled until replaced (§6, §9 flag 5).</td><td>The finding reaches its screen with no Claude session open.</td><td>The brief, the inspiration feed</td></tr>
+<tr><td>OP9</td><td>Screens for clients and fans, Claude for the operator</td><td>A workflow only Matas runs becomes a guarded MCP action. Operator screens stay only for approvals, visual judgement and decisions inside a build (§2A, §9 flag 2).</td><td>A new operator screen's record says why an action can't do it.</td><td>§2A; stop list</td></tr>
+<tr><td>OP10</td><td>Cross-client knowledge stays internal</td><td>Cross-client findings, the rollup and the inspiration feed are operator-only. A client link or /admin shows only that client's rows. No other client's name or figure is shown, even in aggregate.</td><td>The client link fixture holds two clients; one never sees the other.</td><td>RP4, RP10</td></tr>
+<tr><td>OP11</td><td>Consent first</td><td>CIRQLIN data reaches ads, or any new purpose, only from signups whose consent snapshot covers that purpose. Snapshots are never back-filled (§9 flag 3). The wording is platform-wide, never edited per campaign.</td><td>The audience query filters on the snapshot, not on the page's current wording.</td><td>C4; the D2C subscriber</td></tr>
+<tr><td>OP12</td><td>Nothing is lost</td><td>No report, insight or function is removed without a changelog line naming where it went. Each piece links back into the loop: its row names its layer.</td><td>The PR's removed paths each map to a row that still exists.</td><td>§1A (99 rows kept)</td></tr>
+</table></div>
+
+<!-- ======================= 8 QUEUED ======================= -->
+<h2>8 · Records queued before 4 Dec</h2>
+<p class="lead">The map needs four records before Cursor starts. They're queued, not written. Each is drawn from real data where it exists, with frames at 1280 and 393 and a hand-back. This issue is the fifth item on the map's list, delivered here.</p>
+<div class="invx"><table class="t">
+<tr><th>#</th><th>Record</th><th>Repo · file</th><th>What it must rule</th><th>Inputs</th><th>Blocks</th></tr>
+<tr><td>C1</td><td>Learnings surfaces S1–S4</td><td>MCB · <code>docs/design-record/2026-11-2x-learnings-engine.html</code></td><td>
+<ul class="notes">
+<li>S1, the rail's "This week": test verdicts, pairs and phase curves, with n shows and confidence.</li>
+<li>S2, creation-time chips, including the teaser-with-a-date chip.</li>
+<li>S3, /learnings with its Inspiration tab (operator-only, OP10).</li>
+<li>S4, the digest words.</li>
+<li>The exploration source tag (§5 row 14).</li>
+</ul></td><td>The brief's E1–E9 and S1–S4; PR1's dry-run figures (16–22 Nov); IR 1–3; TF1–TF9</td><td>Learnings PR2 (§5 row 8)</td></tr>
+<tr><td>C2</td><td>Off/Pixel MCP v1</td><td>MCB · <code>docs/design-record/2026-11-2x-offpixel-mcp.html</code></td><td>
+<ul class="notes">
+<li>The six v1 actions of §2A, with their gates.</li>
+<li>The phone approval card (NS2B), and its states: expired, declined, gate off, partly failed.</li>
+<li>Standing approvals in Settings.</li>
+<li>The decision row's fields.</li>
+<li>What the operator sees when an action fails halfway.</li>
+</ul>
+Auth is Matas's call. The record works under either.</td><td>Workflows A–C; the on-sale refresh gates; TT9</td><td>MCP v1 (§5 row 7)</td></tr>
+<tr><td>C3</td><td>Phases as the moment engine</td><td>MCB · <code>docs/design-record/2026-11-2x-moment-engine.html</code></td><td>
+<ul class="notes">
+<li>The moment's fields.</li>
+<li>The one-clock rule (§9 flag 7).</li>
+<li>Each subscriber's gate and kill switch, and its shadow output.</li>
+<li>The moment approval card.</li>
+<li>Failed-subscriber rows on Today.</li>
+<li>The marker on dashboards and client links.</li>
+</ul></td><td>cirqlin #666 (PH1–PH13); <code>event_key_moments</code>; the push template</td><td>The January engine (§5 row 12)</td></tr>
+<tr><td>C4</td><td>CIRQLIN consent wording</td><td>cirqlin · <code>docs/design-record/cirqlin-consent-wording-2026-11-2x.html</code></td><td>
+<ul class="notes">
+<li>The words for advertising and cross-show use, for Matas to sign off. Entity named once, platform-wide.</li>
+<li>The snapshot fields per signup.</li>
+<li>The consented-count report per show.</li>
+<li>What existing signups keep (§9 flag 3).</li>
+<li>The 12 px floor and the structural binding, unchanged.</li>
+</ul></td><td>The current consent block; the snapshot schema; the CIRQLIN thread's draft words</td><td>Any CIRQLIN audience in ads (§5 row 2); later the CRM</td></tr>
+</table></div>
+
+<!-- ======================= 9 FLAGS ======================= -->
+<h2>9 · Where this record rules the map differently</h2>
+<p class="lead">Seven places, each with the reason. Each is a design ruling until Matas overrules it. None changes the map's order or owners.</p>
+<div class="invx"><table class="t">
+<tr><th>#</th><th>The map, or its sources, says</th><th>This record rules</th><th>Why</th></tr>
+<tr><td>1</td><td>E1 calls an observed test with its own stop rule (a 7-day stop against a day-5 read) and its own "no clear winner" wording.</td><td>E1 reuses TF2, TF5, TF6 and TF9 unchanged: the end-day reads on days 4, 8 and 12 at 08:00 London, and TF2/TF6's verdict words. For an observed test, day 0 is its first day with delivery.</td><td>Two clocks for one kind of test would give two verdicts on the same ad set. The tests the app launches are already ruled; an observed test is the same test launched elsewhere (OP2).</td></tr>
+<tr><td>2</td><td>OP9: workflows only Matas uses become MCP actions, not polished screens.</td><td>As OP9, with three operator surfaces kept: approvals (Today), visual judgement (frames, contact sheets, the Lab), and decisions inside a build (the rail, chips).</td><td>The map itself schedules Today, /learnings and the chips, which are operator screens. OP8 needs approvals to work without Claude. Read literally, OP9 would forbid what the map builds.</td></tr>
+<tr><td>3</td><td>Consent: CIRQLIN data feeds ads once the form wording covers it.</td><td>It applies forward only. Each signup keeps the consent snapshot it gave. Audiences for a new purpose come only from snapshots that cover it, and nothing is back-filled when the wording changes.</td><td>A signup agreed to the words on the page that day. Applying new words to old signups would be consent nobody gave. "Every week without the wording is consented data lost" is the reason to ship C4 early, not to back-date it.</td></tr>
+<tr><td>4</td><td>Exploration: 10–15 % of test budget.</td><td>A share of tests, not of spend: 1 in 7 to 1 in 10 tests breaks a house rule on purpose. Matas's 10 % or 15 % becomes 1 in 10 or 1 in 7.</td><td>TF1 caps a test at ≤ £10 a day, and Meta's minimum is £1 a day per ad set. 10–15 % of a week's test spend is a few pounds a day, which can't fund one test at TF1's minimum. Counting tests keeps the intent and can actually run.</td></tr>
+<tr><td>5</td><td>The morning brief and the inspiration feed as interim weekly or daily Claude tasks.</td><td>Allowed as interim, only if the task writes into the app's own store (the brief table, <code>learning_findings</code>) and Today reads the store, labelled "interim".</td><td>A Claude task that only posts to the phone is a Claude-only route to a learning, which OP8 forbids. Writing to the store means the in-app writer replaces the task with nothing changing on the page.</td></tr>
+<tr><td>6</td><td>Each decision is scored at 7 days.</td><td>At 7 days, or at show close if that's sooner. A decision applied less than 7 days before a show is scored on the days it had.</td><td>Most applies land in show weeks. A 7-day score after the show is over reads zero spend and scores nothing. Without this, the decisions that matter most never reach the playbook.</td></tr>
+<tr><td>7</td><td>Phases as the moment engine: one phase change triggers the push, the CTA re-render, the send and the marker.</td><td>One clock per show. Where a CIRQLIN page exists, its phase plan is the source of the moments, and Off/Pixel's key moments mirror it read-only. Brief intake (§5 U1) creates the phase plan, so it joins the January horizon.</td><td>Off/Pixel already holds <code>event_key_moments</code> and milestones. Two editable clocks for one show will drift, and a moved presale would fire some subscribers at the old time.</td></tr>
+</table></div>
+
+<h2>Invented in this issue</h2>
+<p class="lead">Per the three-way split: values the drawing needed that no record or rule had set. Approve or replace them before any of it reaches Cursor.</p>
+<ul class="notes">
+<li><b>Layer chips:</b> five colours plus <span class="lay ops">Ops</span>. The word always travels with the colour.</li>
+<li><b>Layers per card and row</b> (the <code>CARD_LAYER</code> and row overrides): a grouping choice, not a product call. A row in two layers names its primary one.</li>
+<li><b>Return-path ids</b> RP1–RP11. "RP", not "R", because the deck's rail rulings already use R1–R23.</li>
+<li><b>Queued-record ids</b> C1–C4, and their provisional file names (the <code>2x</code> is the merge date).</li>
+<li><b>The loop frame's layout (NS0):</b> CIRQLIN on top, Off/Pixel underneath, Learn outlined in brick.</li>
+<li><b>Today:</b> the source chips (Learning, Refresh, MCP, Moment) and their colours; "Dismiss is logged"; the brief's eight-line limit.</li>
+<li><b>Figures</b> marked <span class="inv">invented</span> in the §2A and §3 captions.</li>
+<li><b>The 1 in 7 to 1 in 10 exploration share</b> (§9 flag 4), as a translation of the map's 10–15 %.</li>
+</ul>
+
+<h2>Hand-back</h2>
+<div class="invx"><table class="t">
+<tr><th>Item</th><th>What</th></tr>
+<tr><td>This file</td><td><code>docs/design-record/2026-11-23-north-star-3.html</code>, issue 3. It supersedes issue 2, which stays as it was.</td></tr>
+<tr><td>Frames</td><td>NS0 (the loop, 1280 / 393); NS1 (the map with layer chips, 1280 / 393); NS1B (issue 2's chain, unchanged); NS1B3 (the return path, 1280 / 393); NS1C (unchanged); NS2A (a moment and its subscribers, 1280 / 393); NS2B (the phone approval, 393); NST (Today, 1280 / 393); issue 2's event and client frames, unchanged. These are reference frames, not CI baselines.</td></tr>
+<tr><td>H1 · README</td><td>Add this record under issue 2 as "issue 3: the loop, return path, Act layer, Today as approvals; current". Issue 2's row drops "current" and reads "Superseded by issue 3; kept as issued", as issue 1's did.</td></tr>
+<tr><td>H2 · Matas's decisions this issue informs</td><td>
+<ul class="notes">
+<li>Approve the map once this issue and Claude Code's review are back.</li>
+<li>The PR1 builder.</li>
+<li>Sign off C4's words.</li>
+<li>The MCP auth model and the standing approvals.</li>
+<li>The exploration share: 1 in 10 or 1 in 7 (§9 flag 4).</li>
+<li>The interim inspiration task (§9 flag 5).</li>
+</ul></td></tr>
+<tr><td>H3 · Recount (Claude Code)</td><td>Recount every §1A row's live count against the production database, read-only. Issue 2's counts are from 7 Nov; the map's figures are from 23 Nov. Return the diffs to the ops thread. Issue 4 carries them. In particular, confirm:
+<ul class="notes">
+<li><code>creative_tests</code> = 0;</li>
+<li><code>onsale_refresh_outcomes</code> = 0;</li>
+<li>the seven learning jobs' rows since 15 Oct;</li>
+<li><code>creative_lab_rounds</code>.</li>
+</ul></td></tr>
+<tr><td>H4 · Deck issue 3</td><td>A docs-only page copying §7 (OP1–OP12) and §6's six new rules into the deck, with ids unchanged. It isn't on the map's 4 Dec list; it follows C1–C4.</td></tr>
+<tr><td>H5 · Ops thread</td><td>Confirm the map's four 23 Nov findings against the live database in H3. Point the map's References at this issue in place of issue 2.</td></tr>
+<tr><td>Sources</td><td>
+<ul class="notes">
+<li>The ops map "Off/Pixel × CIRQLIN — Roadmap to the North Star" (23 Nov).</li>
+<li><code>scratch/learnings-engine/learnings-engine-brief.md</code> (E1–E9, S1–S4, PR1 and PR3a).</li>
+<li>The Creative Services handover (Workflows A–C, the Puzzle Lineup Push).</li>
+<li>The Commercial + Ops 23 Nov reflection, through the map; not opened directly.</li>
+<li>North Star issue 2; Off/Pixel deck issue 2.</li>
+<li>Creative testing records 1–7 (TF1–TF9); cirqlin #666 (phases); cirqlin #669 (where signups came from).</li>
+</ul>
+No new live counts were taken for this issue.</td></tr>
+</table></div>
+
+</div>
+</body>
+</html>
