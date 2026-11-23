@@ -131,9 +131,9 @@ describe("cross-client copy guard", () => {
     }
   });
 
-  it("learning_findings is named only by the findings module and its cron (RP1, migration 264)", () => {
+  it("learning_findings is named only by the findings module and its cron (RP1–RP3, migration 264)", () => {
     // Operator-only (OP10). PR2's reader joins this list and calls requireOperator(.
-    const allowed = ["app/api/cron/learning-findings/route.ts", "lib/learning/findings/load-observed-tests.ts", "lib/learning/findings/observed-tests.ts"];
+    const allowed = ["app/api/cron/learning-findings/route.ts", "lib/learning/findings/load-observed-tests.ts", "lib/learning/findings/load-pairs-curves.ts", "lib/learning/findings/observed-tests.ts"];
     const users = sourceFiles().filter((file) => {
       if (file.includes("__tests__")) return false;
       let src: string;

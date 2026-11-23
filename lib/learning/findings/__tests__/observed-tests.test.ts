@@ -244,10 +244,13 @@ type Tables = Record<string, Record<string, unknown>[]>;
 
 function fakeDb(tables: Tables) {
   const upserts: { table: string; rows: unknown[]; onConflict?: string }[] = [];
+  const deletes: { table: string; filters: string[] }[] = [];
   const reads: string[] = [];
   const db = {
     from(table: string) {
       const filters: ((row: Record<string, unknown>) => boolean)[] = [];
+      const said: string[] = [];
+      let deleting = false;
       const like = (pattern: string) => new RegExp(`^${pattern.split("%").map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join(".*")}$`, "i");
       const q = {
         select() {
@@ -256,6 +259,19 @@ function fakeDb(tables: Tables) {
         },
         eq(c: string, v: unknown) {
           filters.push((r) => r[c] === v);
+          said.push(`eq ${c} ${String(v)}`);
+          return q;
+        },
+        not(c: string, op: string, v: string) {
+          said.push(`not ${c} ${op} ${v}`);
+          if (deleting) {
+            deletes.push({ table, filters: said });
+            return Promise.resolve({ error: null });
+          }
+          return q;
+        },
+        delete() {
+          deleting = true;
           return q;
         },
         in(c: string, v: readonly unknown[]) {
@@ -293,7 +309,7 @@ function fakeDb(tables: Tables) {
       return q;
     },
   };
-  return { db: db as never, upserts, reads };
+  return { db: db as never, upserts, reads, deletes };
 }
 
 function baseTables(): Tables {
@@ -325,20 +341,28 @@ describe("observed tests: the run", () => {
   });
 
   it("upserts one finding per observed test on the unique key", async () => {
-    const { db, upserts } = fakeDb(baseTables());
+    const fakeRun = fakeDb(baseTables());
+    const { db, upserts } = fakeRun;
     const result = await runLearningFindings({ env: ENV, db, readOn: READ_ON, now: new Date("2026-11-23T04:15:00Z") });
     assert.ok(!("skippedReason" in result));
     assert.equal(result.ok, true);
     assert.equal(result.tests, 6);
-    assert.equal(result.written, 6);
+    // Six test verdicts, and one no_phase_data curve row for each show whose main campaigns delivered (no announcement_at in this fixture).
+    assert.deepEqual(result.writtenByKind, { test_verdict: 6, variant_pair: 0, phase_curve: 3 });
+    assert.equal(result.written, 9);
     assert.equal(upserts.length, 1);
     assert.equal(upserts[0]!.table, "learning_findings");
     assert.equal(upserts[0]!.onConflict, FINDINGS_CONFLICT);
     assert.equal(FINDINGS_CONFLICT, "kind,scope,scope_id,stage,week_start,subject");
-    const subjects = (upserts[0]!.rows as { subject: string }[]).map((r) => r.subject);
+    const subjects = (upserts[0]!.rows as { kind: string; subject: string }[]).filter((r) => r.kind === "test_verdict").map((r) => r.subject);
     assert.equal(new Set(subjects).size, 6);
+    const curves = (upserts[0]!.rows as { kind: string; scope_id: string; subject: string }[]).filter((r) => r.kind === "phase_curve");
+    assert.deepEqual(curves.map((r) => [r.scope_id, r.subject]).sort(), [["EBR26-KREAM", "no_phase_data"], ["NX26-ROBBIEDOHERTY", "no_phase_data"], ["P26-BDAY", "no_phase_data"]]);
     const robbie = (upserts[0]!.rows as { subject: string; event_id: string; verdict: string }[]).find((r) => r.subject === ROBBIE)!;
     assert.deepEqual([robbie.event_id, robbie.verdict], ["e-robbie", "ready_to_call"]);
+    // Stale curve rows of each show are cleared, keeping this night's subjects.
+    const { deletes } = fakeRun;
+    assert.deepEqual(deletes.find((d) => d.filters.includes("eq scope_id P26-BDAY"))?.filters, ["eq kind phase_curve", "eq scope event", "eq scope_id P26-BDAY", 'not subject in ("no_phase_data")']);
     const body = summariseFindings(result);
     assert.deepEqual(learningFindingsRunLog(body).detail.verdicts, { extended: 3, ready_to_call: 1, one_variant: 1, no_result_event: 1 });
   });
@@ -351,8 +375,10 @@ describe("observed tests: the run", () => {
     const result = await runLearningFindings({ env: ENV, db, readOn: READ_ON });
     assert.ok(!("skippedReason" in result));
     assert.deepEqual(result.skipped, { appTest: 1, archivedClient: 2, findingStands: 0 });
-    const subjects = (upserts[0]!.rows as { subject: string }[]).map((r) => r.subject).sort();
+    const subjects = (upserts[0]!.rows as { kind: string; subject: string }[]).filter((r) => r.kind === "test_verdict").map((r) => r.subject).sort();
     assert.deepEqual(subjects, [JULIAN, P26_AB, ROBBIE].sort());
+    // The archived client's show gets no curve either.
+    assert.ok(!(upserts[0]!.rows as { kind: string; scope_id: string }[]).some((r) => r.kind === "phase_curve" && r.scope_id === "EBR26-KREAM"));
   });
 
   it("dry run writes nothing and runs before migration 264; the cron refuses without it", async () => {
@@ -371,13 +397,13 @@ describe("observed tests: the run", () => {
     const first = fakeDb(baseTables());
     await runLearningFindings({ env: ENV, db: first.db, readOn: READ_ON });
     const tables = baseTables();
-    tables.learning_findings = first.upserts[0]!.rows as never;
+    tables.learning_findings = (first.upserts[0]!.rows as { kind: string }[]).filter((r) => r.kind === "test_verdict") as never;
     const next = fakeDb(tables);
     const result = await runLearningFindings({ env: ENV, db: next.db, readOn: "2026-11-24" });
     assert.ok(!("skippedReason" in result));
     // one_variant and no_result_event are final; the others read again.
     assert.equal(result.skipped.findingStands, 2);
-    assert.equal(result.written, 4);
+    assert.equal(result.writtenByKind.test_verdict, 4);
   });
 });
 

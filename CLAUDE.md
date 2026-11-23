@@ -578,6 +578,14 @@ REMOTION_LAMBDA_SERVE_URL=
 > skipping ad sets with a `creative_tests` row and archived clients
 > (`lib/learning/findings/`, RP1). DB-only, never a Meta write; check with
 > `scripts/learning-findings.mts --dry-run [--date YYYY-MM-DD] [--event CODE]`.
+> The same run writes `variant_pair` rows: two ads of one ad set whose names
+> differ on one axis (date, text, CTA, format, [AB-A]/[AB-B]), compared only on
+> ≥ 3 overlapping delivery days in one `phaseOf()` phase with each arm ≥ £10,
+> else "not compared" in the dry run (RP2). And `phase_curve` rows: a show's cost
+> per stage result per phase (teaser → announced → presale → general sale, from
+> `events.announcement_at` / `presale_at` / `general_sale_at`, a mid-day boundary
+> counting from the next London day; no `announcement_at` → `no_phase_data`) with
+> each phase's ratio to the teaser (RP3, `lib/learning/findings/phase.ts`).
 >
 > Genre pools run in shadow (`docs/design-record/2026-11-16-genre-key.html`,
 > GK1–GK8; `lib/learning/genre/`). `events.genre_family` (migration 253) is one
