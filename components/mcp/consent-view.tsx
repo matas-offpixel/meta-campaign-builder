@@ -1,8 +1,12 @@
 /**
  * The MCP consent page's body, shared by app/oauth/authorize and its
  * fixture frames (app/(dev)/frames/mcp-consent). App tokens only: Allow is
- * the primary Button, Cancel the outline one. Long emails and registered
- * names wrap inside the column (overflow-wrap: anywhere), never overflow.
+ * the primary Button, Cancel the outline one. On this page only, Allow has a
+ * 1 px border in the page's ink (--foreground) so its edge clears 3:1 on the
+ * page background (design round 2 on #1371; the app-wide fix is its own
+ * record). No dark: classes: a light page in a dark sheet is fine (ruling 1).
+ * Long emails and registered names wrap inside the column
+ * (overflow-wrap: anywhere), never overflow.
  */
 import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button";
@@ -45,7 +49,7 @@ export function ConsentView({
             ))}
             <form action={action} className="flex flex-wrap gap-3">
               {hidden}
-              <Button type="submit" name="decision" value="allow">
+              <Button type="submit" name="decision" value="allow" className="border border-foreground">
                 {CONSENT_WORDS.allow}
               </Button>
               <Button type="submit" name="decision" value="deny" variant="outline">

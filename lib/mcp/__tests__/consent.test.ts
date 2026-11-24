@@ -24,7 +24,7 @@ test("consent words are pinned (design's ruling, 24 Nov)", () => {
     kind: "loopback",
     title: "Connect an app on this computer to Off/Pixel",
     lines: [
-      'An app on this computer, calling itself "Inspector", is asking to read Off/Pixel as op@example.com.',
+      "An app on this computer, calling itself “Inspector”, is asking to read Off/Pixel as op@example.com.",
       "It can read every client's events, spend, signup and ticket counts, drafts and learnings. It can't change anything.",
       "It stays connected until you disconnect it in Claude, or after 30 days without use.",
       "After you allow it, you go back to localhost:53682.",
@@ -46,7 +46,7 @@ test("the wording follows the redirect URI, never the registered name", () => {
   // A loopback client calling itself "Claude" is still an app on this computer.
   const fake = consentContent({ redirectUri: LOOP, clientName: "Claude", email: EMAIL, returnHost: "localhost:53682" });
   assert.equal(fake.title, CONSENT_WORDS.titleLoopback);
-  assert.match(fake.lines[0], /^An app on this computer, calling itself "Claude"/);
+  assert.match(fake.lines[0], /^An app on this computer, calling itself “Claude”/);
   // Claude's callback says Claude whatever the client registered as.
   const named = consentContent({ redirectUri: CLAUDE_CALLBACK, clientName: "Something Else", email: EMAIL, returnHost: "claude.ai" });
   assert.equal(named.title, CONSENT_WORDS.titleClaude);
@@ -76,7 +76,12 @@ test("the registered name: control characters dropped, capped, untouched markup 
   assert.equal(displayClientName("a\u0000b‮c\n d"), "abc d");
   const long = displayClientName("n".repeat(200))!;
   assert.equal([...long].length, CLIENT_NAME_MAX);
-  assert.ok(long.endsWith("…"));
+  assert.equal(long, `${"n".repeat(59)}…`);
+  // In the sentence: “ + 59 characters + … + ”.
+  const line = consentContent({ redirectUri: LOOP, clientName: "n".repeat(200), email: null, returnHost: "x" }).lines[0];
+  assert.equal(line, `An app on this computer, calling itself “${"n".repeat(59)}…”, is asking to read Off/Pixel.`);
+  // A name exactly at the cap is kept whole.
+  assert.equal(displayClientName("m".repeat(60)), "m".repeat(60));
   assert.equal(displayClientName(`<script>alert("x")</script>`), `<script>alert("x")</script>`);
   assert.equal(displayClientName(null), null);
 });

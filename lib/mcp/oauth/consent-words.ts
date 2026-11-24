@@ -7,10 +7,10 @@
  * name alone.
  *   Claude's callback → "Connect Claude to Off/Pixel" / "Claude is asking…"
  *   a loopback address → "Connect an app on this computer to Off/Pixel" /
- *     "An app on this computer, calling itself "{name}", is asking…"
+ *     "An app on this computer, calling itself “{name}”, is asking…"
  * The registered name comes from dynamic registration, so it is untrusted:
- * control characters are dropped, it is capped at CLIENT_NAME_MAX, quoted,
- * and React escapes it when it renders.
+ * control characters are dropped, it is capped at CLIENT_NAME_MAX characters
+ * inside the curly quotes (59 and "…" when longer), and React escapes it.
  */
 import { CLAUDE_CALLBACK } from "../config.ts";
 
@@ -61,7 +61,7 @@ export function consentContent(input: { redirectUri: string; clientName: string 
     kind === "claude"
       ? `Claude is asking to read Off/Pixel${as}.`
       : name
-        ? `An app on this computer, calling itself "${name}", is asking to read Off/Pixel${as}.`
+        ? `An app on this computer, calling itself “${name}”, is asking to read Off/Pixel${as}.`
         : `An app on this computer is asking to read Off/Pixel${as}.`;
   return {
     kind,

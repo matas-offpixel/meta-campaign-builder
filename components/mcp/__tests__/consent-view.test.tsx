@@ -21,6 +21,17 @@ describe("MCP consent view", () => {
     expect(screen.getByText(`Claude is asking to read Off/Pixel as ${EMAIL}.`)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Allow" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Cancel" })).toBeTruthy();
+    // Design round 2: Allow keeps the primary fill and gains a 1 px border in the page's ink.
+    const allow = screen.getByRole("button", { name: "Allow" });
+    expect(allow.className).toContain("bg-primary");
+    expect(allow.className).toContain("border border-foreground");
+    expect(screen.getByRole("button", { name: "Cancel" }).className).not.toContain("border-foreground");
+  });
+
+  it("renders no dark: classes, the Button's included (a light page in Claude's dark sheet is fine; ruling 1)", () => {
+    const content = consentContent({ redirectUri: CLAUDE_CALLBACK, clientName: "Claude", email: EMAIL, returnHost: "claude.ai" });
+    const { container } = render(<ConsentView view={{ state: "consent", content }} />);
+    expect(container.innerHTML).not.toMatch(/\bdark:/);
   });
 
   it("renders a registered name with markup and quotes as text, quoted and capped", () => {
@@ -31,7 +42,7 @@ describe("MCP consent view", () => {
     expect(container.querySelector("b")).toBeNull();
     const line = content.lines[0];
     expect(screen.getByText(line)).toBeTruthy();
-    const name = /calling itself "(.*)", is asking/.exec(line)![1]!;
+    const name = /calling itself “(.*)”, is asking/.exec(line)![1]!;
     expect([...name].length).toBeLessThanOrEqual(CLIENT_NAME_MAX);
     expect(name.endsWith("…")).toBe(true);
     expect(screen.getByRole("heading").textContent).toBe("Connect an app on this computer to Off/Pixel");
