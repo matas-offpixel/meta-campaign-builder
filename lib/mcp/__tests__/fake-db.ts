@@ -5,11 +5,12 @@
  * head counts, and insert / update (recorded). A table not in the map
  * answers PostgREST's missing-table error.
  */
+import type { SupabaseClient } from "@supabase/supabase-js";
+
 type Row = Record<string, unknown>;
 type Pred = (r: Row) => boolean;
 
 export interface FakeDb {
-  from(table: string): FakeQuery;
   writes: Array<{ table: string; op: "insert" | "update" | "upsert" | "delete"; rows: unknown }>;
   reads: string[];
 }
@@ -101,7 +102,7 @@ export class FakeQuery implements PromiseLike<{ data: unknown; error: { message:
     return this;
   }
   ilike(c: string, v: string) {
-    const re = new RegExp(`^${v.replace(/%/g, ".*")}$`, "i");
+    const re = new RegExp(`^${v.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/%/g, ".*")}$`, "i");
     this.preds.push((r) => re.test(String(r[c] ?? "")));
     return this;
   }
@@ -161,10 +162,10 @@ export class FakeQuery implements PromiseLike<{ data: unknown; error: { message:
   }
 }
 
-export function fakeDb(tables: Record<string, Row[]>): FakeDb {
+export function fakeDb(tables: Record<string, Row[]>): FakeDb & Pick<SupabaseClient, "from"> {
   const state = { tables, writes: [] as FakeDb["writes"], reads: [] as string[] };
   return {
-    from: (t: string) => new FakeQuery(state, t),
+    from: ((t: string) => new FakeQuery(state, t)) as unknown as Pick<SupabaseClient, "from">["from"],
     get writes() {
       return state.writes;
     },

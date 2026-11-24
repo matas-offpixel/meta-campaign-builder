@@ -147,6 +147,7 @@ describe("cross-client copy guard", () => {
       "lib/learning/findings/observed-tests.ts",
       // The MCP (M1): operators only, checked on every call (lib/mcp/oauth/flow.ts checkBearer).
       "lib/mcp/tools/events.ts",
+      "lib/mcp/tools/figures.ts",
       "lib/mcp/tools/learnings.ts",
       "lib/mcp/tools/shared.ts",
       "lib/mcp/tools/topline.ts",

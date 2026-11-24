@@ -6,7 +6,8 @@ import { getDraftTool, getDraftsTool } from "../tools/drafts.ts";
 import { getLearningsTool } from "../tools/learnings.ts";
 import { getCampaignTreeTool, runLaunchChecksTool } from "../tools/pending.ts";
 import { londonLabel, morningToplineTool, toplinePhase } from "../tools/topline.ts";
-import { DRAFT_1, EV_DOD, ctx } from "./fixtures.ts";
+import { DRAFT_1, EV_DOD, ctx, tables } from "./fixtures.ts";
+import { fakeDb } from "./fake-db.ts";
 
 const keys = (o: unknown) => Object.keys(o as object).sort();
 
@@ -52,11 +53,13 @@ test("get_event: dates, spend, signups, tickets, campaigns, drafts", async () =>
   const d = out.data as Record<string, Record<string, unknown> & Array<unknown>>;
   assert.deepEqual(keys(d), ["campaigns", "drafts", "event", "signups", "spend", "tickets"]);
   assert.equal(out.eventId, EV_DOD);
-  assert.equal(d.spend.yesterday, 40.5);
-  assert.equal(d.spend.last7Days, 70.5);
+  assert.equal(d.spend.yesterday, 35);
+  assert.equal(d.spend.dailyAverage7Days, 3);
+  assert.equal(d.spend.checkoutsYesterday, 4);
+  assert.equal(d.spend.misnamedCampaigns, "[NX26-D0D] Typo");
   assert.equal(d.signups.yesterday, 12);
+  assert.equal(d.signups.dailyAverage7Days, 1.3);
   assert.equal(d.signups.total, 845);
-  assert.equal(d.signups.source, "signup_source_snapshots");
   assert.equal(d.tickets.latest, 431);
   assert.equal(d.tickets.sincePrevious, 31);
   assert.deepEqual(d.campaigns.metaCampaignIds, ["120001", "120002"]);
@@ -184,4 +187,32 @@ test("topline phase follows the query's CASE", () => {
   assert.equal(toplinePhase({ ...none, event_date: "2026-12-30", presale_at: "2026-11-20T09:00:00Z" }, y, now), "presale");
   assert.equal(toplinePhase({ ...none, event_date: "2026-12-30" }, y, now), "teaser");
   assert.equal(londonLabel("2026-07-01T17:00:00Z"), "01 Jul 18:00");
+});
+
+test("get_event and morning_topline agree on spend and signups for the same show and day", async () => {
+  const c = ctx();
+  const top = (await morningToplineTool.run(c, {})).data as { rows: Array<Record<string, unknown>> };
+  for (const row of top.rows) {
+    const ev = (await getEventTool.run(c, { code: row.event_code })).data as { spend: Record<string, unknown>; signups: Record<string, unknown> };
+    assert.deepEqual(
+      [ev.spend.yesterday, ev.spend.dailyAverage7Days, ev.spend.checkoutsYesterday, ev.spend.checkoutsDailyAverage7Days, ev.spend.misnamedCampaigns],
+      [row.spend_y, row.spend_7d, row.chk_y, row.chk_7d, row.misnamed],
+      String(row.event_code),
+    );
+    assert.deepEqual([ev.signups.yesterday, ev.signups.dailyAverage7Days, ev.signups.total], [row.sig_y, row.sig_7d, row.sig_total], String(row.event_code));
+  }
+});
+
+test("a day with no CIRQLIN snapshot falls back to the page-audience difference in both tools", async () => {
+  const t = tables();
+  t.signup_source_snapshots = t.signup_source_snapshots.filter((s) => s.day !== "2026-11-23");
+  t.cirqlin_page_audience = [
+    { ...t.cirqlin_page_audience[0]!, fetch_day: "2026-11-22", signups: 830 },
+    { ...t.cirqlin_page_audience[0]!, fetch_day: "2026-11-23", signups: 845 },
+  ];
+  const c = ctx({ db: fakeDb(t) as never });
+  const ev = (await getEventTool.run(c, { code: "NX26-DOD" })).data as { signups: Record<string, unknown> };
+  const top = (await morningToplineTool.run(c, {})).data as { rows: Array<Record<string, unknown>> };
+  assert.equal(ev.signups.yesterday, 15);
+  assert.equal(top.rows.find((r) => r.event_code === "NX26-DOD")!.sig_y, 15);
 });
