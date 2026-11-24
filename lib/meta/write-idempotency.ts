@@ -39,7 +39,11 @@ export type MetaWriteOpKind =
   /** P4 step 6: the Purchase campaign set active (migration 243). */
   | "refresh_campaign_status_update"
   /** TF6: a creative test ad set's end_time moved out 4 days (lib/meta/adset-end-time-write.ts, migration 263). */
-  | "adset_end_time_update";
+  | "adset_end_time_update"
+  /** SU1: a show's "{code} · Signups" customer list (lib/customer-lists/, migration 267). */
+  | "customer_list_create"
+  /** SU1/SU2: one batch of up to 10,000 hashed signups added to or removed from a customer list (migration 267). */
+  | "customer_list_users";
 
 /**
  * Thrown only when a caller passes `{ required: true }` and the ledger

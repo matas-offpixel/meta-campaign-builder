@@ -130,6 +130,10 @@
       "schedule": "0 7,8 * * *"
     },
     {
+      "path": "/api/cron/customer-list-sync",
+      "schedule": "0 7,8 * * *"
+    },
+    {
       "path": "/api/cron/creative-tests-read",
       "schedule": "0 7,8 * * *"
     },
