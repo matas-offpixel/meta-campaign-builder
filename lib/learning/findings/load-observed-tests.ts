@@ -34,6 +34,7 @@
 import { loadArchivedClientIds } from "../../db/client-status.ts";
 import { all, chunks, str, type Db, type Row } from "./read-all.ts";
 import { deleteStaleCurveRows, readPairsAndCurves, type PairsCurvesRead } from "./load-pairs-curves.ts";
+import { deleteStaleRollupRows, readRollupWeekCopy, type RollupRead } from "./load-rollup.ts";
 import { GBP_PER_UNIT, KNOWN_ACCOUNT_CURRENCY } from "../currency.ts";
 import { londonDay } from "../../creative-tests/fast-call.ts";
 import { ROUND_TEST_CAMPAIGN_SUFFIXES } from "../../creative-tests/tests-campaign.ts";
@@ -121,13 +122,15 @@ export type FindingsResult =
       tests: number;
       /** Rows written, every kind. */
       written: number;
-      writtenByKind: { test_verdict: number; variant_pair: number; phase_curve: number };
+      writtenByKind: { test_verdict: number; variant_pair: number; phase_curve: number; show_week: number; axis_rollup: number; copy_rule: number };
       skipped: { appTest: number; archivedClient: number; findingStands: number };
       findingsTable: "present" | "missing";
       records: ObservedRecord[];
       /** RP2 / RP3, after the tests. */
       pairsCurves: PairsCurvesRead;
-      timings: { testsMs: number; pairsCurvesMs: number; writeMs: number; totalMs: number };
+      /** PR1c: E3 rollup, E4 show week, E5 copy rules, after pairs and curves. Rollup and copy rules aren't written on a run narrowed to events. */
+      rollup: RollupRead;
+      timings: { testsMs: number; pairsCurvesMs: number; rollupMs: number; writeMs: number; totalMs: number };
       errors: { adsetId: string; error: string }[];
     };
 
@@ -234,9 +237,14 @@ export async function runLearningFindings(input: {
   const pairsCurves = await readPairsAndCurves({ db, readOn, discoveryDays: DISCOVERY_DAYS, archived, accountCurrency, eventCodes: input.eventCodes, computedAt });
   const pairsDone = Date.now();
 
-  const writtenByKind = { test_verdict: 0, variant_pair: 0, phase_curve: 0 };
   const testRows = records.map((r) => r.row).filter((r): r is LearningFindingRow => r != null);
-  const rows: { kind: keyof typeof writtenByKind }[] = dedupeOnKey([...testRows, ...pairsCurves.pairRows, ...pairsCurves.curveRows]);
+  // PR1c: show week, the cross-show rollup (stored rows with this run's over them) and copy rules.
+  const rollup = await readRollupWeekCopy({ db, readOn, archived, accountCurrency, runRows: [...testRows, ...pairsCurves.pairRows, ...pairsCurves.curveRows] as never, eventCodes: input.eventCodes, computedAt, findingsTable: findingsTable === "present" });
+  const narrowed = Boolean(input.eventCodes?.length);
+  const rollupDone = Date.now();
+
+  const writtenByKind = { test_verdict: 0, variant_pair: 0, phase_curve: 0, show_week: 0, axis_rollup: 0, copy_rule: 0 };
+  const rows: { kind: keyof typeof writtenByKind }[] = dedupeOnKey([...testRows, ...pairsCurves.pairRows, ...pairsCurves.curveRows, ...rollup.showWeekRows, ...(narrowed ? [] : [...rollup.rollupRows, ...rollup.copyRuleRows])]);
   if (!dryRun && rows.length) {
     for (const batch of chunks(rows, 200)) {
       const res = await db.from("learning_findings").upsert(batch, { onConflict: FINDINGS_CONFLICT });
@@ -251,12 +259,17 @@ export async function runLearningFindings(input: {
       for (const row of pairsCurves.curveRows) byShow.set(row.scope_id, [...(byShow.get(row.scope_id) ?? []), row.subject]);
       const stale = await deleteStaleCurveRows(db, byShow);
       if (stale) errors.push({ adsetId: "*", error: stale });
+      // Rollup and copy-rule rows this run didn't write are gone from the data: never on a narrowed run.
+      if (!narrowed && !errors.length) {
+        const staleRollup = await deleteStaleRollupRows(db, computedAt);
+        if (staleRollup) errors.push({ adsetId: "*", error: staleRollup });
+      }
     }
   }
-  const written = writtenByKind.test_verdict + writtenByKind.variant_pair + writtenByKind.phase_curve;
+  const written = Object.values(writtenByKind).reduce((a, b) => a + b, 0);
   const end = Date.now();
 
-  return { ok: errors.length === 0, dryRun, readOn, covered, tests: tests.length, written, writtenByKind, skipped, findingsTable, records, pairsCurves, timings: { testsMs: testsDone - started, pairsCurvesMs: pairsDone - testsDone, writeMs: end - pairsDone, totalMs: end - started }, errors };
+  return { ok: errors.length === 0, dryRun, readOn, covered, tests: tests.length, written, writtenByKind, skipped, findingsTable, records, pairsCurves, rollup, timings: { testsMs: testsDone - started, pairsCurvesMs: pairsDone - testsDone, rollupMs: rollupDone - pairsDone, writeMs: end - rollupDone, totalMs: end - started }, errors };
 }
 
 /** One row per unique key (a batch upsert can't touch a row twice); the last wins. */
@@ -269,13 +282,17 @@ function dedupeOnKey<T extends { kind: string; scope: string; scope_id: string |
 /** The cron's response body: one short line per test, no ad-days. */
 export function summariseFindings(result: FindingsResult): Record<string, unknown> {
   if ("skippedReason" in result) return result;
-  const { records, pairsCurves, ...rest } = result;
+  const { records, pairsCurves, rollup, ...rest } = result;
   return {
     ...rest,
     records: records.map((r) => ({ eventCode: r.test.eventCode, adsetId: r.test.adsetId, adsetName: r.test.adsetName, state: r.read?.state ?? null, text: r.read?.text ?? null, readDay: r.read?.readDay ?? null, skipped: r.skipped })),
     pairs: { compared: pairsCurves.pairs.length, notCompared: pairsCurves.notCompared.length, verdicts: countBy(pairsCurves.pairs.map((p) => p.verdict)) },
     curves: { shows: pairsCurves.shows, withPhaseData: pairsCurves.curves.filter((c) => c.state === "curve").length, noPhaseData: pairsCurves.curves.filter((c) => c.state === "no_phase_data").length, rows: pairsCurves.curveRows.length },
     pairsCurvesTimings: pairsCurves.timings,
+    showWeek: { shows: rollup.showWeekRows.length },
+    axisRollup: { rows: rollup.rollupRows.length, notThin: rollup.rollupRows.filter((r) => r.confidence !== "thin").length, pooled: rollup.pooled },
+    copyRules: { rows: rollup.copyRuleRows.length },
+    rollupTimings: rollup.timings,
   };
 }
 
@@ -304,6 +321,9 @@ export function learningFindingsRunLog(body: Record<string, unknown>): { rows: n
       pairs: body.pairs ?? null,
       curves: body.curves ?? null,
       timings: body.timings ?? null,
+      showWeek: body.showWeek ?? null,
+      axisRollup: body.axisRollup ?? null,
+      copyRules: body.copyRules ?? null,
       skipped: skippedBy,
       verdicts,
       skippedReason: body.skippedReason ?? null,

@@ -200,6 +200,7 @@ ENABLE_AD_DAILY_INSIGHTS=
 ENABLE_AD_COPY_CAPTURE=
 ENABLE_LEARNING_REFRESH=
 ENABLE_LEARNING_FINDINGS=
+ENABLE_LEARNING_DIGEST=
 ENABLE_GOOGLE_ADS_DAILY_INSIGHTS=
 ENABLE_ONSALE_REFRESH=
 ENABLE_RETARGETING_READ=
@@ -585,6 +586,21 @@ REMOTION_LAMBDA_SERVE_URL=
 > `not_enough_variants`), never `extended` / `stopped`; this supersedes the key
 > list in migration 264's column comment, and rows stored as `extended` read on
 > into day 8 and are overwritten on the same key.
+> The same run then writes `show_week` (each show's last complete Mon–Sun week
+> against the one before, costs from `showBenchmark`, best/worst 3 ads ≥ £12, the
+> biggest mover), `axis_rollup` (pairs by axis × stage × voice, curves by
+> teaser → phase, test verdicts by test kind, at client / vertical / all, shrunk
+> with `shrink.ts`, capped by shows) and `copy_rule` (`copy_features` as stored:
+> promoter vs artist disagreeing, proven ≤ 0.85, ≥ 1.25 from ≥ 2 shows).
+>
+> **`ENABLE_LEARNING_DIGEST`** must be exactly `"1"` to activate
+> `/api/cron/learning-digest` (`0 10 * * 1` UTC, 10:00 London in winter, 11:00 in
+> summer): one `ads_ops` message through `notify()` (so also
+> `ENABLE_SLACK_NOTIFICATIONS` and `SLACK_WEBHOOK_ADS_OPS`, business hours on),
+> deduped `learning_digest:{iso_week}`, built from `learning_findings` in E8's
+> order (3 strongest cross-client rollups at ok or above, one line per show,
+> tests called, recommendations waiting). Off by default; `?dry=1` and the
+> findings dry run print it without posting.
 > The same run writes `variant_pair` rows: two ads of one ad set whose names
 > differ on one axis (date, text, CTA, format, [AB-A]/[AB-B]), compared only on
 > ≥ 3 overlapping delivery days in one `phaseOf()` phase with each arm ≥ £10,
@@ -964,6 +980,8 @@ Notable recently-added tables / columns (dashboard-era, April 2026):
   Zero Meta calls.
 - `/api/cron/learning-findings` (04:15 UTC) — observed tests' verdicts into
   `learning_findings` (see `ENABLE_LEARNING_FINDINGS` above). Zero Meta calls.
+- `/api/cron/learning-digest` (Mondays 10:00 UTC) — the weekly learnings digest
+  to `ads_ops` (see `ENABLE_LEARNING_DIGEST` above). Off by default.
 - `/api/cron/google-ads-daily-insights` (04:00 UTC) — Google Ads campaign,
   search-term and location facts per day (see
   `ENABLE_GOOGLE_ADS_DAILY_INSIGHTS` above). Zero Google Ads mutates.
