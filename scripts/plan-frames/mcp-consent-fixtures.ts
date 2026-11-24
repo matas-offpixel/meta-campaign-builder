@@ -3,11 +3,15 @@
  * worded by where it returns: Claude's callback or a loopback address. The
  * long email and long registered name check wrapping inside the column; the
  * registered name is capped at CLIENT_NAME_MAX. No session, no store.
+ * M2 (words-mcp-consent-drafts-2026-11-24.tsv): claude-drafts (first
+ * connection with drafts, long email), loopback-drafts (long registered name
+ * at the cap, design's line 2), claude-upgrade (a read grant adding drafts:
+ * the upgrade title and the cancel note above the buttons).
  */
 import { CLAUDE_CALLBACK } from "../../lib/mcp/config.ts";
 import { consentContent } from "../../lib/mcp/oauth/consent-words.ts";
 
-export const MCP_CONSENT_FRAME_IDS = ["claude", "loopback", "invalid", "signed-out", "not-operator", "claude-drafts", "claude-upgrade", "loopback-upgrade"] as const;
+export const MCP_CONSENT_FRAME_IDS = ["claude", "loopback", "invalid", "signed-out", "not-operator", "claude-drafts", "loopback-drafts", "claude-upgrade"] as const;
 export type McpConsentFrameId = (typeof MCP_CONSENT_FRAME_IDS)[number];
 
 export const MCP_CONSENT_EMAIL = "matas.offpixel.operator@offpixel.co.uk";
@@ -35,8 +39,8 @@ export function mcpConsentFixture(id: McpConsentFrameId): McpConsentFixture {
   if (id === "claude-upgrade") {
     return { state: "consent", content: consentContent({ redirectUri: CLAUDE_CALLBACK, clientName: "Claude", email: MCP_CONSENT_EMAIL, returnHost: new URL(CLAUDE_CALLBACK).host, scope: DRAFTS, hasReadOnlyGrant: true }) };
   }
-  if (id === "loopback-upgrade") {
-    return { state: "consent", content: consentContent({ redirectUri: LOOPBACK, clientName: MCP_CONSENT_LONG_NAME, email: MCP_CONSENT_EMAIL, returnHost: new URL(LOOPBACK).host, scope: DRAFTS, hasReadOnlyGrant: true }) };
+  if (id === "loopback-drafts") {
+    return { state: "consent", content: consentContent({ redirectUri: LOOPBACK, clientName: MCP_CONSENT_LONG_NAME, email: MCP_CONSENT_EMAIL, returnHost: new URL(LOOPBACK).host, scope: DRAFTS }) };
   }
   if (id === "invalid") return { state: "invalid" };
   if (id === "signed-out") return { state: "signed_out" };

@@ -330,6 +330,17 @@ test("attach_drive_creatives: copies a 9:16 file into Storage and adds one ad, t
   assert.equal(slot.videoId, undefined);
   assert.equal(slot.sourceLabel, "From Drive · Videos");
   assert.deepEqual([...new Set(db.writes.map((w) => w.table))].sort(), ["campaign_drafts", "creative_assets"]);
+  // The registry row the Drive picker's copy writes: this file, at the stable Storage path.
+  const assets = (await db.from("creative_assets").select("*")).data as Array<Record<string, unknown>>;
+  assert.equal(assets.length, 1);
+  assert.deepEqual(
+    [assets[0]!.drive_file_id, assets[0]!.storage_path, assets[0]!.storage_bucket, assets[0]!.media_kind, assets[0]!.aspect_ratio, assets[0]!.user_id],
+    ["file-static-916", "images/drive/hash-file-static-916.jpg", "campaign-assets", "image", "9:16", OPERATOR],
+  );
+  assert.equal(slot.registryAssetId, assets[0]!.id);
+  // The send copy is a Storage-side copy from that stable path.
+  assert.equal(spies.copies[0]![0], "images/drive/hash-file-static-916.jpg");
+  assert.equal(spies.copies[0]![1], slot.storagePath);
   // The same file again: skipped, nothing written.
   await refused(run(attachDriveCreativesTool, ctx, { draft_id: D_DRAFT, updated_at: out.data.updated_at, file_ids: ["file-static-916"] }), /already in this draft/);
 });

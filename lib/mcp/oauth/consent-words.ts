@@ -17,7 +17,7 @@
  * control characters are dropped, it is capped at CLIENT_NAME_MAX characters
  * inside the curly quotes (59 and "…" when longer), and React escapes it.
  */
-import { CLAUDE_CALLBACK, SCOPE_DRAFT } from "../config.ts";
+import { CLAUDE_CALLBACK, SCOPE_DRAFT, SCOPE_READ } from "../config.ts";
 
 export const CLIENT_NAME_MAX = 60;
 
@@ -72,6 +72,26 @@ export interface ConsentContent {
 /** Whether a requested scope string includes mcp:draft (line 2's choice). */
 export function asksForDrafts(scope: string | null | undefined): boolean {
   return (scope ?? "").split(/\s+/).includes(SCOPE_DRAFT);
+}
+
+/**
+ * The upgrade wording (ops' ruling 24 Nov): the request asks for mcp:draft
+ * and the signed-in operator already holds a live grant FROM THE SAME CLIENT
+ * with mcp:read and no mcp:draft. Another client's grant doesn't count.
+ * Cancelling leaves that grant and its tokens as they are
+ * (decideConsentRequest writes nothing on Cancel), which is what the cancel
+ * note says.
+ */
+export function isUpgradeConsent(
+  liveGrants: ReadonlyArray<{ client_id: string; scope: string; revoked_at?: string | null }>,
+  clientId: string,
+  requestedScope: string | null | undefined,
+): boolean {
+  if (!asksForDrafts(requestedScope)) return false;
+  return liveGrants.some((g) => {
+    const parts = g.scope.split(/\s+/);
+    return !g.revoked_at && g.client_id === clientId && parts.includes(SCOPE_READ) && !parts.includes(SCOPE_DRAFT);
+  });
 }
 
 export function consentContent(input: {

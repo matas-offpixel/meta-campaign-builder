@@ -6,7 +6,10 @@ import { fileURLToPath } from "node:url";
 import { CLAUDE_CALLBACK } from "../config.ts";
 import { pkceChallengeFor } from "../crypto.ts";
 import { checkAuthorizeRequest, decideConsentRequest, exchangeToken, registerClient } from "../oauth/flow.ts";
-import { CLIENT_NAME_MAX, CONSENT_WORDS, consentContent, displayClientName, returnKindOf } from "../oauth/consent-words.ts";
+import { CLIENT_NAME_MAX, CONSENT_WORDS, consentContent, displayClientName, isUpgradeConsent, returnKindOf } from "../oauth/consent-words.ts";
+import { checkBearer } from "../oauth/flow.ts";
+import { createMemoryStore } from "../oauth/store.ts";
+import { sha256Hex } from "../crypto.ts";
 import { OPERATOR, STRANGER, VERIFIER, connect, makeDeps, urls } from "./helpers.ts";
 
 const EMAIL = "op@example.com";
@@ -169,4 +172,60 @@ test("M2 words: a grant with drafts says use and design's line 2; a read grant a
   // Every word in the list is used.
   for (const k of Object.keys(W)) assert.ok(k.startsWith("consent."), k);
   assert.equal(Object.keys(W).length, 7);
+});
+
+test("upgrade vs first connection: a live read-only grant from the SAME client, asking for drafts", () => {
+  const read = { client_id: "c1", scope: "mcp:read", revoked_at: null };
+  assert.equal(isUpgradeConsent([read], "c1", "mcp:read mcp:draft"), true);
+  assert.equal(isUpgradeConsent([read], "c2", "mcp:read mcp:draft"), false, "another client's grant is a first connection");
+  assert.equal(isUpgradeConsent([], "c1", "mcp:read mcp:draft"), false);
+  assert.equal(isUpgradeConsent([{ ...read, scope: "mcp:read mcp:draft" }], "c1", "mcp:read mcp:draft"), false, "already has drafts");
+  assert.equal(isUpgradeConsent([{ ...read, revoked_at: "2026-11-24T00:00:00Z" }], "c1", "mcp:read mcp:draft"), false, "revoked");
+  assert.equal(isUpgradeConsent([read], "c1", "mcp:read"), false, "a read-only request is never an upgrade");
+});
+
+test("cancelling an upgrade keeps the read grant and its tokens: no new grant, code or token; access_denied with state and iss", async () => {
+  const state = { clients: new Map(), grants: new Map(), codes: new Map(), tokens: new Map() };
+  const deps = { ...makeDeps(), store: createMemoryStore(state as never) };
+  const { clientId, tokens } = await connect(deps);
+  assert.equal(tokens.scope, "mcp:read");
+  const grantsBefore = structuredClone([...state.grants.values()]);
+  const tokensBefore = structuredClone([...state.tokens.entries()]);
+  const codesBefore = state.codes.size;
+
+  const params = {
+    response_type: "code",
+    client_id: clientId,
+    redirect_uri: CLAUDE_CALLBACK,
+    code_challenge: pkceChallengeFor(VERIFIER),
+    code_challenge_method: "S256",
+    state: "up9rade",
+    scope: "mcp:read mcp:draft",
+    resource: urls.resource,
+  };
+  const check = await checkAuthorizeRequest(params, urls, deps);
+  assert.ok(check.ok);
+  assert.equal(isUpgradeConsent(await deps.store.listLiveGrants({ userId: OPERATOR }), clientId, check.request.scope), true, "this is the upgrade wording");
+
+  const out = await decideConsentRequest(params, "deny", OPERATOR, urls, deps);
+  assert.ok("redirectTo" in out);
+  const back = new URL(out.redirectTo);
+  assert.equal(`${back.origin}${back.pathname}`, CLAUDE_CALLBACK);
+  assert.equal(back.searchParams.get("error"), "access_denied");
+  assert.equal(back.searchParams.get("state"), "up9rade");
+  assert.equal(back.searchParams.get("iss"), urls.issuer);
+  assert.equal(back.searchParams.get("code"), null);
+
+  // The store is exactly as it was: same grant row, same tokens, no new code.
+  assert.deepEqual([...state.grants.values()], grantsBefore);
+  assert.deepEqual([...state.tokens.entries()], tokensBefore);
+  assert.equal(state.codes.size, codesBefore);
+
+  // The old access token still reads; the old refresh token still refreshes.
+  const bearer = await checkBearer(`Bearer ${tokens.access_token}`, urls, deps);
+  assert.ok(bearer.ok && bearer.scope === "mcp:read");
+  const refreshed = await exchangeToken(new URLSearchParams({ grant_type: "refresh_token", refresh_token: tokens.refresh_token, client_id: clientId }), urls, deps);
+  assert.equal(refreshed.status, 200);
+  assert.equal((refreshed.body as { scope: string }).scope, "mcp:read");
+  assert.ok(state.tokens.get(sha256Hex(tokens.refresh_token)));
 });
