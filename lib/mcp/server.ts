@@ -1,0 +1,154 @@
+/**
+ * lib/mcp/server.ts
+ *
+ * POST /api/mcp: Streamable HTTP, stateless (no Mcp-Session-Id), plain
+ * JSON replies, protocol 2025-11-25 (what Claude's connectors follow).
+ * Order of checks:
+ *   ENABLE_MCP === "1" else 404 → POST only (405) → Origin → bearer
+ *   (401 with the RFC 9728 challenge; 403 when the user is no longer in
+ *   OPERATOR_USER_IDS) → per-grant rate limit (429) → the SDK.
+ * Every tools/call is logged to mcp_actions with its duration and size.
+ * The token is never logged, echoed or passed on.
+ *
+ * Relative imports only, so the whole request path runs under node:test.
+ */
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
+import { isMcpEnabled, mcpUrls } from "./config.ts";
+import { checkBearer, wwwAuthenticate, type FlowDeps } from "./oauth/flow.ts";
+import type { ActionLogger } from "./action-log.ts";
+import { checkRateLimit } from "./rate-limit.ts";
+import { MCP_TOOLS } from "./tools/index.ts";
+import { ToolInputError, type Db, type McpReaders, type McpTool, type ToolContext } from "./tool-types.ts";
+
+/** Claude's result limit is about 150,000 characters; stay under it. */
+export const MAX_RESULT_CHARS = 140_000;
+
+export interface McpHandlerDeps extends FlowDeps {
+  env?: Record<string, string | undefined>;
+  /** Service-role client the tools read with. */
+  db: Db;
+  /** For the rate-limit counts; null when there is no table to count. */
+  logDb: Db | null;
+  readers: McpReaders;
+  logger: ActionLogger;
+  isMatas: (userId: string) => boolean;
+  tools?: readonly McpTool[];
+}
+
+const ALLOWED_ORIGINS = new Set(["https://claude.ai", "https://claude.com"]);
+
+const json = (status: number, body: unknown, headers: Record<string, string> = {}) =>
+  new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", "cache-control": "no-store", ...headers } });
+
+export function londonToday(now: Date): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/London", year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
+}
+
+const INSTRUCTIONS = [
+  "Off/Pixel: the agency's event-marketing ads tool. These tools only read.",
+  "Shows are identified by event codes such as NX26-DOD. Start with morning_topline for the day, list_events to find a code, get_event for one show.",
+  "Money is GBP. Phases: teaser, announced, presale, general sale (on sale), show week.",
+].join(" ");
+
+function buildServer(ctx: ToolContext, deps: McpHandlerDeps, grantId: string): McpServer {
+  const server = new McpServer({ name: "off-pixel", title: "Off/Pixel", version: "1.0.0" }, { instructions: INSTRUCTIONS });
+  for (const tool of deps.tools ?? MCP_TOOLS) {
+    server.registerTool(
+      tool.name,
+      {
+        title: tool.title,
+        description: tool.description,
+        inputSchema: tool.inputSchema,
+        annotations: { title: tool.title, readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      },
+      async (args: Record<string, unknown>) => {
+        const started = Date.now();
+        let text: string;
+        let isError = false;
+        let status: "done" | "failed" = "done";
+        let error: string | null = null;
+        let result: Record<string, unknown> | null = null;
+        let eventId: string | null = null;
+        let clientId: string | null = null;
+        try {
+          const out = await tool.run(ctx, args ?? {});
+          text = JSON.stringify(out.data);
+          if (text.length > MAX_RESULT_CHARS) {
+            text = JSON.stringify({ error: "The answer is too large. Narrow the request (a client, a stage or one code)." });
+            isError = true;
+            status = "failed";
+            error = `result_too_large:${out.summary ? JSON.stringify(out.summary).slice(0, 200) : ""}`;
+          }
+          result = out.summary;
+          eventId = out.eventId ?? null;
+          clientId = out.clientId ?? null;
+        } catch (e) {
+          isError = true;
+          status = "failed";
+          const message = e instanceof Error ? e.message : String(e);
+          error = message;
+          text = JSON.stringify({ error: e instanceof ToolInputError ? message : "The read failed. Try again, or narrow the request." });
+        }
+        await deps.logger
+          .log({
+            user_id: ctx.userId,
+            grant_id: grantId,
+            client_id: clientId,
+            event_id: eventId,
+            tool: tool.name,
+            args,
+            kind: "read",
+            status,
+            result,
+            error,
+            duration_ms: Date.now() - started,
+            result_bytes: Buffer.byteLength(text, "utf8"),
+          })
+          .catch(() => "stdout");
+        return { content: [{ type: "text" as const, text }], isError };
+      },
+    );
+  }
+  return server;
+}
+
+export async function handleMcpRequest(req: Request, deps: McpHandlerDeps): Promise<Response> {
+  if (!isMcpEnabled(deps.env)) return new Response("Not found", { status: 404 });
+  if (req.method !== "POST") return new Response("Method not allowed", { status: 405, headers: { allow: "POST" } });
+
+  const url = new URL(req.url);
+  const urls = mcpUrls(url.origin);
+  const origin = req.headers.get("origin");
+  if (origin && origin !== url.origin && !ALLOWED_ORIGINS.has(origin)) return json(403, { error: "forbidden_origin" });
+
+  const auth = await checkBearer(req.headers.get("authorization"), urls, deps);
+  if (!auth.ok) {
+    return json(
+      auth.status,
+      { error: auth.error === "forbidden" ? "forbidden" : auth.error },
+      { "www-authenticate": wwwAuthenticate(urls, auth.error) },
+    );
+  }
+
+  const now = deps.now ? deps.now() : new Date();
+  const rate = await checkRateLimit(deps.logDb, auth.grantId, now);
+  if (!rate.ok) return json(429, { error: "rate_limited" }, { "retry-after": String(rate.retryAfterSeconds) });
+
+  const ctx: ToolContext = {
+    db: deps.db,
+    readers: deps.readers,
+    userId: auth.userId,
+    seesClientNames: deps.isMatas(auth.userId),
+    today: londonToday(now),
+    now,
+  };
+  const server = buildServer(ctx, deps, auth.grantId);
+  const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
+  await server.connect(transport);
+  try {
+    return await transport.handleRequest(req);
+  } finally {
+    void server.close().catch(() => undefined);
+  }
+}

@@ -89,6 +89,22 @@ function isPublicApiRoute(pathname: string): boolean {
   return PUBLIC_API_ROUTES.some((route) => pathname === route);
 }
 
+/** Exact paths only: the MCP endpoint, its OAuth endpoints and metadata. */
+export const MCP_PUBLIC_PATHS: ReadonlySet<string> = new Set([
+  "/api/mcp",
+  "/api/oauth/register",
+  "/api/oauth/token",
+  "/api/oauth/revoke",
+  "/oauth/authorize",
+  "/.well-known/oauth-protected-resource",
+  "/.well-known/oauth-protected-resource/api/mcp",
+  "/.well-known/oauth-authorization-server",
+]);
+
+export function isMcpPublicPath(pathname: string): boolean {
+  return MCP_PUBLIC_PATHS.has(pathname);
+}
+
 export function isPublicPath(
   pathname: string,
   _searchParams?: URLSearchParams,
@@ -200,6 +216,11 @@ export function isPublicPath(
   // HMAC of the raw body before parsing (fails closed: 503 when the secret
   // is unset, 401 on a bad signature, 404 for unsupported providers).
   if (/^\/api\/webhooks\/ticketing\/[^/]+$/.test(pathname)) return true;
+  // Off/Pixel MCP (M1, docs/mcp/README.md). Claude calls with a bearer token
+  // and no cookie. Each route 404s unless ENABLE_MCP === "1" and checks the
+  // bearer (/api/mcp), the PKCE code (/api/oauth/token) or the session and
+  // OPERATOR_USER_IDS (/oauth/authorize) itself; the metadata is public by spec.
+  if (isMcpPublicPath(pathname)) return true;
   if (PUBLIC_PATHS.has(pathname)) return true;
   // Magic link callback, logout route, future OAuth callbacks
   if (pathname.startsWith("/auth/")) return true;

@@ -80,7 +80,11 @@ function namesCopyLibrary(src: string): boolean {
     /(["'`])ad_copy\1/.test(src) ||
     /components\/insights-rail\//.test(src) ||
     /lib\/insights-rail\//.test(src) ||
-    /api\/insights-rail/.test(src)
+    /api\/insights-rail/.test(src) ||
+    // MCP (migration 268): operator-only action log, OAuth store and spend ceilings.
+    /\bmcp_(actions|oauth_clients|oauth_grants|oauth_codes|oauth_tokens)\b/.test(src) ||
+    /\bclient_spend_ceilings\b/.test(src) ||
+    /lib\/mcp\//.test(src)
   );
 }
 
@@ -141,6 +145,11 @@ describe("cross-client copy guard", () => {
       "lib/learning/findings/load-pairs-curves.ts",
       "lib/learning/findings/load-rollup.ts",
       "lib/learning/findings/observed-tests.ts",
+      // The MCP (M1): operators only, checked on every call (lib/mcp/oauth/flow.ts checkBearer).
+      "lib/mcp/tools/events.ts",
+      "lib/mcp/tools/learnings.ts",
+      "lib/mcp/tools/shared.ts",
+      "lib/mcp/tools/topline.ts",
     ];
     const users = sourceFiles().filter((file) => {
       if (file.includes("__tests__")) return false;

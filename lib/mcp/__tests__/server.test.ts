@@ -1,0 +1,180 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { MCP_PROTOCOL_VERSION } from "../config.ts";
+import { createActionLogger } from "../action-log.ts";
+import { handleMcpRequest, type McpHandlerDeps } from "../server.ts";
+import {
+  authorizationServerResponse,
+  protectedResourceResponse,
+  registerResponse,
+  revokeResponse,
+  tokenResponse,
+} from "../oauth/http.ts";
+import { resetMemoryRateLimit } from "../rate-limit.ts";
+import { fakeDb } from "./fake-db.ts";
+import { NOW, fakeReaders, tables } from "./fixtures.ts";
+import { OPERATOR, ORIGIN, STAFF, connect, makeDeps } from "./helpers.ts";
+
+const ON = { ENABLE_MCP: "1" };
+const MCP_URL = `${ORIGIN}/api/mcp`;
+
+function setup(env: Record<string, string | undefined> = ON) {
+  const flow = makeDeps(new Set([OPERATOR, STAFF]));
+  const db = fakeDb({ ...tables(), mcp_actions: [] });
+  const lines: string[] = [];
+  const deps: McpHandlerDeps = {
+    ...flow,
+    env,
+    now: () => NOW,
+    db,
+    logDb: db,
+    logger: createActionLogger(db, (l) => lines.push(l)),
+    readers: fakeReaders,
+    isMatas: (id) => id === OPERATOR,
+  };
+  return { flow, db, deps, lines };
+}
+
+let rpcId = 0;
+function rpc(method: string, params: unknown, token: string | null, extra: Record<string, string> = {}) {
+  return new Request(MCP_URL, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      accept: "application/json, text/event-stream",
+      "mcp-protocol-version": MCP_PROTOCOL_VERSION,
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
+      ...extra,
+    },
+    body: JSON.stringify({ jsonrpc: "2.0", id: ++rpcId, method, params }),
+  });
+}
+
+const INIT = { protocolVersion: MCP_PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: "test", version: "0" } };
+
+test("kill switch: every MCP and OAuth endpoint is 404 unless ENABLE_MCP is exactly 1", async () => {
+  for (const value of [undefined, "0", "true", "yes", " 1"]) {
+    const env = { ENABLE_MCP: value };
+    const { deps, flow } = setup(env);
+    assert.equal((await handleMcpRequest(rpc("tools/list", {}, "x"), deps)).status, 404, String(value));
+    assert.equal(protectedResourceResponse(new Request(`${ORIGIN}/.well-known/oauth-protected-resource/api/mcp`), env).status, 404);
+    assert.equal(authorizationServerResponse(new Request(`${ORIGIN}/.well-known/oauth-authorization-server`), env).status, 404);
+    const post = (path: string) => new Request(`${ORIGIN}${path}`, { method: "POST", body: "{}" });
+    assert.equal((await registerResponse(post("/api/oauth/register"), flow, env)).status, 404);
+    assert.equal((await tokenResponse(post("/api/oauth/token"), flow, env)).status, 404);
+    assert.equal((await revokeResponse(post("/api/oauth/revoke"), flow, env)).status, 404);
+  }
+});
+
+test("metadata: protected resource points at the issuer; S256 and public clients only", async () => {
+  const pr = await protectedResourceResponse(new Request(`${ORIGIN}/.well-known/oauth-protected-resource/api/mcp`), ON).json();
+  assert.equal(pr.resource, MCP_URL);
+  assert.deepEqual(pr.authorization_servers, [ORIGIN]);
+  const as = await authorizationServerResponse(new Request(`${ORIGIN}/.well-known/oauth-authorization-server`), ON).json();
+  assert.equal(as.issuer, ORIGIN);
+  assert.deepEqual(as.code_challenge_methods_supported, ["S256"]);
+  assert.deepEqual(as.token_endpoint_auth_methods_supported, ["none"]);
+  assert.equal(as.registration_endpoint, `${ORIGIN}/api/oauth/register`);
+});
+
+test("auth: no token → 401 with the resource_metadata challenge; wrong / revoked → 401; non-operator → 403", async () => {
+  const { deps, flow } = setup();
+  const none = await handleMcpRequest(rpc("initialize", INIT, null), deps);
+  assert.equal(none.status, 401);
+  assert.match(none.headers.get("www-authenticate") ?? "", /resource_metadata="https:\/\/app\.offpixel\.co\.uk\/\.well-known\/oauth-protected-resource\/api\/mcp"/);
+  assert.equal((await handleMcpRequest(rpc("initialize", INIT, "opx_at_wrong"), deps)).status, 401);
+
+  const { tokens } = await connect(flow);
+  assert.equal((await handleMcpRequest(rpc("initialize", INIT, tokens.access_token), deps)).status, 200);
+
+  // Removed from the operator list → 403 on the very next call.
+  flow.operators.delete(OPERATOR);
+  assert.equal((await handleMcpRequest(rpc("initialize", INIT, tokens.access_token), deps)).status, 403);
+  flow.operators.add(OPERATOR);
+
+  // Revoked → 401.
+  await revokeResponse(
+    new Request(`${ORIGIN}/api/oauth/revoke`, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: `token=${tokens.access_token}` }),
+    flow,
+    ON,
+  );
+  assert.equal((await handleMcpRequest(rpc("initialize", INIT, tokens.access_token), deps)).status, 401);
+});
+
+test("only POST; a foreign Origin is refused", async () => {
+  const { deps, flow } = setup();
+  const { tokens } = await connect(flow);
+  assert.equal((await handleMcpRequest(new Request(MCP_URL, { method: "GET" }), deps)).status, 405);
+  assert.equal((await handleMcpRequest(new Request(MCP_URL, { method: "DELETE" }), deps)).status, 405);
+  assert.equal((await handleMcpRequest(rpc("initialize", INIT, tokens.access_token, { origin: "https://evil.example" }), deps)).status, 403);
+  assert.equal((await handleMcpRequest(rpc("initialize", INIT, tokens.access_token, { origin: "https://claude.ai" }), deps)).status, 200);
+});
+
+test("full path: initialize → tools/list (all readOnlyHint) → tools/call, logged without the token", async () => {
+  resetMemoryRateLimit();
+  const { deps, flow, db, lines } = setup();
+  const { tokens } = await connect(flow);
+  const init = await handleMcpRequest(rpc("initialize", INIT, tokens.access_token), deps);
+  assert.equal(init.status, 200);
+  assert.equal(init.headers.get("mcp-session-id"), null, "stateless: no session id");
+  const initBody = await init.json();
+  assert.equal(initBody.result.serverInfo.name, "off-pixel");
+
+  const list = await (await handleMcpRequest(rpc("tools/list", {}, tokens.access_token), deps)).json();
+  const tools = list.result.tools as Array<{ name: string; annotations: Record<string, boolean>; description: string }>;
+  assert.equal(tools.length, 8);
+  for (const t of tools) {
+    assert.equal(t.annotations.readOnlyHint, true, t.name);
+    assert.equal(t.annotations.destructiveHint, false, t.name);
+  }
+
+  const call = await (await handleMcpRequest(rpc("tools/call", { name: "get_event", arguments: { code: "NX26-DOD" } }, tokens.access_token), deps)).json();
+  assert.equal(call.result.isError, false);
+  const data = JSON.parse(call.result.content[0].text);
+  assert.equal(data.tickets.latest, 431);
+
+  const bad = await (await handleMcpRequest(rpc("tools/call", { name: "get_event", arguments: { code: "NOPE-1" } }, tokens.access_token), deps)).json();
+  assert.equal(bad.result.isError, true);
+
+  const logged = db.writes.filter((w) => w.table === "mcp_actions").map((w) => (w.rows as Array<Record<string, unknown>>)[0]!);
+  assert.equal(logged.length, 2);
+  assert.deepEqual(
+    logged.map((r) => [r.tool, r.kind, r.status]),
+    [
+      ["get_event", "read", "done"],
+      ["get_event", "read", "failed"],
+    ],
+  );
+  assert.equal(logged[0]!.user_id, OPERATOR);
+  assert.ok(Number(logged[0]!.result_bytes) > 0);
+  assert.ok(Number(logged[0]!.duration_ms) >= 0);
+
+  // No token, refresh token or code in any write or log line.
+  const everything = JSON.stringify(db.writes) + lines.join("\n");
+  for (const secret of [tokens.access_token, tokens.refresh_token]) assert.equal(everything.includes(secret), false);
+  assert.equal(/opx_(at|rt|code)_/.test(everything), false);
+  // Only mcp_actions is written by a tool call.
+  assert.deepEqual([...new Set(db.writes.map((w) => w.table))], ["mcp_actions"]);
+});
+
+test("missing mcp_actions table: the call still answers and the log goes to stdout, counts only", async () => {
+  resetMemoryRateLimit();
+  const { deps, flow } = setup();
+  const db = fakeDb(tables()); // no mcp_actions table
+  const lines: string[] = [];
+  const d2 = { ...deps, db, logDb: db, logger: createActionLogger(db, (l) => lines.push(l)) };
+  const { tokens } = await connect(flow);
+  const call = await (await handleMcpRequest(rpc("tools/call", { name: "list_events", arguments: {} }, tokens.access_token), d2)).json();
+  assert.equal(call.result.isError, false);
+  assert.equal(lines.length, 1);
+  assert.match(lines[0]!, /^\[mcp_actions:stdout\] tool=list_events kind=read status=done duration_ms=\d+ result_bytes=\d+$/);
+});
+
+test("rate limit: 60 calls a minute per grant, then 429", async () => {
+  resetMemoryRateLimit();
+  const { deps, flow } = setup();
+  const { tokens } = await connect(flow);
+  let last = 0;
+  for (let i = 0; i < 61; i++) last = (await handleMcpRequest(rpc("tools/list", {}, tokens.access_token), deps)).status;
+  assert.equal(last, 429);
+});
