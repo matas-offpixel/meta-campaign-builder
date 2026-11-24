@@ -1,0 +1,56 @@
+/**
+ * The words are the record's (2026-11-24-campaign-creator-replicate, word
+ * list = words-rc-2026-11-24.tsv, copied here as the fixture). Every
+ * replicate.* row must be in lib/replicate/words.ts with identical text, and
+ * the module must hold nothing the list doesn't.
+ */
+
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { describe, it } from "node:test";
+
+import { REPLICATE_FRAME_FORMATS, REPLICATE_WORDS, fillWords } from "../words.ts";
+
+const TSV = readFileSync(new URL("./fixtures/words-rc-2026-11-24.tsv", import.meta.url), "utf8");
+const ROWS = TSV.trimEnd()
+  .split("\n")
+  .slice(1)
+  .map((line) => line.split("\t"))
+  .map(([key, where, words]) => ({ key: key!, where: where!, words: words! }));
+
+describe("replicate words", () => {
+  it("the fixture is the record's list: 113 rows, unique keys", () => {
+    assert.equal(ROWS.length, 113);
+    assert.equal(new Set(ROWS.map((r) => r.key)).size, 113);
+  });
+
+  it("every replicate.* and duplicate.* row is in words.ts, word for word", () => {
+    const wanted = ROWS.filter((r) => /^(replicate|duplicate)\./.test(r.key));
+    assert.equal(wanted.length, 26);
+    for (const r of wanted) {
+      assert.equal((REPLICATE_WORDS as Record<string, string>)[r.key], r.words, r.key);
+    }
+  });
+
+  it("words.ts holds no string that isn't in the list", () => {
+    const list = new Map(ROWS.map((r) => [r.key, r.words]));
+    for (const [key, words] of Object.entries(REPLICATE_WORDS)) {
+      assert.equal(list.get(key), words, key);
+    }
+  });
+
+  it("the frame-only value formats are the RC-B frame's text", () => {
+    // RC-B (1280 and 393): "NX27-GLITTERBOX · NX Newcastle", "Starts Thu 26 Nov · ends at On sale".
+    const F = REPLICATE_FRAME_FORMATS;
+    assert.equal(fillWords(F["replicate.value.event"], { code: "NX27-GLITTERBOX", venue: "NX Newcastle" }), "NX27-GLITTERBOX · NX Newcastle");
+    assert.equal(
+      [fillWords(F["replicate.value.dates.start"], { date: "Thu 26 Nov" }), fillWords(F["replicate.value.dates.end_stage"], { stage: "On sale" })].join(F["replicate.value.join"]),
+      "Starts Thu 26 Nov · ends at On sale",
+    );
+  });
+
+  it("fills braces and leaves an unknown one alone", () => {
+    assert.equal(fillWords("Pixel …{last 4}", { "last 4": "2763" }), "Pixel …2763");
+    assert.equal(fillWords("{Field}: not set for {venue}, check", { Field: "Pixel" }), "Pixel: not set for {venue}, check");
+  });
+});
