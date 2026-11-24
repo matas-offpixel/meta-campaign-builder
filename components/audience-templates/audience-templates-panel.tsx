@@ -150,7 +150,7 @@ export function AudienceTemplatesPanel({ data, onSave, initialTemplate, initialP
         <button
           type="button"
           onClick={() => void save()}
-          disabled={!view.canSave || saving || !onSave}
+          disabled={!view.canSave || saving}
           className="shrink-0 whitespace-nowrap rounded-md border border-border-strong px-3 py-1.5 text-sm text-foreground disabled:opacity-50"
         >
           {tw("templates.save")}
