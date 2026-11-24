@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Campaign creator: the live ads’ page — 24 Nov 2026</title>
+<style>
+:root{
+  --sand:#F0C9A8; --card:#e8d4c0; --edit:#f6ebe0; --paper:#fff8f0; --ink:#1e1810; --ink-2:#4a3d30; --ink-3:#6f6052;
+  --border:rgba(30,24,16,.10); --border-strong:rgba(30,24,16,.18); --muted:rgba(30,24,16,.06);
+  --olive:#4f5a1f; --ochre:#8a560c; --brick:#8f3424;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--sand);color:var(--ink);font:14px/1.5 var(--sans);font-feature-settings:"calt" 0}
+.wrap{max-width:1360px;margin:0 auto;padding:40px 24px 120px}
+h1{font-size:24px;font-weight:600;margin:0 0 6px}
+h2{font-size:20px;font-weight:600;margin:56px 0 8px}
+h3{font-size:13px;font-weight:600;margin:20px 0 6px}
+p{margin:0 0 10px;max-width:86ch}
+.lead{font-size:13px;color:var(--ink-2)}
+.k{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+code{font:12px var(--mono);background:var(--muted);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+figure{margin:0;min-width:0;max-width:100%}
+figcaption{font:700 9px/1.5 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+table.t{border-collapse:collapse;width:100%;font-size:12.5px;margin:10px 0 22px;background:var(--card);border-radius:8px;overflow:hidden;table-layout:fixed}
+table.t th,table.t td{text-align:left;vertical-align:top;padding:8px 12px;border-bottom:1px solid var(--border);overflow-wrap:anywhere}
+table.t th{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.t td:first-child{font-weight:600;width:190px}
+table.t ul{margin:4px 0 0 16px;padding:0}table.t li{margin:0 0 4px}
+.open{background:#f3e3c8;border:1px dashed var(--ochre);border-radius:8px;padding:10px 14px;font-size:12.5px;margin:10px 0 16px}
+.notes{font-size:12.5px;color:var(--ink-2)}.notes li{margin:0 0 6px;max-width:96ch}
+.frame{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start;margin:12px 0 24px}
+.vp{background:var(--paper);border:1px solid var(--border-strong);border-radius:8px;overflow:hidden;max-width:100%;padding:16px;font-size:13px}
+.vp.wide{width:760px}.vp.w393{width:393px}
+.ph{font:700 9px/1.4 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+.h{font-weight:600;font-size:14px;margin:0 0 4px}
+.sub{font-size:12px;color:var(--ink-2);margin:0 0 10px}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 10px}
+.chip{border:1px solid var(--border-strong);border-radius:999px;padding:3px 10px;font-size:12px;background:#fff}
+.chip.on{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.mono{font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase}
+.row{display:grid;grid-template-columns:22px 26px 1fr auto;gap:8px;align-items:center;padding:7px 0;border-top:1px solid var(--border)}
+.row .n{color:var(--ink-3);font:12px var(--mono)}
+.box{width:16px;height:16px;border:1.5px solid var(--ink);border-radius:3px;display:inline-block}
+.box.on{background:var(--ink)}
+.box.off{border-color:var(--ink-3);opacity:.45}
+.fs{font-size:11.5px;color:var(--ink-2)}
+.fs.warn{color:var(--brick)}
+.ok{color:var(--olive)}
+.btn{display:inline-block;border:1px solid var(--ink);border-radius:4px;padding:5px 10px;font:700 10px var(--mono);letter-spacing:.1em;text-transform:uppercase;background:var(--ink);color:var(--paper)}
+.btn.ghost{background:transparent;color:var(--ink)}
+.btn.dis{opacity:.4}
+.wave{position:relative;height:64px;background:repeating-linear-gradient(90deg,var(--ink-3) 0 2px,transparent 2px 5px);border-radius:4px;margin:26px 0 4px;opacity:.9}
+.wave .win{position:absolute;top:-4px;bottom:-4px;border:2px solid var(--ink);background:rgba(232,212,192,.55);border-radius:4px}
+.wave .drop{position:absolute;top:-10px;bottom:-10px;width:2px;background:var(--brick)}
+.wave .drop span{position:absolute;top:-16px;left:-20px;font:700 9px var(--mono);letter-spacing:.1em;color:var(--brick);white-space:nowrap}
+.tl{display:flex;justify-content:space-between;font:11px var(--mono);color:var(--ink-3)}
+.pv{width:150px;height:267px;background:#222;border-radius:6px;position:relative;flex:none;display:flex;align-items:center;justify-content:center;color:#fff;font:700 9px var(--mono);letter-spacing:.12em}
+.pv .play{position:absolute;bottom:10px;left:10px;width:28px;height:28px;border-radius:50%;background:#fff}
+.split{display:flex;gap:16px;align-items:flex-start}
+table.v{border-collapse:collapse;width:100%;font-size:12px;margin:6px 0}
+table.v th{font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);text-align:left;padding:4px 6px;border-bottom:1px solid var(--border-strong)}
+table.v td{padding:6px;border-bottom:1px solid var(--border)}
+table.v td.r,table.v th.r{text-align:right}
+.st{display:inline-block;border:1px solid var(--border-strong);border-radius:10px;padding:2px 8px;font:700 9px/1.5 var(--mono);letter-spacing:.1em;text-transform:uppercase}
+.st.run{border-style:dashed}
+.st.win{background:var(--olive);color:#fff;border-color:var(--olive)}
+.test{border:1px solid var(--border);border-radius:6px;padding:10px 12px;margin:8px 0;background:#fff}
+.test.dim{opacity:.55}
+.line{background:var(--card);border-radius:6px;padding:8px 10px;margin:6px 0;font-size:12px}
+.inv{text-decoration:underline dotted var(--brick);text-decoration-thickness:1.5px;text-underline-offset:3px}
+table.t table.t td:first-child{width:auto;font-weight:400}
+@media (max-width:560px){table.t th[style]{width:100px!important}table.t td:first-child{width:100px}}
+.st.fail{border-color:var(--brick);color:var(--brick)}
+.line .acts{float:right;font:700 9px var(--mono);letter-spacing:.1em;text-transform:uppercase}
+.line.wait{opacity:.6}
+.line.failed{border:1px solid var(--brick);background:#f6e3dc}
+.tick{display:inline-block;width:11px;height:11px;border:1.5px solid var(--ink);border-radius:2px;margin-right:6px;vertical-align:-1px}
+.tick.on{background:var(--ink)}
+.bar{display:inline-block;height:8px;background:var(--ink-3);border-radius:2px;vertical-align:middle;margin-right:6px}
+.sbar{position:relative;display:inline-block;width:100px;height:8px;background:var(--muted);border-radius:2px;vertical-align:middle;margin-right:8px}
+.sbar i{position:absolute;left:0;top:0;bottom:0;background:var(--ink-3);border-radius:2px}
+.sbar i.lead{background:var(--olive)}
+.sbar b{position:absolute;left:60px;top:-3px;bottom:-3px;width:1px;background:var(--ink)}
+.sbar s{position:absolute;left:10px;top:-3px;bottom:-3px;width:1px;background:var(--ink-3);opacity:.6}
+
+/* ---------- campaign creator: replicate record ---------- */
+.scrollx{overflow-x:auto;max-width:100%}
+.vp.w1280{width:1280px;padding:0}
+.vp.w393{padding:0}
+.bar1{display:flex;justify-content:space-between;align-items:center;padding:12px 18px;border-bottom:1px solid var(--border);background:#fff}
+.bar1 .bc{font:700 9px var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3)}
+.bar1 .bc b{color:var(--ink)}
+.body1{padding:18px}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.g3{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.g4{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.card2{background:#fff;border:1px solid var(--border-strong);border-radius:8px;padding:14px 16px;min-width:0}
+.card2 .ttl{font-weight:600;font-size:14px;margin:0 0 2px}
+.card2 .s{font-size:12px;color:var(--ink-2)}
+.menu{width:260px;background:#fff;border:1px solid var(--border-strong);border-radius:8px;box-shadow:0 8px 28px rgba(30,24,16,.14);padding:6px 0}
+.menu .mi{padding:8px 14px;font-size:13px}
+.menu .mi small{display:block;font-size:11.5px;color:var(--ink-2)}
+.menu .mi.hi{background:var(--edit)}
+.menu hr{border:0;border-top:1px solid var(--border);margin:4px 0}
+.dlg{background:#fff;border:1px solid var(--border-strong);border-radius:10px;box-shadow:0 12px 40px rgba(30,24,16,.18);overflow:hidden}
+.dlg .dh{padding:14px 18px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}
+.dlg .dh b{font-size:15px}
+.dlg .db{padding:14px 18px}
+.dlg .df{padding:12px 18px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:8px;align-items:center;background:var(--paper)}
+.dlg .df .fs{margin-right:auto}
+.ev{display:grid;grid-template-columns:1fr auto;gap:2px 10px;padding:9px 10px;border:1px solid var(--border);border-radius:6px;margin:0 0 6px;font-size:13px;background:#fff}
+.ev.on{border:1.5px solid var(--ink);background:var(--edit)}
+.ev small{grid-column:1/-1;font-size:11.5px;color:var(--ink-2)}
+.ev .code{font:700 10px var(--mono);letter-spacing:.08em}
+.search{border:1px solid var(--border-strong);border-radius:6px;padding:8px 10px;font-size:13px;color:var(--ink-3);margin:0 0 10px;background:#fff}
+.chg{display:grid;grid-template-columns:96px 1fr;gap:4px 12px;padding:8px 0;border-top:1px solid var(--border);font-size:13px;align-items:baseline}
+.chg .l{font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3)}
+.chg .was{color:var(--ink-3)}
+.chg.amb{background:#f3e3c8;margin:0 -10px;padding:8px 10px;border-radius:6px;border-top:0}
+.sec2{font:700 9px var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin:14px 0 4px}
+.ask{border:1.5px solid var(--ink);border-radius:8px;padding:10px 12px;margin:10px 0 0;font-size:13px}
+.ask .btns{display:flex;gap:8px;margin-top:8px}
+.chk{border:1px solid var(--border-strong);border-left:4px solid var(--brick);border-radius:6px;padding:10px 12px;margin:0 0 8px;background:#fff;font-size:13px}
+.chk.warn{border-left-color:var(--ochre)}
+.chk .key{font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--brick);margin:0 0 3px}
+.chk.warn .key{color:var(--ochre)}
+.chk .ev2{font-size:11.5px;color:var(--ink-2);margin:4px 0 6px}
+.chk .acts{display:flex;gap:8px;flex-wrap:wrap}
+.sum{display:flex;gap:10px;align-items:center;font:700 10px var(--mono);letter-spacing:.1em;text-transform:uppercase;margin:0 0 10px}
+.sum .r{color:var(--brick)}.sum .a{color:var(--ochre)}
+.vc{background:#fff;border:1px solid var(--border-strong);border-radius:8px;padding:12px 14px}
+.vc .ttl{font-weight:600}
+.kv2{display:grid;grid-template-columns:90px 1fr;gap:6px 10px;font-size:12.5px;margin-top:8px;align-items:baseline}
+.kv2 .l{font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3)}
+.sel{display:inline-block;border:1px solid var(--border-strong);border-radius:6px;padding:4px 8px;background:var(--paper);font-size:12.5px}
+.ovr{border:1px dashed var(--ochre);background:#f7ecda}
+.tabs2{display:flex;gap:2px;border-bottom:1px solid var(--border-strong);margin:0 0 12px}
+.tabs2>span{padding:8px 14px;font:700 10px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3)}
+.tabs2>span.on{color:var(--ink);box-shadow:inset 0 -2px 0 var(--ink)}
+.beta{font:700 8px var(--mono);letter-spacing:.12em;border:1px solid var(--ochre);color:var(--ochre);border-radius:8px;padding:1px 5px;margin-left:5px;vertical-align:1px}
+.ti{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:7px 0;border-top:1px solid var(--border);font-size:13px}
+.ti small{display:block;font-size:11.5px;color:var(--ink-2)}
+.st.reuse{background:var(--olive);color:#fff;border-color:var(--olive)}
+.st.make{border-style:dashed;color:var(--ink-2)}
+.st.amb{border-color:var(--ochre);color:var(--ochre);background:#f7ecda}
+.st.ok2{border-color:var(--olive);color:var(--olive)}
+.tree{font-size:13px}
+.tree .stg{display:flex;justify-content:space-between;align-items:center;padding:10px 0 6px;border-top:1px solid var(--border-strong)}
+.tree .stg b{font:700 10px var(--mono);letter-spacing:.14em;text-transform:uppercase}
+.tree .cmp{margin-left:14px;padding:7px 0 7px 12px;border-left:2px solid var(--border-strong)}
+.tree .cmp .nm{font-weight:600}
+.tree .add{margin-left:30px;padding:4px 0 4px 12px;border-left:2px dashed var(--border-strong);font-size:12px;color:var(--ink-2)}
+.tree .add b{color:var(--ink);font-weight:600}
+.tk{display:flex;align-items:center;gap:8px;padding:6px 0;border-top:1px solid var(--border);font-size:13px}
+.tk.sub{padding-left:22px;font-size:12.5px;color:var(--ink-2)}
+.cap{border:1px solid var(--border-strong);border-radius:8px;padding:10px 12px;margin:0 0 8px;background:#fff;font-size:13px}
+.cap .meta{display:flex;justify-content:space-between;align-items:center;gap:8px;margin:0 0 6px}
+.cap .lock{background:var(--card);border-radius:3px;padding:0 3px}
+.form3{display:grid;grid-template-columns:80px 1fr;gap:8px;align-items:center;font-size:12.5px;margin:8px 0}
+.form3 .l{font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3)}
+.seg{display:inline-flex;border:1px solid var(--ink);border-radius:4px;overflow:hidden}
+.seg span{padding:3px 8px;font-size:12px}.seg span.on{background:var(--ink);color:#fff}
+table.w{border-collapse:collapse;width:100%;min-width:900px;font-size:12px;background:var(--card);table-layout:fixed}
+table.w th,table.w td{text-align:left;vertical-align:top;padding:6px 10px;border-bottom:1px solid var(--border);overflow-wrap:anywhere}
+table.w th{font:700 9px var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.w td:first-child{font:11px var(--mono)}
+.cap .meta{flex-wrap:wrap}.cap .meta .st{white-space:nowrap}
+.seg{flex-wrap:wrap}.seg span{white-space:nowrap}
+</style>
+</head><body>
+<div class="wrap">
+
+<p class="k">Off/Pixel · design record · campaign creator · when a draft's page isn't the live ads' page · 24 November 2026 · amends 2026-11-24-campaign-creator-replicate (#1359) RC3</p>
+<h1>The live ads' page, at launch review</h1>
+<p class="lead">This is check 8b, from Ops and Matas, ruled word for word:</p>
+<ul class="notes">
+<li>For a published draft, compare its stored page and Instagram with the live ads' identity.</li>
+<li>Read them once, at launch review, and never on every render.</li>
+<li>When they differ, show a warning, not a blocker: "This draft runs from {draft page}; the live ads run from {live page}. Relaunching uses the draft's."</li>
+</ul>
+<p class="lead">The case is NX26-DOD's On sale draft:</p>
+<ul class="notes">
+<li><b>The draft</b> runs from Ironworks London and @puzzleofficialuk.</li>
+<li><b>The live ads</b> run from NX LOVES and @dj_dod.</li>
+</ul>
+<p class="lead"><b>What this amends:</b> RC3's list of checks, with one warning, and page_other_client's fix and evidence when the live identity is known.</p>
+<p class="lead"><b>What stands:</b> everything else in #1359, its word list included. The read is built in CC-2 (#1361).</p>
+
+<h2>Ruling</h2>
+<table class="t">
+<tr><th style="width:190px">#</th><th>Ruling</th></tr>
+<tr><td>RC8 · identity_not_live (warning)</td><td>
+<ul>
+<li><b>When it runs.</b>
+<ul>
+<li>Only for a published draft: one with live ads.</li>
+<li>At launch review, the app reads the live ads' Facebook page and Instagram account once, and compares each with the draft's.</li>
+<li>Nothing reads Meta while the draft is being edited.</li>
+<li>A draft that has never launched has no live ads, so the check doesn't run.</li>
+</ul></li>
+<li><b>Page and Instagram are separate lines</b>, as with page_other_client, because each has its own answer:
+<ul>
+<li>page: "This draft runs from {draft page}; the live ads run from {live page}. Relaunching uses the draft's.";</li>
+<li>Instagram: "This draft runs on Instagram as @{draft handle}; the live ads run as @{live handle}. Relaunching uses the draft's.";</li>
+<li>the key word is "Live ads";</li>
+<li>evidence: "Read from the live ads at {date, time}: {n} ads", or "1 ad".</li>
+</ul></li>
+<li><b>Two fixes:</b>
+<ul>
+<li>first, "Use the live ads' page: {live page}" (or "…Instagram: @{handle}"), which sets the draft to it in one click;</li>
+<li>second, "Keep {draft page}" (or "Keep @{handle}").</li>
+</ul></li>
+<li><b>Keep</b> works as "Keep this link" does:
+<ul>
+<li>it clears the warning for that draft until the draft's page or account changes;</li>
+<li>it stores who kept it and when;</li>
+<li>it shows as one muted line under the list, "Page kept by {name}, {date, time}: {draft page}".</li>
+</ul></li>
+<li><b>It never blocks.</b> Launch stays on.</li>
+<li><b>Names keep their case.</b> A page name or handle inside a fix button keeps its case even though the button's own words are set in capitals: "USE THE LIVE ADS' INSTAGRAM: @dj_dod". This applies to every fix that carries a name, #1359's included.</li>
+<li><b>When the live ads are mixed</b> (some on one page, some on another), the check names the page most live ads use, and the evidence counts those ads. When the read fails, the check is silent rather than guessing: no line, no warning.</li>
+</ul></td></tr>
+<tr><td>RC8a · Next to page_other_client</td><td>
+<ul>
+<li><b>One field, one line.</b> When page_other_client fires on a field (the draft's page or Instagram is another client's), identity_not_live doesn't show a line for that same field. The blocker carries the answer instead:
+<ul>
+<li>its first fix is "Use the live ads' page: {live page}" (or "Use the live ads' Instagram: @{live handle}");</li>
+<li>its evidence adds "· the live ads run from {live page}" (or "· the live ads run as @{live handle}");</li>
+<li>"Change the page" stays as the second fix.</li>
+</ul>
+So Matas sees one problem with one answer (Ops' recommendation, ruled as is).</li>
+<li><b>The live answer is only offered when it's safe.</b> If the live ads' own page is another client's, it isn't offered, and the blocker reads as #1359 has it.</li>
+<li><b>Fields are judged separately.</b> On a draft where only the Instagram is another client's, the page can still show identity_not_live while the Instagram shows the blocker.</li>
+<li><b>Order.</b> identity_not_live sits with the warnings, after the blockers and before link_not_event.</li>
+</ul></td></tr>
+</table>
+<h2>Frames</h2><h3>RC-H · Both fire on the same field: the blocker only, with the live answer</h3><div class="frame"><figure><figcaption>RC-H · 1280 · NX26-DOD On sale</figcaption><div class="scrollx"><div class="vp w1280"><div class="bar1"><span class="bc">NX26-DOD › On sale › Review &amp; launch</span><span class="bc">OFF/PIXEL</span></div><div class="body1"><div style="display:grid;grid-template-columns:1fr 360px;gap:22px"><div><div class="sum"><span class="r">● 2 to fix before launch</span></div><div class="chk"><div class="key">Page</div><b>Ads run from Ironworks London, which is LWE’s page. NX26-DOD is Electric’s show.</b><div class="ev2">Ads: all 9 · the live ads run from NX LOVES</div><div class="acts"><span class="btn">Use the live ads’ page: NX LOVES</span><span class="btn ghost">Change the page</span></div></div><div class="chk"><div class="key">Instagram</div><b>Ads run on Instagram as @puzzleofficialuk, Puzzle’s account. NX26-DOD is Electric’s show.</b><div class="ev2">Ads: all 9 · the live ads run as @dj_dod</div><div class="acts"><span class="btn">Use the live ads’ Instagram: <span style='text-transform:none'>@dj_dod</span></span><span class="btn ghost">Change the Instagram account</span></div></div><div style="display:flex;justify-content:flex-end;gap:8px;margin-top:6px"><span class="btn ghost">Back</span><span class="btn dis">Launch · 2 to fix</span></div></div><div class="card2"><div class="ttl">Summary</div><div class="s">[NX26-DOD] ON SALE · published · 9 live ads</div></div></div></div></div></div><p class="fs" style="max-width:640px;margin-top:8px">The draft’s page and Instagram are other clients’, so page_other_client fires on both. The live ads run from NX LOVES and @dj_dod, so the blocker’s first fix is to use them. identity_not_live doesn’t show a second line for the same field. The live identities are ops’ read of 24 Nov; the ad count is invented.</p></figure><figure><figcaption>RC-H · 393 · the same</figcaption><div class="vp w393"><div class="bar1"><span class="bc">Review &amp; launch</span></div><div class="body1" style="padding:14px"><div class="sum"><span class="r">● 2 to fix before launch</span></div><div class="chk"><div class="key">Page</div><b>Ads run from Ironworks London, which is LWE’s page. NX26-DOD is Electric’s show.</b><div class="ev2">Ads: all 9 · the live ads run from NX LOVES</div><div class="acts"><span class="btn">Use the live ads’ page: NX LOVES</span><span class="btn ghost">Change the page</span></div></div><div class="chk"><div class="key">Instagram</div><b>Ads run on Instagram as @puzzleofficialuk, Puzzle’s account. NX26-DOD is Electric’s show.</b><div class="ev2">Ads: all 9 · the live ads run as @dj_dod</div><div class="acts"><span class="btn">Use the live ads’ Instagram: <span style='text-transform:none'>@dj_dod</span></span><span class="btn ghost">Change the Instagram account</span></div></div><div style="display:flex;justify-content:flex-end;gap:8px;margin-top:6px"><span class="btn ghost">Back</span><span class="btn dis">Launch · 2 to fix</span></div></div></div></figure></div><h3>RC-I · The warning on its own</h3><div class="frame"><figure><figcaption>RC-I · 1280 · the draft’s page is Electric’s, but not the live one</figcaption><div class="scrollx"><div class="vp w1280"><div class="bar1"><span class="bc">NX26-DOD › On sale › Review &amp; launch</span><span class="bc">OFF/PIXEL</span></div><div class="body1"><div style="display:grid;grid-template-columns:1fr 360px;gap:22px"><div><div class="sum"><span class="a">● 2 to check</span></div><div class="chk warn"><div class="key">Live ads</div><b>This draft runs from NX Newcastle; the live ads run from NX LOVES. Relaunching uses the draft’s.</b><div class="ev2">Read from the live ads at Tue 24 Nov, 15:02: 9 ads</div><div class="acts"><span class="btn">Use the live ads’ page: NX LOVES</span><span class="btn ghost">Keep <span style='text-transform:none'>NX Newcastle</span></span></div></div><div class="chk warn"><div class="key">Live ads</div><b>This draft runs on Instagram as @nxnewcastle; the live ads run as @dj_dod. Relaunching uses the draft’s.</b><div class="ev2">Read from the live ads at Tue 24 Nov, 15:02: 9 ads</div><div class="acts"><span class="btn">Use the live ads’ Instagram: <span style='text-transform:none'>@dj_dod</span></span><span class="btn ghost">Keep <span style='text-transform:none'>@nxnewcastle</span></span></div></div><div style="display:flex;justify-content:flex-end;gap:8px;margin-top:6px"><span class="btn ghost">Back</span><span class="btn">Launch</span></div></div><div class="card2"><div class="ttl">Summary</div><div class="s">[NX26-DOD] ON SALE · published · 9 live ads</div></div></div></div></div></div><p class="fs" style="max-width:640px;margin-top:8px">The draft runs from another Electric page, so no blocker fires; the warning names both and Launch stays on. NX Newcastle and @nxnewcastle are invented, to show the case.</p></figure><figure><figcaption>RC-I · 393 · the same</figcaption><div class="vp w393"><div class="bar1"><span class="bc">Review &amp; launch</span></div><div class="body1" style="padding:14px"><div class="sum"><span class="a">● 2 to check</span></div><div class="chk warn"><div class="key">Live ads</div><b>This draft runs from NX Newcastle; the live ads run from NX LOVES. Relaunching uses the draft’s.</b><div class="ev2">Read from the live ads at Tue 24 Nov, 15:02: 9 ads</div><div class="acts"><span class="btn">Use the live ads’ page: NX LOVES</span><span class="btn ghost">Keep <span style='text-transform:none'>NX Newcastle</span></span></div></div><div class="chk warn"><div class="key">Live ads</div><b>This draft runs on Instagram as @nxnewcastle; the live ads run as @dj_dod. Relaunching uses the draft’s.</b><div class="ev2">Read from the live ads at Tue 24 Nov, 15:02: 9 ads</div><div class="acts"><span class="btn">Use the live ads’ Instagram: <span style='text-transform:none'>@dj_dod</span></span><span class="btn ghost">Keep <span style='text-transform:none'>@nxnewcastle</span></span></div></div><div style="display:flex;justify-content:flex-end;gap:8px;margin-top:6px"><span class="btn ghost">Back</span><span class="btn">Launch</span></div></div></div></figure><figure><figcaption>RC-I · 393 · after “Keep”</figcaption><div class="vp w393"><div class="bar1"><span class="bc">Review &amp; launch</span></div><div class="body1" style="padding:14px"><div class="sum"><span class="ok">● Nothing to fix</span></div><p class="fs" style="margin:0 0 4px">Account, pixel, link and names match NX26-DOD.</p><p class="fs" style="margin:0">Page kept by Matas, Tue 24 Nov, 15:06: NX Newcastle</p><p class="fs" style="margin:0">Instagram kept by Matas, Tue 24 Nov, 15:06: @nxnewcastle</p><div style="display:flex;justify-content:flex-end;gap:8px;margin-top:8px"><span class="btn ghost">Back</span><span class="btn">Launch</span></div></div></div><p class="fs" style="max-width:640px;margin-top:8px">Both kept: each clears for this draft until that field changes, with who and when.</p></figure></div>
+<h2>The words</h2>
+<p class="lead">These rows are added to <code>scratch/campaign-replicate/words-rc-2026-11-24.tsv</code>, after link_not_event's. Every existing row stands as #1359 has it.</p>
+<div class="scrollx"><table class="w"><tr><th style="width:280px">Key</th><th style="width:240px">Where</th><th>Words</th></tr><tr><td>identity_not_live.key</td><td>Check, warning</td><td>Live ads</td></tr><tr><td>identity_not_live</td><td>Check, warning</td><td>This draft runs from {draft page}; the live ads run from {live page}. Relaunching uses the draft’s.</td></tr><tr><td>identity_not_live.instagram</td><td>Check, warning</td><td>This draft runs on Instagram as @{draft handle}; the live ads run as @{live handle}. Relaunching uses the draft’s.</td></tr><tr><td>identity_not_live.evidence</td><td>Check, warning</td><td>Read from the live ads at {date, time}: {n} ads</td></tr><tr><td>identity_not_live.evidence.one</td><td>Check, warning</td><td>Read from the live ads at {date, time}: 1 ad</td></tr><tr><td>identity_not_live.fix</td><td>Check, warning</td><td>Use the live ads’ page: {live page}</td></tr><tr><td>identity_not_live.instagram.fix</td><td>Check, warning</td><td>Use the live ads’ Instagram: @{live handle}</td></tr><tr><td>identity_not_live.keep</td><td>Check, warning</td><td>Keep {draft page}</td></tr><tr><td>identity_not_live.instagram.keep</td><td>Check, warning</td><td>Keep @{draft handle}</td></tr><tr><td>identity_not_live.kept</td><td>Review &amp; launch, under the list</td><td>Page kept by {name}, {date, time}: {draft page}</td></tr><tr><td>identity_not_live.instagram.kept</td><td>Review &amp; launch, under the list</td><td>Instagram kept by {name}, {date, time}: @{draft handle}</td></tr><tr><td>page_other_client.fix.live</td><td>Check, blocker (live ads’ page known, not another client’s)</td><td>Use the live ads’ page: {live page}</td></tr><tr><td>page_other_client.instagram.fix.live</td><td>Check, blocker (live ads’ Instagram known, not another client’s)</td><td>Use the live ads’ Instagram: @{live handle}</td></tr><tr><td>page_other_client.evidence.live</td><td>Check, blocker (live ads’ page known)</td><td>Ads: all {n} · the live ads run from {live page}</td></tr><tr><td>page_other_client.instagram.evidence.live</td><td>Check, blocker (live ads’ Instagram known)</td><td>Ads: all {n} · the live ads run as @{live handle}</td></tr></table></div>
+
+<h2>Acceptance</h2>
+<ul class="notes">
+<li><b>NX26-DOD:</b> two blockers, each with "Use the live ads' …" first, and no identity_not_live line. One click sets NX LOVES and @dj_dod, after which the draft launches clean.</li>
+<li><b>Another Electric page on the draft:</b> the warning shows for each field that differs, and Launch is on. "Keep" clears it and writes the kept line, and changing the page brings it back.</li>
+<li><b>A draft never launched:</b> no read, no warning.</li>
+<li><b>The read:</b> one Meta read per launch review, none while editing (CC-2's test). A failed read shows nothing.</li>
+<li><b>Live page another client's:</b> no "Use the live ads' …" fix is offered.</li>
+</ul>
+
+<h2>Invented here</h2>
+<ul class="notes">
+<li>The key word "Live ads".</li>
+<li>The evidence line, and the two Keep fixes with their kept lines.</li>
+<li>The majority rule for mixed live ads, and silence when the read fails.</li>
+<li>NX Newcastle and @nxnewcastle in RC-I.</li>
+<li>The ad count and the read time.</li>
+</ul>
+
+<h2>Hand-back</h2>
+<table class="t">
+<tr><th style="width:190px">To</th><th>What</th></tr>
+<tr><td>CC-2 (#1361)</td><td>
+<ul>
+<li>Add the fifteen rows to <code>words.ts</code> and its fixture.</li>
+<li>Run the read once at launch review.</li>
+<li>Suppress identity_not_live on a field where page_other_client fires, and give the blocker the .live fix and evidence instead.</li>
+<li>Offer no live fix when the live page is another client's.</li>
+<li>Store Keep with who and when.</li>
+</ul></td></tr>
+</table>
+
+</div>
+</body>
+</html>
