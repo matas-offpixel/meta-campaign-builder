@@ -74,6 +74,8 @@ export type RetargetingProgress = {
   /** Audience key → Meta id. */
   audiences?: Record<string, string>;
   adSets?: Partial<Record<Tier, { id: string; dailyMinor: number }>>;
+  /** RT13: each pixel audience's URL rules as built, so the daily read can tell when the show's links change. */
+  rules?: Record<string, string[]>;
   ads?: string[];
   main?: { before: number; after: number; moved: number };
   share?: Share;
@@ -235,7 +237,8 @@ export async function applyRetargetingCampaign(deps: RetargetingDeps, line: Reta
       return fail(ctx.plainMetaReason(err), { error: err instanceof Error ? err.message : String(err), step: "videos" });
     }
   }
-  const specs = tierSpecs(sources).filter((spec) => budgets.tiers[spec.tier] > 0);
+  // RT13: an empty Bottom has no budget, and then its audiences aren't built for the leave-outs either.
+  const specs = tierSpecs(sources, { bottom: budgets.tiers.bottom > 0 }).filter((spec) => budgets.tiers[spec.tier] > 0);
   if (!specs.length) return fail("No tier has an audience to build");
   try {
     // 1. The custom conversion (own-domain path), reused by name.
@@ -264,6 +267,7 @@ export async function applyRetargetingCampaign(deps: RetargetingDeps, line: Reta
       if (!built) return null;
       await storeAudience(deps.db, { event_id: deps.owner.eventId, user_id: deps.owner.userId, part: aud.key, meta_audience_id: built.metaAudienceId, name, line_id: line.id });
       progress.audiences![aud.key] = built.metaAudienceId;
+      if (aud.kind === "pixel_url" || aud.kind === "pixel_event") progress.rules = { ...(progress.rules ?? {}), [aud.key]: [...aud.urlContains] };
       await storeProgress(deps.db, line.id, progress);
       return built.metaAudienceId;
     };

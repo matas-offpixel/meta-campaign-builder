@@ -86,7 +86,7 @@ const ALLOWED_DIRECT_READS = new Set([
   "lib/meta/page-token.ts", // resolvePageIdentity behind allowSystemToken; resolveIgActorForAdAccount (operator-gated callers)
   // crons (CRON_SECRET, no caller)
   "app/api/cron/onsale-refresh/route.ts",
-  "app/api/cron/retargeting-read/route.ts", // the Retargeting campaign's daily read, reads only (RT1)
+  "app/api/cron/retargeting-read/route.ts", // the Retargeting daily read (RT1); its one write, RT13's rule rewrite, uses the event owner's refresh token (lib/retargeting/rule-rewrite.ts)
   "app/api/cron/creative-tests-read/route.ts", // the creative tests' daily read: a test ad set's end_time or pause, gated and ledgered (TF6)
   "app/api/cron/optimisation-tick/route.ts",
   "app/api/cron/ad-daily-insights/route.ts",

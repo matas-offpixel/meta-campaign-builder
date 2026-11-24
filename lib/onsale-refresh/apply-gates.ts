@@ -62,6 +62,16 @@ export function audienceWritesEnabledFrom(env: Record<string, string | undefined
   return env.OFFPIXEL_META_AUDIENCE_WRITES_ENABLED === "true";
 }
 
+/**
+ * RT16 (docs/design-record/2026-11-17-retargeting-campaign-2.html): the
+ * Retargeting panel is Live on every active show without arming each
+ * event. Its lines take the deployment's gates with the arm set Live; the
+ * rest of the refresh keeps R4's per-event arm. Every write gate stands.
+ */
+export function retargetingGates(gates: ApplyGates): ApplyGates {
+  return { ...gates, arm: "live", mode: gates.globalEnabled ? "live" : "shadow" };
+}
+
 export function applyGates(env: Record<string, string | undefined>, arm: ArmMode | null | undefined): ApplyGates {
   const globalEnabled = applyEnabled(env);
   const armed: ArmMode = arm === "live" ? "live" : "shadow";

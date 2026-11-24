@@ -4,11 +4,14 @@
  * - Current daily spend is TF1's: the show's Meta spend over the last 7
  *   days across its on-sale campaigns, ÷ 7. The Tests and Retargeting
  *   campaigns aren't counted (the caller leaves them out).
- * - The total starts at 10 % of that (10 · 15 · 20 % on offer), rounded
- *   down to the penny.
+ * - The total starts at today's share of that (RT11: 10 % normally, 15 %
+ *   in the payday stretch or the final month, 20 % in the final two
+ *   weeks, 25 % in the final week; the 10 / 15 / 20 % choice is
+ *   withdrawn), rounded down to the penny.
  * - The split is Bottom 50 %, Mid Bottom 25 %, Mid 25 %, to the penny, any
  *   odd penny to Bottom. When Mid can't be built (RT8), its 25 % goes to
- *   Bottom and Mid Bottom, 2 to 1.
+ *   Bottom and Mid Bottom, 2 to 1. When Bottom can't be built (RT13), its
+ *   50 % goes to Mid Bottom and Mid, 1 to 1.
  * - The floor is £1.00 a day per tier, or Meta's min_daily_budget when
  *   higher. A tier under it is lifted to it and the difference comes out of
  *   Bottom, so the smallest total is three floors.
@@ -24,8 +27,8 @@ const MIN_DAILY_BUDGET_MINOR = 100;
 
 export const RT4 = {
   windowDays: 7,
-  /** The choice on the Create line, the default first in the record's order. */
-  shares: [10, 15, 20] as const,
+  /** RT11's shares (normally, payday and final month, final two weeks, final week). */
+  shares: [10, 15, 20, 25] as const,
   defaultShare: 10,
   floorMinor: MIN_DAILY_BUDGET_MINOR,
   /** R5's cap on a refresh's money: 20 % of the remaining plan. */
@@ -35,7 +38,7 @@ export const RT4 = {
 export type Share = (typeof RT4.shares)[number];
 
 export function isShare(value: unknown): value is Share {
-  return value === 10 || value === 15 || value === 20;
+  return value === 10 || value === 15 || value === 20 || value === 25;
 }
 
 /** Current daily spend, in pennies, from the 7 days' spend in pounds. */
@@ -54,12 +57,22 @@ export type Starting = {
 
 /**
  * RT4's split for one share. `midBuildable` false: Mid gets nothing and its
- * quarter goes 2 to 1 to Bottom and Mid Bottom. Null with no spend.
+ * quarter goes 2 to 1 to Bottom and Mid Bottom. `bottomBuildable` false
+ * (RT13): Bottom gets nothing and its half goes 1 to 1 to Mid Bottom and
+ * Mid. Null with no spend.
  */
-export function startingBudget(args: { currentDailyMinor: number; share: Share; minDailyMinor?: number | null; midBuildable: boolean }): Starting | null {
+export function startingBudget(args: { currentDailyMinor: number; share: Share; minDailyMinor?: number | null; midBuildable: boolean; bottomBuildable?: boolean }): Starting | null {
   if (!(args.currentDailyMinor > 0)) return null;
   const floorMinor = Math.max(RT4.floorMinor, args.minDailyMinor != null && args.minDailyMinor > 0 ? args.minDailyMinor : 0);
   const total = Math.floor((args.currentDailyMinor * args.share) / 100 + 1e-9);
+  if (args.bottomBuildable === false) {
+    // RT13: no Bottom. Mid Bottom and Mid take the total 1 to 1 (Mid Bottom alone when Mid can't be built), any odd penny to Mid Bottom.
+    let atFloor = false;
+    const lift = (value: number) => (value >= floorMinor ? value : ((atFloor = true), floorMinor));
+    const mid = args.midBuildable ? lift(Math.floor(total / 2)) : 0;
+    const midBottom = lift(total - mid);
+    return { totalMinor: midBottom + mid, tiers: { bottom: 0, mid_bottom: midBottom, mid }, atFloor, floorMinor, share: args.share };
+  }
   let mid = 0;
   let midBottom: number;
   if (args.midBuildable) {
