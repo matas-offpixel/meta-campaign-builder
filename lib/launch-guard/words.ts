@@ -82,6 +82,36 @@ export const LAUNCH_GUARD_WORDS = {
   "link_not_event.fix": "Use the event’s page · Keep this link",
   // Review & launch, under the list
   "link_not_event.kept": "Link kept by {name}, {date, time}: {url}",
+  // Check, warning
+  "identity_not_live.key": "Live ads",
+  // Check, warning
+  "identity_not_live": "This draft runs from {draft page}; the live ads run from {live page}. Relaunching uses the draft’s.",
+  // Check, warning
+  "identity_not_live.instagram": "This draft runs on Instagram as @{draft handle}; the live ads run as @{live handle}. Relaunching uses the draft’s.",
+  // Check, warning
+  "identity_not_live.evidence": "Read from the live ads at {date, time}: {n} ads",
+  // Check, warning
+  "identity_not_live.evidence.one": "Read from the live ads at {date, time}: 1 ad",
+  // Check, warning
+  "identity_not_live.fix": "Use the live ads’ page: {live page}",
+  // Check, warning
+  "identity_not_live.instagram.fix": "Use the live ads’ Instagram: @{live handle}",
+  // Check, warning
+  "identity_not_live.keep": "Keep {draft page}",
+  // Check, warning
+  "identity_not_live.instagram.keep": "Keep @{draft handle}",
+  // Review & launch, under the list
+  "identity_not_live.kept": "Page kept by {name}, {date, time}: {draft page}",
+  // Review & launch, under the list
+  "identity_not_live.instagram.kept": "Instagram kept by {name}, {date, time}: @{draft handle}",
+  // Check, blocker (live ads’ page known, not another client’s)
+  "page_other_client.fix.live": "Use the live ads’ page: {live page}",
+  // Check, blocker (live ads’ Instagram known, not another client’s)
+  "page_other_client.instagram.fix.live": "Use the live ads’ Instagram: @{live handle}",
+  // Check, blocker (live ads’ page known)
+  "page_other_client.evidence.live": "Ads: all {n} · the live ads run from {live page}",
+  // Check, blocker (live ads’ Instagram known)
+  "page_other_client.instagram.evidence.live": "Ads: all {n} · the live ads run as @{live handle}",
   // Check, blocker
   "page_other_client.key": "Page",
   // Check, blocker

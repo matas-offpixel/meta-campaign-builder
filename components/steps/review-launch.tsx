@@ -31,7 +31,7 @@ import {
 } from "lucide-react";
 import { launchFailureLead, type LaunchErrorSource } from "@/lib/meta/launch-failure-copy";
 import { LaunchChecks } from "@/components/launch-guard/launch-checks";
-import { keptLinkLines } from "@/lib/launch-guard/check";
+import { keptIdentityLines, keptLinkLines } from "@/lib/launch-guard/check";
 import type { LaunchCheck, LaunchCheckFix, LaunchGuardResult } from "@/lib/launch-guard/types";
 import { attachedAdSetKey, type CampaignDraft, type CampaignSettings, type LaunchSummary } from "@/lib/types";
 import { urlTagsReviewLine } from "@/lib/meta/url-tags";
@@ -1044,7 +1044,7 @@ export function ReviewLaunch({
         <LaunchChecks
           result={launchGuard}
           onFix={canvasOwnsLaunch ? undefined : onLaunchGuardFix}
-          keptLines={keptLinkLines(draft)}
+          keptLines={[...keptIdentityLines(draft), ...keptLinkLines(draft)]}
         />
       ) : null}
 

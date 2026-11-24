@@ -84,11 +84,52 @@ function CheckRow({
               onClick={() => onFix(check, fix)}
               className="rounded border border-foreground bg-transparent px-2.5 py-1 font-mono text-[10px] font-bold uppercase tracking-[0.1em] text-foreground hover:bg-muted"
             >
-              {fix.label}
+              <FixLabel label={fix.label} names={fix.names} />
             </button>
           ))}
         </div>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * A fix button's label. The button sets its words in capitals; a page
+ * name, handle or account name inside it keeps its own case (RC8):
+ * "USE THE LIVE ADS' INSTAGRAM: @dj_dod".
+ */
+export function FixLabel({ label, names }: { label: string; names?: readonly string[] }) {
+  const parts: Array<{ text: string; name: boolean }> = [{ text: label, name: false }];
+  for (const name of names ?? []) {
+    if (!name) continue;
+    for (let i = 0; i < parts.length; i += 1) {
+      const part = parts[i]!;
+      if (part.name) continue;
+      const at = part.text.indexOf(name);
+      if (at < 0) continue;
+      parts.splice(
+        i,
+        1,
+        { text: part.text.slice(0, at), name: false },
+        { text: name, name: true },
+        { text: part.text.slice(at + name.length), name: false },
+      );
+      break;
+    }
+  }
+  return (
+    <>
+      {parts
+        .filter((part) => part.text)
+        .map((part, index) =>
+          part.name ? (
+            <span key={index} className="normal-case">
+              {part.text}
+            </span>
+          ) : (
+            <span key={index}>{part.text}</span>
+          ),
+        )}
+    </>
   );
 }

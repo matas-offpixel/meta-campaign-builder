@@ -1369,6 +1369,15 @@ export interface CampaignSettings {
    */
   launchGuard?: {
     keptLinks?: Array<{ url: string; keptBy: string; keptAt: string }>;
+    /**
+     * "Keep {draft page}" / "Keep @{handle}" (RC8, #1362): the live-ads
+     * warning stays clear for that field while the draft's page or
+     * Instagram equals the kept id.
+     */
+    keptIdentity?: {
+      page?: { id: string; name: string | null; keptBy: string; keptAt: string };
+      instagram?: { id: string; name: string | null; keptBy: string; keptAt: string };
+    };
   };
 }
 

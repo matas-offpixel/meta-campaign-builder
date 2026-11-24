@@ -69,7 +69,9 @@ export type LaunchCheckKey =
    */
   | "page_other_client"
   /** Ops' ruling 4 (24 Nov): the event's venue has no account or pixel stored. A warning. */
-  | "venue_not_set";
+  | "venue_not_set"
+  /** RC8 (#1362): a published draft's page or Instagram isn't the live ads'. A warning. */
+  | "identity_not_live";
 
 export type LaunchCheckSeverity = "blocker" | "warning";
 
@@ -95,8 +97,13 @@ export interface GuardFinding {
   source?: string;
 }
 
-/** What a fix button does to the draft. Applied by applyLaunchCheckFix(). */
-export type LaunchCheckFix =
+/**
+ * What a fix button does to the draft. Applied by applyLaunchCheckFix().
+ * `names` are the page names, handles and account names inside the label:
+ * the button sets its own words in capitals and these keep their case (RC8).
+ */
+export type LaunchCheckFix = (
+
   | { action: "set_pixel"; label: string; pixelId: string }
   | { action: "set_account"; label: string; adAccountId: string }
   | { action: "rename"; label: string; name: string }
@@ -107,7 +114,12 @@ export type LaunchCheckFix =
   /** "Change the page" / "Change the Instagram account": back to where it is picked. */
   | { action: "change_identity"; label: string; field: "page" | "instagram"; where: "settings" | "creatives" }
   /** "Open the venue card". TODO(R2): the venue card's own route once it exists. */
-  | { action: "open_venue_card"; label: string; clientId: string | null };
+  | { action: "open_venue_card"; label: string; clientId: string | null }
+  /** "Use the live ads' page: {live page}": the draft (never Meta) takes the live ads' page or Instagram. */
+  | { action: "use_live_identity"; label: string; field: "page" | "instagram"; from: string; to: string }
+  /** "Keep {draft page}": who kept which page or Instagram, and when (RC8). */
+  | { action: "keep_identity"; label: string; field: "page" | "instagram"; id: string }
+) & { names?: readonly string[] };
 
 export interface LaunchCheck {
   key: LaunchCheckKey;
@@ -134,6 +146,37 @@ export interface KeptLink {
   url: string;
   keptBy: string;
   keptAt: string;
+}
+
+/** "Keep {draft page}" (RC8): the page or Instagram id kept, who kept it and when. */
+export interface KeptIdentity {
+  id: string;
+  /** The name or handle shown in the kept line, as it read when kept. */
+  name: string | null;
+  keptBy: string;
+  keptAt: string;
+}
+
+/** One field of the live ads' identity: the page or account most live ads use. */
+export interface LiveField {
+  id: string;
+  /** Page name, or the Instagram username without "@". */
+  name: string | null;
+  /** Live ads on this page / account. */
+  count: number;
+  /** Another client holds it (page_other_client's sources): never offered as the answer (RC8a). */
+  otherClient: boolean;
+}
+
+/** The live ads' page and Instagram for a published draft, read once at launch review (RC8). */
+export interface LiveIdentity {
+  campaignId: string;
+  /** ISO time of the read, for "Read from the live ads at {date, time}". */
+  readAt: string;
+  page: LiveField | null;
+  instagram: LiveField | null;
+  /** Names of the draft's own page and Instagram, read with the live ones. */
+  draftNames: Record<string, string>;
 }
 
 /**

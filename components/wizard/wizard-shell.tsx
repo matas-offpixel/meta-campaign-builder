@@ -396,6 +396,7 @@ export function WizardShell({ draftId, linkedPlan = null }: WizardShellProps) {
       changeStep(fix.where === "settings" ? 0 : 4);
       return;
     }
+    // "Use the live ads' page" and "Keep {page}" change the draft only (applyLaunchCheckFix), never Meta.
     if (fix.action === "open_venue_card") {
       // TODO(R2): the venue card's own route once it exists.
       if (fix.clientId) window.open(`/clients/${fix.clientId}`, "_blank", "noopener");

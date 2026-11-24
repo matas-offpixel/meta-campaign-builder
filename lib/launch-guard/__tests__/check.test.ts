@@ -199,7 +199,7 @@ describe("checkLaunchReferences", () => {
     assert.deepEqual(keptLinkLines(kept), [
       tsvWord("link_not_event.kept")
         .replace("{name}", "matas@offpixel")
-        .replace("{date, time}", "24 Nov, 16:40")
+        .replace("{date, time}", "Tue 24 Nov, 16:40")
         .replace("{url}", "skiddle.com/e/41877"),
     ]);
 
@@ -572,5 +572,79 @@ describe("page_other_client", () => {
   it("without ownership data the check is silent", () => {
     const event = { ...NX26_DOD, clientId: ELECTRIC };
     assert.deepEqual(checkLaunchReferences(dodDraft(), event, venueDefaultsFromMap(event), []).checks, []);
+  });
+});
+
+/**
+ * page_other_client on ops' sources (24 Nov): another client's defaults,
+ * its venues' pages, its earlier drafts. This client's own drafts don't
+ * count; its defaults, venues and BM do.
+ */
+describe("page_other_client: ops' sources", () => {
+  const ELECTRIC = "f9045034-2788-4b1d-94d1-1a5ab7fa5ac8";
+  const event = electricEvent({ id: "dod", code: "NX26-DOD", name: "DOD", venueName: "NX Newcastle", venueKey: "nx newcastle", signupUrl: "https://dod-newcastle.com", clientId: ELECTRIC });
+  const clients = [
+    { id: ELECTRIC, name: "Electric Brixton", default_page_ids: [], default_instagram_actor_id: null, meta_business_id: "1927009767586803" },
+    { id: "lwe", name: "IRONWORKS", default_page_ids: [], default_instagram_actor_id: null, meta_business_id: null },
+    { id: "puzzle", name: "Puzzle", default_page_ids: [], default_instagram_actor_id: null, meta_business_id: null },
+  ];
+  function draftOn(page: string, ig: string) {
+    const draft = glitterboxNxDraft();
+    draft.id = "this-draft";
+    draft.settings = { ...draft.settings, clientId: ELECTRIC, eventId: event.id, campaignName: "[NX26-DOD] On sale", metaPageId: page, metaIGAccountId: ig };
+    draft.creatives = draft.creatives.slice(0, 2).map((c) => ({ ...c, destinationUrl: "https://dod-newcastle.com", headline: "DOD", captions: [], identity: { pageId: page, instagramAccountId: ig } }));
+    return draft;
+  }
+  function check(draft: ReturnType<typeof draftOn>, extra: Partial<Parameters<typeof identityOwnershipFrom>[0]> = {}) {
+    const ids = draftIdentities(draft);
+    const ownership = identityOwnershipFrom({
+      event,
+      pageIds: [...ids.pages.keys()],
+      igIds: [...ids.instagram.keys()],
+      clients,
+      bmPages: [{ id: "b1", business_id: "1927009767586803", page_id: "259905047197071", page_name: "NX LOVES", is_owned_by_bm: true }],
+      bmIgs: [{ id: "b2", business_id: "1927009767586803", ig_asset_id: "102392272513389", ig_user_id: "17841400834660844", ig_username: "dj_dod", is_owned_by_bm: false }],
+      bms: [],
+      artistRows: [],
+      // Production, 24 Nov: IRONWORKS has 27 drafts on Ironworks London, Puzzle 16 on its Instagram;
+      // Electric's own 16 + 14 are the copies.
+      draftClaims: [
+        { client_id: "lwe", page_id: "1157874844068425", ig_id: null },
+        { client_id: "puzzle", page_id: null, ig_id: "17841456620568454" },
+        { client_id: ELECTRIC, page_id: "1157874844068425", ig_id: "17841456620568454" },
+      ],
+      ...extra,
+    });
+    return checkLaunchReferences(draft, event, venueDefaultsFromMap(event), [], ownership);
+  }
+
+  it("Ironworks London + @puzzleofficialuk, held by other clients' drafts: both fire", () => {
+    const result = check(draftOn("1157874844068425", "17841456620568454"));
+    assert.deepEqual(result.checks.map((c) => c.label), ["Page", "Instagram"]);
+    assert.match(result.checks[0]!.sentence, /^Ads run from 1157874844068425, which is IRONWORKS’s page\./);
+  });
+
+  it("NX LOVES + dj_dod: nothing fires", () => {
+    assert.deepEqual(check(draftOn("259905047197071", "17841400834660844")).checks, []);
+  });
+
+  it("this client's own drafts never make a page its own", () => {
+    const only = check(draftOn("1157874844068425", "17841400834660844"), {
+      draftClaims: [{ client_id: ELECTRIC, page_id: "1157874844068425", ig_id: null }],
+    });
+    assert.deepEqual(only.checks, []);
+  });
+
+  it("a venue's page belongs to the clients whose events are at it", () => {
+    const result = check(draftOn("555", "17841400834660844"), {
+      draftClaims: [],
+      venueClaims: [{ page_id: "555", client_id: "lwe" }],
+    });
+    assert.deepEqual(result.checks.map((c) => c.label), ["Page"]);
+    const shared = check(draftOn("555", "17841400834660844"), {
+      draftClaims: [],
+      venueClaims: [{ page_id: "555", client_id: "lwe" }, { page_id: "555", client_id: ELECTRIC }],
+    });
+    assert.deepEqual(shared.checks, []);
   });
 });

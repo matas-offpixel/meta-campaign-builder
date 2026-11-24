@@ -101,7 +101,34 @@ describe("RC-C-venue (ops' rulings 3 and 4)", () => {
       "Link isn’t this event’s page: skiddle.com/e/41877 in 1 ad. The event’s page is crqln.com/l/fixture-brixton.",
     );
     assert.deepEqual(launchChecksFrameView("RC-C-venue").keptLines, [
-      "Link kept by Matas, 24 Nov, 16:40: ra.co/events/2210442",
+      "Link kept by Matas, Tue 24 Nov, 16:40: ra.co/events/2210442",
+    ]);
+  });
+});
+
+describe("#1362 frames (RC8, RC8a)", () => {
+  it("RC-H: two blockers, each with the live answer first, no Live ads line", () => {
+    const result = launchChecksFrame("RC-H");
+    assert.deepEqual(countLine(result), ["● 2 to fix before launch"]);
+    assert.deepEqual(
+      result.checks.map((check) => [check.label, check.evidence, check.fixes.map((fix) => fix.label)]),
+      [
+        ["Page", "Ads: all 9 · the live ads run from NX LOVES", ["Use the live ads’ page: NX LOVES", "Change the page"]],
+        ["Instagram", "Ads: all 9 · the live ads run as @dj_dod", ["Use the live ads’ Instagram: @dj_dod", "Change the Instagram account"]],
+      ],
+    );
+  });
+
+  it("RC-I: two Live ads warnings, Launch on; RC-I-kept: nothing to fix and two kept lines", () => {
+    const warnings = launchChecksFrame("RC-I");
+    assert.deepEqual(countLine(warnings), ["● 2 to check"]);
+    assert.equal(blockedLaunchLabel(warnings.blockers), null);
+    assert.deepEqual(warnings.checks.map((check) => check.label), ["Live ads", "Live ads"]);
+    const kept = launchChecksFrameView("RC-I-kept");
+    assert.deepEqual(countLine(kept.result), ["● Nothing to fix"]);
+    assert.deepEqual(kept.keptLines, [
+      "Page kept by Matas, Tue 24 Nov, 15:06: NX Newcastle",
+      "Instagram kept by Matas, Tue 24 Nov, 15:06: @nxnewcastle",
     ]);
   });
 });

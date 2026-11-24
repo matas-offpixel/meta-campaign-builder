@@ -2,12 +2,14 @@ import { createDefaultCreative, createDefaultDraft } from "../../lib/campaign-de
 import {
   checkLaunchReferences,
   draftIdentities,
+  keepIdentity,
   keepLink,
+  keptIdentityLines,
   keptLinkLines,
   renderArtistCaptionCheck,
 } from "../../lib/launch-guard/check.ts";
 import { identityOwnershipFrom } from "../../lib/launch-guard/load.ts";
-import type { GuardEvent, LaunchGuardResult } from "../../lib/launch-guard/types.ts";
+import type { GuardEvent, LaunchGuardResult, LiveIdentity } from "../../lib/launch-guard/types.ts";
 import { ELECTRIC_CLIENT_ID, venueDefaultsFromMap } from "../../lib/launch-guard/venue-defaults.ts";
 import type { AdSetSuggestion, CampaignDraft } from "../../lib/types.ts";
 
@@ -30,8 +32,15 @@ import type { AdSetSuggestion, CampaignDraft } from "../../lib/types.ts";
  *   which has no account or pixel stored (a warning, Launch stays on), one
  *   ad whose link isn't the event's page (the one-ad row), and one kept
  *   link (the muted line under the list).
+ *
+ * #1362 (RC8, RC8a), the live ads' page, read at 15:02 on Tue 24 Nov:
+ * - RC-H: NX26-DOD On sale, published, 9 live ads on NX LOVES + @dj_dod
+ *   (ops' read): the two page_other_client blockers with the live answer.
+ * - RC-I: the draft on NX Newcastle + @nxnewcastle (invented, as the
+ *   record has it): two identity_not_live warnings, Launch on.
+ * - RC-I-kept: the same after Keep on both (15:06): the two kept lines.
  */
-export const LAUNCH_CHECKS_FRAME_IDS = ["RC-C", "RC-C-clean", "RC-C2", "RC-C-venue"] as const;
+export const LAUNCH_CHECKS_FRAME_IDS = ["RC-C", "RC-C-clean", "RC-C2", "RC-C-venue", "RC-H", "RC-I", "RC-I-kept"] as const;
 export type LaunchChecksFrameId = (typeof LAUNCH_CHECKS_FRAME_IDS)[number];
 
 function event(partial: Partial<GuardEvent> & Pick<GuardEvent, "id" | "code">): GuardEvent {
@@ -217,6 +226,46 @@ function dodOwnership(d: CampaignDraft) {
   });
 }
 
+const LIVE_DOD: LiveIdentity = {
+  campaignId: "120251748789350755",
+  readAt: "2026-11-24T15:02:00.000Z",
+  page: { id: "259905047197071", name: "NX LOVES", count: 9, otherClient: false },
+  instagram: { id: "17841400834660844", name: "dj_dod", count: 9, otherClient: false },
+  draftNames: {
+    "1157874844068425": "Ironworks London",
+    "17841456620568454": "puzzleofficialuk",
+    "900000000000001": "NX Newcastle",
+    "17840000000000001": "nxnewcastle",
+  },
+};
+
+function publishedDod(page: string, ig: string): CampaignDraft {
+  const d = dodDraft();
+  return {
+    ...d,
+    status: "published",
+    metaCampaignId: LIVE_DOD.campaignId,
+    settings: { ...d.settings, metaPageId: page, metaIGAccountId: ig },
+    creatives: d.creatives.map((creative) => ({
+      ...creative,
+      identity: { pageId: page, instagramAccountId: ig, instagramActorId: ig },
+    })),
+  };
+}
+
+function rcI(kept: boolean): LaunchChecksFrameView {
+  let d = publishedDod("900000000000001", "17840000000000001");
+  if (kept) {
+    const at = new Date("2026-11-24T15:06:00Z");
+    d = keepIdentity(d, "page", "900000000000001", "NX Newcastle", "Matas", at);
+    d = keepIdentity(d, "instagram", "17840000000000001", "nxnewcastle", "Matas", at);
+  }
+  return {
+    result: checkLaunchReferences(d, NX26_DOD, venueDefaultsFromMap(NX26_DOD), [], dodOwnership(d), LIVE_DOD),
+    keptLines: keptIdentityLines(d),
+  };
+}
+
 export interface LaunchChecksFrameView {
   result: LaunchGuardResult;
   /** "Link kept by …" lines under the list. */
@@ -228,6 +277,15 @@ export function launchChecksFrameView(id: LaunchChecksFrameId): LaunchChecksFram
     const d = keepLink(brixtonDraft(), "https://ra.co/events/2210442", "Matas", new Date("2026-11-24T16:40:00Z"));
     return { result: checkLaunchReferences(d, BRIXTON_SHOW, venueDefaultsFromMap(BRIXTON_SHOW), OTHERS), keptLines: keptLinkLines(d) };
   }
+  if (id === "RC-H") {
+    const d = publishedDod("1157874844068425", "17841456620568454");
+    return {
+      result: checkLaunchReferences(d, NX26_DOD, venueDefaultsFromMap(NX26_DOD), [], dodOwnership(d), LIVE_DOD),
+      keptLines: [],
+    };
+  }
+  if (id === "RC-I") return rcI(false);
+  if (id === "RC-I-kept") return rcI(true);
   if (id === "RC-C2") {
     const d = dodDraft();
     return {
@@ -239,7 +297,7 @@ export function launchChecksFrameView(id: LaunchChecksFrameId): LaunchChecksFram
 }
 
 export function launchChecksFrame(id: LaunchChecksFrameId): LaunchGuardResult {
-  if (id === "RC-C-venue" || id === "RC-C2") return launchChecksFrameView(id).result;
+  if (id !== "RC-C" && id !== "RC-C-clean") return launchChecksFrameView(id).result;
   const composite = id === "RC-C";
   const result = checkLaunchReferences(draft(composite), NX27_GLITTERBOX, venueDefaultsFromMap(NX27_GLITTERBOX), OTHERS);
   if (!composite) return result;

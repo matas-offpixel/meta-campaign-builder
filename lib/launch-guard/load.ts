@@ -1,7 +1,14 @@
 import type { CampaignDraft } from "../types.ts";
 
 import { checkLaunchReferences, draftIdentities } from "./check.ts";
-import type { GuardEvent, IdentityOwner, IdentityOwnership, LaunchGuardResult, VenueDefaults } from "./types.ts";
+import type {
+  GuardEvent,
+  IdentityOwner,
+  IdentityOwnership,
+  LaunchGuardResult,
+  LiveIdentity,
+  VenueDefaults,
+} from "./types.ts";
 import { loadVenueDefaults } from "./venue-defaults.ts";
 
 /**
@@ -108,6 +115,13 @@ export async function loadClientEvents(db: unknown, clientId: string, now: Date)
   );
 }
 
+/** The draft's event alone (no other shows), for reads that need only its client. */
+export async function loadGuardEvent(db: unknown, eventId: string): Promise<GuardEvent | null> {
+  const { data, error } = await (db as Db).from("events").select(EVENT_COLUMNS).eq("id", eventId).maybeSingle();
+  if (error) throw new Error(`launch-guard: event: ${error.message ?? "read failed"}`);
+  return data ? toGuardEvent(data as EventRow, []) : null;
+}
+
 export interface LaunchGuardContext {
   event: GuardEvent;
   venueDefaults: VenueDefaults;
@@ -163,34 +177,79 @@ const chunks = <T,>(list: readonly T[], size = 100): T[][] =>
   Array.from({ length: Math.ceil(list.length / size) }, (_, i) => list.slice(i * size, i * size + size));
 
 /**
- * Who holds each page and Instagram account the draft would run from.
- * Sources, all already in the app: clients.default_page_ids and
- * clients.default_instagram_actor_id; the BM scan's bm_pages and
- * bm_ig_accounts, each BM mapped to a client by clients.meta_business_id
- * (client_business_managers.client_id as well, set on 1 of 71 BMs on 24
- * Nov); artists.meta_page_id and artists.instagram_handle for artist pages.
- * Another client "holds" a page as a default or as a page its own BM owns
- * (is_owned_by_bm); a page merely shared into a BM is how artist pages
- * usually arrive, so it never makes a page another client's. This event's
- * client holds anything in its defaults or its BM, owned or shared.
- * Earlier drafts are not read: Electric already had 16 drafts on LWE's
- * Ironworks page, so drafts would make the mistake look like ownership.
+ * Who holds each page and Instagram account (page_other_client, ops' brief
+ * of 24 Nov). SELECTs only, paged.
+ *
+ * Another client holds it when it is in that client's
+ * `clients.default_page_ids` / `default_instagram_actor_id`, on a venue of
+ * that client's events (`venues.meta_page_id` through `events.venue_id`),
+ * or on that client's earlier drafts (`draft_json.settings.metaPageId` /
+ * `metaIGAccountId`, the draft being checked left out).
+ *
+ * This event's client holds it when it is in its own defaults, on its own
+ * venues, or anywhere in its own BM in the BM scan (`bm_pages` /
+ * `bm_ig_accounts`, owned or shared, the BM mapped by
+ * `clients.meta_business_id` or `client_business_managers.client_id`).
+ * Its own earlier drafts don't count: on 24 Nov Electric had 16 drafts on
+ * IRONWORKS' Ironworks London page and 14 on Puzzle's Instagram, all
+ * copies, so its drafts would make the mistake look like its own.
+ *
+ * An artist's page or handle (`artists.meta_page_id` /
+ * `artists.instagram_handle`) never fires.
  */
 export async function loadIdentityOwnership(
   db: unknown,
-  draft: CampaignDraft,
-  event: GuardEvent,
+  input: { event: GuardEvent; pageIds: readonly string[]; igIds: readonly string[]; excludeDraftId?: string | null },
 ): Promise<IdentityOwnership | null> {
   const client = db as Db;
-  const { pages, instagram } = draftIdentities(draft);
-  const pageIds = [...pages.keys()];
-  const igIds = [...instagram.keys()];
+  const { event } = input;
+  const pageIds = [...new Set(input.pageIds.filter(Boolean))];
+  const igIds = [...new Set(input.igIds.filter(Boolean))];
   if (pageIds.length === 0 && igIds.length === 0) return null;
 
   const clients = await pageAll<ClientRow>(
     () => client.from("clients").select("id, name, default_page_ids, default_instagram_actor_id, meta_business_id").order("id"),
     "clients",
   );
+
+  // Venues: a venue's page belongs to the clients whose events are at it.
+  const venueClaims: Array<{ page_id: string; client_id: string }> = [];
+  for (const chunk of chunks(pageIds)) {
+    const venues = await pageAll<{ id: string; meta_page_id: string | null }>(
+      () => client.from("venues").select("id, meta_page_id").in("meta_page_id", chunk).order("id"),
+      "venues",
+    );
+    for (const ids of chunks(venues.map((venue) => venue.id))) {
+      const events = await pageAll<{ id: string; venue_id: string | null; client_id: string | null }>(
+        () => client.from("events").select("id, venue_id, client_id").in("venue_id", ids).order("id"),
+        "events by venue",
+      );
+      for (const row of events) {
+        const page = venues.find((venue) => venue.id === row.venue_id)?.meta_page_id;
+        if (page && row.client_id) venueClaims.push({ page_id: page, client_id: row.client_id });
+      }
+    }
+  }
+
+  // Earlier drafts, by the page / Instagram in their settings.
+  const draftClaims: DraftClaim[] = [];
+  const draftCols = "id, client_id, page:draft_json->settings->>metaPageId, ig:draft_json->settings->>metaIGAccountId";
+  for (const [column, ids] of [
+    ["draft_json->settings->>metaPageId", pageIds],
+    ["draft_json->settings->>metaIGAccountId", igIds],
+  ] as const) {
+    for (const chunk of chunks(ids)) {
+      const rows = await pageAll<{ id: string; client_id: string | null; page: string | null; ig: string | null }>(
+        () => client.from("campaign_drafts").select(draftCols).in(column, chunk).order("id"),
+        "campaign_drafts",
+      );
+      for (const row of rows) {
+        if (row.id === input.excludeDraftId || !row.client_id) continue;
+        draftClaims.push({ client_id: row.client_id, page_id: row.page, ig_id: row.ig });
+      }
+    }
+  }
+
   const bmPages: BmPageRow[] = [];
   for (const chunk of chunks(pageIds)) {
     bmPages.push(
@@ -244,7 +303,34 @@ export async function loadIdentityOwnership(
       )),
     );
   }
-  return identityOwnershipFrom({ event, pageIds, igIds, clients, bmPages, bmIgs: [...bmIgs.values()], bms, artistRows });
+  return identityOwnershipFrom({
+    event,
+    pageIds,
+    igIds,
+    clients,
+    venueClaims,
+    draftClaims,
+    bmPages,
+    bmIgs: [...bmIgs.values()],
+    bms,
+    artistRows,
+  });
+}
+
+/** The draft's own page and Instagram ids, and their owners. */
+export async function loadDraftIdentityOwnership(
+  db: unknown,
+  draft: CampaignDraft,
+  event: GuardEvent,
+): Promise<IdentityOwnership | null> {
+  const { pages, instagram } = draftIdentities(draft);
+  return loadIdentityOwnership(db, { event, pageIds: [...pages.keys()], igIds: [...instagram.keys()], excludeDraftId: draft.id });
+}
+
+export interface DraftClaim {
+  client_id: string;
+  page_id: string | null;
+  ig_id: string | null;
 }
 
 /** The pure half of loadIdentityOwnership, for tests. */
@@ -253,12 +339,15 @@ export function identityOwnershipFrom(input: {
   pageIds: readonly string[];
   igIds: readonly string[];
   clients: readonly ClientRow[];
+  venueClaims?: ReadonlyArray<{ page_id: string; client_id: string }>;
+  draftClaims?: readonly DraftClaim[];
   bmPages: readonly BmPageRow[];
   bmIgs: readonly BmIgRow[];
   bms: ReadonlyArray<{ business_id: string; client_id: string | null }>;
   artistRows: ReadonlyArray<{ meta_page_id: string | null; instagram_handle: string | null }>;
 }): IdentityOwnership {
   const { event } = input;
+  const own = event.clientId;
   const byId = new Map(input.clients.map((row) => [row.id, row]));
   const clientsOfBusiness = (businessId: string): string[] => {
     const ids = new Set<string>();
@@ -276,48 +365,51 @@ export function identityOwnershipFrom(input: {
     kind: "page" | "instagram",
     id: string,
     name: string | null,
-    defaults: string[],
-    bmRows: ReadonlyArray<{ business_id: string; is_owned_by_bm: boolean }>,
+    stored: readonly string[],
+    drafted: readonly string[],
+    bmRows: ReadonlyArray<{ business_id: string }>,
     artist: boolean,
   ): IdentityOwner => {
-    const holders = new Set<string>();
-    for (const clientId of defaults) holders.add(clientId);
-    let ownClient = event.clientId != null && holders.has(event.clientId);
-    for (const row of bmRows) {
-      for (const clientId of clientsOfBusiness(row.business_id)) {
-        if (clientId === event.clientId) ownClient = true;
-        else if (row.is_owned_by_bm) holders.add(clientId);
-      }
-    }
-    const otherClients = [...holders]
-      .filter((clientId) => clientId !== event.clientId)
-      .map(nameOf)
-      .filter((value): value is string => Boolean(value));
+    // Defaults and venues: whoever stores it. Drafts: other clients only.
+    const holders = new Set<string>([...stored, ...drafted].filter((clientId) => clientId !== own));
+    const ownClient =
+      own != null &&
+      (stored.includes(own) || bmRows.some((row) => clientsOfBusiness(row.business_id).includes(own)));
+    const otherClients = [...holders].map(nameOf).filter((value): value is string => Boolean(value));
     return { kind, id, name, ownClient, otherClients: [...new Set(otherClients)], artist };
   };
 
   const owners: IdentityOwner[] = [];
   for (const id of input.pageIds) {
     const rows = input.bmPages.filter((row) => row.page_id === id);
-    const defaults = input.clients.filter((row) => (row.default_page_ids ?? []).includes(id)).map((row) => row.id);
+    const stored = [
+      ...input.clients.filter((row) => (row.default_page_ids ?? []).includes(id)).map((row) => row.id),
+      ...(input.venueClaims ?? []).filter((row) => row.page_id === id).map((row) => row.client_id),
+    ];
+    const drafted = (input.draftClaims ?? []).filter((row) => row.page_id === id).map((row) => row.client_id);
     const name = rows.map((row) => row.page_name?.trim()).find(Boolean) ?? null;
-    owners.push(owner("page", id, name, defaults, rows, artistPages.has(id)));
+    owners.push(owner("page", id, name, stored, drafted, rows, artistPages.has(id)));
   }
   for (const id of input.igIds) {
     const rows = input.bmIgs.filter((row) => row.ig_user_id === id || row.ig_asset_id === id);
-    const defaults = input.clients.filter((row) => row.default_instagram_actor_id === id).map((row) => row.id);
+    const stored = input.clients.filter((row) => row.default_instagram_actor_id === id).map((row) => row.id);
+    const drafted = (input.draftClaims ?? []).filter((row) => row.ig_id === id).map((row) => row.client_id);
     const handle = rows.map((row) => row.ig_username?.trim()).find(Boolean) ?? null;
-    owners.push(owner("instagram", id, handle, defaults, rows, handle != null && artistHandles.has(handle.toLowerCase())));
+    owners.push(owner("instagram", id, handle, stored, drafted, rows, handle != null && artistHandles.has(handle.toLowerCase())));
   }
-  return { clientName: event.clientId ? nameOf(event.clientId) : null, owners };
+  return { clientName: own ? nameOf(own) : null, owners };
 }
 
 /** Loads and runs the check for a draft. A draft with no event has nothing to check. */
-export async function runLaunchGuard(db: unknown, draft: CampaignDraft): Promise<LaunchGuardResult> {
+export async function runLaunchGuard(
+  db: unknown,
+  draft: CampaignDraft,
+  live: LiveIdentity | null = null,
+): Promise<LaunchGuardResult> {
   const eventId = draft.settings.eventId?.trim();
   if (!eventId) return { checks: [], blockers: 0, warnings: 0, eventCode: null };
   const context = await loadLaunchGuardContext(db, eventId);
   if (!context) return { checks: [], blockers: 0, warnings: 0, eventCode: null };
-  const ownership = await loadIdentityOwnership(db, draft, context.event);
-  return checkLaunchReferences(draft, context.event, context.venueDefaults, context.otherEvents, ownership);
+  const ownership = await loadDraftIdentityOwnership(db, draft, context.event);
+  return checkLaunchReferences(draft, context.event, context.venueDefaults, context.otherEvents, ownership, live);
 }

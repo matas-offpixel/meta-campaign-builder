@@ -19,10 +19,13 @@ import type {
   GuardField,
   GuardFinding,
   IdentityOwnership,
+  KeptIdentity,
   KeptLink,
   LaunchCheck,
   LaunchCheckFix,
+  LaunchCheckSeverity,
   LaunchGuardResult,
+  LiveIdentity,
   VenueDefault,
   VenueDefaults,
 } from "./types.ts";
@@ -43,6 +46,7 @@ export function checkLaunchReferences(
   venueDefaults: VenueDefaults,
   otherEvents: readonly GuardEvent[],
   ownership: IdentityOwnership | null = null,
+  live: LiveIdentity | null = null,
 ): LaunchGuardResult {
   if (!event) return { checks: [], blockers: 0, warnings: 0, eventCode: null };
   const code = event.code ?? event.name ?? "";
@@ -53,6 +57,11 @@ export function checkLaunchReferences(
       check.findings.filter((hit) => hit.field === "link").map((hit) => linkKey(hit.source ?? hit.value)),
     ).filter(Boolean) as string[],
   );
+  const pageChecks = checkPageOwner(draft, event, code, ownership, live);
+  // RC8a: one field, one line. A field page_other_client fires on gets no live-ads warning.
+  const firedFields = new Set(
+    pageChecks.flatMap((check) => check.findings.map((hit) => hit.field)).filter((f) => f === "page" || f === "instagram"),
+  );
   const checks: LaunchCheck[] = [
     ...checkVenueNotSet(event, venueDefaults),
     ...checkPixel(draft, event, code, venueDefaults),
@@ -60,7 +69,8 @@ export function checkLaunchReferences(
     ...otherShows,
     ...checkNameCode(draft, event),
     ...checkArtistCaptions(draft, event),
-    ...checkPageOwner(draft, event, code, ownership),
+    ...pageChecks,
+    ...checkIdentityNotLive(draft, live, ownership, firedFields),
     ...checkLink(draft, event, blockedLinks),
   ];
   const ordered = [
@@ -130,6 +140,12 @@ export function blockedLaunchLabel(blockers: number): string | null {
  * blocker once Brixton is seeded. Both missing reads the plain row, one
  * missing its `.account` or `.pixel` row.
  */
+/**
+ * venue_not_set's severity. RC3: a warning until every venue is set; flip
+ * this to "blocker" once Electric Brixton is seeded (ops, 24 Nov).
+ */
+export const VENUE_NOT_SET_SEVERITY: LaunchCheckSeverity = "warning";
+
 function checkVenueNotSet(event: GuardEvent, venue: VenueDefaults): LaunchCheck[] {
   const account = venue.eventVenue?.adAccountId ?? venue.override.adAccountId;
   const pixel = venue.eventVenue?.pixelId ?? venue.override.pixelId;
@@ -139,7 +155,7 @@ function checkVenueNotSet(event: GuardEvent, venue: VenueDefaults): LaunchCheck[
   return [
     {
       key: "venue_not_set",
-      severity: "warning",
+      severity: VENUE_NOT_SET_SEVERITY,
       label: W["venue_not_set.key"],
       sentence: fill(row, { venue: name }),
       evidence: W["venue_not_set.evidence"],
@@ -251,7 +267,12 @@ function checkAccount(
       sentence,
       evidence: fill(W["account_not_venue.evidence"], { "campaign name": draft.settings.campaignName ?? "" }),
       fixes: [
-        { action: "set_account", label: fill(W["account_not_venue.fix"], { "right Meta account name": rightLabel }), adAccountId: `act_${right}` },
+        {
+          action: "set_account",
+          label: fill(W["account_not_venue.fix"], { "right Meta account name": rightLabel }),
+          adAccountId: `act_${right}`,
+          names: [rightLabel],
+        },
       ],
       findings: [{ field: "ad_account", adName: null, value: current }],
     },
@@ -424,7 +445,14 @@ function checkNameCode(draft: CampaignDraft, event: GuardEvent): LaunchCheck[] {
       label: W["name_code_mismatch.key"],
       sentence: fill(W["name_code_mismatch"], { "full code in the name": nameCode, "full event code": eventCode }),
       evidence: fill(W["name_code_mismatch.evidence"], { "campaign name": name }),
-      fixes: [{ action: "rename", label: fill(W["name_code_mismatch.fix"], { "corrected name": corrected }), name: corrected }],
+      fixes: [
+        {
+          action: "rename",
+          label: fill(W["name_code_mismatch.fix"], { "corrected name": corrected }),
+          name: corrected,
+          names: [corrected],
+        },
+      ],
       findings: [{ field: "campaign_name", adName: null, value: name }],
     },
   ];
@@ -477,8 +505,20 @@ interface IdentityUse {
 }
 
 /**
- * Every Facebook page and Instagram account the draft would run from: the
- * settings' page and Instagram (every ad) and each creative's own identity.
+ * Which page and Instagram the page checks read (open with ops, 24 Nov).
+ * "settings_and_ads" (as ruled): the settings' page and Instagram count for
+ * every ad, and each ad's own identity counts for that ad.
+ * "ads": each ad's own identity, which is what the launch sends; the
+ * settings' fields count only when no ad carries one. On the 40 recent
+ * Electric drafts every page_other_client hit came from the settings
+ * fields (24 Nov).
+ */
+export const IDENTITY_SOURCE: "settings_and_ads" | "ads" = "settings_and_ads";
+
+/**
+ * Every Facebook page and Instagram account the draft would run from (see
+ * IDENTITY_SOURCE): the settings' page and Instagram (every ad) and each
+ * creative's own identity.
  */
 export function draftIdentities(draft: CampaignDraft): {
   pages: Map<string, IdentityUse>;
@@ -494,9 +534,14 @@ export function draftIdentities(draft: CampaignDraft): {
     else if (!row.adNames.includes(adName)) row.adNames.push(adName);
     map.set(key, row);
   };
-  note(pages, draft.settings.metaPageId, null);
-  note(instagram, draft.settings.metaIGAccountId, null);
-  for (const creative of draft.creatives ?? []) {
+  const creatives = draft.creatives ?? [];
+  const adsHave = (pick: (c: (typeof creatives)[number]) => string | undefined) => creatives.some((c) => Boolean(pick(c)?.trim()));
+  const settingsCount = (adsCarryIt: boolean) => IDENTITY_SOURCE === "settings_and_ads" || !adsCarryIt;
+  if (settingsCount(adsHave((c) => c.identity?.pageId))) note(pages, draft.settings.metaPageId, null);
+  if (settingsCount(adsHave((c) => c.identity?.instagramActorId || c.identity?.instagramAccountId))) {
+    note(instagram, draft.settings.metaIGAccountId, null);
+  }
+  for (const creative of creatives) {
     const adName = creative.name || "Untitled ad";
     note(pages, creative.identity?.pageId, adName);
     note(instagram, creative.identity?.instagramActorId || creative.identity?.instagramAccountId, adName);
@@ -521,6 +566,7 @@ function checkPageOwner(
   event: GuardEvent,
   code: string,
   ownership: IdentityOwnership | null,
+  live: LiveIdentity | null,
 ): LaunchCheck[] {
   if (!ownership) return [];
   const { pages, instagram } = draftIdentities(draft);
@@ -536,6 +582,36 @@ function checkPageOwner(
       const owner = ownership.owners.find((row) => row.kind === kind && row.id === id);
       if (!owner || owner.ownClient || owner.artist || owner.otherClients.length === 0) continue;
       const other = owner.otherClients[0]!;
+      // RC8a: the live ads' page is the answer, when it is known, different and not another client's.
+      const liveField = kind === "page" ? live?.page : live?.instagram;
+      const answer = liveField && !liveField.otherClient && liveField.id !== id ? liveField : null;
+      const liveName = liveField ? liveField.name ?? liveField.id : null;
+      const baseEvidence = identityEvidence(use, adCount);
+      const evidence =
+        liveField && liveName && !liveField.otherClient && (use.all || use.adNames.length >= adCount)
+          ? kind === "page"
+            ? fill(W["page_other_client.evidence.live"], { n: adCount, "live page": liveName })
+            : fill(W["page_other_client.instagram.evidence.live"], { n: adCount, "live handle": liveName })
+          : baseEvidence;
+      const changeFix: LaunchCheckFix = {
+        action: "change_identity",
+        label: kind === "page" ? W["page_other_client.fix"] : W["page_other_client.instagram.fix"],
+        field: kind,
+        where: use.all ? "settings" : "creatives",
+      };
+      const liveFix: LaunchCheckFix | null = answer
+        ? {
+            action: "use_live_identity",
+            label:
+              kind === "page"
+                ? fill(W["page_other_client.fix.live"], { "live page": answer.name ?? answer.id })
+                : fill(W["page_other_client.instagram.fix.live"], { "live handle": answer.name ?? answer.id }),
+            field: kind,
+            from: id,
+            to: answer.id,
+            names: [kind === "page" ? (answer.name ?? answer.id) : `@${answer.name ?? answer.id}`],
+          }
+        : null;
       const sentence =
         kind === "page"
           ? fill(W["page_other_client"], { page: owner.name ?? id, "other client": other, code, client })
@@ -545,15 +621,8 @@ function checkPageOwner(
         severity: "blocker",
         label: kind === "page" ? W["page_other_client.key"] : W["page_other_client.instagram.key"],
         sentence,
-        evidence: identityEvidence(use, adCount),
-        fixes: [
-          {
-            action: "change_identity",
-            label: kind === "page" ? W["page_other_client.fix"] : W["page_other_client.instagram.fix"],
-            field: kind,
-            where: use.all ? "settings" : "creatives",
-          },
-        ],
+        evidence,
+        fixes: liveFix ? [liveFix, changeFix] : [changeFix],
         findings: use.all
           ? [{ field: kind, adName: null, value: id }]
           : use.adNames.map((adName) => ({ field: kind, adName, value: id })),
@@ -562,6 +631,118 @@ function checkPageOwner(
   }
   // Pages before Instagram, each in the order the draft holds them.
   return out;
+}
+
+// ── 7. the live ads' page (warning, RC8) ───────────────────────────────
+
+/** The page and Instagram the draft would relaunch from: its settings, else its first ad's. */
+export function draftRunsFrom(draft: CampaignDraft): { page: string | null; instagram: string | null } {
+  const first = (draft.creatives ?? [])[0]?.identity;
+  if (IDENTITY_SOURCE === "ads") {
+    return {
+      page: first?.pageId?.trim() || draft.settings.metaPageId?.trim() || null,
+      instagram:
+        first?.instagramActorId?.trim() || first?.instagramAccountId?.trim() || draft.settings.metaIGAccountId?.trim() || null,
+    };
+  }
+  return {
+    page: draft.settings.metaPageId?.trim() || first?.pageId?.trim() || null,
+    instagram:
+      draft.settings.metaIGAccountId?.trim() || first?.instagramActorId?.trim() || first?.instagramAccountId?.trim() || null,
+  };
+}
+
+export function keptIdentityOf(draft: CampaignDraft, field: "page" | "instagram"): KeptIdentity | null {
+  return draft.settings.launchGuard?.keptIdentity?.[field] ?? null;
+}
+
+/**
+ * identity_not_live (RC8): a published draft's page or Instagram isn't the
+ * one most live ads use. A warning per field, never a blocker. Silent with
+ * no live read (unpublished, or the read failed), on a field
+ * page_other_client fires on (RC8a), and on a field kept at its current id.
+ */
+function checkIdentityNotLive(
+  draft: CampaignDraft,
+  live: LiveIdentity | null,
+  ownership: IdentityOwnership | null,
+  fired: ReadonlySet<string>,
+): LaunchCheck[] {
+  if (!live || draft.status !== "published") return [];
+  const runs = draftRunsFrom(draft);
+  const out: LaunchCheck[] = [];
+  for (const kind of ["page", "instagram"] as const) {
+    const draftId = runs[kind];
+    const liveField = live[kind];
+    if (!draftId || !liveField || liveField.id === draftId || fired.has(kind)) continue;
+    if (keptIdentityOf(draft, kind)?.id === draftId) continue;
+    const draftName =
+      live.draftNames[draftId] ?? ownership?.owners.find((row) => row.kind === kind && row.id === draftId)?.name ?? draftId;
+    const liveName = liveField.name ?? liveField.id;
+    const at = keptAtLabel(live.readAt);
+    const evidence =
+      liveField.count === 1
+        ? fill(W["identity_not_live.evidence.one"], { "date, time": at })
+        : fill(W["identity_not_live.evidence"], { "date, time": at, n: liveField.count });
+    const fixes: LaunchCheckFix[] = [];
+    if (!liveField.otherClient) {
+      fixes.push({
+        action: "use_live_identity",
+        label:
+          kind === "page"
+            ? fill(W["identity_not_live.fix"], { "live page": liveName })
+            : fill(W["identity_not_live.instagram.fix"], { "live handle": liveName }),
+        field: kind,
+        from: draftId,
+        to: liveField.id,
+        names: [kind === "page" ? liveName : `@${liveName}`],
+      });
+    }
+    fixes.push({
+      action: "keep_identity",
+      label:
+        kind === "page"
+          ? fill(W["identity_not_live.keep"], { "draft page": draftName })
+          : fill(W["identity_not_live.instagram.keep"], { "draft handle": draftName }),
+      field: kind,
+      id: draftId,
+      names: [kind === "page" ? draftName : `@${draftName}`],
+    });
+    out.push({
+      key: "identity_not_live",
+      severity: "warning",
+      label: W["identity_not_live.key"],
+      sentence:
+        kind === "page"
+          ? fill(W["identity_not_live"], { "draft page": draftName, "live page": liveName })
+          : fill(W["identity_not_live.instagram"], { "draft handle": draftName, "live handle": liveName }),
+      evidence,
+      fixes,
+      findings: [{ field: kind, adName: null, value: draftId }],
+    });
+  }
+  return out;
+}
+
+/** "Page kept by …" / "Instagram kept by …" under the list, while the draft still holds the kept id. */
+export function keptIdentityLines(draft: CampaignDraft): string[] {
+  const runs = draftRunsFrom(draft);
+  const lines: string[] = [];
+  for (const kind of ["page", "instagram"] as const) {
+    const kept = keptIdentityOf(draft, kind);
+    if (!kept || kept.id !== runs[kind]) continue;
+    const name = kept.name ?? kept.id;
+    lines.push(
+      kind === "page"
+        ? fill(W["identity_not_live.kept"], { name: kept.keptBy, "date, time": keptAtLabel(kept.keptAt), "draft page": name })
+        : fill(W["identity_not_live.instagram.kept"], {
+            name: kept.keptBy,
+            "date, time": keptAtLabel(kept.keptAt),
+            "draft handle": name,
+          }),
+    );
+  }
+  return lines;
 }
 
 // ── 7. link (warning) ──────────────────────────────────────────────────
@@ -587,6 +768,7 @@ export function keptLinksOf(draft: CampaignDraft): KeptLink[] {
 
 const KEPT_AT = new Intl.DateTimeFormat("en-GB", {
   timeZone: "Europe/London",
+  weekday: "short",
   day: "numeric",
   month: "short",
   hour: "2-digit",
@@ -594,12 +776,12 @@ const KEPT_AT = new Intl.DateTimeFormat("en-GB", {
   hour12: false,
 });
 
-/** "{date, time}" for the kept line: "24 Nov, 14:05", London time. */
+/** "{date, time}" for kept lines and the live read: "Tue 24 Nov, 15:02", London time (RC-I). */
 export function keptAtLabel(iso: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return iso;
   const parts = Object.fromEntries(KEPT_AT.formatToParts(date).map((part) => [part.type, part.value]));
-  return `${parts.day} ${parts.month}, ${parts.hour}:${parts.minute}`;
+  return `${parts.weekday} ${parts.day} ${parts.month}, ${parts.hour}:${parts.minute}`;
 }
 
 /**
@@ -682,6 +864,10 @@ export function applyLaunchCheckFix(
     }
     case "keep_link":
       return keepLink(draft, fix.url, context.keptBy, context.now);
+    case "use_live_identity":
+      return takeIdentity(draft, fix.field, fix.from, fix.to);
+    case "keep_identity":
+      return keepIdentity(draft, fix.field, fix.id, fix.names?.[0]?.replace(/^@/, "") ?? null, context.keptBy, context.now);
     default:
       return draft;
   }
@@ -698,6 +884,54 @@ export function keepLink(draft: CampaignDraft, url: string, keptBy: string, now:
       launchGuard: {
         ...draft.settings.launchGuard,
         keptLinks: [...rest, { url: url.trim(), keptBy, keptAt: now.toISOString() }],
+      },
+    },
+  };
+}
+
+/**
+ * "Use the live ads' page / Instagram" (RC8, RC8a): the draft takes the live
+ * ads' id, on its settings and on every ad that held the old one. The draft
+ * only, never Meta.
+ */
+export function takeIdentity(draft: CampaignDraft, field: "page" | "instagram", from: string, to: string): CampaignDraft {
+  if (field === "page") {
+    return {
+      ...draft,
+      settings: { ...draft.settings, metaPageId: to },
+      creatives: draft.creatives.map((creative) =>
+        creative.identity?.pageId === from ? { ...creative, identity: { ...creative.identity, pageId: to } } : creative,
+      ),
+    };
+  }
+  return {
+    ...draft,
+    settings: { ...draft.settings, metaIGAccountId: to },
+    creatives: draft.creatives.map((creative) => {
+      const identity = creative.identity;
+      if (!identity || (identity.instagramAccountId !== from && identity.instagramActorId !== from)) return creative;
+      return { ...creative, identity: { ...identity, instagramAccountId: to, instagramActorId: to } };
+    }),
+  };
+}
+
+/** "Keep {draft page}" (RC8): store who kept which page or Instagram, and when. */
+export function keepIdentity(
+  draft: CampaignDraft,
+  field: "page" | "instagram",
+  id: string,
+  name: string | null,
+  keptBy: string,
+  now: Date,
+): CampaignDraft {
+  const launchGuard = draft.settings.launchGuard ?? {};
+  return {
+    ...draft,
+    settings: {
+      ...draft.settings,
+      launchGuard: {
+        ...launchGuard,
+        keptIdentity: { ...launchGuard.keptIdentity, [field]: { id, name, keptBy, keptAt: now.toISOString() } },
       },
     },
   };
