@@ -7,6 +7,7 @@ import {
   BookmarkPlus,
   Clock,
   Copy,
+  Files,
   FolderOpen,
   Globe,
   Plus,
@@ -40,6 +41,9 @@ import {
 import { AdSetAudiencePush } from "@/components/library/adset-audience-push";
 import { AdSetDestinationPush } from "@/components/library/adset-destination-push";
 import type { CampaignDraft, CampaignListItem, CampaignTemplate } from "@/lib/types";
+import { stageOfCampaign, type TreeStage } from "@/lib/campaign-tree/tree";
+import { TREE_WORDS } from "@/lib/campaign-tree/words";
+import { REPLICATE_WORDS } from "@/lib/replicate/words";
 
 export { filterLibraryPlans };
 export type { PlanLibraryItem };
@@ -146,6 +150,13 @@ export interface CampaignRowProps {
   onSaveAsTemplate?: (id: string) => void;
   /** Published rows only. Null while the write-gate request is in flight. */
   targetingWritesEnabled?: boolean | null;
+  /** Published rows: "Replicate to event…" (RC1). */
+  onReplicate?: (id: string) => void;
+  /**
+   * Published rows with an event: the stage actions (RC6) that replace "Add to
+   * campaign" and "Add audience to ad sets". They open the event's tree.
+   */
+  onStageAction?: (campaign: CampaignListItem, stage: TreeStage, kind: "creatives" | "audience") => void;
 }
 
 export function CampaignRow({
@@ -166,18 +177,49 @@ export function CampaignRow({
   addToCampaignError,
   onSaveAsTemplate,
   targetingWritesEnabled,
+  onReplicate,
+  onStageAction,
 }: CampaignRowProps) {
   const [tool, setTool] = useState<"audience" | "destination" | null>(null);
   const objective = OBJECTIVE_LABELS[c.objective ?? ""] ?? c.objective ?? "—";
   const objectiveMark = objective.slice(0, 1).toUpperCase();
   const published = c.status === "published";
   const showPush = published && targetingWritesEnabled !== undefined;
+  // RC6: on a published campaign with an event, the stage actions replace
+  // "Add to campaign" and "Add audience to ad sets" (a row with no event has
+  // no tree to open, so it keeps them).
+  const staged = published && Boolean(c.eventId) && Boolean(onStageAction);
+  const stage = stageOfCampaign({ name: c.name, draftObjective: c.objective });
+  const duplicateItem: OverflowMenuItem = {
+    id: "duplicate",
+    icon: <Copy />,
+    label: REPLICATE_WORDS["duplicate.menu"],
+    ...(published && onReplicate ? { sub: REPLICATE_WORDS["duplicate.menu.sub"] } : {}),
+    onSelect: () => onDuplicate?.(c.id),
+  };
   const menuItems: OverflowMenuItem[] = [
+    // RC1: Replicate to event… first on a published campaign, Duplicate directly under it.
+    {
+      id: "replicate",
+      icon: <Files />,
+      label: REPLICATE_WORDS["replicate.menu"],
+      sub: REPLICATE_WORDS["replicate.menu.sub"],
+      hidden: !(published && onReplicate),
+      onSelect: () => onReplicate?.(c.id),
+    },
+    ...(published && onReplicate ? [duplicateItem] : []),
+    {
+      id: "add-creatives",
+      icon: <Plus />,
+      label: TREE_WORDS["tree.action.creatives"],
+      hidden: !staged,
+      onSelect: () => onStageAction?.(c, stage, "creatives"),
+    },
     {
       id: "add-to-campaign",
       icon: <Plus />,
       label: "Add to campaign",
-      hidden: !(c.status === "published" && onAddToCampaign),
+      hidden: !(c.status === "published" && onAddToCampaign) || staged,
       onSelect: () => onAddToCampaign?.(c.id),
     },
     {
@@ -188,10 +230,17 @@ export function CampaignRow({
       onSelect: () => onRelaunch?.(c.id),
     },
     {
+      id: "add-audience",
+      icon: <Users />,
+      label: TREE_WORDS["tree.action.audience"],
+      hidden: !staged,
+      onSelect: () => onStageAction?.(c, stage, "audience"),
+    },
+    {
       id: "audience",
       icon: <Users />,
       label: "Add audience to ad sets",
-      hidden: !showPush,
+      hidden: !showPush || staged,
       onSelect: () => setTool("audience"),
     },
     {
@@ -201,12 +250,7 @@ export function CampaignRow({
       hidden: !showPush,
       onSelect: () => setTool("destination"),
     },
-    {
-      id: "duplicate",
-      icon: <Copy />,
-      label: "Duplicate",
-      onSelect: () => onDuplicate?.(c.id),
-    },
+    ...(published && onReplicate ? [] : [duplicateItem]),
     {
       id: "template",
       icon: <BookmarkPlus />,

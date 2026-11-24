@@ -167,6 +167,66 @@ describe("CampaignRow actions", () => {
   });
 });
 
+describe("Replicate to event and the stage actions (RC1, RC6)", () => {
+  function StagedRow({ onStageAction = () => undefined, onReplicate = () => undefined, eventId = "ev-1" as string | null }) {
+    return (
+      <CampaignRow
+        campaign={{ ...campaign("published"), name: "[NX27-GLITTERBOX] ON SALE", eventId }}
+        isLoading={false}
+        onOpen={() => undefined}
+        onDuplicate={() => undefined}
+        onRelaunch={() => undefined}
+        onAddToCampaign={() => undefined}
+        onSaveAsTemplate={() => undefined}
+        targetingWritesEnabled
+        onReplicate={onReplicate}
+        onStageAction={onStageAction}
+      />
+    );
+  }
+
+  it("puts Replicate to event… first and Duplicate under it, and the stage actions in place of Add to campaign and Add audience to ad sets", async () => {
+    const user = userEvent.setup();
+    render(<StagedRow />);
+    await user.click(screen.getByRole("button", { name: "More actions" }));
+    const labels = screen.getAllByRole("menuitem").map((item) => item.textContent?.replace(/\s+/g, " ").trim());
+    expect(labels).toEqual([
+      "Replicate to event…Another event: account, pixel, link and copy follow it",
+      "DuplicateSame event, same settings",
+      "Add creatives to…",
+      "Relaunch",
+      "Add audience to…",
+      "Set website destination",
+      "Save as template",
+      "Archive",
+      "Delete",
+    ]);
+  });
+
+  it("opens the stage action for the campaign's own stage", async () => {
+    const user = userEvent.setup();
+    const onStageAction = vi.fn();
+    const onReplicate = vi.fn();
+    render(<StagedRow onStageAction={onStageAction} onReplicate={onReplicate} />);
+    await user.click(screen.getByRole("button", { name: "More actions" }));
+    await user.click(screen.getByRole("menuitem", { name: /Add audience to…/ }));
+    expect(onStageAction).toHaveBeenCalledWith(expect.objectContaining({ eventId: "ev-1" }), "on_sale", "audience");
+    await user.click(screen.getByRole("button", { name: "More actions" }));
+    await user.click(screen.getByRole("menuitem", { name: /Replicate to event…/ }));
+    expect(onReplicate).toHaveBeenCalledWith("camp-1");
+  });
+
+  it("a published campaign with no event keeps Add to campaign and Add audience to ad sets", async () => {
+    const user = userEvent.setup();
+    render(<StagedRow eventId={null} />);
+    await user.click(screen.getByRole("button", { name: "More actions" }));
+    const labels = screen.getAllByRole("menuitem").map((item) => item.textContent?.replace(/\s+/g, " ").trim());
+    expect(labels).toContain("Add to campaign");
+    expect(labels).toContain("Add audience to ad sets");
+    expect(labels).not.toContain("Add creatives to…");
+  });
+});
+
 describe("archived clients in the library", () => {
   const items: CampaignListItem[] = [
     { ...campaign("published"), id: "pub-active" },

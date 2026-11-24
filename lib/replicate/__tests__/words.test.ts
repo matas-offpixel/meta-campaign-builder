@@ -19,9 +19,9 @@ const ROWS = TSV.trimEnd()
   .map(([key, where, words]) => ({ key: key!, where: where!, words: words! }));
 
 describe("replicate words", () => {
-  it("the fixture is the record's list: 136 rows, unique keys", () => {
-    assert.equal(ROWS.length, 136);
-    assert.equal(new Set(ROWS.map((r) => r.key)).size, 136);
+  it("the fixture is the record's list: 151 rows, unique keys", () => {
+    assert.equal(ROWS.length, 151);
+    assert.equal(new Set(ROWS.map((r) => r.key)).size, 151);
   });
 
   it("every replicate.* and duplicate.* row is in words.ts, word for word", () => {

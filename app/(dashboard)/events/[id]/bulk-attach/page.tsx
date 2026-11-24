@@ -16,6 +16,12 @@
  *   Templates — saves reusable match patterns + creative config across events (PR #553)
  *
  * All new ads created ACTIVE (codebase default since PRs #540/#541).
+ *
+ * `?stage=on_sale` (the event's campaign tree, R7 "Add creatives to…"): steps
+ * 0 and 1 come from the tree's stage instead, and after the creatives the
+ * stage sheet (RC6) picks the campaigns and ad sets, live ones ticked and
+ * paused ones not. The run goes through the write ledger and is logged in
+ * campaign_additions (see the route's `tree`).
  */
 
 import { useState, useCallback, use, useEffect, useRef } from "react";
@@ -61,12 +67,26 @@ import { useBulkAttachRotationBlock } from "@/components/steps/use-bulk-attach-r
 import { adsThisCreativeLaunches } from "@/lib/meta/variation-ads";
 import type { AdSetGuardInfo } from "@/lib/meta/client";
 import type { AdSetGuardResponse } from "@/app/api/meta/bulk-attach-ads/adset-guard/route";
+import { Dialog } from "@/components/ui/dialog";
+import { StageSheetPanel } from "@/components/campaign-tree/stage-sheet";
+import {
+  creativesSheetTitle,
+  defaultSelection,
+  isTreeStage,
+  selectedCampaignAdSets,
+  stageAccount,
+  stageSheetCampaigns,
+  type TreeCampaign,
+  type TreeSelection,
+  type TreeStage,
+  type TreeView,
+} from "@/lib/campaign-tree/tree";
 
 const BULK_ATTACH_CAP = 8;
 
 interface PageProps {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ adAccountId?: string; preselectCodes?: string }>;
+  searchParams: Promise<{ adAccountId?: string; preselectCodes?: string; stage?: string }>;
 }
 
 type Step = 0 | 1 | 2 | 3;
@@ -164,7 +184,8 @@ function StepIndicator({
 
 export default function BulkAttachPage({ params, searchParams }: PageProps) {
   const { id: eventId } = use(params);
-  const { adAccountId: initialAdAccountId, preselectCodes: preselectCodesParam } = use(searchParams);
+  const { adAccountId: initialAdAccountId, preselectCodes: preselectCodesParam, stage: stageParam } = use(searchParams);
+  const stageMode: TreeStage | null = isTreeStage(stageParam) ? stageParam : null;
 
   // Comma-separated event codes from umbrella asset-queue rows
   const preselectCodes = preselectCodesParam
@@ -266,6 +287,59 @@ export default function BulkAttachPage({ params, searchParams }: PageProps) {
     },
     [step, launching, clearLaunchErrors],
   );
+
+  // ── Campaign tree stage (R7): the stage's campaigns, the sheet's ticks ─────
+  const [treeCampaigns, setTreeCampaigns] = useState<TreeCampaign[] | null>(null);
+  const [sheetSelection, setSheetSelection] = useState<TreeSelection>({});
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [treeRunId] = useState(() => (typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : ""));
+
+  useEffect(() => {
+    if (!stageMode) return;
+    let cancelled = false;
+    fetch(`/api/events/${encodeURIComponent(eventId)}/campaign-tree`)
+      .then(async (res) => {
+        const json = (await res.json()) as { view?: TreeView; error?: string };
+        if (cancelled || !res.ok || !json.view) return;
+        const campaigns = stageSheetCampaigns(json.view, stageMode);
+        setTreeCampaigns(campaigns);
+        setSheetSelection(defaultSelection(campaigns));
+        const account = stageAccount(campaigns);
+        if (account) {
+          setAdAccountId((current) => current || account);
+          setAdAccountInput((current) => current || account);
+        }
+        setSelectedCampaigns(
+          new Map(
+            campaigns.map((c) => [
+              c.metaCampaignId,
+              { id: c.metaCampaignId, name: c.name, objective: "", status: c.status === "paused" ? "PAUSED" : "ACTIVE", compatible: true },
+            ]),
+          ),
+        );
+        setStep(2);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [stageMode, eventId]);
+
+  const openStageSheet = () => {
+    clearLaunchErrors();
+    setSheetOpen(true);
+  };
+
+  const confirmStageSheet = () => {
+    const picked = selectedCampaignAdSets(sheetSelection);
+    setCampaignAdSets(new Map(Object.entries(picked).map(([cid, ids]) => [cid, new Set(ids)])));
+    void handleLaunch(picked).then((ok) => {
+      if (ok) {
+        setSheetOpen(false);
+        setStep(3);
+      }
+    });
+  };
 
   // ── Active template match pattern (from applied template, step 1) ─────────
   const [adSetMatchPattern, setAdSetMatchPattern] = useState<string[]>([]);
@@ -615,25 +689,29 @@ export default function BulkAttachPage({ params, searchParams }: PageProps) {
   };
 
   // ── Launch ────────────────────────────────────────────────────────────────
-  const handleLaunch = async () => {
+  /** `stagePicks`: the stage sheet's ticks (R7); the run is then a tree run, on the ledger and logged. Resolves true once Meta answered. */
+  const handleLaunch = async (stagePicks?: Record<string, string[]>): Promise<boolean> => {
     setLaunching(true);
     clearLaunchErrors();
     const campaignAdSetsPayload: Record<string, string[]> = {};
-    for (const [cid, adSetSet] of campaignAdSets.entries()) {
-      campaignAdSetsPayload[cid] = Array.from(adSetSet);
-    }
+    if (stagePicks) Object.assign(campaignAdSetsPayload, stagePicks);
+    else
+      for (const [cid, adSetSet] of campaignAdSets.entries()) {
+        campaignAdSetsPayload[cid] = Array.from(adSetSet);
+      }
+    const tree = stagePicks && stageMode ? { eventId, stage: stageMode, runId: treeRunId } : undefined;
     try {
       const res = await fetch("/api/meta/bulk-attach-ads", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ adAccountId, campaignAdSets: campaignAdSetsPayload, newCreatives: creatives }),
+        body: JSON.stringify({ adAccountId, campaignAdSets: campaignAdSetsPayload, newCreatives: creatives, ...(tree ? { tree } : {}) }),
       });
       const data = await res.json();
       if (!res.ok && res.status !== 207) {
         const { message, details } = parseLaunchValidationResponse(data);
         setLaunchError(message);
         setLaunchValidationDetails(details);
-        return;
+        return false;
       }
       const result = data as BulkAttachResult;
       setLaunchResult(result);
@@ -643,8 +721,10 @@ export default function BulkAttachPage({ params, searchParams }: PageProps) {
         // relaunch indicator, not the Dynamic Creative guard.
         setShippedVariationsCount((prev) => prev + creatives.length);
       }
+      return true;
     } catch (err) {
       setLaunchError(err instanceof Error ? err.message : "Network error");
+      return false;
     } finally {
       setLaunching(false);
     }
@@ -926,6 +1006,33 @@ export default function BulkAttachPage({ params, searchParams }: PageProps) {
 
       {adAccountId && (
         <>
+          {/* ── Campaign tree stage sheet (R7, RC6) ──────────────────────── */}
+          {stageMode && sheetOpen && treeCampaigns ? (
+            <Dialog open onClose={() => !launching && setSheetOpen(false)} panelClassName="max-w-xl">
+              <div className="max-h-[88vh] overflow-y-auto">
+                <StageSheetPanel
+                  title={creativesSheetTitle(creatives.length, stageMode)}
+                  campaigns={treeCampaigns}
+                  selection={sheetSelection}
+                  onSelection={setSheetSelection}
+                  onCancel={() => !launching && setSheetOpen(false)}
+                  onConfirm={confirmStageSheet}
+                  busy={launching}
+                  error={launchError}
+                  after={
+                    launchValidationDetails.length > 0 ? (
+                      <ul className="mt-3 space-y-0.5 text-xs text-destructive">
+                        {launchValidationDetails.map((d) => (
+                          <li key={d}>{d}</li>
+                        ))}
+                      </ul>
+                    ) : null
+                  }
+                />
+              </div>
+            </Dialog>
+          ) : null}
+
           {/* ── STEP 0: Select campaigns ─────────────────────────────────── */}
           {step === 0 && (
             <div className="space-y-4">
@@ -1039,9 +1146,11 @@ export default function BulkAttachPage({ params, searchParams }: PageProps) {
               <div className="rounded-lg border border-border bg-card p-5">
                 <div className="mb-4 flex items-center justify-between">
                   <h2 className="font-medium text-sm">Configure creatives</h2>
-                  <Button variant="ghost" size="sm" onClick={() => setStep(1)}>
-                    <ArrowLeft className="mr-1 h-3.5 w-3.5" /> Back
-                  </Button>
+                  {stageMode ? null : (
+                    <Button variant="ghost" size="sm" onClick={() => setStep(1)}>
+                      <ArrowLeft className="mr-1 h-3.5 w-3.5" /> Back
+                    </Button>
+                  )}
                 </div>
                 {shippedVariationsCount > 0 && (
                   <div className="mb-4 rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-xs">
@@ -1074,7 +1183,7 @@ export default function BulkAttachPage({ params, searchParams }: PageProps) {
               <div className="flex flex-col items-end gap-2">
                 <Button
                   size="sm"
-                  onClick={() => setStep(3)}
+                  onClick={() => (stageMode ? openStageSheet() : setStep(3))}
                   disabled={
                     creatives.length === 0 ||
                     !creatives.every((c) =>
@@ -1167,7 +1276,7 @@ export default function BulkAttachPage({ params, searchParams }: PageProps) {
                     </p>
                   )}
                 <Button
-                  onClick={handleLaunch}
+                  onClick={() => void handleLaunch()}
                   disabled={
                     launching ||
                     !creativeLaunchReadiness.ready ||

@@ -89,6 +89,7 @@ export async function loadCampaignList(
         }),
       ),
       noEvent: (row.status ?? "draft") === "draft" && !eventId,
+      eventId: eventId || null,
       clientArchived: archivedClientIds.has(row.client_id ?? event?.client_id ?? ""),
     };
   });

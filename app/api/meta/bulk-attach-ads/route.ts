@@ -30,6 +30,12 @@
  *   - classifyLaunchMetaCode / mapLaunchTokenError surface #4/#17/#80004 as
  *     429s with rateLimited:true — NOT a tokenExpired prompt
  *   - 8-campaign hard cap + 200-total-ad cap prevent runaway API debt
+ *
+ * From the event's campaign tree (R7, `tree` set): the same path, plus every
+ * creative and ad goes through meta_write_idempotency (`creative_upload`,
+ * `ad_create`, required: no ledger, no write), keyed on the tree run, and each
+ * campaign that got ads gets one campaign_additions row. Each ticked campaign
+ * must have a published draft on the event: the ledger is per draft.
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -58,6 +64,10 @@ import { summariseRelaunchGuard } from "@/lib/bulk-attach/launch-validation";
 import { bulkAttachRotationMessage } from "@/lib/meta/rotation-adset";
 import { META_ADS_PER_AD_SET_LIMIT, adSetAdLimitMessage, expandCreativesForLaunch } from "@/lib/meta/variation-ads";
 import type { AdCreativeDraft } from "@/lib/types";
+import { additionWho, logCampaignAddition, UUID, type AdditionsDb } from "@/lib/campaign-tree/additions";
+import { resolveLedgerDrafts, treeAdLedgerKey, treeCreativeLedgerKey, type TreeDb } from "@/lib/campaign-tree/load";
+import { isTreeStage, type TreeStage } from "@/lib/campaign-tree/tree";
+import { withMetaWriteIdempotency, type MetaWriteContext } from "@/lib/meta/write-idempotency";
 
 export const maxDuration = 600;
 
@@ -76,6 +86,11 @@ export interface BulkAttachRequest {
   campaignAdSets: Record<string, string[]>;
   /** Standard wizard creative shape — assets already uploaded to Meta. */
   newCreatives: AdCreativeDraft[];
+  /**
+   * Set by the event's campaign tree (R7): the stage sheet's run. Turns on
+   * the write ledger for every create and the campaign_additions log.
+   */
+  tree?: { eventId: string; stage: TreeStage; runId: string };
 }
 
 export interface CampaignAttachResult {
@@ -157,6 +172,39 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   const { adAccountId, campaignAdSets } = body;
+
+  // ── Campaign tree run: every ticked campaign's published draft keys the ledger ─
+  let treeRun: { eventId: string; stage: TreeStage; runId: string; ledger: Map<string, MetaWriteContext> } | null = null;
+  if (body.tree !== undefined) {
+    const t = body.tree;
+    if (!t || !UUID.test(String(t.eventId ?? "")) || !UUID.test(String(t.runId ?? "")) || !isTreeStage(t.stage)) {
+      return NextResponse.json({ error: "Invalid tree run" }, { status: 400 });
+    }
+    const resolved = await resolveLedgerDrafts(supabase as unknown as TreeDb, t.eventId, Object.keys(campaignAdSets));
+    if (!resolved.ok) {
+      return NextResponse.json(
+        { error: `No published draft on this event for campaign ${resolved.missing.join(", ")}`, missing: resolved.missing },
+        { status: 400 },
+      );
+    }
+    let service;
+    try {
+      service = createServiceRoleClient();
+    } catch (err) {
+      return NextResponse.json({ error: err instanceof Error ? err.message : "Write ledger is unavailable" }, { status: 503 });
+    }
+    treeRun = {
+      eventId: t.eventId,
+      stage: t.stage,
+      runId: t.runId,
+      ledger: new Map(
+        [...resolved.drafts].map(([campaignId, draftId]) => [
+          campaignId,
+          { supabase: service, userId: user.id, draftId, eventId: t.eventId },
+        ]),
+      ),
+    };
+  }
   // One normal ad per variation, unless that creative opted into rotation.
   const newCreatives = expandCreativesForLaunch(body.newCreatives);
   const campaignIds = Object.keys(campaignAdSets);
@@ -324,6 +372,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   // ── Per-campaign serial execution ────────────────────────────────────────
   const results: CampaignAttachResult[] = [];
+  /** Campaign tree run: the ad sets that hold the run's ads, and the creatives that made one, per campaign. */
+  const treeAdSets = new Map<string, Set<string>>();
+  const treeCreatives = new Map<string, number>();
   let totalAdsCreated = 0;
   let totalAdsFailed = 0;
   let rateLimited = false;
@@ -424,8 +475,16 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
       let metaCreativeId: string;
       try {
-        const { id } = await createMetaCreative(adAccountId, metaPayload, token);
-        metaCreativeId = id;
+        const create = async () => (await createMetaCreative(adAccountId, metaPayload, token)).id;
+        metaCreativeId = treeRun
+          ? await withMetaWriteIdempotency(
+              treeRun.ledger.get(campaignId)!,
+              "creative_upload",
+              treeCreativeLedgerKey({ runId: treeRun.runId, campaignId, creativeId: creative.id }),
+              create,
+              { required: true },
+            )
+          : await create();
         console.error(
           `[bulk-attach-ads]   creative "${creative.name}" → metaCreativeId=${metaCreativeId} path=${isMultiPlacement ? "multi_placement" : "single_asset"}`,
         );
@@ -458,11 +517,35 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       }
 
       // One ad per selected ad set.
+      let creativeGotAds = false;
       for (const adSetId of adSetIds) {
         const adName = metaAdName(creative.name);
         const adPayload = buildAdPayload(adName, metaCreativeId, adSetId);
         try {
-          const { id: adId } = await createMetaAd(adAccountId, adPayload, token);
+          let wrote = !treeRun;
+          const adId = treeRun
+            ? await withMetaWriteIdempotency(
+                treeRun.ledger.get(campaignId)!,
+                "ad_create",
+                treeAdLedgerKey({ runId: treeRun.runId, campaignId, adSetId, creativeId: creative.id }),
+                async () => {
+                  wrote = true;
+                  return (await createMetaAd(adAccountId, adPayload, token)).id;
+                },
+                { required: true },
+              )
+            : (await createMetaAd(adAccountId, adPayload, token)).id;
+          creativeGotAds = true;
+          if (treeRun) {
+            const held = treeAdSets.get(campaignId) ?? new Set<string>();
+            held.add(adSetId);
+            treeAdSets.set(campaignId, held);
+          }
+          if (!wrote) {
+            // Already on the ledger from an earlier try of this run: nothing new was made.
+            console.error(`[bulk-attach-ads]   ad already recorded for this run: adSet ${adSetId} adId=${adId}`);
+            continue;
+          }
           result.adsCreated++;
           result.adIds.push(adId);
           console.error(
@@ -486,6 +569,27 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           );
         }
       }
+      if (creativeGotAds) treeCreatives.set(campaignId, (treeCreatives.get(campaignId) ?? 0) + 1);
+    }
+
+    // ── Campaign tree: one campaign_additions row per campaign that got ads ─
+    if (treeRun && (treeAdSets.get(campaignId)?.size ?? 0) > 0) {
+      const logged = await logCampaignAddition(supabase as unknown as AdditionsDb, {
+        userId: user.id,
+        eventId: treeRun.eventId,
+        stage: treeRun.stage,
+        metaCampaignId: campaignId,
+        metaAdSetIds: [...treeAdSets.get(campaignId)!],
+        kind: "creative",
+        detail: {
+          runId: treeRun.runId,
+          creatives: treeCreatives.get(campaignId) ?? 0,
+          ads: result.adsCreated,
+          who: additionWho(user.user_metadata),
+          source: "campaign_tree",
+        },
+      });
+      if (!logged.ok) console.error(`[bulk-attach-ads] campaign_additions log failed for ${campaignId}: ${logged.error}`);
     }
 
     totalAdsCreated += result.adsCreated;

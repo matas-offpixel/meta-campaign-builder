@@ -68,6 +68,21 @@ link_not_event.one	Check, warning	Link isn’t this event’s page: {url} in 1 a
 link_not_event.evidence	Check, warning	Set by hand? Mark it in creative setup and this goes.
 link_not_event.fix	Check, warning	Use the event’s page · Keep this link
 link_not_event.kept	Review & launch, under the list	Link kept by {name}, {date, time}: {url}
+identity_not_live.key	Check, warning	Live ads
+identity_not_live	Check, warning	This draft runs from {draft page}; the live ads run from {live page}. Relaunching uses the draft’s.
+identity_not_live.instagram	Check, warning	This draft runs on Instagram as @{draft handle}; the live ads run as @{live handle}. Relaunching uses the draft’s.
+identity_not_live.evidence	Check, warning	Read from the live ads at {date, time}: {n} ads
+identity_not_live.evidence.one	Check, warning	Read from the live ads at {date, time}: 1 ad
+identity_not_live.fix	Check, warning	Use the live ads’ page: {live page}
+identity_not_live.instagram.fix	Check, warning	Use the live ads’ Instagram: @{live handle}
+identity_not_live.keep	Check, warning	Keep {draft page}
+identity_not_live.instagram.keep	Check, warning	Keep @{draft handle}
+identity_not_live.kept	Review & launch, under the list	Page kept by {name}, {date, time}: {draft page}
+identity_not_live.instagram.kept	Review & launch, under the list	Instagram kept by {name}, {date, time}: @{draft handle}
+page_other_client.fix.live	Check, blocker (live ads’ page known, not another client’s)	Use the live ads’ page: {live page}
+page_other_client.instagram.fix.live	Check, blocker (live ads’ Instagram known, not another client’s)	Use the live ads’ Instagram: @{live handle}
+page_other_client.evidence.live	Check, blocker (live ads’ page known)	Ads: all {n} · the live ads run from {live page}
+page_other_client.instagram.evidence.live	Check, blocker (live ads’ Instagram known)	Ads: all {n} · the live ads run as @{live handle}
 page_other_client.key	Check, blocker	Page
 page_other_client	Check, blocker	Ads run from {page}, which is {other client}’s page. {code} is {client}’s show.
 page_other_client.instagram.key	Check, blocker	Instagram

@@ -1873,6 +1873,8 @@ export interface CampaignListItem {
   noEvent?: boolean;
   /** Client (or the event's client) is archived: listed under Archived only. */
   clientArchived?: boolean;
+  /** campaign_drafts.event_id: the published menu's Duplicate keeps it, and the stage actions open its tree. */
+  eventId?: string | null;
 }
 
 // ─── Wizard state ───

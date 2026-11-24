@@ -12,10 +12,14 @@ import { RETARGETING_SHOTS } from "./retargeting-shots.mjs";
 import { TEST_PLAN_SHOTS } from "./test-plan-shots.mjs";
 import { VARIANT_PAIR_SHOTS } from "./variant-pair-shots.mjs";
 
+import { CAMPAIGN_TREE_SHOTS } from "./campaign-tree-shots.mjs";
+
 export const EVENT_CONFIG_FRAME_IDS = ["EC1", "EC2", "EC3", "EC4", "EC5", "EC6", "EC7"];
 export const EVENT_CONFIG_WIDTHS = [1280, 393];
 
 export const EVENT_CONFIG_SHOTS = [
+  // Campaign creator part 4: Replicate to event and the campaign tree (RC-A, RC-B, RC-B-notset, RC-F, RC-F-sheet at 1280 and 393).
+  ...CAMPAIGN_TREE_SHOTS,
   ...EVENT_CONFIG_FRAME_IDS.flatMap((frame) =>
     EVENT_CONFIG_WIDTHS.map((width) => ({
       id: `${frame}-${width}`,
