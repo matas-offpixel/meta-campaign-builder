@@ -1,0 +1,26 @@
+key	where	words
+location.pin.row	Locations list, a pin’s row	{name} (pin) · {radius} km
+location.pin.chip	Locations list, under the row	{+|−} {name} (pin) · {radius} km · {latitude}, {longitude}
+location.pin.badge	Locations list, badge (added by hand)	pin
+location.pin.add	Search Locations, under the search	Add a pin
+location.pin.title	Pin form	Add a pin
+location.pin.help	Pin form	A pin targets a circle around a point. Use it where Meta has no city.
+location.pin.name	Pin form, field	Name
+location.pin.name.placeholder	Pin form, field	Leeds
+location.pin.latitude	Pin form, field	Latitude
+location.pin.longitude	Pin form, field	Longitude
+location.pin.radius	Pin form, field	Radius (km)
+location.pin.paste	Pin form, under Latitude	Paste “53.7997, -1.5492” from a map and both fill.
+location.pin.save	Pin form, button	Add pin
+location.pin.cancel	Pin form, button	Cancel
+location.pin.error.name	Pin form, error	Name the pin.
+location.pin.error.latitude	Pin form, error	Latitude is a number from -90 to 90.
+location.pin.error.longitude	Pin form, error	Longitude is a number from -180 to 180.
+location.pin.error.radius	Pin form, error	Radius is 1 to 80 km.
+location.preset.leeds	Quick presets, chip	Leeds, West Yorkshire (pin)
+location.preset.leeds.title	Quick presets, chip hover	Leeds city centre, 53.7997, -1.5492, 80 km. Meta has no Leeds city in West Yorkshire.
+location.region_mismatch	Search result and Locations row (amber)	{name}, {region}: this is in {region}, not {expected region}.
+location.region_mismatch.fix	Search result and Locations row (pin preset known)	Use the {name} pin
+location.region_mismatch.fix.none	Search result and Locations row (no pin preset)	Add a pin
+location.region_mismatch.keep	Locations row	Keep {name}, {region}
+location.region_mismatch.kept	Locations row, muted	{name}, {region} kept by {who}, {date, time}

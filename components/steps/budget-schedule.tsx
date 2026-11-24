@@ -56,6 +56,26 @@ import { suggestAgeRange } from "@/lib/interest-suggestions";
 import { useLocationSearch, type LocationSearchResult } from "@/lib/hooks/useMeta";
 import { clampCityRadius } from "@/lib/meta/location-radius";
 import {
+  PIN_PRESETS,
+  isPin,
+  isPresetPinGroup,
+  keepRegionMismatch,
+  keptRegionMismatchLine,
+  manualPinGroup,
+  openRegionMismatch,
+  pinChipLabel,
+  pinSelection,
+  pinWord,
+  presetPinGroup,
+  regionMismatchForCityKey,
+  swapGroupForPinPreset,
+  type PinFormValues,
+  type PinInput,
+  type PinPresetKey,
+  type RegionMismatch,
+} from "@/lib/meta/location-pins";
+import { LocationPinForm, emptyPinForm, useViewerLabel } from "@/components/steps/location-pin-form";
+import {
   EUROPE_EXCL_UK_PRESET,
   EUROPE_PRESET,
   matchPresetLocation,
@@ -304,25 +324,129 @@ interface BudgetScheduleProps {
 
 // ─── Location Picker Component ───────────────────────────────────────────────
 
-function LocationPicker({
+/**
+ * Frames only (`app/(dev)/frames/location-pins`): a typed query with its
+ * Meta results, and the pin form open with its values. Never set in the app.
+ */
+export interface LocationPickerFrameState {
+  query?: string;
+  results?: LocationSearchResult[];
+  pinForm?: { values: PinFormValues; checked?: boolean };
+}
+
+/** The amber line (LP4): on a search hit and on a Locations row. */
+function RegionMismatchLine({
+  mismatch,
+  onFix,
+  keep,
+}: {
+  mismatch: RegionMismatch;
+  onFix: () => void;
+  keep?: { label: string; onKeep: () => void };
+}) {
+  const btn =
+    "rounded border border-warning/40 bg-card px-2 py-0.5 text-[11px] font-medium text-foreground transition-colors hover:bg-warning/10";
+  return (
+    <div className="mt-1.5 rounded-md bg-warning/10 px-2.5 py-2 text-[12px] text-foreground" data-region-mismatch="">
+      <StatusLine>{mismatch.line}</StatusLine>
+      <div className="mt-1.5 flex flex-wrap gap-1.5">
+        <button type="button" onClick={onFix} className={btn}>
+          {mismatch.fix}
+        </button>
+        {keep ? (
+          <button type="button" onClick={keep.onKeep} className={btn}>
+            {keep.label}
+          </button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+export function LocationPicker({
   groups,
   onChange,
   exclusions,
   onExclusionsChange,
   adSetSuggestions,
+  frame,
 }: {
   groups: LocationTargetingGroup[];
   onChange: (update: (groups: LocationTargetingGroup[]) => LocationTargetingGroup[]) => void;
   exclusions: LocationSelection[];
   onExclusionsChange: (update: (excluded: LocationSelection[]) => LocationSelection[]) => void;
   adSetSuggestions: AdSetSuggestion[];
+  frame?: LocationPickerFrameState;
 }) {
-  const [searchQuery, setSearchQuery] = useState("");
+  const [searchQuery, setSearchQuery] = useState(frame?.query ?? "");
   const [addMode, setAddMode] = useState<"include" | "exclude">("include");
   const [addRadius, setAddRadius] = useState(40);
   const [resolvingPreset, setResolvingPreset] = useState<string | null>(null);
   const [presetError, setPresetError] = useState<string | null>(null);
-  const locationSearch = useLocationSearch();
+  const [pinForm, setPinForm] = useState<{ values: PinFormValues; checked: boolean } | null>(
+    frame?.pinForm ? { values: frame.pinForm.values, checked: frame.pinForm.checked ?? false } : null,
+  );
+  // Bumped on every open so a reopened form starts from its own values.
+  const [pinFormKey, setPinFormKey] = useState(0);
+  const viewer = useViewerLabel();
+  const liveSearch = useLocationSearch();
+  const locationSearch = frame?.results
+    ? { ...liveSearch, results: frame.results, loading: false, error: null }
+    : liveSearch;
+
+  const openPinForm = (name = "") => {
+    setPinForm({ values: emptyPinForm(name), checked: false });
+    setPinFormKey((k) => k + 1);
+  };
+
+  const addPin = (pin: Omit<PinInput, "tier">) => {
+    const stamp = Date.now();
+    if (pin.mode === "exclude") {
+      onExclusionsChange((prev) => [...prev, pinSelection(pin, "search", `pin_${stamp}_exclude`)]);
+    } else {
+      onChange((prev) => [...prev, manualPinGroup(pin, stamp)]);
+    }
+    setPinForm(null);
+  };
+
+  /** The preset chip (LP3): on adds the pin row, off removes it. */
+  const togglePinPreset = (key: PinPresetKey) => {
+    if (groups.some((g) => isPresetPinGroup(g, key))) {
+      onChange((prev) => prev.filter((g) => !isPresetPinGroup(g, key)));
+      return;
+    }
+    onChange((prev) => (prev.some((g) => isPresetPinGroup(g, key)) ? prev : [...prev, presetPinGroup(key)]));
+  };
+
+  /** A search hit's fix: the preset's pin instead of the hit, or the form with the name filled. */
+  const fixSearchHit = (mismatch: RegionMismatch) => {
+    if (mismatch.pinPreset) {
+      const key = mismatch.pinPreset;
+      if (addMode === "exclude") {
+        const preset = presetPinGroup(key, { mode: "exclude" }).selections[0]!;
+        onExclusionsChange((prev) => [...prev, { ...preset, id: `${preset.id}_${Date.now()}` }]);
+      } else if (!groups.some((g) => isPresetPinGroup(g, key))) {
+        onChange((prev) => (prev.some((g) => isPresetPinGroup(g, key)) ? prev : [...prev, presetPinGroup(key)]));
+      }
+    } else {
+      openPinForm(mismatch.entry.name);
+    }
+    setSearchQuery("");
+    locationSearch.clear();
+  };
+
+  /** A row's fix (LP5): swap it for the pin, keeping its tier and mode; or open the form. */
+  const fixRow = (groupId: string, mismatch: RegionMismatch) => {
+    if (!mismatch.pinPreset) {
+      openPinForm(mismatch.entry.name);
+      return;
+    }
+    const key = mismatch.pinPreset;
+    onChange((prev) => prev.map((g) => (g.id === groupId ? swapGroupForPinPreset(g, key) : g)));
+  };
+
+  const keepRow = (groupId: string, selectionId: string) =>
+    onChange((prev) => prev.map((g) => (g.id === groupId ? keepRegionMismatch(g, selectionId, viewer, new Date()) : g)));
 
   const handleSearchChange = (value: string) => {
     setSearchQuery(value);
@@ -430,6 +554,26 @@ function LocationPicker({
               </button>
             );
           })}
+          {(Object.keys(PIN_PRESETS) as PinPresetKey[]).map((key) => {
+            const preset = PIN_PRESETS[key];
+            const active = groups.some((g) => isPresetPinGroup(g, key));
+            return (
+              <button
+                key={preset.id}
+                type="button"
+                title={pinWord(preset.title)}
+                aria-pressed={active}
+                onClick={() => togglePinPreset(key)}
+                className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-colors
+                  ${active
+                    ? "border-primary bg-primary-light text-primary"
+                    : "border-border-strong text-muted-foreground hover:border-foreground/20"
+                  }`}
+              >
+                {pinWord(preset.chip)}
+              </button>
+            );
+          })}
         </div>
         {presetError && (
           <StatusLine tone="alert" className="mt-1 text-xs text-destructive">{presetError}</StatusLine>
@@ -478,20 +622,29 @@ function LocationPicker({
         {/* Search results dropdown */}
         {searchQuery.length >= 2 && (locationSearch.results.length > 0 || locationSearch.loading) && (
           <div className="mt-1 max-h-48 overflow-y-auto rounded-lg border border-border bg-card shadow-lg">
-            {locationSearch.results.map((r) => (
-              <button
-                key={`${r.type}_${r.key}`}
-                type="button"
-                onClick={() => addFromSearch(r)}
-                className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-muted transition-colors"
-              >
-                <span className="truncate">{formatResultLabel(r)}</span>
-                <div className="flex items-center gap-2 shrink-0 ml-2">
-                  <Badge variant="outline" className="text-[10px]">{typeLabel(r.type)}</Badge>
-                  <Plus className="h-3.5 w-3.5 text-primary" />
+            {locationSearch.results.map((r) => {
+              const mismatch = r.type === "city" ? regionMismatchForCityKey(r.key, searchQuery) : null;
+              return (
+                <div key={`${r.type}_${r.key}`}>
+                  <button
+                    type="button"
+                    onClick={() => addFromSearch(r)}
+                    className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-muted transition-colors"
+                  >
+                    <span className="truncate">{formatResultLabel(r)}</span>
+                    <div className="flex items-center gap-2 shrink-0 ml-2">
+                      <Badge variant="outline" className="text-[10px]">{typeLabel(r.type)}</Badge>
+                      <Plus className="h-3.5 w-3.5 text-primary" />
+                    </div>
+                  </button>
+                  {mismatch ? (
+                    <div className="px-2 pb-2">
+                      <RegionMismatchLine mismatch={mismatch} onFix={() => fixSearchHit(mismatch)} />
+                    </div>
+                  ) : null}
                 </div>
-              </button>
-            ))}
+              );
+            })}
           </div>
         )}
         {searchQuery.length >= 2 && !locationSearch.loading && locationSearch.results.length === 0 && (
@@ -499,6 +652,24 @@ function LocationPicker({
         )}
         {locationSearch.error && (
           <StatusLine tone="alert" className="mt-1 text-xs text-destructive">{locationSearch.error}</StatusLine>
+        )}
+        {pinForm ? (
+          <LocationPinForm
+            key={pinFormKey}
+            initial={pinForm.values}
+            initialMode={addMode}
+            initialChecked={pinForm.checked}
+            onAdd={addPin}
+            onCancel={() => setPinForm(null)}
+          />
+        ) : (
+          <button
+            type="button"
+            onClick={() => openPinForm()}
+            className="mt-2 text-xs text-foreground underline underline-offset-2 hover:text-primary"
+          >
+            {pinWord("location.pin.add")}
+          </button>
         )}
       </div>
 
@@ -509,7 +680,11 @@ function LocationPicker({
             Locations ({groups.length})
           </span>
           <div className="mt-2 space-y-1.5">
-            {groups.map((g) => (
+            {groups.map((g) => {
+              const open = openRegionMismatch(g);
+              const kept = g.selections.map(keptRegionMismatchLine).filter((line): line is string => !!line);
+              const handPin = g.source !== "preset" && g.selections.some(isPin);
+              return (
               <div
                 key={g.id}
                 className="flex items-center justify-between rounded-lg border border-border px-3 py-2"
@@ -518,7 +693,7 @@ function LocationPicker({
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-medium truncate">{g.label}</span>
                     <Badge variant={g.source === "preset" ? "primary" : "outline"} className="text-[10px] shrink-0">
-                      {g.source}
+                      {handPin ? pinWord("location.pin.badge") : g.source}
                     </Badge>
                   </div>
                   <div className="mt-0.5 flex flex-wrap gap-1">
@@ -531,12 +706,30 @@ function LocationPicker({
                             : "bg-destructive/10 text-destructive"
                         }`}
                       >
-                        {sel.mode === "exclude" ? "−" : "+"} {sel.label}
-                        {sel.radius ? ` (${sel.radius} km)` : ""}
-                        {sel.locationType === "country" ? ` [${sel.countryCode}]` : ` [key:${sel.locationKey}]`}
+                        {isPin(sel) ? (
+                          pinChipLabel(sel)
+                        ) : (
+                          <>
+                            {sel.mode === "exclude" ? "−" : "+"} {sel.label}
+                            {sel.radius ? ` (${sel.radius} km)` : ""}
+                            {sel.locationType === "country" ? ` [${sel.countryCode}]` : ` [key:${sel.locationKey}]`}
+                          </>
+                        )}
                       </span>
                     ))}
                   </div>
+                  {open ? (
+                    <RegionMismatchLine
+                      mismatch={open.mismatch}
+                      onFix={() => fixRow(g.id, open.mismatch)}
+                      keep={{ label: open.mismatch.keep, onKeep: () => keepRow(g.id, open.sel.id) }}
+                    />
+                  ) : null}
+                  {kept.map((line) => (
+                    <StatusLine key={line} className="mt-1 text-[11.5px] text-muted-foreground">
+                      {line}
+                    </StatusLine>
+                  ))}
                 </div>
                 <div className="ml-2 flex shrink-0 items-center gap-1" role="group" aria-label="Tier">
                   {(["primary", "secondary"] as const).map((tier) => {
@@ -567,7 +760,8 @@ function LocationPicker({
                   <X className="h-3.5 w-3.5" />
                 </button>
               </div>
-            ))}
+              );
+            })}
           </div>
           {(groups.some((g) => groupTier(g) === "primary") ||
             groups.some((g) => groupTier(g) === "secondary")) && (
@@ -605,9 +799,15 @@ function LocationPicker({
                   className="flex items-center justify-between rounded-lg border border-border px-3 py-2"
                 >
                   <span className="min-w-0 truncate text-[11px] rounded bg-destructive/10 px-1.5 py-0.5 text-destructive">
-                    − {sel.label}
-                    {sel.radius ? ` (${sel.radius} km)` : ""}
-                    {sel.locationType === "city" ? "" : ` [${sel.locationType}]`}
+                    {isPin(sel) ? (
+                      pinChipLabel(sel)
+                    ) : (
+                      <>
+                        − {sel.label}
+                        {sel.radius ? ` (${sel.radius} km)` : ""}
+                        {sel.locationType === "city" ? "" : ` [${sel.locationType}]`}
+                      </>
+                    )}
                   </span>
                   <div className="ml-2 flex shrink-0 items-center gap-2">
                     <span className={`text-[11px] ${used === 0 ? "text-warning" : "text-muted-foreground"}`}>

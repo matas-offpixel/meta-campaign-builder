@@ -844,9 +844,18 @@ export interface LocationSelection {
   source: "preset" | "search";
   label: string;
   mode: "include" | "exclude";
-  locationType: "city" | "country" | "region" | "country_group";
+  /**
+   * `"pin"` is a point and a radius in km (design record
+   * 2026-11-24-campaign-creator-location-pin, LP1): `label` is its name,
+   * `latitude` / `longitude` the point, `radius` the km. It reaches Meta as
+   * one `geo_locations.custom_locations` entry. It has no `locationKey`.
+   */
+  locationType: "city" | "country" | "region" | "country_group" | "pin";
   /** Meta location key — for cities, regions, and country groups. Not a country code. */
   locationKey?: string;
+  /** A pin's point, as entered. Only on `locationType: "pin"`. */
+  latitude?: number;
+  longitude?: number;
   /**
    * ISO country code. Always set for country-level targeting; also recorded
    * for cities and regions picked from search (Meta returns it), so preflight
@@ -867,6 +876,12 @@ export interface LocationSelection {
    * "All secondary" on the ad-set row. Absent = untiered.
    */
   tier?: LocationTier;
+  /**
+   * LP4: the operator kept a known-ambiguous city ("Keep Leeds, Kent").
+   * Clears the region-mismatch line for this draft. `keptBy` is the
+   * viewer's email (or id), `keptAt` an ISO time.
+   */
+  regionMismatchKept?: { keptBy: string; keptAt: string };
 }
 
 export type LocationTier = "primary" | "secondary";
@@ -929,17 +944,29 @@ export interface BudgetScheduleSettings {
 
 // ─── Ad set suggestions ───
 
+/** A Meta custom location: a point and a radius. `name` is ours; Meta doesn't keep it. */
+export interface AdSetCustomLocation {
+  latitude: number;
+  longitude: number;
+  radius: number;
+  distance_unit: "kilometer" | "mile";
+  name?: string;
+}
+
 export interface AdSetGeoLocations {
   countries?: string[];
   cities?: { key: string; radius?: number; distance_unit?: "mile" | "kilometer" }[];
   regions?: { key: string }[];
   /** Meta country-group keys, the same shape as `countries`. */
   country_groups?: string[];
+  /** Pins (LP1). */
+  custom_locations?: AdSetCustomLocation[];
   excluded_geo_locations?: {
     countries?: string[];
     cities?: { key: string; radius?: number; distance_unit?: "mile" | "kilometer" }[];
     regions?: { key: string }[];
     country_groups?: string[];
+    custom_locations?: AdSetCustomLocation[];
   };
 }
 
