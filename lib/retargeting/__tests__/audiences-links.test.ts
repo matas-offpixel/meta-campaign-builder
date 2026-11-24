@@ -381,7 +381,7 @@ describe("migration 257: the rule rewrite's op kind on the Meta write ledger", (
   // select op_kind, count(*) on prod, 24 Nov 2026: the kinds rows hold.
   const HELD = ["ad_create", "adset_create", "campaign_create", "creative_upload", "refresh_ad_create", "refresh_adset_create"];
 
-  it("drops the live check by name and re-adds exactly the 20 live kinds (263's), retargeting_audience_rule_update among them", () => {
+  it("drops the live check by name and re-adds the 20 live kinds (263's) plus #1367's two (267), whatever the order they're applied in", () => {
     const drop = SQL.indexOf("drop constraint if exists meta_write_idempotency_op_kind_check");
     const add = SQL.indexOf("add constraint meta_write_idempotency_op_kind_check");
     assert.ok(drop > 0 && add > drop);
@@ -389,6 +389,7 @@ describe("migration 257: the rule rewrite's op kind on the Meta write ledger", (
     const live = [...LIVE.matchAll(/'([a-z_]+)'::text/g)].map((m) => m[1]!);
     for (const kind of [...live, ...HELD]) assert.ok(listed.includes(kind), kind);
     assert.ok(listed.includes("retargeting_audience_rule_update"));
-    assert.deepEqual(new Set(listed), new Set(live), "nothing dropped, nothing new");
+    // The signups engine's 267 (#1367) re-adds the same CHECK with these two more; 257 keeps them so neither order drops a kind.
+    assert.deepEqual(new Set(listed), new Set([...live, "customer_list_create", "customer_list_users"]), "nothing dropped; only 267's two added");
   });
 });

@@ -24,9 +24,11 @@
 -- meta_write_idempotency as op_kind 'retargeting_audience_rule_update'.
 -- Main's 263 already added that kind (with the layout test's two study kinds
 -- and its own adset_end_time_update), and prod holds all 20 (read only,
--- 24 Nov). So the op_kind CHECK is re-added with exactly those 20: applying
--- this after 263 changes nothing there, and drops no kind 263 added.
--- Dropped by name, as above.
+-- 24 Nov). The signups engine's 267 (#1367) re-adds the same CHECK with
+-- those 20 plus customer_list_create and customer_list_users. So the op_kind
+-- CHECK is re-added here with all 22, whatever the order 257 and 267 are
+-- applied in: neither drops a kind the other adds (allowing two kinds before
+-- they're used is harmless). Dropped by name, as above.
 --
 -- Write only. Not applied from this branch. Ops applies from the PR head.
 
@@ -65,7 +67,9 @@ alter table public.meta_write_idempotency
     'retargeting_audience_rule_update',
     'retargeting_study_create',
     'retargeting_study_end',
-    'adset_end_time_update'
+    'adset_end_time_update',
+    'customer_list_create',
+    'customer_list_users'
   ));
 
 notify pgrst, 'reload schema';
