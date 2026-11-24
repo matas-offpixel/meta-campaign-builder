@@ -9,6 +9,13 @@
 import { isGenrePoolKey, type GenrePoolKey } from "../learning/genre/families.ts";
 import type { AudienceTemplate, TemplateItem, TemplateItemKind } from "./resolve.ts";
 
+/**
+ * The audience_template_items unique key, as migration 267 (#1367) rebuilds
+ * it: 266's seven columns plus meta_audience_id, nulls not distinct. Every
+ * upsert of items uses this string; it only works once 267 is applied.
+ */
+export const ITEM_CONFLICT_KEY = "template_id,kind,list_role,family_key,page_id,retention_days,interest_id,meta_audience_id";
+
 const KINDS: readonly TemplateItemKind[] = ["customer_list", "retargeting_pool", "page_engagers", "interest"];
 
 export interface TemplateRowIn {
@@ -84,6 +91,16 @@ export function itemRow(item: TemplateItem, userId: string) {
   };
 }
 
+/**
+ * The items --apply may write. A customer list is written only with its Meta
+ * id: with meta_audience_id in the key, an id-less row would sit beside the
+ * row a later run writes once Meta has the list, instead of being that row.
+ */
+export function writableItems(items: TemplateItem[]): { write: TemplateItem[]; held: TemplateItem[] } {
+  const held = items.filter((i) => i.kind === "customer_list" && !i.metaAudienceId);
+  return { write: items.filter((i) => !held.includes(i)), held };
+}
+
 /** The rows a template writes (the script's --apply). */
 export function templateRows(t: AudienceTemplate, userId: string, confirmed: { by: string; at: string } | null) {
   return {
@@ -97,6 +114,6 @@ export function templateRows(t: AudienceTemplate, userId: string, confirmed: { b
       confirmed_by: confirmed?.by ?? null,
       confirmed_at: confirmed?.at ?? null,
     },
-    items: t.items.map((i) => itemRow(i, userId)),
+    items: writableItems(t.items).write.map((i) => itemRow(i, userId)),
   };
 }

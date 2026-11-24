@@ -12,6 +12,8 @@ import { GENRE_POOL_KEYS } from "../../learning/genre/families.ts";
 import { TEMPLATE_DEFS, findPageByName, planTemplates, showName, type SeedDraft, type SeedEvent } from "../seed.ts";
 import { NAMED_LISTS, TEMPLATE_LISTS, type ListPlacement } from "../graph-lists.ts";
 import { TEMPLATE_NAMES } from "../words.ts";
+import { ITEM_CONFLICT_KEY, templateRows, writableItems } from "../store.ts";
+import { readFileSync } from "node:fs";
 
 const ev = (id: string, code: string, name: string, genreFamily: string | null = null): SeedEvent => ({ id, code, name, genreFamily });
 const draft = (eventId: string, pageGroups: unknown[], interestGroups: unknown[] = []): SeedDraft => ({
@@ -125,7 +127,10 @@ describe("planTemplates", () => {
       assert.deepEqual(pools, ["page_views:30", "signups:180", "video_viewers:60"]);
       const lists = p.template.items.filter((i) => i.kind === "customer_list");
       assert.deepEqual(lists.map((i) => i.detail.name), TEMPLATE_LISTS[p.template.name]);
-      assert.equal(new Set(lists.map((i) => i.familyKey)).size, lists.length, "one list per family: the item key stays unique");
+      // 267 lets a template hold several lists of one role and family when
+      // their Meta ids differ (each show's signups list, #1367). The seed's
+      // own lists are buyers lists, still one per family.
+      assert.equal(new Set(lists.map((i) => `${i.listRole}|${i.familyKey}`)).size, lists.length, "one buyers list per family");
       assert.equal(p.template.confirmedBy, null, "the seed never confirms: Matas does");
     }
   });
@@ -152,6 +157,39 @@ describe("planTemplates", () => {
     const nx = house.template.items.find((i) => i.detail.name === "NX LOVES DATA CSV")!;
     assert.equal(nx.metaAudienceId, null);
     assert.equal(nx.familyKey, null);
+  });
+});
+
+describe("the item key (migration 267)", () => {
+  it("is 266's seven columns plus meta_audience_id, and both upserts use it", () => {
+    assert.equal(ITEM_CONFLICT_KEY, "template_id,kind,list_role,family_key,page_id,retention_days,interest_id,meta_audience_id");
+    for (const f of ["../../../scripts/seed-audience-templates.mts", "../../actions/audience-templates.ts"]) {
+      const src = readFileSync(new URL(f, import.meta.url), "utf8");
+      assert.match(src, /onConflict: ITEM_CONFLICT_KEY/, f);
+      assert.doesNotMatch(src, /retention_days,interest_id"/, `${f}: no seven-column key left`);
+    }
+  });
+
+  it("--apply writes a customer list only with its Meta id", () => {
+    const placed: ListPlacement = {
+      list: NAMED_LISTS.find((l) => l.name === "Tech House Data")!,
+      id: "120252283933420755",
+      metaName: "Tech House Data",
+      holder: "act_606252931141334",
+      sharedTo: [],
+      countLower: null,
+      countUpper: null,
+      timeUpdated: null,
+      operation: "Normal",
+      outdated: false,
+      alsoMatched: [],
+    };
+    const t = planTemplates({ clientId: "c", businessId: "b", events: EVENTS, drafts: DRAFTS, pageNames: NAMES, clusters: [], lists: [placed] })[0]!.template;
+    const { held } = writableItems(t.items);
+    assert.deepEqual(held.map((i) => i.detail.name), ["NX LOVES DATA CSV", "Disco House Data"]);
+    const rows = templateRows(t, "u", null).items.filter((r) => r.kind === "customer_list");
+    assert.deepEqual(rows.map((r) => r.meta_audience_id), ["120252283933420755"]);
+    assert.equal(templateRows(t, "u", null).items.length, t.items.length - held.length, "pools, pages and interests are all written");
   });
 });
 

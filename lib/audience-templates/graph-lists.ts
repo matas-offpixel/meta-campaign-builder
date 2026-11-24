@@ -140,7 +140,7 @@ export const NAMED_LISTS: readonly NamedList[] = [
   { name: "azyr-newcastle-signups-2026-09-18.csv", family: null, use: "per_show" },
 ];
 
-/** Ops' mapping (Matas confirms), by template name. */
+/** Ops' mapping (Matas confirmed it 24 Nov), by template name. */
 export const TEMPLATE_LISTS: Record<string, readonly string[]> = {
   "House & disco": ["NX LOVES DATA CSV", "Tech House Data", "Disco House Data"],
   "House & garage": ["NX LOVES DATA CSV", "Tech House Data", "Garage & Grime Data", "DnB Data", "Techno Data"],

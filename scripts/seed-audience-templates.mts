@@ -44,7 +44,7 @@ import {
   type KnownAudience,
 } from "../lib/audience-templates/resolve.ts";
 import { pageNamesFromDrafts, planTemplates, type SeedCluster, type SeedDraft, type SeedEvent } from "../lib/audience-templates/seed.ts";
-import { templateRows } from "../lib/audience-templates/store.ts";
+import { ITEM_CONFLICT_KEY, templateRows, writableItems } from "../lib/audience-templates/store.ts";
 import {
   fetchAccountAudiences,
   isAllowedGraphRead,
@@ -358,13 +358,15 @@ if (registerRows.length) {
   log(`Registered ${registerRows.length} customer lists as meta_custom_audiences rows`);
 }
 for (const p of proposals) {
+  const held = writableItems(p.template.items).held;
+  if (held.length) log(`${p.template.name}: ${held.length} customer list(s) not found in Meta, not written: ${held.map((i) => i.detail.name).join(", ")}`);
   const { template, items } = templateRows(p.template, USER, CONFIRMED ? { by: USER, at: now } : null);
   const up = await db.from("audience_templates").upsert(template, { onConflict: "user_id,business_id,name" }).select("id").single();
   if (up.error) throw new Error(`audience_templates ${p.template.name}: ${up.error.message}`);
   const id = String((up.data as Row).id);
   const rows = items.map((r) => ({ ...r, template_id: id }));
   const ins = await db.from("audience_template_items").upsert(rows, {
-    onConflict: "template_id,kind,list_role,family_key,page_id,retention_days,interest_id",
+    onConflict: ITEM_CONFLICT_KEY,
     ignoreDuplicates: true,
   });
   if (ins.error) throw new Error(`audience_template_items ${p.template.name}: ${ins.error.message}`);

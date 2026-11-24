@@ -12,7 +12,7 @@ import {
   type KnownAudience,
   type TemplateItem,
 } from "@/lib/audience-templates/resolve";
-import { itemRow, templateFromRows, type ItemRowIn, type TemplateRowIn } from "@/lib/audience-templates/store";
+import { ITEM_CONFLICT_KEY, itemRow, templateFromRows, type ItemRowIn, type TemplateRowIn } from "@/lib/audience-templates/store";
 import { templateOrder } from "@/lib/audience-templates/view";
 import { createClient } from "@/lib/supabase/server";
 
@@ -181,7 +181,7 @@ export async function saveTemplatePages(templateId: string, items: TemplateItem[
   if (pages.length === 0) return { ok: true, saved: 0 };
   const rows = pages.map((i) => ({ ...itemRow({ ...i, retentionDays: i.retentionDays ?? 365 }, userId), template_id: templateId }));
   const res = await db.from("audience_template_items").upsert(rows, {
-    onConflict: "template_id,kind,list_role,family_key,page_id,retention_days,interest_id",
+    onConflict: ITEM_CONFLICT_KEY,
     ignoreDuplicates: true,
   });
   if (res.error) return { ok: false, error: res.error.message };
