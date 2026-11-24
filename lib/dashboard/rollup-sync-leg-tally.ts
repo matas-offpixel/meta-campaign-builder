@@ -29,7 +29,7 @@ export const ROLLUP_LEGS: readonly RollupLeg[] = ["meta", "tickets", "tiktok", "
  */
 export const LEG_SKIP_REASONS: Record<RollupLeg, readonly string[]> = {
   meta: ["no_event_code", "no_ad_account"],
-  tickets: ["not_linked"],
+  tickets: ["not_linked", "archived_client"],
   tiktok: ["no_event_code", "no_tiktok_account", "no_rows"],
   google: ["no_event_code", "no_google_ads_account"],
 };
