@@ -111,6 +111,32 @@ describe("meta call meter", () => {
   });
 });
 
+describe("meta call meter — onAppUsage watcher (bm-page-scan 80 % stop)", () => {
+  it("hands the watcher every reading, in order, and skips responses with no header", async () => {
+    const meter = createMetaCallMeter();
+    const seen: number[] = [];
+    meter.onAppUsage = (r) => seen.push(r.total_time);
+    await withMetaCallMeter(meter, async () => {
+      attempt('{"call_count":10,"total_time":20,"total_cputime":0}');
+      attempt(null);
+      attempt('{"call_count":30,"total_time":85,"total_cputime":0}', true);
+    });
+    assert.deepEqual(seen, [20, 85]);
+    assert.equal(meter.calls, 3);
+  });
+
+  it("a watcher that throws never breaks the Graph call", async () => {
+    const meter = createMetaCallMeter();
+    meter.onAppUsage = () => {
+      throw new Error("watcher bug");
+    };
+    await withMetaCallMeter(meter, async () => {
+      attempt('{"call_count":1,"total_time":2,"total_cputime":3}');
+    });
+    assert.deepEqual(meter.lastAppUsage, { call_count: 1, total_time: 2, total_cputime: 3 });
+  });
+});
+
 describe("client.ts reports every Graph attempt to the meter", () => {
   const src = readFileSync(new URL("../client.ts", import.meta.url), "utf8");
 

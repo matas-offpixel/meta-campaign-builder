@@ -985,21 +985,27 @@ Notable recently-added tables / columns (dashboard-era, April 2026):
 - `/api/cron/google-ads-daily-insights` (04:00 UTC) — Google Ads campaign,
   search-term and location facts per day (see
   `ENABLE_GOOGLE_ADS_DAILY_INSIGHTS` above). Zero Google Ads mutates.
-- `/api/cron/bm-page-scan` (`15 21,1,4 * * *` UTC: three runs a London night,
-  each an hour clear of scan-enhancement-flags 00:45, ad-daily-insights 02:30
-  and optimisation-tick 00:00 / 04:00) — re-reads every connected Business
-  Manager's pages, ad accounts, pixels and IG accounts. Detection only, never
-  grants. BMs whose client is archived are skipped; a BM with no `client_id` is
-  scanned. BMs go least-recently-scanned first, so each run picks up where the
-  last stopped. The first Meta rate-limit error stops the run, and the rest are
-  skipped, not errored. No BM starts after 650 s. `/me/accounts` and the
-  business-scoped user ids are read once per token per run. Its `cron_runs`
-  detail carries `meta_calls` (every Graph attempt, retries included, counted
-  per run by `lib/meta/call-meter.ts`) and the X-App-Usage readings
-  `app_usage_last` / `app_usage_at_limit` (`{call_count, total_time,
-  total_cputime}` or null). Alarmed in `CRON_ALARMS` with `night_all_zero`: a
-  failed run at once; a zero only when every run that London night did 0;
-  48 h without a run. `lib/bm/scan-run.ts`, `lib/bm/cron-scan.ts`.
+- `/api/cron/bm-page-scan` (`15 21,1,4 * * *` and `45 22 * * *` UTC: four runs a
+  London night, each an hour clear of scan-enhancement-flags 00:45, ad-daily-insights
+  02:30 and optimisation-tick 00:00 / 04:00; 23:15 was turned down because
+  optimisation-tick skips its tick above 70 % app usage and 00:00 would still hold
+  that run's calls) — re-reads every connected Business Manager's pages, ad
+  accounts, pixels and IG accounts. Detection only, never grants. BMs whose client
+  is archived are skipped; a BM with no `client_id` is scanned. BMs go
+  least-recently-scanned first, so each run picks up where the last stopped. The
+  run stops starting BMs at whichever comes first: an X-App-Usage field
+  (`call_count`, `total_time`, `total_cputime`) read after any Graph call at 80 %
+  (`BM_SCAN_USAGE_STOP_PCT`; the BM in progress finishes, the rest are skipped
+  `app_usage_80`), the first Meta rate-limit error (`rate_limited`), or 650 s
+  (`time_budget`). `stopped_by` says which. `/me/accounts` and the
+  business-scoped user ids are read once per token per run. Its `cron_runs` detail
+  carries `meta_calls` (every Graph attempt, retries included, counted per run by
+  `lib/meta/call-meter.ts`), the X-App-Usage readings `app_usage_last` /
+  `app_usage_at_limit` (`{call_count, total_time, total_cputime}` or null), and
+  `stopped_at_usage`, `usage_at_stop` and `bms_skipped_usage`. Alarmed in
+  `CRON_ALARMS` with `night_all_zero` (`runsPerNight: 4`): a failed run at once; a
+  zero only when every run that London night did 0 (a usage stop with a BM done
+  is not a zero); 48 h without a run. `lib/bm/scan-run.ts`, `lib/bm/cron-scan.ts`.
 - `/api/cron/creative-tests-read` (`0 7,8 * * *` UTC, acts at 08:00 London) —
   the creative tests' daily read; TF9's end-day call extends or pauses the test
   ad set (see `ENABLE_CREATIVE_TESTS_READ` above). Off until its switches are set.

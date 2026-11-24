@@ -13,8 +13,17 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import {
+  createMetaCallMeter,
+  noteMetaUsage,
+  withMetaCallMeter,
+} from "../../meta/call-meter.ts";
+import { parseAppUsageHeader } from "../../meta/app-usage.ts";
+import {
   BM_SCAN_TIME_BUDGET_MS,
+  BM_SCAN_USAGE_STOP_PCT,
   createTokenContextCache,
+  createUsageStopLatch,
+  usageAtOrOver,
   isMetaRateLimitError,
   isMetaTokenExpiredError,
   orderForRotation,
@@ -199,6 +208,138 @@ describe("runBmScanLoop — breaker", () => {
       ],
     );
     assert.equal(res.stoppedBy, null);
+  });
+});
+
+describe("runBmScanLoop — 80 % app-usage stop", () => {
+  type Reading = { call_count: number; total_time: number; total_cputime: number };
+  const low: Reading = { call_count: 40, total_time: 50, total_cputime: 0 };
+
+  /**
+   * Runs the loop the way lib/bm/cron-scan.ts wires it: one meter, the latch
+   * as its onAppUsage watcher, and each "Graph call" a noteMetaUsage with a
+   * real X-App-Usage header. `plan` gives each BM its calls' readings.
+   */
+  async function run(
+    ids: string[],
+    plan: Record<string, Array<{ reading: Reading | null; rateLimited?: boolean }>>,
+  ) {
+    const meter = createMetaCallMeter();
+    const latch = createUsageStopLatch();
+    meter.onAppUsage = latch.note;
+    const calls: string[] = [];
+    const res = await withMetaCallMeter(meter, () =>
+      runBmScanLoop<Bm, Outcome>({
+        bms: ids.map((id) => bm(id, null)),
+        scanOne: async (b) => {
+          let rateLimited = false;
+          for (const [i, c] of (plan[b.business_id] ?? [{ reading: low }]).entries()) {
+            calls.push(`${b.business_id}${i + 1}`);
+            await new Promise((r) => setImmediate(r));
+            noteMetaUsage({
+              appUsage: parseAppUsageHeader(c.reading ? JSON.stringify(c.reading) : null),
+              rateLimited: Boolean(c.rateLimited),
+            });
+            if (c.rateLimited) {
+              rateLimited = true;
+              break;
+            }
+          }
+          return { id: b.business_id, rateLimited };
+        },
+        isRateLimited: (o) => o.rateLimited,
+        onThrow: (b) => ({ id: b.business_id, rateLimited: false }),
+        startedAtMs: 0,
+        now: () => 0,
+        usageStop: latch.tripped,
+      }),
+    );
+    return { res, calls };
+  }
+
+  it("stops at 80 %, not before", () => {
+    assert.equal(BM_SCAN_USAGE_STOP_PCT, 80);
+    assert.equal(usageAtOrOver({ call_count: 79, total_time: 79.9, total_cputime: 79 }), false);
+    assert.equal(usageAtOrOver(null), false);
+  });
+
+  for (const field of ["call_count", "total_time", "total_cputime"] as const) {
+    it(`stops on ${field} at 80, finishes the BM in progress, and skips the rest as app_usage_80`, async () => {
+      const at80: Reading = { ...low, [field]: 80 };
+      const { res, calls } = await run(["a", "b", "c", "d"], {
+        a: [{ reading: low }, { reading: low }],
+        // b crosses on its 2nd call; its 3rd call still happens.
+        b: [{ reading: low }, { reading: at80 }, { reading: { ...at80, call_count: Math.max(at80.call_count, 41) } }],
+      });
+      assert.deepEqual(calls, ["a1", "a2", "b1", "b2", "b3"]);
+      assert.deepEqual(res.scanned.map((s) => s.bm.business_id), ["a", "b"]);
+      assert.deepEqual(
+        res.skipped.map((s) => [s.bm.business_id, s.reason]),
+        [
+          ["c", "app_usage_80"],
+          ["d", "app_usage_80"],
+        ],
+      );
+      assert.equal(res.stoppedBy, "app_usage_80");
+      assert.deepEqual(res.usageAtStop, at80);
+      assert.equal(res.rateLimitedAt, null);
+    });
+  }
+
+  it("keeps the first reading at 80 even when a later call reads lower", async () => {
+    const at85: Reading = { call_count: 60, total_time: 85, total_cputime: 0 };
+    const { res } = await run(["a", "b"], { a: [{ reading: at85 }, { reading: low }, { reading: null }] });
+    assert.equal(res.stoppedBy, "app_usage_80");
+    assert.deepEqual(res.usageAtStop, at85);
+    assert.deepEqual(res.skipped.map((s) => s.bm.business_id), ["b"]);
+  });
+
+  it("runs to the end when every reading stays under 80", async () => {
+    const at79: Reading = { call_count: 79, total_time: 79, total_cputime: 79 };
+    const { res } = await run(["a", "b", "c"], { b: [{ reading: at79 }] });
+    assert.equal(res.stoppedBy, null);
+    assert.equal(res.usageAtStop, null);
+    assert.equal(res.scanned.length, 3);
+  });
+
+  it("a rate limit before any reading at 80 still stops as rate_limited", async () => {
+    const { res } = await run(["a", "b", "c"], {
+      b: [{ reading: { call_count: 69, total_time: 100, total_cputime: 0 }, rateLimited: true }],
+    });
+    // 100 % total_time arrived on the refused call itself: the breaker is what fired.
+    assert.equal(res.stoppedBy, "rate_limited");
+    assert.equal(res.rateLimitedAt?.business_id, "b");
+    assert.equal(res.usageAtStop, null);
+    assert.deepEqual(res.skipped.map((s) => [s.bm.business_id, s.reason]), [["c", "rate_limited"]]);
+
+    const noHeader = await run(["a", "b", "c"], { a: [{ reading: null, rateLimited: true }] });
+    assert.equal(noHeader.res.stoppedBy, "rate_limited");
+    assert.deepEqual(noHeader.res.skipped.map((s) => s.bm.business_id), ["b", "c"]);
+  });
+
+  it("puts the usage-skipped BMs first in the next run", async () => {
+    // Tonight's order: never-scanned x, then a..d by age.
+    const tonight = orderForRotation([
+      bm("a", "2026-11-23T21:16:00Z"),
+      bm("b", "2026-11-23T21:17:00Z"),
+      bm("c", "2026-11-24T01:16:00Z"),
+      bm("d", "2026-11-24T04:16:00Z"),
+      bm("x", null),
+    ]);
+    assert.deepEqual(tonight.map((b) => b.business_id), ["x", "a", "b", "c", "d"]);
+
+    const { res } = await run(tonight.map((b) => b.business_id), {
+      a: [{ reading: { call_count: 50, total_time: 81, total_cputime: 1 } }],
+    });
+    assert.deepEqual(res.scanned.map((s) => s.bm.business_id), ["x", "a"]);
+    assert.deepEqual(res.skipped.map((s) => s.bm.business_id), ["b", "c", "d"]);
+
+    // The scan stamps last_scanned_at on the BMs it scanned and leaves the skipped ones.
+    const stamped = new Set(res.scanned.map((s) => s.bm.business_id));
+    const after = tonight.map((b) =>
+      stamped.has(b.business_id) ? { ...b, last_scanned_at: "2026-11-24T21:16:00Z" } : b,
+    );
+    assert.deepEqual(orderForRotation(after).map((b) => b.business_id), ["b", "c", "d", "a", "x"]);
   });
 });
 
