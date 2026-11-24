@@ -6,7 +6,7 @@ location.pin.add	Search Locations, under the search	Add a pin
 location.pin.title	Pin form	Add a pin
 location.pin.help	Pin form	A pin targets a circle around a point. Use it where Meta has no city.
 location.pin.name	Pin form, field	Name
-location.pin.name.placeholder	Pin form, field	Leeds
+location.pin.name.placeholder	Pin form, field	e.g. Leeds
 location.pin.latitude	Pin form, field	Latitude
 location.pin.longitude	Pin form, field	Longitude
 location.pin.radius	Pin form, field	Radius (km)

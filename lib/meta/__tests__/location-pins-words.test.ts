@@ -32,7 +32,7 @@ describe("location pin words", () => {
   it("the fixture is design's list byte for byte: 25 rows, unique keys", () => {
     assert.equal(
       createHash("sha256").update(RAW).digest("hex"),
-      "7e65aeb868536c22bf6679205380d7799d6a05cf9da3c5432ffadcc710e6e4cc",
+      "a2de0ed5c144e3011cac11f53c121a9f61490fd2a4e3fd729db8c5dd7165a4c1",
     );
     assert.equal(ROWS.length, 25);
     assert.equal(new Set(ROWS.map((r) => r.key)).size, 25);

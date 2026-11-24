@@ -22,7 +22,7 @@ export const LOCATION_PIN_WORDS = {
   "location.pin.title": "Add a pin",
   "location.pin.help": "A pin targets a circle around a point. Use it where Meta has no city.",
   "location.pin.name": "Name",
-  "location.pin.name.placeholder": "Leeds",
+  "location.pin.name.placeholder": "e.g. Leeds",
   "location.pin.latitude": "Latitude",
   "location.pin.longitude": "Longitude",
   "location.pin.radius": "Radius (km)",

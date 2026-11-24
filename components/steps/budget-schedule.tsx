@@ -687,11 +687,13 @@ export function LocationPicker({
               return (
               <div
                 key={g.id}
-                className="flex items-center justify-between rounded-lg border border-border px-3 py-2"
+                className="relative flex flex-wrap items-center justify-between rounded-lg border border-border py-2 pl-3 pr-9 sm:flex-nowrap sm:pr-3"
               >
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium truncate">{g.label}</span>
+                {/* LP1 (record amended 24 Nov): the label wraps, never "…". Under sm the row stacks:
+                    label and badge, chip, any amber or kept line, then the tiers; ✕ stays top right. */}
+                <div className="min-w-0 basis-full sm:flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="min-w-0 break-words text-sm font-medium">{g.label}</span>
                     <Badge variant={g.source === "preset" ? "primary" : "outline"} className="text-[10px] shrink-0">
                       {handPin ? pinWord("location.pin.badge") : g.source}
                     </Badge>
@@ -700,7 +702,7 @@ export function LocationPicker({
                     {g.selections.map((sel) => (
                       <span
                         key={sel.id}
-                        className={`text-[10px] rounded px-1.5 py-0.5 ${
+                        className={`max-w-full break-words text-[10px] rounded px-1.5 py-0.5 ${
                           sel.mode === "include"
                             ? "bg-success/10 text-success"
                             : "bg-destructive/10 text-destructive"
@@ -731,7 +733,7 @@ export function LocationPicker({
                     </StatusLine>
                   ))}
                 </div>
-                <div className="ml-2 flex shrink-0 items-center gap-1" role="group" aria-label="Tier">
+                <div className="mt-2 flex shrink-0 items-center gap-1 sm:mt-0 sm:ml-2" role="group" aria-label="Tier">
                   {(["primary", "secondary"] as const).map((tier) => {
                     const on = groupTier(g) === tier;
                     return (
@@ -754,7 +756,7 @@ export function LocationPicker({
                 <button
                   type="button"
                   onClick={() => removeGroup(g.id)}
-                  className="ml-1 rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors shrink-0"
+                  className="absolute right-2 top-2 rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors shrink-0 sm:static sm:ml-1"
                   title="Remove location"
                 >
                   <X className="h-3.5 w-3.5" />

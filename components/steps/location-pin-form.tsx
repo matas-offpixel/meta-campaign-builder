@@ -22,6 +22,19 @@ import {
   type PinInput,
 } from "@/lib/meta/location-pins";
 
+/** LP2 (amended): the quoted pair ("53.7997, -1.5492") never breaks across lines. */
+function keepPairTogether(text: string): React.ReactNode {
+  return text.split(/(“[^”]*”)/).map((part, i) =>
+    i % 2 === 1 ? (
+      <span key={i} className="whitespace-nowrap">
+        {part}
+      </span>
+    ) : (
+      part
+    ),
+  );
+}
+
 export function emptyPinForm(name = ""): PinFormValues {
   return { name, latitude: "", longitude: "", radius: String(PIN_DEFAULT_RADIUS_KM) };
 }
@@ -80,7 +93,7 @@ export function LocationPinForm({
     key: keyof PinFormValues,
     label: string,
     input: React.ReactNode,
-    help?: string,
+    help?: React.ReactNode,
   ) => (
     <div className={key === "name" ? "col-span-2 min-w-0 sm:col-span-1" : "min-w-0"}>
       <label className="mb-1 block text-[11.5px] font-semibold" htmlFor={`pin-${key}`}>
@@ -137,7 +150,7 @@ export function LocationPinForm({
             onChange={(e) => setLatitude(e.target.value)}
             className={cls("latitude")}
           />,
-          pinWord("location.pin.paste"),
+          keepPairTogether(pinWord("location.pin.paste")),
         )}
         {field(
           "longitude",
