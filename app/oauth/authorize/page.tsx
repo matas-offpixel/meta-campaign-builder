@@ -15,7 +15,7 @@ import { isOperator } from "@/lib/auth/operator-allowlist";
 import { isMcpEnabled, mcpUrls } from "@/lib/mcp/config";
 import { checkAuthorizeRequest } from "@/lib/mcp/oauth/flow";
 import { flowDeps } from "@/lib/mcp/route-deps";
-import { consentContent } from "@/lib/mcp/oauth/consent-words";
+import { asksForDrafts, consentContent } from "@/lib/mcp/oauth/consent-words";
 import { ConsentView } from "@/components/mcp/consent-view";
 import { decideConsent } from "./actions";
 
@@ -53,11 +53,17 @@ export default async function AuthorizePage({ searchParams }: { searchParams: Se
   if (!isOperator(user.id)) return <ConsentView view={{ state: "not_operator" }} />;
 
   const req = check.request;
+  // An existing read-only grant adding drafts reads as an upgrade (M2 words).
+  const live = await flowDeps().store.listLiveGrants({ userId: user.id });
+  const hasReadOnlyGrant = live.some((g) => !asksForDrafts(g.scope));
   const content = consentContent({
     redirectUri: req.redirectUri,
     clientName: req.client.client_name,
     email: user.email ?? null,
     returnHost: new URL(req.redirectUri).host,
+    // The resolved scope: lines 1 and 2 follow mcp:draft (M2).
+    scope: req.scope,
+    hasReadOnlyGrant,
   });
   return (
     <ConsentView

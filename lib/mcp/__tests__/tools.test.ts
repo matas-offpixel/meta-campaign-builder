@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { MCP_TOOLS } from "../tools/index.ts";
+import { READ_TOOLS } from "../tools/index.ts";
 import { listEventsTool, getEventTool } from "../tools/events.ts";
 import { getDraftTool, getDraftsTool } from "../tools/drafts.ts";
 import { getLearningsTool } from "../tools/learnings.ts";
@@ -11,8 +11,8 @@ import { fakeDb } from "./fake-db.ts";
 
 const keys = (o: unknown) => Object.keys(o as object).sort();
 
-test("eight tools, each read-only with a one-example description", () => {
-  assert.deepEqual(MCP_TOOLS.map((t) => t.name).sort(), [
+test("eight read tools, each read-only with a one-example description", () => {
+  assert.deepEqual(READ_TOOLS.map((t) => t.name).sort(), [
     "get_campaign_tree",
     "get_draft",
     "get_drafts",
@@ -22,7 +22,7 @@ test("eight tools, each read-only with a one-example description", () => {
     "morning_topline",
     "run_launch_checks",
   ]);
-  for (const t of MCP_TOOLS) {
+  for (const t of READ_TOOLS) {
     assert.equal(t.kind, "read", t.name);
     assert.match(t.description, /Example: /, t.name);
     assert.ok(t.name.length <= 64);

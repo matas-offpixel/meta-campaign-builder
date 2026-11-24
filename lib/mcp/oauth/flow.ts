@@ -16,6 +16,7 @@
  */
 import {
   ACCESS_TOKEN_TTL_SECONDS,
+  CHALLENGE_SCOPE,
   CLAUDE_CALLBACK,
   CODE_TTL_SECONDS,
   IGNORED_SCOPES,
@@ -80,12 +81,17 @@ export function redirectUriMatches(registered: readonly string[], presented: str
 
 // ── Scopes ───────────────────────────────────────────────────────────────────
 
-/** Requested scope → granted scope string, or null when something unknown is asked for. */
+/**
+ * Requested scope → granted scope string, or null when something unknown is
+ * asked for. Nothing asked → `mcp:read`. `mcp:draft` always comes with
+ * `mcp:read` (a draft grant reads the drafts it changes), in that order.
+ */
 export function resolveScope(requested: string | null | undefined): string | null {
   const parts = (requested ?? "").split(/\s+/).filter(Boolean).filter((s) => !IGNORED_SCOPES.includes(s));
   if (parts.length === 0) return SCOPE_READ;
   if (parts.some((s) => !SCOPES_SUPPORTED.includes(s))) return null;
-  return [...new Set(parts)].join(" ");
+  const asked = new Set([SCOPE_READ, ...parts]);
+  return SCOPES_SUPPORTED.filter((s) => asked.has(s)).join(" ");
 }
 
 export function scopeIncludes(granted: string, needed: string): boolean {
@@ -361,9 +367,13 @@ export async function checkBearer(authorization: string | null, urls: McpUrls, d
   return { ok: true, userId: grant.user_id, grantId: grant.id, scope: grant.scope };
 }
 
-/** RFC 9728 §5.1 challenge on 401 / 403. Never echoes the token. */
+/**
+ * RFC 9728 §5.1 challenge on 401 / 403. Never echoes the token. The scope is
+ * everything an operator may hold (read and draft): on a 403
+ * insufficient_scope it is the step-up a read-only grant needs.
+ */
 export function wwwAuthenticate(urls: McpUrls, error?: string): string {
-  const parts = [`resource_metadata="${urls.resourceMetadata}"`, `scope="${SCOPE_READ}"`];
+  const parts = [`resource_metadata="${urls.resourceMetadata}"`, `scope="${CHALLENGE_SCOPE}"`];
   if (error && error !== "forbidden" && error !== "invalid_request") parts.unshift(`error="${error}"`);
   return `Bearer ${parts.join(", ")}`;
 }

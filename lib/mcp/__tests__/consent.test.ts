@@ -1,5 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { CLAUDE_CALLBACK } from "../config.ts";
 import { pkceChallengeFor } from "../crypto.ts";
 import { checkAuthorizeRequest, decideConsentRequest, exchangeToken, registerClient } from "../oauth/flow.ts";
@@ -138,4 +141,32 @@ test("a connection dies after 30 days without use, and each use resets the 30 da
   const dead = await refresh(last);
   assert.equal(dead.status, 400);
   assert.equal((dead.body as { error: string }).error, "invalid_grant");
+});
+
+test("M2 words: a grant with drafts says use and design's line 2; a read grant adding drafts is the upgrade (words-mcp-consent-drafts-2026-11-24.tsv)", () => {
+  const tsv = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "fixtures/words-mcp-consent-drafts-2026-11-24.tsv"), "utf8");
+  const W = Object.fromEntries(tsv.trim().split("\n").slice(1).map((l) => l.split("\t")).map((c) => [c[0], c[2]]));
+  const fillW = (k: string, v: Record<string, string>) => String(W[k]).replace(/\{([^{}]+)\}/g, (_, n: string) => v[n] ?? `{${n}}`);
+  const DRAFTS = "mcp:read mcp:draft";
+  const claude = { redirectUri: CLAUDE_CALLBACK, clientName: "Claude", email: EMAIL, returnHost: "claude.ai" };
+  const plain = consentContent({ ...claude, scope: DRAFTS });
+  assert.equal(plain.title, CONSENT_WORDS.titleClaude);
+  assert.equal(plain.lines[0], fillW("consent.line1.drafts", { email: EMAIL }));
+  assert.equal(plain.lines[1], W["consent.line2.drafts"]);
+  assert.equal(plain.cancelNote, undefined);
+  const up = consentContent({ ...claude, scope: DRAFTS, hasReadOnlyGrant: true });
+  assert.equal(up.title, W["consent.title.upgrade"]);
+  assert.equal(up.cancelNote, W["consent.upgrade.cancel_note"]);
+  const loop = { redirectUri: LOOP, clientName: "Inspector", email: EMAIL, returnHost: "localhost:53682" };
+  const lu = consentContent({ ...loop, scope: DRAFTS, hasReadOnlyGrant: true });
+  assert.equal(lu.title, W["consent.title.upgrade.loopback"]);
+  assert.equal(lu.lines[0], fillW("consent.line1.drafts.loopback", { "client name": "Inspector", email: EMAIL }));
+  assert.equal(consentContent({ ...loop, clientName: null, scope: DRAFTS }).lines[0], fillW("consent.line1.drafts.loopback.unnamed", { email: EMAIL }));
+  // A read-only request keeps every M1 word, with or without an existing grant.
+  assert.deepEqual(consentContent({ ...claude, scope: "mcp:read", hasReadOnlyGrant: true }), consentContent(claude));
+  // Lines 3 and 4 never change.
+  assert.deepEqual([up.lines[2], up.lines[3]], [consentContent(claude).lines[2], consentContent(claude).lines[3]]);
+  // Every word in the list is used.
+  for (const k of Object.keys(W)) assert.ok(k.startsWith("consent."), k);
+  assert.equal(Object.keys(W).length, 7);
 });

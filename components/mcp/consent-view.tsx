@@ -47,6 +47,7 @@ export function ConsentView({
                 {line}
               </p>
             ))}
+            {view.content.cancelNote ? <p className="text-sm leading-relaxed text-muted-foreground">{view.content.cancelNote}</p> : null}
             <form action={action} className="flex flex-wrap gap-3">
               {hidden}
               <Button type="submit" name="decision" value="allow" className="border border-foreground">

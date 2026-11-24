@@ -1,7 +1,11 @@
 /**
- * M1 is read-only: outside the action log (mcp_actions) and the OAuth
- * store (mcp_oauth_*), nothing the MCP reaches writes anything. A grep over
- * every file the MCP server and its tools import (relative and `@/`, walked
+ * What the MCP may write. M1 (the read tools) writes nothing outside the
+ * action log (mcp_actions) and the OAuth store (mcp_oauth_*). M2 (the draft
+ * tools) adds campaign_drafts, from lib/mcp/drafts/write.ts only, and the
+ * Drive picker's own copy (copyPickedFile: creative_assets and Storage).
+ * Nothing writes Meta, TikTok, Google, Slack or D2C; the one network call is
+ * the location search's GET in lib/mcp/draft-deps.ts. A grep over every file
+ * the MCP server and its tools import (relative and `@/`, walked
  * transitively), plus the routes, and a check of migration 268.
  */
 import { test } from "node:test";
@@ -18,11 +22,15 @@ const NETWORK = /\b(fetch|graphPost|graphPostWithToken|graphDelete)\s*\(/;
 const ALLOWED_WRITERS: Record<string, RegExp> = {
   "lib/mcp/action-log.ts": /^mcp_actions$/,
   "lib/mcp/oauth/store.ts": /^mcp_oauth_(clients|grants|codes|tokens)$/,
+  // M2: the one campaign_drafts writer (status draft only, guarded on updated_at).
+  "lib/mcp/drafts/write.ts": /^campaign_drafts$/,
 };
 
 const ENTRIES = [
   "lib/mcp/server.ts",
   "lib/mcp/tools/index.ts",
+  "lib/mcp/draft-deps.ts",
+  "lib/mcp/pending-seams.ts",
   "lib/mcp/readers.ts",
   "lib/mcp/route-deps.ts",
   "lib/mcp/oauth/http.ts",
@@ -70,7 +78,10 @@ function walk(): Map<string, string> {
   return seen;
 }
 
-/** Every function the MCP imports from outside lib/mcp, by file. Each one is a reader. */
+/**
+ * Every function the MCP imports from outside lib/mcp, by file. Each one is
+ * a reader or a pure helper (no I/O): the body of none of them writes.
+ */
 const EXTERNAL_READERS: Record<string, readonly string[]> = {
   "lib/db/paged-read.ts": ["loadAllPaged"],
   "lib/db/client-status.ts": ["dropArchivedClientRows", "loadArchivedClientIds"],
@@ -87,7 +98,41 @@ const EXTERNAL_READERS: Record<string, readonly string[]> = {
   "lib/auth/operator-allowlist.ts": ["isOperator", "MATAS_USER_IDS"],
   "lib/supabase/server.ts": ["createServiceRoleClient", "createClient"],
   "components/ui/button.tsx": ["Button"],
+  // M2: the replicate (pure) and its reads.
+  "lib/replicate/replicate.ts": ["draftAudienceIds", "replicateDraft", "displayUrl"],
+  "lib/replicate/load.ts": ["loadAudienceRows", "loadReplicateEvent", "loadReplicateNames", "loadReplicateVenue"],
+  "lib/meta/ad-account.ts": ["normalizeAdAccountId"],
+  // M2: Step 5's location picker helpers (pure).
+  "lib/meta/location-pins.ts": ["PIN_PRESETS", "isPresetPinGroup", "manualPinGroup", "pinSelection", "presetPinGroup", "regionMismatchForCityKey", "validatePinForm"],
+  "lib/meta/location-search.ts": ["selectionFromGeoResult", "locationSearchQuery", "parseLocationSearchHits"],
+  "lib/meta/location-radius.ts": ["clampCityRadius"],
+  "lib/meta/location-targeting.ts": ["groupTier", "withGroupTier"],
+  "lib/wizard/adset-suggestions.ts": ["addLocationToEveryAdSet", "adSetsTargetingLocation", "convertAdSetBudgetsOnTypeChange", "followLocationTiers"],
+  "lib/wizard/budget-schedule-update.ts": ["mapExcludedLocations", "mapLocationGroups", "patchBudgetSchedule"],
+  "lib/time.ts": ["zonedLocalToUtc"],
+  // M2: the Drive picker's model and view (reads), and the creative defaults (pure).
+  "lib/drive/picker.ts": ["loadPickerView", "PICKER_BUCKET"],
+  "lib/drive/picker-model.ts": ["PICKER_WORDS", "defaultBatchFields", "folderTiles", "formatBytes"],
+  "lib/drive/picker-batch.ts": ["planPrepare"],
+  "lib/drive/client.ts": ["driveFromEnv"],
+  "lib/campaign-defaults.ts": ["createDefaultAssetVariation", "createDefaultCreative", "defaultCtaForObjective"],
+  "lib/clients/channel-defaults.ts": ["loadClientChannelDefaults"],
+  "lib/meta/server-token.ts": ["resolveServerMetaToken"],
 };
+
+/**
+ * The outside functions M2 may call that write, and what each writes. Both
+ * are the Drive picker's own copy path (POST /api/events/[id]/drive/picker/copy).
+ */
+const EXTERNAL_WRITERS: Record<string, Record<string, RegExp>> = {
+  // Drive → Storage, registered in creative_assets (deduped on drive_file_id).
+  "lib/drive/picker.ts": { copyPickedFile: /^creative_assets$/ },
+  // The Storage upload the copy route passes it.
+  "lib/clients/asset-queue/storage-upload.ts": { uploadFileToStorageBucket: /^$/ },
+};
+
+/** lib/meta modules the MCP may import: pure helpers and the token read. No Meta write path. */
+const META_IMPORTS_ALLOWED = /\/meta\/(ad-account|location-pins|location-search|location-radius|location-targeting|server-token)(\.ts)?["']/;
 
 const isOwn = (f: string) => f.startsWith("lib/mcp/") || f.startsWith("app/") || f.startsWith("components/mcp/");
 
@@ -146,6 +191,7 @@ test("from outside lib/mcp the MCP imports only reader functions, and none of th
       if (isOwn(target)) continue;
       const allowed = EXTERNAL_READERS[target];
       for (const n of names) {
+        if (EXTERNAL_WRITERS[target]?.[n]) continue;
         if (!allowed?.includes(n)) unexpected.push(`${file} imports ${n} from ${target}`);
         else (used.get(target) ?? used.set(target, new Set()).get(target)!).add(n);
       }
@@ -165,21 +211,44 @@ test("from outside lib/mcp the MCP imports only reader functions, and none of th
   assert.deepEqual(writers, []);
 });
 
-test("the tools and the server make no network calls and import no write paths", () => {
+test("the outside writers M2 calls write only what the Drive picker's copy writes", () => {
+  for (const [target, fns] of Object.entries(EXTERNAL_WRITERS)) {
+    const src = readFileSync(join(ROOT, target), "utf8");
+    for (const [n, tables] of Object.entries(fns)) {
+      const body = bodyOf(src, n);
+      assert.ok(body, `${n} in ${target}`);
+      for (const m of strip(body!).matchAll(/\.from\(\s*["']([^"']+)["']\s*\)/g)) assert.match(m[1]!, tables, `${target}#${n} from("${m[1]}")`);
+    }
+  }
+});
+
+test("the tools and the server make no network calls and import no write paths; the one GET is the location search", () => {
   const files = walk();
   const hits: string[] = [];
   for (const [file, src] of files) {
     if (!isOwn(file)) continue;
-    if (NETWORK.test(src)) hits.push(`${file}: network`);
-    if (/from\s+["'](@\/|\.\.?\/)+.*\b(meta\/(?!.*read)|tiktok\/|google-ads\/|notify\/|d2c\/|actions\/)/.test(src)) hits.push(`${file}: write-path import`);
+    const code = strip(src);
+    if (file !== "lib/mcp/draft-deps.ts" && NETWORK.test(code)) hits.push(`${file}: network`);
+    for (const m of code.matchAll(/from\s+["']((?:@\/|\.\.?\/)[^"']*)["']/g)) {
+      const spec = m[1]!;
+      if (/\b(tiktok|google-ads|notify|d2c|actions)\//.test(spec)) hits.push(`${file}: write-path import ${spec}`);
+      if (/\/meta\//.test(spec) && !META_IMPORTS_ALLOWED.test(`${spec}"`)) hits.push(`${file}: meta import ${spec}`);
+    }
   }
   assert.deepEqual(hits, []);
+  const deps = strip(readFileSync(join(ROOT, "lib/mcp/draft-deps.ts"), "utf8"));
+  const fetches = [...deps.matchAll(/\bfetch\s*\(/g)];
+  assert.equal(fetches.length, 1, "one fetch: the location search");
+  assert.match(deps, /graph\.facebook\.com\/\$\{API_VERSION\}\/search/);
+  assert.match(deps, /fetch\(url\.toString\(\), \{ method: "GET"/);
+  assert.doesNotMatch(deps, /graphPost|method:\s*"(POST|DELETE|PUT|PATCH)"/);
 });
 
-test("every tool is registered read-only", () => {
+test("tools register with honest annotations: read tools read-only, draft tools never destructive", () => {
   const server = readFileSync(join(ROOT, "lib/mcp/server.ts"), "utf8");
-  assert.match(server, /readOnlyHint: true, destructiveHint: false/);
-  assert.match(server, /kind: "read"/);
+  assert.match(server, /readOnlyHint: tool\.readOnly \?\? tool\.kind === "read"/);
+  assert.match(server, /destructiveHint: false/);
+  assert.match(server, /kind: tool\.kind/);
 });
 
 test("migration 268: six service-role-only tables, RLS on, no policies, hashes only", () => {
