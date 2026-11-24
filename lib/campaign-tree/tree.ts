@@ -11,8 +11,9 @@
  *   ├─ Show week      only when it has campaigns
  *   └─ Unsorted       last, only when it has campaigns; no stage actions
  *
- * RC14: a campaign's stage comes from stage words in its name, else from an
- * objective that means one stage. Anything else is Unsorted: a guess under
+ * RC14: a campaign's stage comes from stage words in its name (PURCHASE,
+ * TRAFFIC and REACH among them), else from an objective that means one
+ * stage. Anything else is Unsorted: a guess under
  * On sale is how a copy picks up the wrong stage. The sheet starts with every
  * live campaign and its live ad sets ticked, and every paused campaign
  * unticked (Matas, 24 Nov). A campaign with no draft on this event can't be
@@ -44,15 +45,18 @@ export function stageLabel(stage: TreeGroup): string {
 const ALWAYS_SHOWN: ReadonlySet<TreeGroup> = new Set(["signup", "on_sale"]);
 
 /**
- * RC14: the stage words, as whole words after the [CODE]. PURCHASE, TRAFFIC,
- * REACH, TICKET(S) and REG aren't stage words.
+ * RC14 (as merged, #1366 at 3ab4ed9): the stage words, as whole words after
+ * the [CODE]. Signup's are matched first, so "[CODE] SIGNUP TRAFFIC" stays
+ * under Signup. PURCHASE, TRAFFIC and REACH are On sale's own campaigns
+ * (R7). TICKET(S) and REG aren't stage words.
  */
 export function stageFromName(name: string | null | undefined): TreeStage | null {
   const n = ` ${(name ?? "").toUpperCase().replace(/\[[^\]]*\]/g, " ").replace(/[^A-Z0-9]+/g, " ")} `;
+  if (/ SIGNUPS? | SIGN UP | REGISTRATION /.test(n)) return "signup";
   if (/ SHOW WEEK | FINAL PUSH /.test(n)) return "show_week";
   if (/ PRESALE | PRE SALE /.test(n)) return "presale";
-  if (/ SIGNUPS? | SIGN UP | REGISTRATION /.test(n)) return "signup";
   if (/ ON SALE | ONSALE | GEN SALE | GENERAL SALE /.test(n)) return "on_sale";
+  if (/ PURCHASE | TRAFFIC | REACH /.test(n)) return "on_sale";
   return null;
 }
 
@@ -384,11 +388,17 @@ export function moreLine(hidden: number): string | null {
   return hidden > 0 ? frameWord("more", { n: hidden }) : null;
 }
 
-/** The campaigns of one stage, for its sheet. Campaigns in another ad account than the stage's first writable one are left out: bulk-attach runs one account at a time. */
+/**
+ * The campaigns of one stage, for its sheet, the ones with no draft on the
+ * event last (RC-F2). Campaigns in another ad account than the stage's first
+ * writable one are left out: bulk-attach runs one account at a time.
+ */
 export function stageSheetCampaigns(view: TreeView, stage: TreeStage): TreeCampaign[] {
   const campaigns = view.stages.find((s) => s.stage === stage)?.campaigns ?? [];
   const account = campaigns.find((c) => canWrite(c) && c.adAccountId)?.adAccountId ?? null;
-  return campaigns.filter((c) => !account || !c.adAccountId || c.adAccountId === account);
+  return campaigns
+    .filter((c) => !account || !c.adAccountId || c.adAccountId === account)
+    .sort((a, b) => Number(!canWrite(a)) - Number(!canWrite(b)));
 }
 
 export function stageAccount(campaigns: TreeCampaign[]): string | null {

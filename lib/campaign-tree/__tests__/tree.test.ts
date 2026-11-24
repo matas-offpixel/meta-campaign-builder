@@ -116,8 +116,15 @@ describe("stages (RC14)", () => {
     assert.equal(stageOfCampaign({ name: "[NX27-GLITTERBOX] SIGNUP", draftObjective: "purchase", metaObjective: "OUTCOME_SALES" }), "signup");
   });
 
-  it("PURCHASE, TRAFFIC, REACH, TICKETS and REG aren't stage words", () => {
-    for (const word of ["PURCHASE", "TRAFFIC", "REACH", "TICKETS", "TICKET", "REG"]) {
+  it("PURCHASE, TRAFFIC and REACH are On sale's own campaigns; Signup's words are matched first", () => {
+    for (const word of ["PURCHASE", "TRAFFIC", "REACH"]) {
+      assert.equal(stageOfCampaign({ name: `[NX27-GLITTERBOX] ${word}`, draftObjective: "traffic", metaObjective: "OUTCOME_TRAFFIC" }), "on_sale", word);
+    }
+    assert.equal(stageOfCampaign({ name: "[NX27-GLITTERBOX] SIGNUP TRAFFIC", draftObjective: "traffic" }), "signup");
+  });
+
+  it("TICKET(S) and REG aren't stage words", () => {
+    for (const word of ["TICKETS", "TICKET", "REG"]) {
       assert.equal(stageOfCampaign({ name: `[NX27-GLITTERBOX] ${word}` }), "unsorted", word);
     }
   });
@@ -135,20 +142,21 @@ describe("stages (RC14)", () => {
     assert.equal(stageOfCampaign({ name: "Lineup", metaObjective: "OUTCOME_SALES" }), "on_sale");
   });
 
-  it("traffic, awareness, engagement and reach decide nothing: [NX27-GLITTERBOX] TRAFFIC is Unsorted", () => {
-    assert.equal(stageOfCampaign({ name: "[NX27-GLITTERBOX] TRAFFIC", draftObjective: "traffic", phaseAtLaunch: "on_sale", metaObjective: "OUTCOME_TRAFFIC" }), "unsorted");
+  it("traffic, awareness, engagement and reach objectives decide nothing without a stage word in the name", () => {
+    assert.equal(stageOfCampaign({ name: "Lineup", draftObjective: "traffic", phaseAtLaunch: "on_sale", metaObjective: "OUTCOME_TRAFFIC" }), "unsorted");
+    assert.equal(stageOfCampaign({ name: "[NX27-GLITTERBOX] VIDEO VIEWS", draftObjective: "engagement", phaseAtLaunch: "on_sale", metaObjective: "OUTCOME_ENGAGEMENT" }), "unsorted");
     assert.equal(stageOfCampaign({ name: "Lineup", draftObjective: "awareness", phaseAtLaunch: "on_sale" }), "unsorted");
     assert.equal(stageOfCampaign({ name: "Lineup", draftObjective: "engagement" }), "unsorted");
     assert.equal(stageOfCampaign({ name: "Lineup", metaObjective: "OUTCOME_AWARENESS", phaseAtLaunch: "on_sale" }), "unsorted");
     assert.equal(stageOfCampaign({ name: "Lineup" }), "unsorted");
   });
 
-  it("P26-BDAY: Lineup Push and Reach (to 12PM Thu) go under Unsorted", () => {
+  it("P26-BDAY: Reach (to 12PM Thu) is On sale, Lineup Push is Unsorted", () => {
+    assert.equal(stageOfCampaign({ name: "[P26-BDAY] Reach (to 12PM Thu)", draftObjective: "awareness", phaseAtLaunch: "on_sale", metaObjective: "OUTCOME_AWARENESS" }), "on_sale");
     assert.equal(stageOfCampaign({ name: "[P26-BDAY] Lineup Push", draftObjective: "traffic", phaseAtLaunch: "on_sale", metaObjective: "OUTCOME_TRAFFIC" }), "unsorted");
-    assert.equal(stageOfCampaign({ name: "[P26-BDAY] Reach (to 12PM Thu)", draftObjective: "awareness", phaseAtLaunch: "on_sale", metaObjective: "OUTCOME_AWARENESS" }), "unsorted");
     // With nothing but the names, too.
+    assert.equal(stageOfCampaign({ name: "[P26-BDAY] Reach (to 12PM Thu)" }), "on_sale");
     assert.equal(stageOfCampaign({ name: "[P26-BDAY] Lineup Push" }), "unsorted");
-    assert.equal(stageOfCampaign({ name: "[P26-BDAY] Reach (to 12PM Thu)" }), "unsorted");
   });
 
   it("maps Meta statuses", () => {
@@ -304,7 +312,9 @@ describe("RC9 one forms, RC10 no draft, RC14 Unsorted, RC12 outcomes", () => {
     assert.equal(row.noDraft, "No draft on this event, so additions can’t reach it.");
     assert.equal(row.meta, "live · 2 ad sets");
     assert.equal(view.stages.find((s) => s.stage === "on_sale")!.campaigns.find((c) => c.metaCampaignId === PURCHASE.metaCampaignId)!.noDraft, null);
-    const selection = defaultSelection(stageSheetCampaigns(view, "on_sale"));
+    const sheet = stageSheetCampaigns(view, "on_sale");
+    assert.equal(sheet.at(-1)!.metaCampaignId, retarget.metaCampaignId);
+    const selection = defaultSelection(sheet);
     assert.deepEqual(selection[retarget.metaCampaignId], []);
     assert.deepEqual(toggleAdSet(selection, retarget, retarget.adSets[0]!.id), selection);
     assert.equal(sheetButton(selection), "Add to 6 ad sets in 1 campaign");

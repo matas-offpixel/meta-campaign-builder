@@ -3,7 +3,7 @@
  * and 2026-11-24-campaign-creator-tree-as-built): RC-A (the ⋯ menu and the
  * picker, RC-A2), RC-A-nomatch and RC-A-error (RC-A2's other two states),
  * RC-B (RC-B2), RC-B-notset (a venue with nothing stored), RC-F (RC-F2),
- * RC-F-sheet (Add 1 creative to On sale), RC-F-off (the switch off) and RC-G
+ * RC-F-sheet (Add 1 creative to On sale: 8 ad sets in 2 campaigns), RC-F-off (the switch off) and RC-G
  * (Add audience to…, after a run with misses).
  *
  * Built by the rules, not typed: RC-B's rows come from CC-1's replicateDraft
@@ -207,9 +207,11 @@ export const TREE_CAMPAIGNS: TreeCampaign[] = [
   campaign({ metaCampaignId: "120253000000002", name: "[NX27-GLITTERBOX] PURCHASE", status: "live", adSets: PURCHASE_ADSETS, draftId: "draft-purchase", adAccountId: NX_ACCOUNT }, "purchase"),
   // RC10: no draft on this event made it.
   campaign({ metaCampaignId: "120253000000005", name: "[NX27-GLITTERBOX] ON SALE · RETARGET", status: "live", adSets: adSets("23850", ["Signups 180 days", "Page views 30 days"]), draftId: null, adAccountId: NX_ACCOUNT }, ""),
-  // RC14: traffic and reach decide no stage.
+  // RC14: TRAFFIC and REACH are On sale's own campaigns, by name.
   campaign({ metaCampaignId: "120253000000003", name: "[NX27-GLITTERBOX] TRAFFIC", status: "live", adSets: adSets("23830", ["Broad", "Lookalike 1%"]), draftId: "draft-traffic", adAccountId: NX_ACCOUNT }, "traffic"),
   campaign({ metaCampaignId: "120253000000004", name: "[NX27-GLITTERBOX] REACH", status: "paused", adSets: adSets("23840", ["Newcastle 25 km"], "paused"), draftId: "draft-reach", adAccountId: NX_ACCOUNT }, "awareness"),
+  // RC14: no stage word in the name, and an engagement objective decides nothing: Unsorted.
+  campaign({ metaCampaignId: "120253000000006", name: "[NX27-GLITTERBOX] VIDEO VIEWS", status: "live", adSets: adSets("23860", ["Video 50% 30 days"]), draftId: "draft-video", adAccountId: NX_ACCOUNT }, "engagement"),
 ];
 
 const ADDITIONS: TreeAdditionRow[] = [
