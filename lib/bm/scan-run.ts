@@ -22,10 +22,63 @@
  *      the 800 s kill.
  *   3. Rotation — BMs go least-recently-scanned first, so the BMs a run never
  *      reached are first in line the next day instead of last again.
+ *
+ * And a fourth (24 Nov 2026): every run of the 23→24 Nov night ended on the
+ * breaker with X-App-Usage `total_time` at 100 %, which throttles every other
+ * Meta call the app makes until it decays. So the run also stops itself once
+ * any X-App-Usage field reaches `BM_SCAN_USAGE_STOP_PCT`:
+ *
+ *   4. Usage stop — after every Graph call the reading is checked; once one
+ *      reaches 80 % the BM in progress finishes and no new BM starts. The rest
+ *      are skipped with reason `app_usage_80` and, never stamped, go first in
+ *      the next run. A rate-limit error before that still trips the breaker.
  */
 
 /** Stop starting new BMs after this long. 150 s of headroom under maxDuration 800. */
 export const BM_SCAN_TIME_BUDGET_MS = 650_000;
+
+/**
+ * Stop starting new BMs once any X-App-Usage field (`call_count`,
+ * `total_time`, `total_cputime`) reaches this percentage of the app's rolling
+ * hour. 20 points of headroom for the BM in progress and for every other Meta
+ * caller sharing the app.
+ */
+export const BM_SCAN_USAGE_STOP_PCT = 80;
+
+/**
+ * Meta's three `X-App-Usage` fields. Same shape as `AppUsageReading` in
+ * lib/meta/call-meter.ts, restated so this module imports nothing.
+ */
+export interface UsageReading {
+  call_count: number;
+  total_time: number;
+  total_cputime: number;
+}
+
+/** True when any of the three fields is at or over `pct`. */
+export function usageAtOrOver(reading: UsageReading | null | undefined, pct = BM_SCAN_USAGE_STOP_PCT): boolean {
+  if (!reading) return false;
+  return reading.call_count >= pct || reading.total_time >= pct || reading.total_cputime >= pct;
+}
+
+/**
+ * Latches the first reading at or over `pct`. `note` is fed every reading (the
+ * call meter's `onAppUsage`, once per Graph response that carried the header);
+ * `tripped` returns that first reading, or null. A later lower reading does not
+ * un-trip it: once the run has seen 80 %, it stops.
+ */
+export function createUsageStopLatch(pct = BM_SCAN_USAGE_STOP_PCT): {
+  note: (reading: UsageReading) => void;
+  tripped: () => UsageReading | null;
+} {
+  let first: UsageReading | null = null;
+  return {
+    note(reading) {
+      if (first === null && usageAtOrOver(reading, pct)) first = { ...reading };
+    },
+    tripped: () => first,
+  };
+}
 
 /**
  * Meta error codes that mean "this app / user / page is over its request
@@ -101,7 +154,7 @@ export function orderForRotation<T extends RotatableBm>(bms: readonly T[]): T[] 
   });
 }
 
-export type BmSkipReason = "rate_limited" | "time_budget";
+export type BmSkipReason = "rate_limited" | "time_budget" | "app_usage_80";
 
 export interface BmScanLoopOptions<T, R> {
   /** BMs in the order to scan them (see `orderForRotation`). */
@@ -118,6 +171,11 @@ export interface BmScanLoopOptions<T, R> {
   now?: () => number;
   /** Stop starting new BMs once this much time has passed. */
   budgetMs?: number;
+  /**
+   * The app-usage stop: a reading at or over the stop percentage seen during
+   * the run, or null. Asked after each BM finishes (see `createUsageStopLatch`).
+   */
+  usageStop?: () => UsageReading | null;
 }
 
 export interface BmScanLoopResult<T, R> {
@@ -129,14 +187,17 @@ export interface BmScanLoopResult<T, R> {
   stoppedBy: BmSkipReason | null;
   /** The BM whose scan tripped the breaker. */
   rateLimitedAt: T | null;
+  /** The reading that tripped the usage stop, when `stoppedBy` is `app_usage_80`; else null. */
+  usageAtStop: UsageReading | null;
 }
 
 /**
- * Walks `bms` sequentially with the breaker and the time budget.
+ * Walks `bms` sequentially with the breaker, the usage stop and the time budget.
  *
- * The budget is checked before a BM starts, never during: a BM that has
- * started finishes both of its phases, so its `last_scanned_at` and its asset
- * tables agree.
+ * The budget and the usage stop are checked between BMs, never during: a BM
+ * that has started finishes both of its phases, so its `last_scanned_at` and
+ * its asset tables agree. When one BM both hit a rate limit and crossed 80 %,
+ * the breaker is what is reported (`rate_limited`).
  */
 export async function runBmScanLoop<T, R>(
   opts: BmScanLoopOptions<T, R>,
@@ -147,6 +208,7 @@ export async function runBmScanLoop<T, R>(
   const skipped: Array<{ bm: T; reason: BmSkipReason }> = [];
   let stoppedBy: BmSkipReason | null = null;
   let rateLimitedAt: T | null = null;
+  let usageAtStop: UsageReading | null = null;
 
   for (let i = 0; i < opts.bms.length; i += 1) {
     const bm = opts.bms[i];
@@ -170,10 +232,16 @@ export async function runBmScanLoop<T, R>(
     if (opts.isRateLimited(result)) {
       stoppedBy = "rate_limited";
       rateLimitedAt = bm;
+      continue;
+    }
+    const usage = opts.usageStop?.() ?? null;
+    if (usage) {
+      stoppedBy = "app_usage_80";
+      usageAtStop = usage;
     }
   }
 
-  return { scanned, skipped, stoppedBy, rateLimitedAt };
+  return { scanned, skipped, stoppedBy, rateLimitedAt, usageAtStop };
 }
 
 /**

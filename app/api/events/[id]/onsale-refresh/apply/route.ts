@@ -36,6 +36,7 @@ import { createIgActorValidator } from "@/lib/meta/ig-actor-validator";
 import { resolvePageIdentity } from "@/lib/meta/page-token";
 import { handleUploadAsset } from "@/lib/meta/upload-asset-handler";
 import { APPLY_SHADOW, applyAccepted, type DriveCopy, type RefreshMeta } from "@/lib/onsale-refresh/apply";
+import { retargetingGates } from "@/lib/onsale-refresh/apply-gates";
 import { audienceDraftFields, type AudienceSpec, type NewAdSetDeps } from "@/lib/onsale-refresh/apply-adsets";
 import type { PurchaseMeta } from "@/lib/onsale-refresh/apply-purchase";
 import type { RetargetingDeps } from "@/lib/retargeting/apply";
@@ -50,7 +51,10 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   const { id } = await ctx.params;
   const who = await ownedRefreshEvent(id);
   if (who.error) return who.error;
-  if (who.gates.mode !== "live") return NextResponse.json({ ok: false, error: APPLY_SHADOW }, { status: 409 });
+  // RT16: an unarmed event still applies its Retargeting lines when the deployment's apply gate is on.
+  const armed = who.gates.mode === "live";
+  const gates = armed ? who.gates : retargetingGates(who.gates);
+  if (gates.mode !== "live") return NextResponse.json({ ok: false, error: APPLY_SHADOW }, { status: 409 });
 
   let body: { retry?: unknown; lineIds?: unknown } = {};
   try {
@@ -305,7 +309,8 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     eventId: who.event.id,
     userId: who.userId,
     appliedByName: who.userName,
-    gates: who.gates,
+    gates,
+    onlyRetargeting: !armed,
     retry: body.retry === true,
     lineIds,
   });

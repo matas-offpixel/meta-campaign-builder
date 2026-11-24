@@ -740,7 +740,10 @@ describe("on-sale refresh P2: migration 236 and the routes", () => {
 
   it("the apply route refuses Shadow before the token, Drive or Graph, and wires the gated write", () => {
     const route = readFileSync("app/api/events/[id]/onsale-refresh/apply/route.ts", "utf8");
-    const gate = route.indexOf('who.gates.mode !== "live"');
+    // RT16: an unarmed event applies its Retargeting lines when the deployment's gate is on; everything else still needs the arm.
+    const gate = route.indexOf('if (gates.mode !== "live")');
+    assert.match(route, /const gates = armed \? who\.gates : retargetingGates\(who\.gates\)/);
+    assert.match(route, /onlyRetargeting: !armed/);
     assert.ok(gate > 0);
     for (const later of ["user_facebook_tokens", "graphGetWithToken<", "copyPickedFile(", "handleUploadAsset("]) assert.ok(route.indexOf(later) > gate, later);
     assert.match(route, /status: "ACTIVE"|createMetaAd\(/);

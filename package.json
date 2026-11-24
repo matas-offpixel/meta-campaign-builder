@@ -20,6 +20,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.92.0",
+    "@modelcontextprotocol/sdk": "1.32.2",
     "@remotion/bundler": "4.0.471",
     "@remotion/lambda": "4.0.471",
     "@remotion/renderer": "4.0.471",
@@ -44,7 +45,8 @@
     "remotion": "4.0.471",
     "undici": "^7.30.0",
     "unpdf": "1.9.1",
-    "xlsx": "^0.18.5"
+    "xlsx": "^0.18.5",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@playwright/test": "1.63.0",

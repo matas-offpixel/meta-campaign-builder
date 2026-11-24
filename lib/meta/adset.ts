@@ -13,6 +13,7 @@
  */
 
 import type {
+  AdSetCustomLocation,
   OptimisationGoal,
   CampaignObjective,
   AdSetSuggestion,
@@ -78,6 +79,8 @@ export interface MetaGeoLocations {
   regions?: { key: string }[];
   /** Meta country-group keys, the same shape as `countries`. */
   country_groups?: string[];
+  /** Pins: a point and a radius (`lib/meta/location-pins.ts`, LP1). */
+  custom_locations?: AdSetCustomLocation[];
 }
 
 /**
@@ -373,6 +376,7 @@ export function buildMetaTargeting(
         cities: rawGeo.cities,
         regions: rawGeo.regions,
         ...(rawGeo.country_groups?.length ? { country_groups: rawGeo.country_groups } : {}),
+        ...(rawGeo.custom_locations?.length ? { custom_locations: rawGeo.custom_locations } : {}),
       }
     : { countries: ["GB"] };
 

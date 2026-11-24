@@ -5,7 +5,7 @@ import { runBmCronScan } from "@/lib/bm/cron-scan";
 import { withCronRunLog } from "@/lib/reporting/with-cron-run-log";
 
 /**
- * GET /api/cron/bm-page-scan  (Vercel Cron — 21:15, 01:15 and 04:15 UTC)
+ * GET /api/cron/bm-page-scan  (Vercel Cron — 21:15, 22:45, 01:15 and 04:15 UTC)
  *
  * For every connected Business Manager, re-enumerate every asset type — pages
  * (migration 145) plus ad accounts, pixels and Instagram accounts (migration
@@ -31,7 +31,7 @@ import { withCronRunLog } from "@/lib/reporting/with-cron-run-log";
  * archived are skipped, like every other cron; a BM with no client is
  * scanned. See lib/bm/scan-run.ts and lib/bm/cron-scan.ts.
  *
- * Schedule (three runs a night since 23 Nov; 04:15 alone before, 08:00
+ * Schedule (four runs a night since 24 Nov, three from 23 Nov; 04:15 alone before, 08:00
  * before 18 Nov): Meta's app request limit is a rolling hour shared by every
  * cron on this app, and each run stops at the first rate limit, which on
  * the first 04:15 run came 193 s in after 18 BMs. Three runs at least 3 h
@@ -47,9 +47,25 @@ import { withCronRunLog } from "@/lib/reporting/with-cron-run-log";
  * 00:15 and 02:15 were the first proposal; they sit 30 and 15 minutes before
  * scan-enhancement-flags and ad-daily-insights.
  *
- * Each run logs `meta_calls` (every Graph attempt, retries included) and the
- * X-App-Usage readings `app_usage_last` / `app_usage_at_limit` in its
- * cron_runs detail (lib/meta/call-meter.ts).
+ * Usage stop and the fourth run (24 Nov): every run of the 23→24 Nov night
+ * ended on the breaker with X-App-Usage `total_time` at 100 %, which throttles
+ * every other Meta call the app makes until it decays. Each run now stops
+ * itself once any X-App-Usage field reaches 80 % (BM_SCAN_USAGE_STOP_PCT):
+ * the BM in progress finishes, the rest are skipped (`app_usage_80`) and go
+ * first next run. A fourth run keeps the night's coverage:
+ *   22:45  its own vercel.json entry (same path), because the minute differs.
+ *          The 21:15 run's calls (≈ 3 min) are out of the rolling hour by
+ *          22:20; optimisation-tick 00:00 is 75 min after. 23:15 was asked
+ *          for and turned down: optimisation-tick skips its own tick when app
+ *          usage is over 70 %, and at 00:00 the hour would still hold a 23:15
+ *          run's calls. Between: tiktok-* at 22:30 / 22:45 (TikTok's budget,
+ *          not Meta's), sync-ticketing 22:00 (no Meta), budget-pacing-check
+ *          23:00 (hourly, unavoidable).
+ *
+ * Each run logs `meta_calls` (every Graph attempt, retries included), the
+ * X-App-Usage readings `app_usage_last` / `app_usage_at_limit`, and the usage
+ * stop's `stopped_at_usage`, `usage_at_stop` and `bms_skipped_usage` in its
+ * cron_runs detail (lib/meta/call-meter.ts). `stopped_by` says which stop fired.
  *
  * Auth: Bearer CRON_SECRET (same pattern as the other crons).
  */
@@ -86,7 +102,7 @@ async function handleGET(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "Service client unavailable" }, { status: 500 });
   }
 
-  // 200 even when the breaker tripped: stopping on a rate limit is the
+  // 200 even when the breaker or the usage stop tripped: stopping early is the
   // designed outcome, and the skipped BMs go first tomorrow.
   return NextResponse.json(await runBmCronScan(supabase));
 }
@@ -117,7 +133,12 @@ export const GET = withCronRunLog(
       bms_failed: num(body.failed),
       bms_skipped_rate_limited: num(body.skippedRateLimited),
       bms_skipped_time_budget: num(body.skippedTimeBudget),
+      bms_skipped_usage: num(body.skippedUsage),
+      // rate_limited (Meta refused a call), app_usage_80 (X-App-Usage reached
+      // 80 % first), time_budget, or null when every BM was started.
       stopped_by: typeof body.stoppedBy === "string" ? body.stoppedBy : null,
+      stopped_at_usage: body.stoppedAtUsage === true,
+      usage_at_stop: body.usageAtStop ?? null,
       rate_limited_at: typeof body.rateLimitedAt === "string" ? body.rateLimitedAt : null,
       token_context_reads: num(body.tokenContextReads),
       meta_calls: num(body.metaCalls),

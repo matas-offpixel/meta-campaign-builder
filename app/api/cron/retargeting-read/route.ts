@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { withCronRunLog } from "@/lib/reporting/with-cron-run-log";
 import { createServiceRoleClient } from "@/lib/supabase/server";
-import { graphGetWithToken } from "@/lib/meta/client";
+import { graphGetWithToken, graphPostWithToken } from "@/lib/meta/client";
 import { graphMultiGetByIds } from "@/lib/meta/graph-multi-get";
 import { isRetargetingReadEnabled, runRetargetingRead } from "@/lib/retargeting/runner";
 
@@ -59,6 +59,8 @@ async function handleGET(req: NextRequest) {
       eventCodes: eventCodes.length ? eventCodes : undefined,
       graph: token ? { graphGet: (path, params) => graphGetWithToken(path, params, token, { maxAttempts: 1 }), multiGet: (path, params) => graphMultiGetByIds(path, params, token) } : null,
       graphReason: token ? undefined : "META_ACCESS_TOKEN is not configured",
+      // RT13's rule rewrite: the on-sale refresh Apply's write (graphPostWithToken), with the event owner's refresh token, behind its gates.
+      graphPost: (path, body, ownerToken) => graphPostWithToken(path, body, ownerToken),
     });
     return NextResponse.json(result, { status: "errors" in result && !result.ok ? 207 : 200 });
   } catch (err) {
