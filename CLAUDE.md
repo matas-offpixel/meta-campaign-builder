@@ -147,6 +147,7 @@ META_VIDEO_UPLOAD_MODE=
 OFFPIXEL_TIKTOK_WRITES_ENABLED=
 OFFPIXEL_META_AUDIENCE_WRITES_ENABLED=
 OFFPIXEL_META_ADSET_TARGETING_WRITES_ENABLED=
+OFFPIXEL_META_TREE_ADD_WRITES_ENABLED=
 GOOGLE_ADS_DEVELOPER_TOKEN=
 GOOGLE_ADS_CLIENT_ID=
 GOOGLE_ADS_CLIENT_SECRET=
@@ -442,6 +443,11 @@ REMOTION_LAMBDA_SERVE_URL=
 > write-back. It is recorded on `meta_write_idempotency` as
 > `adset_targeting_update` (migration 179). It is not an optimisation
 > budget/pause write and it does not run through the launch route.
+
+> **`OFFPIXEL_META_TREE_ADD_WRITES_ENABLED`** must be exactly `"true"` for
+> "Add creatives to…" from the event's campaign tree (bulk-attach with
+> `tree`). Unset or anything else returns 403 before any Meta call, and the
+> sheet's button stays off. The bulk-attach page doesn't read it.
 
 > **`ENABLE_OPTIMISATION_AUTOMATION`** (task #120) must be set to `"1"` in
 > Vercel prod env vars to activate `/api/cron/optimisation-tick` (every 4h).
