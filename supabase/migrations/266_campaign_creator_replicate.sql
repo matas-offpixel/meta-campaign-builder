@@ -19,7 +19,7 @@
 -- manager (business_id) and, optionally, a client. confirmed_by /
 -- confirmed_at carry RC5's "confirmed by {name} {date}"; an unconfirmed
 -- template can't be applied. audience_template_items hold one audience role
--- each. genre_family is part of an item's key because one template can hold
+-- each. family_key (a genre family key) is part of an item's key because one template can hold
 -- two customer lists of the same role (RC-E: "Tech house buyers" and "Disco
 -- buyers", both role buyers).
 --
@@ -95,7 +95,7 @@ create table if not exists public.audience_template_items (
   user_id           uuid        not null references auth.users (id) on delete cascade,
   kind              text        not null check (kind in ('customer_list', 'retargeting_pool', 'page_engagers', 'interest')),
   list_role         text,
-  genre_family      text,
+  family_key        text        check (family_key in ('house_tech', 'deep_afro', 'melodic_prog', 'disco', 'garage_bass', 'dnb', 'techno', 'hard_techno', 'commercial', 'no_single_genre')),
   page_id           text        check (page_id ~ '^[0-9]+$'),
   retention_days    integer     check (retention_days > 0 and retention_days <= 365),
   interest_id       text,
@@ -110,7 +110,7 @@ create table if not exists public.audience_template_items (
     or (kind = 'interest' and interest_id is not null and page_id is null and list_role is null)
   ),
   constraint audience_template_items_unique unique nulls not distinct
-    (template_id, kind, list_role, genre_family, page_id, retention_days, interest_id)
+    (template_id, kind, list_role, family_key, page_id, retention_days, interest_id)
 );
 
 create index if not exists audience_template_items_template_idx
@@ -120,7 +120,7 @@ comment on table public.audience_template_items is
   'R6: one audience role in a template: a customer list by role, a retargeting pool, an artist page''s engagers, or an interest. Resolved by role in the target ad account, never by id. Migration 266.';
 comment on column public.audience_template_items.list_role is
   'customer_list: signups | similar | buyers (as meta_custom_audiences.list_role). retargeting_pool: the pool, e.g. page_views | signups | video_viewers.';
-comment on column public.audience_template_items.genre_family is
+comment on column public.audience_template_items.family_key is
   'The list''s genre when one template holds two lists of the same role (Tech house buyers, Disco buyers). Key from lib/learning/genre/families.ts.';
 comment on column public.audience_template_items.meta_audience_id is
   'The audience this item was saved from, in the template''s own account. Never used in another ad account.';

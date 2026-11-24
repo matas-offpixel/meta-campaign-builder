@@ -48,13 +48,16 @@ describe("migration 266", () => {
     for (const col of ["list_role", "page_id", "retention_days", "interest_id", "interest_name", "meta_audience_id"]) {
       assert.match(CODE, new RegExp(`\\n\\s+${col}\\s`), col);
     }
-    assert.match(CODE, /unique nulls not distinct\s+\(template_id, kind, list_role, genre_family, page_id, retention_days, interest_id\)/);
+    assert.match(CODE, /unique nulls not distinct\s+\(template_id, kind, list_role, family_key, page_id, retention_days, interest_id\)/);
   });
 
-  it("R6: the genre families are lib/learning/genre/families.ts's keys", () => {
-    const m = CODE.match(/genre_families <@ array\[([^\]]+)\]/);
-    assert.ok(m);
-    assert.deepEqual([...m[1]!.matchAll(/'([a-z_]+)'/g)].map((x) => x[1]), [...GENRE_FAMILY_KEYS]);
+  it("R6: template families and an item's family_key are lib/learning/genre/families.ts's keys", () => {
+    const families = CODE.match(/genre_families <@ array\[([^\]]+)\]/);
+    const item = CODE.match(/family_key\s+text\s+check \(family_key in \(([^)]+)\)\)/);
+    for (const m of [families, item]) {
+      assert.ok(m);
+      assert.deepEqual([...m[1]!.matchAll(/'([a-z_]+)'/g)].map((x) => x[1]), [...GENRE_FAMILY_KEYS]);
+    }
   });
 
   it("R7: campaign_additions by event, stage, campaign, ad sets and kind", () => {
