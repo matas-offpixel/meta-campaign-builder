@@ -63,6 +63,11 @@ export type LaunchCheckKey =
   | "name_code_mismatch"
   | "artist_caption_not_approved"
   | "link_not_event"
+  /**
+   * The draft's Facebook page or Instagram account is another client's
+   * (RC3, 24 Nov amendment). One key for both; the finding's field says which.
+   */
+  | "page_other_client"
   /** Ops' ruling 4 (24 Nov): the event's venue has no account or pixel stored. A warning. */
   | "venue_not_set";
 
@@ -77,13 +82,17 @@ export type GuardField =
   | "headline"
   | "primary_text"
   | "ad_name"
-  | "audience_name";
+  | "audience_name"
+  | "page"
+  | "instagram";
 
 /** One place a check looked at: the field, the ad (or audience) name, the value. */
 export interface GuardFinding {
   field: GuardField;
   adName: string | null;
   value: string;
+  /** The whole text the value was found in (a link's URL), when it differs from the value. */
+  source?: string;
 }
 
 /** What a fix button does to the draft. Applied by applyLaunchCheckFix(). */
@@ -94,7 +103,11 @@ export type LaunchCheckFix =
   | { action: "show_ads"; label: string; field: GuardField }
   | { action: "use_event_page"; label: string; from: string; to: string }
   | { action: "keep_link"; label: string; url: string }
-  | { action: "open_captions"; label: string };
+  | { action: "open_captions"; label: string }
+  /** "Change the page" / "Change the Instagram account": back to where it is picked. */
+  | { action: "change_identity"; label: string; field: "page" | "instagram"; where: "settings" | "creatives" }
+  /** "Open the venue card". TODO(R2): the venue card's own route once it exists. */
+  | { action: "open_venue_card"; label: string; clientId: string | null };
 
 export interface LaunchCheck {
   key: LaunchCheckKey;
@@ -121,4 +134,31 @@ export interface KeptLink {
   url: string;
   keptBy: string;
   keptAt: string;
+}
+
+/**
+ * Who a Facebook page or Instagram account belongs to, for page_other_client.
+ * Built by loadIdentityOwnership() from clients.default_page_ids /
+ * default_instagram_actor_id and the BM scan (bm_pages / bm_ig_accounts,
+ * mapped to a client by clients.meta_business_id). Earlier drafts are not
+ * a source: a copied draft would make the mistake look like ownership.
+ */
+export interface IdentityOwner {
+  kind: "page" | "instagram";
+  /** Page id, or the Instagram user id (an actor or asset id matches too). */
+  id: string;
+  /** Page name, or the Instagram username without "@". */
+  name: string | null;
+  /** The event's client holds it: a default, or any page or account in its BM (owned or shared). */
+  ownClient: boolean;
+  /** Other clients that hold it as a default or own it in their BM, names as stored. */
+  otherClients: readonly string[];
+  /** Stored as an artist's page or Instagram: never flagged (RC3). */
+  artist: boolean;
+}
+
+export interface IdentityOwnership {
+  /** The event's client's name, as stored. */
+  clientName: string | null;
+  owners: readonly IdentityOwner[];
 }

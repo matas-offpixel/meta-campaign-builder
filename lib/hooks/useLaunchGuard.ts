@@ -22,7 +22,7 @@ export function useLaunchGuard(draft: CampaignDraft, enabled: boolean) {
     () =>
       JSON.stringify({
         s: draft.settings,
-        c: draft.creatives.map((c) => [c.name, c.destinationUrl, c.headline, c.captions]),
+        c: draft.creatives.map((c) => [c.name, c.destinationUrl, c.headline, c.captions, c.identity]),
         a: draft.audiences,
         x: draft.adSetSuggestions.map((s) => [s.name, s.enabled]),
       }),

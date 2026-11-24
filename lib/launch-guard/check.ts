@@ -18,6 +18,7 @@ import type {
   GuardEvent,
   GuardField,
   GuardFinding,
+  IdentityOwnership,
   KeptLink,
   LaunchCheck,
   LaunchCheckFix,
@@ -30,27 +31,37 @@ import { LAUNCH_GUARD_WORDS as W } from "./words.ts";
 
 /**
  * The pre-launch check (brief R4; record RC3). Pure: the caller loads the
- * event, the venue defaults (`loadVenueDefaults`) and the client's other
- * shows (`loadLaunchGuardContext`). Six checks, run in this order:
- * pixel, account, another show, name, artist caption, link. Blockers come
- * first in that order, then the link warning.
+ * event, the venue defaults (`loadVenueDefaults`), the client's other
+ * shows and who holds the draft's page and Instagram account
+ * (`loadLaunchGuardContext`). Checks run in this order: venue not set,
+ * pixel, account, another show, name, artist caption, page, Instagram,
+ * link. Blockers come first in that order, then the warnings.
  */
 export function checkLaunchReferences(
   draft: CampaignDraft,
   event: GuardEvent | null,
   venueDefaults: VenueDefaults,
   otherEvents: readonly GuardEvent[],
+  ownership: IdentityOwnership | null = null,
 ): LaunchGuardResult {
   if (!event) return { checks: [], blockers: 0, warnings: 0, eventCode: null };
   const code = event.code ?? event.name ?? "";
+  const otherShows = checkOtherShows(draft, event, venueDefaults, otherEvents);
+  // A link already blocked as another show's isn't warned about again (RC-C).
+  const blockedLinks = new Set(
+    otherShows.flatMap((check) =>
+      check.findings.filter((hit) => hit.field === "link").map((hit) => linkKey(hit.source ?? hit.value)),
+    ).filter(Boolean) as string[],
+  );
   const checks: LaunchCheck[] = [
     ...checkVenueNotSet(event, venueDefaults),
     ...checkPixel(draft, event, code, venueDefaults),
     ...checkAccount(draft, event, code, venueDefaults),
-    ...checkOtherShows(draft, event, venueDefaults, otherEvents),
+    ...otherShows,
     ...checkNameCode(draft, event),
     ...checkArtistCaptions(draft, event),
-    ...checkLink(draft, event),
+    ...checkPageOwner(draft, event, code, ownership),
+    ...checkLink(draft, event, blockedLinks),
   ];
   const ordered = [
     ...checks.filter((check) => check.severity === "blocker"),
@@ -73,12 +84,7 @@ export function fill(template: string, values: Record<string, string | number>):
   );
 }
 
-/**
- * A row of the word list by key, or null while the TSV doesn't have it yet.
- * Ops' rulings of 24 Nov (#1359 amendment) add one-ad rows (`{key}.one`)
- * and the venue-missing rows; their text comes only from the re-exported
- * TSV, never from here.
- */
+/** A row of the word list by key, or null when the list has none. */
 export function word(key: string): string | null {
   return (W as Record<string, string>)[key] ?? null;
 }
@@ -117,27 +123,27 @@ export function blockedLaunchLabel(blockers: number): string | null {
 
 // ── 0. venue not set (warning) ─────────────────────────────────────────
 
-/** The venue-missing rows (ops' ruling 4). The key names follow the re-exported TSV. */
-export const VENUE_NOT_SET_KEY = "venue_not_set";
-
 /**
  * The event's venue has no ad account or no pixel stored (and the event sets
  * none of its own), so the pixel or account check can't run on it. A
- * warning, never a blocker, until every venue is seeded (ops' ruling 4).
+ * warning until every venue is seeded (ops' ruling 4); RC3 makes it a
+ * blocker once Brixton is seeded. Both missing reads the plain row, one
+ * missing its `.account` or `.pixel` row.
  */
 function checkVenueNotSet(event: GuardEvent, venue: VenueDefaults): LaunchCheck[] {
   const account = venue.eventVenue?.adAccountId ?? venue.override.adAccountId;
   const pixel = venue.eventVenue?.pixelId ?? venue.override.pixelId;
   if (account && pixel) return [];
   const name = venue.eventVenue?.name ?? event.venueName ?? event.code ?? "";
+  const row = !account && !pixel ? W["venue_not_set"] : !account ? W["venue_not_set.account"] : W["venue_not_set.pixel"];
   return [
     {
       key: "venue_not_set",
       severity: "warning",
-      label: word(`${VENUE_NOT_SET_KEY}.key`) ?? "",
-      sentence: fill(word(VENUE_NOT_SET_KEY) ?? "", { venue: name }),
-      evidence: fill(word(`${VENUE_NOT_SET_KEY}.evidence`) ?? "", { venue: name }),
-      fixes: [],
+      label: W["venue_not_set.key"],
+      sentence: fill(row, { venue: name }),
+      evidence: W["venue_not_set.evidence"],
+      fixes: [{ action: "open_venue_card", label: W["venue_not_set.fix"], clientId: event.clientId }],
       findings: [
         ...(account ? [] : [{ field: "ad_account" as const, adName: null, value: "" }]),
         ...(pixel ? [] : [{ field: "pixel" as const, adName: null, value: "" }]),
@@ -197,8 +203,19 @@ function checkPixel(
 
 // ── 2. account ─────────────────────────────────────────────────────────
 
+/** Meta's name for the account, else "…{last 4}". */
 function accountLabel(id: string, venues: readonly VenueDefault[]): string {
   return venues.find((row) => row.adAccountId === id)?.adAccountName ?? `…${last4(id)}`;
+}
+
+/**
+ * "{Meta account name} ({venue})": Meta's name, then our venue in brackets
+ * (RC3). An account no venue holds has no venue to name, so the brackets go.
+ */
+function accountWithVenue(template: string, id: string, venues: readonly VenueDefault[]): string {
+  const owner = venues.find((row) => row.adAccountId === id);
+  const filled = fill(template, { "Meta account name": accountLabel(id, venues) });
+  return owner ? fill(filled, { venue: owner.name }) : filled.replace(" ({venue})", "");
 }
 
 function checkAccount(
@@ -217,12 +234,14 @@ function checkAccount(
   if (!current || !right || current === right) return [];
   const rightLabel = accountLabel(right, venue.venues);
   const sentence = override
-    ? fill(W["account_not_venue.override"], { account: accountLabel(current, venue.venues), code, "right account": rightLabel })
-    : fill(W["account_not_venue"], {
-        account: accountLabel(current, venue.venues),
+    ? fill(accountWithVenue(W["account_not_venue.override"], current, venue.venues), {
+        code,
+        "right Meta account name": rightLabel,
+      })
+    : fill(accountWithVenue(W["account_not_venue"], current, venue.venues), {
         "event venue": venue.eventVenue?.name ?? event.venueName ?? "",
         code,
-        "right account": rightLabel,
+        "right Meta account name": rightLabel,
       });
   return [
     {
@@ -232,7 +251,7 @@ function checkAccount(
       sentence,
       evidence: fill(W["account_not_venue.evidence"], { "campaign name": draft.settings.campaignName ?? "" }),
       fixes: [
-        { action: "set_account", label: fill(W["account_not_venue.fix"], { "right account": rightLabel }), adAccountId: `act_${right}` },
+        { action: "set_account", label: fill(W["account_not_venue.fix"], { "right Meta account name": rightLabel }), adAccountId: `act_${right}` },
       ],
       findings: [{ field: "ad_account", adName: null, value: current }],
     },
@@ -287,6 +306,8 @@ const UNIT: Record<GuardField, { one: string; many: string; evidence: string }> 
   pixel: { one: "ad", many: "ads", evidence: "Links" },
   ad_account: { one: "ad", many: "ads", evidence: "Links" },
   campaign_name: { one: "ad", many: "ads", evidence: "Links" },
+  page: { one: "ad", many: "ads", evidence: "Links" },
+  instagram: { one: "ad", many: "ads", evidence: "Links" },
 };
 
 const FIELD_ORDER: readonly GuardField[] = ["link", "headline", "primary_text", "ad_name", "audience_name"];
@@ -337,7 +358,12 @@ function checkOtherShows(
       matched.push(lower);
       const key = `${term.kind}:${term.value.toLowerCase()}|${scanned.field}`;
       const group = groups.get(key) ?? { term, field: scanned.field, hits: [] };
-      group.hits.push({ field: scanned.field, adName: scanned.adName, value: term.value });
+      group.hits.push({
+        field: scanned.field,
+        adName: scanned.adName,
+        value: term.value,
+        ...(scanned.text !== term.value ? { source: scanned.text } : {}),
+      });
       groups.set(key, group);
     }
   }
@@ -365,7 +391,10 @@ function checkOtherShows(
     const evidence = W["other_show_reference.evidence"]
       .replace("{Links | Headlines | Primary text | Ad names | Audience names}", unit.evidence)
       .replace("{up to 4 ad names}", listNames(hits.map((hit) => hit.adName ?? "")));
-    const fixLabel = fill(W["other_show_reference.fix"], { n }).replace("{ads | …}", n === 1 ? unit.one : unit.many);
+    const fixLabel =
+      n === 1
+        ? W["other_show_reference.fix.one"].replace("{ad | headline | …}", unit.one)
+        : fill(W["other_show_reference.fix"], { n }).replace("{ads | …}", unit.many);
     return {
       key: "other_show_reference" as const,
       severity: "blocker" as const,
@@ -393,7 +422,7 @@ function checkNameCode(draft: CampaignDraft, event: GuardEvent): LaunchCheck[] {
       key: "name_code_mismatch",
       severity: "blocker",
       label: W["name_code_mismatch.key"],
-      sentence: fill(W["name_code_mismatch"], { "name code": nameCode, code: eventCode }),
+      sentence: fill(W["name_code_mismatch"], { "full code in the name": nameCode, "full event code": eventCode }),
       evidence: fill(W["name_code_mismatch.evidence"], { "campaign name": name }),
       fixes: [{ action: "rename", label: fill(W["name_code_mismatch.fix"], { "corrected name": corrected }), name: corrected }],
       findings: [{ field: "campaign_name", adName: null, value: name }],
@@ -439,7 +468,103 @@ export function renderArtistCaptionCheck(input: {
   };
 }
 
-// ── 6. link (warning) ──────────────────────────────────────────────────
+// ── 6. page and Instagram ──────────────────────────────────────────────
+
+interface IdentityUse {
+  /** Set on the draft's settings, so every ad carries it. */
+  all: boolean;
+  adNames: string[];
+}
+
+/**
+ * Every Facebook page and Instagram account the draft would run from: the
+ * settings' page and Instagram (every ad) and each creative's own identity.
+ */
+export function draftIdentities(draft: CampaignDraft): {
+  pages: Map<string, IdentityUse>;
+  instagram: Map<string, IdentityUse>;
+} {
+  const pages = new Map<string, IdentityUse>();
+  const instagram = new Map<string, IdentityUse>();
+  const note = (map: Map<string, IdentityUse>, id: string | null | undefined, adName: string | null) => {
+    const key = (id ?? "").trim();
+    if (!key) return;
+    const row = map.get(key) ?? { all: false, adNames: [] };
+    if (adName == null) row.all = true;
+    else if (!row.adNames.includes(adName)) row.adNames.push(adName);
+    map.set(key, row);
+  };
+  note(pages, draft.settings.metaPageId, null);
+  note(instagram, draft.settings.metaIGAccountId, null);
+  for (const creative of draft.creatives ?? []) {
+    const adName = creative.name || "Untitled ad";
+    note(pages, creative.identity?.pageId, adName);
+    note(instagram, creative.identity?.instagramActorId || creative.identity?.instagramAccountId, adName);
+  }
+  return { pages, instagram };
+}
+
+function identityEvidence(use: IdentityUse, adCount: number): string {
+  const [allForm, someForm] = W["page_other_client.evidence"].split(" | ");
+  if (use.all || use.adNames.length >= adCount) return fill(allForm!, { n: adCount });
+  return fill(someForm!, { n: use.adNames.length, "up to 4 ad names": listNames(use.adNames) });
+}
+
+/**
+ * page_other_client (RC3): the draft runs from a Facebook page or an
+ * Instagram account another client holds, and this event's client doesn't.
+ * A page or account stored as an artist's never fires: ads often run from
+ * artist pages on purpose. Page and Instagram are separate checks.
+ */
+function checkPageOwner(
+  draft: CampaignDraft,
+  event: GuardEvent,
+  code: string,
+  ownership: IdentityOwnership | null,
+): LaunchCheck[] {
+  if (!ownership) return [];
+  const { pages, instagram } = draftIdentities(draft);
+  const adCount = (draft.creatives ?? []).length;
+  const client = ownership.clientName ?? "";
+  const out: LaunchCheck[] = [];
+  const kinds = [
+    { kind: "page" as const, uses: pages },
+    { kind: "instagram" as const, uses: instagram },
+  ];
+  for (const { kind, uses } of kinds) {
+    for (const [id, use] of uses) {
+      const owner = ownership.owners.find((row) => row.kind === kind && row.id === id);
+      if (!owner || owner.ownClient || owner.artist || owner.otherClients.length === 0) continue;
+      const other = owner.otherClients[0]!;
+      const sentence =
+        kind === "page"
+          ? fill(W["page_other_client"], { page: owner.name ?? id, "other client": other, code, client })
+          : fill(W["page_other_client.instagram"], { handle: owner.name ?? id, "other client": other, code, client });
+      out.push({
+        key: "page_other_client",
+        severity: "blocker",
+        label: kind === "page" ? W["page_other_client.key"] : W["page_other_client.instagram.key"],
+        sentence,
+        evidence: identityEvidence(use, adCount),
+        fixes: [
+          {
+            action: "change_identity",
+            label: kind === "page" ? W["page_other_client.fix"] : W["page_other_client.instagram.fix"],
+            field: kind,
+            where: use.all ? "settings" : "creatives",
+          },
+        ],
+        findings: use.all
+          ? [{ field: kind, adName: null, value: id }]
+          : use.adNames.map((adName) => ({ field: kind, adName, value: id })),
+      });
+    }
+  }
+  // Pages before Instagram, each in the order the draft holds them.
+  return out;
+}
+
+// ── 7. link (warning) ──────────────────────────────────────────────────
 
 /** Every URL that is this event's own page: signup, ticket link, its crqln.com/l/ page. */
 export function eventPageKeys(event: GuardEvent): Set<string> {
@@ -460,7 +585,38 @@ export function keptLinksOf(draft: CampaignDraft): KeptLink[] {
   return draft.settings.launchGuard?.keptLinks ?? [];
 }
 
-function checkLink(draft: CampaignDraft, event: GuardEvent): LaunchCheck[] {
+const KEPT_AT = new Intl.DateTimeFormat("en-GB", {
+  timeZone: "Europe/London",
+  day: "numeric",
+  month: "short",
+  hour: "2-digit",
+  minute: "2-digit",
+  hour12: false,
+});
+
+/** "{date, time}" for the kept line: "24 Nov, 14:05", London time. */
+export function keptAtLabel(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  const parts = Object.fromEntries(KEPT_AT.formatToParts(date).map((part) => [part.type, part.value]));
+  return `${parts.day} ${parts.month}, ${parts.hour}:${parts.minute}`;
+}
+
+/**
+ * The muted lines under the list (RC3): one per kept link an ad still uses.
+ * A kept link no ad uses any more says nothing, and a changed link is
+ * checked again.
+ */
+export function keptLinkLines(draft: CampaignDraft): string[] {
+  const inUse = new Set((draft.creatives ?? []).map((creative) => linkKey(creative.destinationUrl)).filter(Boolean));
+  return keptLinksOf(draft)
+    .filter((row) => inUse.has(linkKey(row.url)))
+    .map((row) =>
+      fill(W["link_not_event.kept"], { name: row.keptBy, "date, time": keptAtLabel(row.keptAt), url: displayLink(row.url) }),
+    );
+}
+
+function checkLink(draft: CampaignDraft, event: GuardEvent, blocked: ReadonlySet<string> = new Set()): LaunchCheck[] {
   const page = event.signupUrl || event.ticketUrl;
   if (!page) return [];
   const own = eventPageKeys(event);
@@ -468,7 +624,7 @@ function checkLink(draft: CampaignDraft, event: GuardEvent): LaunchCheck[] {
   const byLink = new Map<string, { url: string; hits: GuardFinding[] }>();
   for (const creative of draft.creatives ?? []) {
     const key = linkKey(creative.destinationUrl);
-    if (!key || own.has(key) || kept.has(key)) continue;
+    if (!key || own.has(key) || kept.has(key) || blocked.has(key)) continue;
     const group = byLink.get(key) ?? { url: creative.destinationUrl.trim(), hits: [] };
     group.hits.push({ field: "link", adName: creative.name || null, value: creative.destinationUrl });
     byLink.set(key, group);

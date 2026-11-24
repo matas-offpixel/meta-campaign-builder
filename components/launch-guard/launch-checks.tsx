@@ -14,8 +14,11 @@ import type { LaunchCheck, LaunchCheckFix, LaunchGuardResult } from "@/lib/launc
 export function LaunchChecks({
   result,
   onFix,
+  keptLines = [],
 }: {
   result: LaunchGuardResult;
+  /** "Link kept by {name}, {date, time}: {url}", one muted line each, under the list (RC3). */
+  keptLines?: readonly string[];
   /** Absent: read-only (the plan canvas owns Launch); fixes aren't drawn. */
   onFix?: (check: LaunchCheck, fix: LaunchCheckFix) => void;
 }) {
@@ -38,6 +41,11 @@ export function LaunchChecks({
       {clean ? <p className="text-[13px] text-foreground">{cleanLine(result.eventCode)}</p> : null}
       {result.checks.map((check, index) => (
         <CheckRow key={`${check.key}-${index}`} check={check} onFix={onFix} />
+      ))}
+      {keptLines.map((line) => (
+        <p key={line} data-launch-kept="" className="text-[11.5px] text-muted-foreground">
+          {line}
+        </p>
       ))}
     </section>
   );

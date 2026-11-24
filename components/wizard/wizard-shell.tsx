@@ -391,6 +391,16 @@ export function WizardShell({ draftId, linkedPlan = null }: WizardShellProps) {
       changeStep(fix.field === "audience_name" ? 3 : 4);
       return;
     }
+    if (fix.action === "change_identity") {
+      // The settings' page and Instagram are picked in account setup; an ad's own in creatives.
+      changeStep(fix.where === "settings" ? 0 : 4);
+      return;
+    }
+    if (fix.action === "open_venue_card") {
+      // TODO(R2): the venue card's own route once it exists.
+      if (fix.clientId) window.open(`/clients/${fix.clientId}`, "_blank", "noopener");
+      return;
+    }
     updateDraft((current) =>
       applyLaunchCheckFix(current, fix, {
         keptBy: launchGuard.viewer ?? userId ?? "operator",

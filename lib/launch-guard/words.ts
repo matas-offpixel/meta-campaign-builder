@@ -33,13 +33,13 @@ export const LAUNCH_GUARD_WORDS = {
   // Check, blocker
   "account_not_venue.key": "Account",
   // Check, blocker
-  "account_not_venue": "Account {account} isn’t {event venue}’s. {code} runs on {right account}.",
+  "account_not_venue": "Account {Meta account name} ({venue}) isn’t {event venue}’s. {code} runs on {right Meta account name} ({event venue}).",
   // Check, blocker (event override set)
-  "account_not_venue.override": "Account {account} isn’t the one set for {code} ({right account}).",
+  "account_not_venue.override": "Account {Meta account name} ({venue}) isn’t the one set for {code}: {right Meta account name}.",
   // Check, blocker
   "account_not_venue.evidence": "Campaign: {campaign name}",
   // Check, blocker
-  "account_not_venue.fix": "Use {right account}",
+  "account_not_venue.fix": "Use {right Meta account name}",
   // Check, blocker
   "other_show_reference.key": "Another show",
   // Check, blocker
@@ -51,9 +51,11 @@ export const LAUNCH_GUARD_WORDS = {
   // Check, blocker
   "other_show_reference.fix": "Show the {n} {ads | …}",
   // Check, blocker
+  "other_show_reference.fix.one": "Show the {ad | headline | …}",
+  // Check, blocker
   "name_code_mismatch.key": "Name",
   // Check, blocker
-  "name_code_mismatch": "The campaign name says {name code}. This event is {code}.",
+  "name_code_mismatch": "The campaign name says {full code in the name}. This event is {full event code}.",
   // Check, blocker
   "name_code_mismatch.evidence": "{campaign name}",
   // Check, blocker
@@ -63,6 +65,8 @@ export const LAUNCH_GUARD_WORDS = {
   // Check, blocker
   "artist_caption_not_approved": "Artist-voice caption with no OK from {artist}’s team: {n} ads.",
   // Check, blocker
+  "artist_caption_not_approved.one": "Artist-voice caption with no OK from {artist}’s team: 1 ad.",
+  // Check, blocker
   "artist_caption_not_approved.evidence": "Primary text in: {caption labels}",
   // Check, blocker
   "artist_caption_not_approved.fix": "Open captions",
@@ -71,9 +75,39 @@ export const LAUNCH_GUARD_WORDS = {
   // Check, warning
   "link_not_event": "Link isn’t this event’s page: {url} in {n} ads. The event’s page is {signup url}.",
   // Check, warning
+  "link_not_event.one": "Link isn’t this event’s page: {url} in 1 ad. The event’s page is {signup url}.",
+  // Check, warning
   "link_not_event.evidence": "Set by hand? Mark it in creative setup and this goes.",
   // Check, warning
   "link_not_event.fix": "Use the event’s page · Keep this link",
+  // Review & launch, under the list
+  "link_not_event.kept": "Link kept by {name}, {date, time}: {url}",
+  // Check, blocker
+  "page_other_client.key": "Page",
+  // Check, blocker
+  "page_other_client": "Ads run from {page}, which is {other client}’s page. {code} is {client}’s show.",
+  // Check, blocker
+  "page_other_client.instagram.key": "Instagram",
+  // Check, blocker
+  "page_other_client.instagram": "Ads run on Instagram as @{handle}, {other client}’s account. {code} is {client}’s show.",
+  // Check, blocker
+  "page_other_client.evidence": "Ads: all {n} | {n} ads: {up to 4 ad names}",
+  // Check, blocker
+  "page_other_client.fix": "Change the page",
+  // Check, blocker
+  "page_other_client.instagram.fix": "Change the Instagram account",
+  // Check, warning (blocker once every venue is set)
+  "venue_not_set.key": "Venue",
+  // Check, warning
+  "venue_not_set": "{venue} has no account or pixel stored, so this draft’s account and pixel can’t be checked. Set them on the venue card.",
+  // Check, warning
+  "venue_not_set.account": "{venue} has no account stored, so this draft’s account can’t be checked. Set it on the venue card.",
+  // Check, warning
+  "venue_not_set.pixel": "{venue} has no pixel stored, so this draft’s pixel can’t be checked. Set it on the venue card.",
+  // Check, warning
+  "venue_not_set.evidence": "Until every venue is set, this is a warning.",
+  // Check, warning
+  "venue_not_set.fix": "Open the venue card",
 } as const;
 
 export type LaunchGuardWordKey = keyof typeof LAUNCH_GUARD_WORDS;

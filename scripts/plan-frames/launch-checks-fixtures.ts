@@ -1,5 +1,12 @@
 import { createDefaultCreative, createDefaultDraft } from "../../lib/campaign-defaults.ts";
-import { checkLaunchReferences, renderArtistCaptionCheck } from "../../lib/launch-guard/check.ts";
+import {
+  checkLaunchReferences,
+  draftIdentities,
+  keepLink,
+  keptLinkLines,
+  renderArtistCaptionCheck,
+} from "../../lib/launch-guard/check.ts";
+import { identityOwnershipFrom } from "../../lib/launch-guard/load.ts";
 import type { GuardEvent, LaunchGuardResult } from "../../lib/launch-guard/types.ts";
 import { ELECTRIC_CLIENT_ID, venueDefaultsFromMap } from "../../lib/launch-guard/venue-defaults.ts";
 import type { AdSetSuggestion, CampaignDraft } from "../../lib/types.ts";
@@ -15,11 +22,16 @@ import type { AdSetSuggestion, CampaignDraft } from "../../lib/types.ts";
  *
  * - RC-C: the composite, every check on one NX27-GLITTERBOX draft.
  * - RC-C-clean: the clean copy.
+ * - RC-C2: page_other_client on the NX26-DOD On sale draft (20909b86): its
+ *   settings hold Ironworks London (IRONWORKS' page, LWE's BM) and
+ *   @puzzleofficialuk (Puzzle's). Ownership rows are production's (24 Nov);
+ *   the nine ads are the record's invented count.
  * - RC-C-venue: ops' rulings 3 and 4 (24 Nov): a show at Electric Brixton,
- *   which has no account or pixel stored (a warning, Launch stays on), and
- *   one ad whose link isn't the event's page (the one-ad row).
+ *   which has no account or pixel stored (a warning, Launch stays on), one
+ *   ad whose link isn't the event's page (the one-ad row), and one kept
+ *   link (the muted line under the list).
  */
-export const LAUNCH_CHECKS_FRAME_IDS = ["RC-C", "RC-C-clean", "RC-C-venue"] as const;
+export const LAUNCH_CHECKS_FRAME_IDS = ["RC-C", "RC-C-clean", "RC-C2", "RC-C-venue"] as const;
 export type LaunchChecksFrameId = (typeof LAUNCH_CHECKS_FRAME_IDS)[number];
 
 function event(partial: Partial<GuardEvent> & Pick<GuardEvent, "id" | "code">): GuardEvent {
@@ -145,15 +157,89 @@ function brixtonDraft(): CampaignDraft {
       ...creative,
       headline: "Fixture Night · Electric Brixton",
       captions: [{ id: `cap-b-${i}`, text: "Fixture Night comes to Electric Brixton. Sign up for ticket access." }],
-      destinationUrl: i === 0 ? "https://skiddle.com/e/41877" : "https://crqln.com/l/fixture-brixton",
+      destinationUrl:
+        i === 0 ? "https://skiddle.com/e/41877" : i === 1 ? "https://ra.co/events/2210442" : "https://crqln.com/l/fixture-brixton",
     })),
   };
 }
 
-export function launchChecksFrame(id: LaunchChecksFrameId): LaunchGuardResult {
+const ELECTRIC_NAME = "Electric Brixton";
+
+const NX26_DOD = event({
+  id: "f0b5636b-0000-4000-8000-000000000000",
+  code: "NX26-DOD",
+  name: "DOD",
+  venueName: "NX Newcastle",
+  venueKey: "nx newcastle",
+  signupUrl: "https://dod-newcastle.com",
+  metaAdAccountId: "606252931141334",
+});
+
+function dodDraft(): CampaignDraft {
+  const base = draft(false);
+  return {
+    ...base,
+    settings: {
+      ...base.settings,
+      eventId: NX26_DOD.id,
+      campaignCode: "NX26-DOD",
+      campaignName: "[NX26-DOD] DOD - On sale",
+      metaPageId: "1157874844068425",
+      metaIGAccountId: "17841456620568454",
+    },
+    creatives: base.creatives.slice(0, 9).map((creative, i) => ({
+      ...creative,
+      name: `On sale ${i + 1}`,
+      headline: "DOD · NX Newcastle",
+      captions: [{ id: `cap-d-${i}`, text: "DOD at NX Newcastle. Tickets on sale now." }],
+      destinationUrl: "https://dod-newcastle.com?ref=meta",
+      identity: { pageId: "1157874844068425", instagramAccountId: "17841456620568454", instagramActorId: "17841456620568454" },
+    })),
+  };
+}
+
+/** Production's ownership rows for the NX26-DOD ids (clients defaults, BM scan), 24 Nov. */
+function dodOwnership(d: CampaignDraft) {
+  const ids = draftIdentities(d);
+  return identityOwnershipFrom({
+    event: NX26_DOD,
+    pageIds: [...ids.pages.keys()],
+    igIds: [...ids.instagram.keys()],
+    clients: [
+      { id: ELECTRIC_CLIENT_ID, name: ELECTRIC_NAME, default_page_ids: [], default_instagram_actor_id: null, meta_business_id: "1927009767586803" },
+      { id: "92f7334b-ef76-4095-88d6-f422ba1ff3f2", name: "Puzzle", default_page_ids: ["103824529223927"], default_instagram_actor_id: "17841456620568454", meta_business_id: "1297062077498960" },
+      { id: "f7ed8aef-8527-4c3e-a16a-a05fc38861f5", name: "IRONWORKS", default_page_ids: ["1157874844068425"], default_instagram_actor_id: "17841446090086018", meta_business_id: "741799859254067" },
+    ],
+    bmPages: [{ id: "p", business_id: "741799859254067", page_id: "1157874844068425", page_name: "Ironworks London", is_owned_by_bm: true }],
+    bmIgs: [{ id: "i", business_id: "1297062077498960", ig_asset_id: "", ig_user_id: "17841456620568454", ig_username: "puzzleofficialuk", is_owned_by_bm: true }],
+    bms: [],
+    artistRows: [],
+  });
+}
+
+export interface LaunchChecksFrameView {
+  result: LaunchGuardResult;
+  /** "Link kept by …" lines under the list. */
+  keptLines: string[];
+}
+
+export function launchChecksFrameView(id: LaunchChecksFrameId): LaunchChecksFrameView {
   if (id === "RC-C-venue") {
-    return checkLaunchReferences(brixtonDraft(), BRIXTON_SHOW, venueDefaultsFromMap(BRIXTON_SHOW), OTHERS);
+    const d = keepLink(brixtonDraft(), "https://ra.co/events/2210442", "Matas", new Date("2026-11-24T16:40:00Z"));
+    return { result: checkLaunchReferences(d, BRIXTON_SHOW, venueDefaultsFromMap(BRIXTON_SHOW), OTHERS), keptLines: keptLinkLines(d) };
   }
+  if (id === "RC-C2") {
+    const d = dodDraft();
+    return {
+      result: checkLaunchReferences(d, NX26_DOD, venueDefaultsFromMap(NX26_DOD), [], dodOwnership(d)),
+      keptLines: [],
+    };
+  }
+  return { result: launchChecksFrame(id), keptLines: [] };
+}
+
+export function launchChecksFrame(id: LaunchChecksFrameId): LaunchGuardResult {
+  if (id === "RC-C-venue" || id === "RC-C2") return launchChecksFrameView(id).result;
   const composite = id === "RC-C";
   const result = checkLaunchReferences(draft(composite), NX27_GLITTERBOX, venueDefaultsFromMap(NX27_GLITTERBOX), OTHERS);
   if (!composite) return result;

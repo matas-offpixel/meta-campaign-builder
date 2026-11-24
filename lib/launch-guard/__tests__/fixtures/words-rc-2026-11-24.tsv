@@ -11,9 +11,15 @@ replicate.summary.title	Dialog, step 2	Replicate {source name} to {target code}
 replicate.summary.changes	Dialog, step 2	Changes to match {code}
 replicate.change.labels	Change rows	Event · Name · Account · Pixel · Link · Dates · Copy · Audiences
 replicate.change.was	Change rows	(was {old})
-replicate.change.account	Change rows	Account: {account name}
+replicate.change.account	Change rows	Account: {Meta account name} ({venue})
+replicate.change.event	Change rows	{code} · {venue}
+replicate.change.dates	Change rows	Starts {date} · ends at {stage}
+replicate.change.dates.day	Change rows (ends at 23:59 that day)	Starts {date} · ends {date}
+replicate.change.dates.time	Change rows (ends at another time)	Starts {date} · ends {date, time}
+replicate.change.dates.open	Change rows (no end)	Starts {date} · no end date
 replicate.change.pixel	Change rows	Pixel …{last 4}
 replicate.change.link	Change rows	Link: {url} · {n} ads
+replicate.change.link.one	Change rows	Link: {url} · 1 ad
 replicate.change.copy	Change rows	Rewritten from the {venue|artist} templates for {artist} at {venue}
 replicate.change.audiences	Change rows	{n} found in {account} · {m} will be created
 replicate.change.not_set	Change rows (amber)	{Field}: not set for {venue}, check
@@ -37,27 +43,44 @@ pixel_not_venue.override	Check, blocker (event override set)	Pixel …{last 4} i
 pixel_not_venue.evidence	Check, blocker	Ad sets: {all n | names}
 pixel_not_venue.fix	Check, blocker	Use …{right last 4}
 account_not_venue.key	Check, blocker	Account
-account_not_venue	Check, blocker	Account {account} isn’t {event venue}’s. {code} runs on {right account}.
-account_not_venue.override	Check, blocker (event override set)	Account {account} isn’t the one set for {code} ({right account}).
+account_not_venue	Check, blocker	Account {Meta account name} ({venue}) isn’t {event venue}’s. {code} runs on {right Meta account name} ({event venue}).
+account_not_venue.override	Check, blocker (event override set)	Account {Meta account name} ({venue}) isn’t the one set for {code}: {right Meta account name}.
 account_not_venue.evidence	Check, blocker	Campaign: {campaign name}
-account_not_venue.fix	Check, blocker	Use {right account}
+account_not_venue.fix	Check, blocker	Use {right Meta account name}
 other_show_reference.key	Check, blocker	Another show
 other_show_reference	Check, blocker	Still points to {other show}: {value} in {n} {ads | headlines | primary texts | ad names | audience names}.
 other_show_reference.one	Check, blocker	Still points to {other show}: {value} in 1 {ad | headline | primary text | ad name | audience name}.
 other_show_reference.evidence	Check, blocker	{Links | Headlines | Primary text | Ad names | Audience names} in: {up to 4 ad names}
 other_show_reference.fix	Check, blocker	Show the {n} {ads | …}
+other_show_reference.fix.one	Check, blocker	Show the {ad | headline | …}
 name_code_mismatch.key	Check, blocker	Name
-name_code_mismatch	Check, blocker	The campaign name says {name code}. This event is {code}.
+name_code_mismatch	Check, blocker	The campaign name says {full code in the name}. This event is {full event code}.
 name_code_mismatch.evidence	Check, blocker	{campaign name}
 name_code_mismatch.fix	Check, blocker	Rename to {corrected name}
 artist_caption_not_approved.key	Check, blocker	Artist caption
 artist_caption_not_approved	Check, blocker	Artist-voice caption with no OK from {artist}’s team: {n} ads.
+artist_caption_not_approved.one	Check, blocker	Artist-voice caption with no OK from {artist}’s team: 1 ad.
 artist_caption_not_approved.evidence	Check, blocker	Primary text in: {caption labels}
 artist_caption_not_approved.fix	Check, blocker	Open captions
 link_not_event.key	Check, warning	Link
 link_not_event	Check, warning	Link isn’t this event’s page: {url} in {n} ads. The event’s page is {signup url}.
+link_not_event.one	Check, warning	Link isn’t this event’s page: {url} in 1 ad. The event’s page is {signup url}.
 link_not_event.evidence	Check, warning	Set by hand? Mark it in creative setup and this goes.
 link_not_event.fix	Check, warning	Use the event’s page · Keep this link
+link_not_event.kept	Review & launch, under the list	Link kept by {name}, {date, time}: {url}
+page_other_client.key	Check, blocker	Page
+page_other_client	Check, blocker	Ads run from {page}, which is {other client}’s page. {code} is {client}’s show.
+page_other_client.instagram.key	Check, blocker	Instagram
+page_other_client.instagram	Check, blocker	Ads run on Instagram as @{handle}, {other client}’s account. {code} is {client}’s show.
+page_other_client.evidence	Check, blocker	Ads: all {n} | {n} ads: {up to 4 ad names}
+page_other_client.fix	Check, blocker	Change the page
+page_other_client.instagram.fix	Check, blocker	Change the Instagram account
+venue_not_set.key	Check, warning (blocker once every venue is set)	Venue
+venue_not_set	Check, warning	{venue} has no account or pixel stored, so this draft’s account and pixel can’t be checked. Set them on the venue card.
+venue_not_set.account	Check, warning	{venue} has no account stored, so this draft’s account can’t be checked. Set it on the venue card.
+venue_not_set.pixel	Check, warning	{venue} has no pixel stored, so this draft’s pixel can’t be checked. Set it on the venue card.
+venue_not_set.evidence	Check, warning	Until every venue is set, this is a warning.
+venue_not_set.fix	Check, warning	Open the venue card
 venue.account	Venue card	Ad account
 venue.pixel	Venue card	Pixel
 venue.note	Venue card, foot	Facebook page and Instagram aren’t set per venue: ads often run from artist pages. Set them in creative setup.

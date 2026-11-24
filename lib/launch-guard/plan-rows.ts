@@ -16,6 +16,8 @@ function sectionFor(check: LaunchCheck): PlanDrawerSection {
   if (field === "link" || field === "headline" || field === "primary_text" || field === "ad_name") {
     return "f-creatives";
   }
+  // An ad's own page or Instagram is set on the creative; the draft's in details.
+  if ((field === "page" || field === "instagram") && check.findings[0]?.adName) return "f-creatives";
   return "f-audiences";
 }
 

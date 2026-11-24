@@ -31,6 +31,7 @@ import {
 } from "lucide-react";
 import { launchFailureLead, type LaunchErrorSource } from "@/lib/meta/launch-failure-copy";
 import { LaunchChecks } from "@/components/launch-guard/launch-checks";
+import { keptLinkLines } from "@/lib/launch-guard/check";
 import type { LaunchCheck, LaunchCheckFix, LaunchGuardResult } from "@/lib/launch-guard/types";
 import { attachedAdSetKey, type CampaignDraft, type CampaignSettings, type LaunchSummary } from "@/lib/types";
 import { urlTagsReviewLine } from "@/lib/meta/url-tags";
@@ -1040,7 +1041,11 @@ export function ReviewLaunch({
 
       {/* ── Launch checks (record RC3): blockers first, then warnings ───────── */}
       {launchGuard && !isLaunching && !launchSummary ? (
-        <LaunchChecks result={launchGuard} onFix={canvasOwnsLaunch ? undefined : onLaunchGuardFix} />
+        <LaunchChecks
+          result={launchGuard}
+          onFix={canvasOwnsLaunch ? undefined : onLaunchGuardFix}
+          keptLines={keptLinkLines(draft)}
+        />
       ) : null}
 
       {/* ── Live launch progress feed ──────────────────────────────────────── */}

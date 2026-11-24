@@ -4,7 +4,7 @@ import { LaunchChecks } from "@/components/launch-guard/launch-checks";
 import { WizardFooter } from "@/components/wizard/wizard-footer";
 import { blockedLaunchLabel } from "@/lib/launch-guard/check";
 import {
-  launchChecksFrame,
+  launchChecksFrameView,
   type LaunchChecksFrameId,
 } from "@/scripts/plan-frames/launch-checks-fixtures";
 
@@ -16,7 +16,7 @@ import {
  * waits for.
  */
 export function LaunchChecksFrameMount({ id }: { id: LaunchChecksFrameId }) {
-  const result = launchChecksFrame(id);
+  const { result, keptLines } = launchChecksFrameView(id);
   const noop = () => {};
   return (
     <div
@@ -25,7 +25,7 @@ export function LaunchChecksFrameMount({ id }: { id: LaunchChecksFrameId }) {
     >
       <main className="px-4 py-6 sm:px-6">
         <div className="mx-auto max-w-2xl">
-          <LaunchChecks result={result} onFix={noop} />
+          <LaunchChecks result={result} onFix={noop} keptLines={keptLines} />
         </div>
       </main>
       {/* Static in the frame: sticky would sit over the list in a full-length shot. */}
