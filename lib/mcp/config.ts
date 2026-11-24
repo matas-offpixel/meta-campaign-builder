@@ -28,6 +28,10 @@ export const RATE_LIMIT_PER_HOUR = 600;
  * `mcp:meta` (M3) and setting client spend ceilings are Matas only
  * (MATAS_USER_IDS, Matas's answer 24 Nov). Unknown scopes are refused;
  * `offline_access` is accepted and ignored (refresh tokens are always issued).
+ *
+ * M1 records no approvals: mcp_actions.approval_source ('claude_prompt' |
+ * 'today') means nothing yet. M3's write tools are request-then-confirm on
+ * the server, approved on Today; the design record before M3 decides it.
  */
 export const SCOPE_READ = "mcp:read";
 export const SCOPES_SUPPORTED: readonly string[] = [SCOPE_READ];

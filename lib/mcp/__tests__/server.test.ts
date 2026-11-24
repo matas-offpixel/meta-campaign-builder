@@ -146,6 +146,8 @@ test("full path: initialize → tools/list (all readOnlyHint) → tools/call, lo
     ],
   );
   assert.equal(logged[0]!.user_id, OPERATOR);
+  // M1 records no approval: approval_source ('claude_prompt' | 'today') means nothing until M3's record.
+  for (const r of logged) for (const k of ["approved_by", "approved_at", "approval_source"]) assert.equal(k in r, false, k);
   assert.ok(Number(logged[0]!.result_bytes) > 0);
   assert.ok(Number(logged[0]!.duration_ms) >= 0);
 
