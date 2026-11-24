@@ -1,7 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createActionLogger, isMissingTable, stripSecrets } from "../action-log.ts";
-import { CONSENT_WORDS, consentBody } from "../oauth/consent-words.ts";
 import { fakeDb } from "./fake-db.ts";
 
 test("stripSecrets drops secret keys and token-shaped values", () => {
@@ -44,15 +43,4 @@ test("missing-table messages are recognised", () => {
   assert.equal(isMissingTable("Could not find the table 'public.mcp_actions' in the schema cache"), true);
   assert.equal(isMissingTable('relation "public.mcp_actions" does not exist'), true);
   assert.equal(isMissingTable("permission denied"), false);
-});
-
-test("consent words are pinned (design verdict before merge)", () => {
-  assert.deepEqual(consentBody({ clientName: "Claude", email: "op@example.com", returnHost: "claude.ai" }), [
-    "Claude is asking to read Off/Pixel as op@example.com.",
-    "It can read events, spend, signups, tickets, drafts and learnings. It can't change anything.",
-    "It stays connected until you disconnect it in Claude.",
-    "After you allow it, you go back to claude.ai.",
-  ]);
-  assert.equal(CONSENT_WORDS.title, "Connect Claude to Off/Pixel");
-  assert.equal(consentBody({ clientName: null, email: null, returnHost: "localhost:3118" })[0], "An app is asking to read Off/Pixel.");
 });

@@ -86,7 +86,10 @@ const EXTERNAL_READERS: Record<string, readonly string[]> = {
   "lib/autosave.ts": ["migrateDraft"],
   "lib/auth/operator-allowlist.ts": ["isOperator", "MATAS_USER_IDS"],
   "lib/supabase/server.ts": ["createServiceRoleClient", "createClient"],
+  "components/ui/button.tsx": ["Button"],
 };
+
+const isOwn = (f: string) => f.startsWith("lib/mcp/") || f.startsWith("app/") || f.startsWith("components/mcp/");
 
 function importsOf(file: string, src: string): Array<{ target: string; names: string[] }> {
   const out: Array<{ target: string; names: string[] }> = [];
@@ -115,7 +118,7 @@ function bodyOf(src: string, name: string): string | null {
 const strip = (src: string) => src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
 
 test("the MCP's own code writes only mcp_actions and mcp_oauth_*", () => {
-  const own = [...walk().entries()].filter(([f]) => f.startsWith("lib/mcp/") || f.startsWith("app/"));
+  const own = [...walk().entries()].filter(([f]) => isOwn(f));
   const hits: string[] = [];
   for (const [file, src] of own) {
     // Hash.update() in crypto.ts is not a write.
@@ -135,12 +138,12 @@ test("the MCP's own code writes only mcp_actions and mcp_oauth_*", () => {
 });
 
 test("from outside lib/mcp the MCP imports only reader functions, and none of them writes", () => {
-  const own = [...walk().entries()].filter(([f]) => f.startsWith("lib/mcp/") || f.startsWith("app/"));
+  const own = [...walk().entries()].filter(([f]) => isOwn(f));
   const unexpected: string[] = [];
   const used = new Map<string, Set<string>>();
   for (const [file, src] of own) {
     for (const { target, names } of importsOf(file, src)) {
-      if (target.startsWith("lib/mcp/") || target.startsWith("app/")) continue;
+      if (isOwn(target)) continue;
       const allowed = EXTERNAL_READERS[target];
       for (const n of names) {
         if (!allowed?.includes(n)) unexpected.push(`${file} imports ${n} from ${target}`);
@@ -166,7 +169,7 @@ test("the tools and the server make no network calls and import no write paths",
   const files = walk();
   const hits: string[] = [];
   for (const [file, src] of files) {
-    if (!file.startsWith("lib/mcp/") && !file.startsWith("app/")) continue;
+    if (!isOwn(file)) continue;
     if (NETWORK.test(src)) hits.push(`${file}: network`);
     if (/from\s+["'](@\/|\.\.?\/)+.*\b(meta\/(?!.*read)|tiktok\/|google-ads\/|notify\/|d2c\/|actions\/)/.test(src)) hits.push(`${file}: write-path import`);
   }

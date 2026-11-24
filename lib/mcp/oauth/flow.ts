@@ -219,6 +219,27 @@ export async function issueCode(
   return { ok: true, redirectTo: u.toString() };
 }
 
+/**
+ * The consent form's decision (app/oauth/authorize/actions.ts). Everything is
+ * checked again: the request, then the user. Allow issues a code; Cancel sends
+ * error=access_denied (with state and iss) back to the same redirect URI, so
+ * both return to the host the page named.
+ */
+export async function decideConsentRequest(
+  params: Record<string, string | undefined>,
+  decision: string | null,
+  userId: string | null,
+  urls: McpUrls,
+  deps: FlowDeps,
+): Promise<{ redirectTo: string } | { refused: "invalid_request" | "signed_out" | "not_operator" }> {
+  const check = await checkAuthorizeRequest(params, urls, deps);
+  if (!check.ok) return check.kind === "redirect" ? { redirectTo: check.redirectTo } : { refused: "invalid_request" };
+  if (!userId) return { refused: "signed_out" };
+  if (decision !== "allow") return { redirectTo: errorRedirect(check.request.redirectUri, "access_denied", check.request.state, urls.issuer) };
+  const issued = await issueCode(check.request, userId, urls, deps);
+  return issued.ok ? { redirectTo: issued.redirectTo } : { refused: "not_operator" };
+}
+
 // ── Token endpoint ───────────────────────────────────────────────────────────
 
 export interface TokenResponse {
