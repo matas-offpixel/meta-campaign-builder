@@ -201,6 +201,16 @@ function pixel(value: string | null | undefined): string | null {
   return /^\d+$/.test(v) ? v : null;
 }
 
+/**
+ * An ad account as the dialog names it (ruling 1, 24 Nov): Meta's name
+ * (bm_ad_accounts.name, else the id), then the venue in brackets when known.
+ * "NX Promoter (NX Newcastle)".
+ */
+export function accountDisplay(name: string, venue: string | null | undefined): string {
+  const at = clean(venue);
+  return at ? `${name} (${at})` : name;
+}
+
 export function lastFour(id: string): string {
   return id.slice(-4);
 }
@@ -502,13 +512,16 @@ export function replicateDraft(
   // Ad account: the event's override, else the venue's. Never the source's.
   const fromAccount = account(source.settings.metaAdAccountId || source.settings.adAccountId);
   const toAccount = account(overrides.metaAdAccountId) ?? account(event.meta_ad_account_id) ?? account(venue?.meta_ad_account_id);
-  const accountName = (id: string | null) => (id ? accountNames[id] ?? id : "");
+  // Ruling 1 (24 Nov): Meta's account name, then the venue in brackets.
+  const targetPlace = clean(venue?.name) || clean(event.venue_name);
+  const sourcePlace = clean(context.sourceVenue?.name) || clean(sourceEvent?.venue_name);
+  const accountName = (id: string | null, at: string) => (id ? accountDisplay(accountNames[id] ?? id, at) : "");
   settings.adAccountId = toAccount ?? "";
   settings.metaAdAccountId = toAccount ?? undefined;
   if (!toAccount) {
     changes.push(notSet("account", CHANGE_LABEL.account, place, fromAccount));
   } else if (toAccount !== fromAccount) {
-    const fill = { "account name": accountName(toAccount) };
+    const fill = { "account name": accountName(toAccount, targetPlace) };
     changes.push(
       row({
         field: "account",
@@ -517,7 +530,7 @@ export function replicateDraft(
         fill,
         tone: "change",
         value: fillWords(word("replicate.change.account"), fill),
-        was: wasText(accountName(fromAccount)),
+        was: wasText(accountName(fromAccount, sourcePlace)),
         from: fromAccount,
         to: toAccount,
       }),
@@ -679,7 +692,7 @@ export function replicateDraft(
     ),
   };
   if (ids.length && toAccount && (accountChanged || remapped)) {
-    const fill = { n: outcome.found.length, account: accountName(toAccount), m: outcome.toCreate.length };
+    const fill = { n: outcome.found.length, account: accountName(toAccount, targetPlace), m: outcome.toCreate.length };
     changes.push(
       row({
         field: "audiences",

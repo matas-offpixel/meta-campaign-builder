@@ -4,6 +4,7 @@ import { describe, it } from "node:test";
 import { createDefaultCreative, createDefaultDraft } from "../../campaign-defaults.ts";
 import type { AdSetSuggestion, CampaignDraft } from "../../types.ts";
 import {
+  accountDisplay,
   displayUrl,
   rebaseLink,
   replicateDraft,
@@ -13,8 +14,9 @@ import {
   type ReplicateVenue,
 } from "../replicate.ts";
 
-// Real account and pixel ids (scripts/seed-venue-meta-defaults.mts dry run,
-// 24 Nov). Names are RC-B's frame names, not bm_ad_accounts.name.
+// Real account and pixel ids and names (scripts/seed-venue-meta-defaults.mts
+// dry run and bm_ad_accounts.name, 24 Nov). Ruling 1: the dialog shows Meta's
+// name with the venue in brackets, not RC-B's frame names.
 const NX_ACCOUNT = "act_606252931141334";
 const BRISTOL_ACCOUNT = "act_2011069725849568";
 const SHEFFIELD_ACCOUNT = "act_1073273492854557";
@@ -22,7 +24,7 @@ const NX_PIXEL = "645185673672763";
 const BRISTOL_PIXEL = "800268622344093";
 const SHEFFIELD_PIXEL = "2261755947685271";
 const SHEFFIELD_SKIDDLE_PIXEL = "1987031252241238";
-const ACCOUNT_NAMES = { [NX_ACCOUNT]: "Electric NX", [BRISTOL_ACCOUNT]: "Electric Bristol", [SHEFFIELD_ACCOUNT]: "Electric Studios" };
+const ACCOUNT_NAMES = { [NX_ACCOUNT]: "NX Promoter", [BRISTOL_ACCOUNT]: "Electric Bristol Live", [SHEFFIELD_ACCOUNT]: "ELECTRIC STUDIOS SHEFFIELD" };
 const GLITTERBOX_PAGE = "100064000000001";
 
 const NOW = new Date("2026-11-26T09:00:00Z");
@@ -163,7 +165,7 @@ function replicateGlitterbox() {
 }
 
 describe("replicateDraft: Glitterbox EBR27 → NX27 (RC-B)", () => {
-  it("renders the change rows exactly as the RC-B frame shows them", () => {
+  it("renders the change rows as RC-B shows them, with ruling 1's account names", () => {
     const { result } = replicateGlitterbox();
     assert.equal(result.title, "Replicate [EBR27-GLITTERBOX] SIGNUP to NX27-GLITTERBOX");
     assert.equal(result.changesTitle, "Changes to match NX27-GLITTERBOX");
@@ -172,12 +174,12 @@ describe("replicateDraft: Glitterbox EBR27 → NX27 (RC-B)", () => {
       [
         ["Event", "NX27-GLITTERBOX · NX Newcastle (was EBR27-GLITTERBOX)"],
         ["Name", "[NX27-GLITTERBOX] SIGNUP (was [EBR27-GLITTERBOX] SIGNUP)"],
-        ["Account", "Account: Electric NX (was Electric Bristol)"],
+        ["Account", "Account: NX Promoter (NX Newcastle) (was Electric Bristol Live (Electric Bristol))"],
         ["Pixel", "Pixel …2763 (was …4093)"],
         ["Link", "Link: crqln.com/l/glitterbox-newcastle · 54 ads (was crqln.com/l/glitterbox-bristol)"],
         ["Dates", "Starts Thu 26 Nov · ends at On sale (was Mon 23 Nov)"],
         // RC-B's Copy row is R8's (caption templates): not re-rendered here.
-        ["Audiences", "9 found in Electric NX · 3 will be created"],
+        ["Audiences", "9 found in NX Promoter (NX Newcastle) · 3 will be created"],
       ],
     );
     assert.equal(result.keptTitle, "Kept from the source");
@@ -192,13 +194,13 @@ describe("replicateDraft: Glitterbox EBR27 → NX27 (RC-B)", () => {
     const { result } = replicateGlitterbox();
     const byField = Object.fromEntries(result.changes.map((c) => [c.field, c]));
     assert.equal(byField.account!.key, "replicate.change.account");
-    assert.deepEqual(byField.account!.fill, { "account name": "Electric NX" });
+    assert.deepEqual(byField.account!.fill, { "account name": "NX Promoter (NX Newcastle)" });
     assert.equal(byField.pixel!.key, "replicate.change.pixel");
     assert.deepEqual(byField.pixel!.fill, { "last 4": "2763" });
     assert.equal(byField.link!.key, "replicate.change.link");
     assert.deepEqual(byField.link!.fill, { url: "crqln.com/l/glitterbox-newcastle", n: 54 });
     assert.equal(byField.audiences!.key, "replicate.change.audiences");
-    assert.deepEqual(byField.audiences!.fill, { n: 9, account: "Electric NX", m: 3 });
+    assert.deepEqual(byField.audiences!.fill, { n: 9, account: "NX Promoter (NX Newcastle)", m: 3 });
     assert.ok(result.changes.every((c) => c.tone === "change"));
   });
 
@@ -384,6 +386,18 @@ describe("replicateDraft: a venue with no values", () => {
       result.changes.filter((c) => c.tone === "not_set").map((c) => c.text),
       ["Account: not set for NX Newcastle, check", "Pixel: not set for NX Newcastle, check"],
     );
+  });
+});
+
+describe("accountDisplay (ruling 1)", () => {
+  it("names the account by Meta's name, then the venue in brackets", () => {
+    assert.equal(accountDisplay("NX Promoter", "NX Newcastle"), "NX Promoter (NX Newcastle)");
+    assert.equal(accountDisplay("act_606252931141334", null), "act_606252931141334");
+  });
+
+  it("falls back to the id when Meta's name isn't known, keeping the venue", () => {
+    const result = replicateDraft(glitterboxSignup([]), { event: NX27_GLITTERBOX, venue: NX_VENUE }, { sourceEvent: EBR27_GLITTERBOX, now: NOW, id: "x" });
+    assert.equal(result.changes.find((c) => c.field === "account")!.text, `Account: ${NX_ACCOUNT} (NX Newcastle) (was ${BRISTOL_ACCOUNT} (Electric Bristol))`);
   });
 });
 
