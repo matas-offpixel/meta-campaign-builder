@@ -326,8 +326,52 @@ describe("night_all_zero rule (bm-page-scan, three runs a London night)", () => 
       cronName: "bm-page-scan",
       intervalMinutes: 1440,
       zeroRule: "night_all_zero",
-      runsPerNight: 3,
+      runsPerNight: 4,
     });
     assert.equal(spec!.intervalMinutes * MISSING_INTERVAL_MULTIPLIER, 48 * 60);
+  });
+});
+
+describe("night_all_zero rule with the 80 % usage stop (four runs a London night)", () => {
+  const BM: CronAlarmSpec[] = [
+    { cronName: "bm-page-scan", intervalMinutes: 1440, zeroRule: "night_all_zero", runsPerNight: 4 },
+  ];
+  // Night of 24 Nov 2026 (GMT): 21:15, 22:45, 01:15, 04:15 UTC.
+  const R1 = "2026-11-24T21:15:00Z";
+  const R2 = "2026-11-24T22:45:00Z";
+  const R3 = "2026-11-25T01:15:00Z";
+  const R4 = "2026-11-25T04:15:00Z";
+  const usageStopped = { stopped_by: "app_usage_80", stopped_at_usage: true, bms_skipped_usage: 50 };
+  const bmRun = (startedAt: string, over: Partial<CronRunFact> = {}) =>
+    run({ cronName: "bm-page-scan", startedAt, rowsWritten: 0, rowsConsidered: 70, ...over });
+  const ev = (runs: CronRunFact[]) =>
+    evidence({
+      latestRunByCron: new Map([["bm-page-scan", runs[0]]]),
+      recentRunsByCron: new Map([["bm-page-scan", runs]]),
+      firstSeenByCron: new Map([["bm-page-scan", SETTLED]]),
+    });
+
+  it("puts 22:45 UTC in the same London night, in GMT and in BST", async () => {
+    const { londonNightKey } = await import("../cron-alarm-rules.ts");
+    assert.equal(londonNightKey(R2), "2026-11-24");
+    // BST: 22:45 UTC is 23:45 London.
+    assert.equal(londonNightKey("2026-06-10T22:45:00Z"), "2026-06-10");
+  });
+
+  it("does not alarm a run that stopped at 80 % after scanning BMs", () => {
+    const runs = [R4, R3, R2, R1].map((t) => bmRun(t, { rowsWritten: 20, detail: usageStopped }));
+    assert.deepEqual(evaluateCronAlarms(ev(runs), new Date("2026-11-25T05:15:00Z"), BM), []);
+    // The latest run alone, usage-stopped with one BM done, is not a zero either.
+    const one = [bmRun(R4, { rowsWritten: 1, detail: usageStopped })];
+    assert.deepEqual(evaluateCronAlarms(ev(one), new Date("2026-11-25T13:00:00Z"), BM), []);
+  });
+
+  it("waits for all four runs before calling a zero night", () => {
+    const three = [R3, R2, R1].map((t) => bmRun(t));
+    assert.deepEqual(evaluateCronAlarms(ev(three), new Date("2026-11-25T02:00:00Z"), BM), []);
+    const four = [R4, R3, R2, R1].map((t) => bmRun(t));
+    const out = evaluateCronAlarms(ev(four), new Date("2026-11-25T05:15:00Z"), BM);
+    assert.equal(out.length, 1);
+    assert.match((out[0] as { reason: string }).reason, /all 4 run\(s\)/);
   });
 });
