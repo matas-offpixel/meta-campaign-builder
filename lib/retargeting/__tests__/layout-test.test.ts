@@ -312,15 +312,17 @@ describe("RT17: after the call, new shows start on the winner; under £6.00, lay
   });
 });
 
-describe("migration 259 against the live CHECKs (read 17 Nov 2026)", () => {
+describe("migration 259 against the live CHECKs (read 24 Nov 2026)", () => {
   const SQL = readFileSync(new URL("../../../supabase/migrations/259_retargeting_test.sql", import.meta.url), "utf8");
-  it("line kinds: the 11 live plus retargeting_test_call; op kinds: 257's 17 plus the two study kinds; both dropped by name", () => {
+  // pg_get_constraintdef on prod, 24 Nov 2026 (after 257, 263 and 267): the 22 live op kinds, in order.
+  const LIVE_OPS = ["campaign_create", "adset_create", "ad_create", "creative_upload", "adset_targeting_update", "adset_destination_update", "refresh_creative_create", "refresh_ad_create", "ad_status_update", "adset_status_update", "refresh_adset_budget_update", "refresh_adset_create", "refresh_custom_conversion_create", "refresh_campaign_create", "refresh_campaign_lifetime_budget_update", "refresh_campaign_status_update", "retargeting_audience_rule_update", "retargeting_study_create", "retargeting_study_end", "adset_end_time_update", "customer_list_create", "customer_list_users"];
+  it("line kinds: the 11 live plus retargeting_test_call; op kinds: exactly the 22 live (the study kinds among them); both dropped by name", () => {
     const live = ["add_creative", "claim_ready", "pause_creative", "bring_back_audience", "missing_default", "drop_audience", "move_budget", "purchase_campaign", "scale_purchase", "copy_audience", "retargeting_campaign"];
     const kinds = [...SQL.slice(SQL.indexOf("add constraint onsale_refresh_lines_kind_check")).split("alter table")[0]!.matchAll(/'([a-z_]+)'/g)].map((m) => m[1]);
     assert.deepEqual(kinds, [...live, "retargeting_test_call"]);
     const ops = [...SQL.slice(SQL.indexOf("add constraint meta_write_idempotency_op_kind_check")).matchAll(/'([a-z_]+)'/g)].map((m) => m[1]);
-    for (const kind of ["campaign_create", "refresh_campaign_status_update", "retargeting_audience_rule_update", "retargeting_study_create", "retargeting_study_end"]) assert.ok(ops.includes(kind), kind);
-    assert.equal(ops.length, 19);
+    assert.deepEqual(ops, LIVE_OPS);
+    assert.ok(SQL.indexOf("drop constraint if exists meta_write_idempotency_op_kind_check") < SQL.indexOf("add constraint meta_write_idempotency_op_kind_check"));
     assert.ok(SQL.indexOf("drop constraint if exists onsale_refresh_lines_kind_check") < SQL.indexOf("add constraint onsale_refresh_lines_kind_check"));
     assert.doesNotMatch(SQL, /do \$\$/i);
   });

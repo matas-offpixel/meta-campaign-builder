@@ -373,15 +373,15 @@ describe("frame RA (PR B's lines): a running campaign's per-link sizes and pixel
   });
 });
 
-/** Migration 257's second part: the ledger's op_kind, against the live CHECK (read 17 Nov 2026). */
+/** Migration 257's second part: the ledger's op_kind, against the live CHECK (read 24 Nov 2026, after main's 263). */
 describe("migration 257: the rule rewrite's op kind on the Meta write ledger", () => {
   const SQL = readFileSync(new URL("../../../supabase/migrations/257_retargeting_audience_parts.sql", import.meta.url), "utf8");
   const LIVE =
-    "CHECK ((op_kind = ANY (ARRAY['campaign_create'::text, 'adset_create'::text, 'ad_create'::text, 'creative_upload'::text, 'adset_targeting_update'::text, 'adset_destination_update'::text, 'refresh_creative_create'::text, 'refresh_ad_create'::text, 'ad_status_update'::text, 'adset_status_update'::text, 'refresh_adset_budget_update'::text, 'refresh_adset_create'::text, 'refresh_custom_conversion_create'::text, 'refresh_campaign_create'::text, 'refresh_campaign_lifetime_budget_update'::text, 'refresh_campaign_status_update'::text])))";
-  // select op_kind, count(*) on prod, 17 Nov 2026: the kinds rows hold.
+    "CHECK ((op_kind = ANY (ARRAY['campaign_create'::text, 'adset_create'::text, 'ad_create'::text, 'creative_upload'::text, 'adset_targeting_update'::text, 'adset_destination_update'::text, 'refresh_creative_create'::text, 'refresh_ad_create'::text, 'ad_status_update'::text, 'adset_status_update'::text, 'refresh_adset_budget_update'::text, 'refresh_adset_create'::text, 'refresh_custom_conversion_create'::text, 'refresh_campaign_create'::text, 'refresh_campaign_lifetime_budget_update'::text, 'refresh_campaign_status_update'::text, 'retargeting_audience_rule_update'::text, 'retargeting_study_create'::text, 'retargeting_study_end'::text, 'adset_end_time_update'::text])))";
+  // select op_kind, count(*) on prod, 24 Nov 2026: the kinds rows hold.
   const HELD = ["ad_create", "adset_create", "campaign_create", "creative_upload", "refresh_ad_create", "refresh_adset_create"];
 
-  it("drops the live check by name, keeps all 16 live kinds and adds retargeting_audience_rule_update", () => {
+  it("drops the live check by name and re-adds the 20 live kinds (263's) plus #1367's two (267), whatever the order they're applied in", () => {
     const drop = SQL.indexOf("drop constraint if exists meta_write_idempotency_op_kind_check");
     const add = SQL.indexOf("add constraint meta_write_idempotency_op_kind_check");
     assert.ok(drop > 0 && add > drop);
@@ -389,6 +389,7 @@ describe("migration 257: the rule rewrite's op kind on the Meta write ledger", (
     const live = [...LIVE.matchAll(/'([a-z_]+)'::text/g)].map((m) => m[1]!);
     for (const kind of [...live, ...HELD]) assert.ok(listed.includes(kind), kind);
     assert.ok(listed.includes("retargeting_audience_rule_update"));
-    assert.equal(new Set(listed).size, live.length + 1);
+    // The signups engine's 267 (#1367) re-adds the same CHECK with these two more; 257 keeps them so neither order drops a kind.
+    assert.deepEqual(new Set(listed), new Set([...live, "customer_list_create", "customer_list_users"]), "nothing dropped; only 267's two added");
   });
 });

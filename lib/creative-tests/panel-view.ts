@@ -21,6 +21,8 @@
  */
 
 import { readTest, sortByShare, type FastCallRead, type VariantFigures } from "./fast-call.ts";
+import { benchmarkApplies, benchmarkCell, benchmarkFigure, benchmarkTail, readWithBenchmark, type ExtensionEvidence } from "./benchmark-call.ts";
+import { approvalLines, pairAdSetKind, pairTestName, readPairHeld, spanLine } from "./pair.ts";
 import { ENDED, canvasChip, type TestRow, type TestState } from "./plan.ts";
 import {
   CONTROL_HELD,
@@ -62,6 +64,15 @@ export type TestInput = {
   at_minimum: boolean;
   first_delivery_at: string | null;
   winner_variant_id: string | null;
+  /** The test's ad set as made, "{code} · Tests · {Video | Statics} · {d Mon}" (TT8; panel-read takes it from launched_ad_sets). */
+  adset_name?: string | null;
+  /** What the test holds; a variant pair's asset, windows, static and sign-offs (VP1, VP7). */
+  held?: unknown;
+  /** TF6 (migration 261): extensions made (0–2), and the figures kept at the reads that made them. */
+  extensions?: number | null;
+  extension_evidence?: ExtensionEvidence | null;
+  /** The ad set's start: the test's days run from its London day (TF5, TF6). */
+  started_at?: string | null;
 };
 
 export type VariantInput = { id: string; test_id: string; position: number; role: "variant" | "control"; label: string; state: string };
@@ -69,7 +80,13 @@ export type VariantInput = { id: string; test_id: string; position: number; role
 /** One variant's figures in a read (creative_test_reads.variants). */
 export type ReadFigures = { variantId: string; spend: number; results: number; muted?: boolean };
 
-export type ReadInput = { test_id: string; read_at: string; variants: ReadFigures[] };
+export type ReadInput = {
+  test_id: string;
+  read_at: string;
+  variants: ReadFigures[];
+  /** TF5 (migration 261): the show's cost per result over the test's days at this read; null with none. */
+  benchmark_cost?: number | string | null;
+};
 
 export const PANEL_TITLE = "Test plan";
 export const SHARE_TITLE = "What we're testing";
@@ -86,9 +103,11 @@ export function shareHeaders(kind: TestKind, result: ResultEvent): { variant: st
   return { variant: kind === "tracks" ? "Track" : kind === "statics" ? "Static" : "Variant", results: h.results, cost: `Per ${RESULT_WORD[result].one}` };
 }
 
-/** CT-D: a copy test is named by what it compares, "Copy · Artist voice vs venue voice". */
-export function cardName(test: Pick<TestInput, "n" | "kind" | "runs_in">, labels: string[]): string {
+/** CT-D: a copy test is named by what it compares, "Copy · Artist voice vs venue voice"; a variant pair by its asset, "Test 1 · Track pair · Can't Decide" (VP6). */
+export function cardName(test: Pick<TestInput, "n" | "kind" | "runs_in" | "held">, labels: string[]): string {
   if (test.kind === "copy" && test.runs_in === "main_adsets") return `${KIND_NAME.copy} · ${labels.join(" vs ")}`;
+  const pair = test.kind === "pair" ? readPairHeld(test.held) : null;
+  if (pair) return pairTestName(test.n, pair.pair, pair.asset);
   return testName(test.n, test.kind);
 }
 
@@ -122,6 +141,10 @@ export type PanelCard = {
   rows: PanelRow[];
   /** TF-B: the pause line a test with no clear winner offers (Accept and Apply arrive with the refresh lines). */
   pause: { title: string; detail: string } | null;
+  /** VP6, a variant pair at 1280 only: "{span 1} vs {span 2} · Static: {name}". Internal, never on the share link. */
+  spanLine: string | null;
+  /** VP7, a variant pair at 1280 only: "Signed off by Matas · {d Mon}" and the artist-page line. Internal. */
+  approvalLines: string[];
 };
 
 export type ShareRow = { id: string; label: string; results: number | null; cost: string };
@@ -129,7 +152,19 @@ export type ShareCard = { id: string; name: string; state: string; headers: { va
 
 export type PanelView = { cards: PanelCard[]; chip: string | null };
 
-type Built = { test: TestInput; variants: VariantInput[]; read: FastCallRead; readAt: string | null; result: ResultEvent };
+type Built = {
+  test: TestInput;
+  variants: VariantInput[];
+  read: FastCallRead;
+  readAt: string | null;
+  result: ResultEvent;
+  /** TF5–TF8 apply to this test (benchmarkApplies). */
+  benchmarked: boolean;
+  /** The show's cost per result at the latest read, when they apply and there's one. */
+  benchmark: number | null;
+  /** TF6: the read stopped the test (above the show at its last read). */
+  stopped: string | null;
+};
 
 function latestRead(reads: ReadInput[], testId: string): ReadInput | null {
   return reads.filter((r) => r.test_id === testId).sort((a, b) => b.read_at.localeCompare(a.read_at))[0] ?? null;
@@ -144,8 +179,26 @@ function build(test: TestInput, variants: VariantInput[], reads: ReadInput[], no
     return { id: v.id, label: v.label, spend: Number(f?.spend ?? 0), results: Number(f?.results ?? 0), muted: Boolean(f?.muted) || v.state === "muted" };
   });
   const result = test.result_event ?? "initiate_checkout";
-  const read = readTest({ firstDeliveryAt: test.first_delivery_at, readAt: latest?.read_at ?? now, variants: input, result });
-  return { test, variants: own, read, readAt: latest?.read_at ?? null, result };
+  const readAt = latest?.read_at ?? now;
+  if (!benchmarkApplies(test.kind)) {
+    const read = readTest({ firstDeliveryAt: test.first_delivery_at, readAt, variants: input, result });
+    return { test, variants: own, read, readAt: latest?.read_at ?? null, result, benchmarked: false, benchmark: null, stopped: null };
+  }
+  // TF5–TF8: the benchmark at the latest read, and TF6's extension or stop. The panel never knows the cap, so it reads as room.
+  const benchmark = latest?.benchmark_cost == null || latest.benchmark_cost === "" ? null : Number(latest.benchmark_cost);
+  const read = readWithBenchmark({
+    firstDeliveryAt: test.first_delivery_at,
+    startedAt: test.started_at ?? null,
+    readAt,
+    variants: input,
+    result,
+    benchmark: Number.isFinite(benchmark) ? benchmark : null,
+    extensions: Number(test.extensions ?? 0),
+    evidence: test.extension_evidence ?? null,
+    dailyMinor: Number(test.daily_budget_minor ?? 0),
+    currency: test.currency,
+  });
+  return { test, variants: own, read, readAt: latest?.read_at ?? null, result, benchmarked: true, benchmark: read.benchmark, stopped: read.stage === "stopped" ? read.text : null };
 }
 
 /** The words for a test that isn't running (CT9's folded line, TT1, TF2, TT5). */
@@ -156,12 +209,18 @@ function restingState(b: Built, all: TestInput[], surface: "internal" | "share")
     if (control) return CONTROL_HELD;
     const winner = read.variants.find((v) => v.id === test.winner_variant_id);
     if (!winner || winner.cost == null) return "";
-    return surface === "share" ? shareWinnerText(winner.label, winner.cost, b.result, test.currency) : winnerText(winner.label, pct(winner.share ?? 0), winner.cost, b.result, test.currency);
+    const line = surface === "share" ? shareWinnerText(winner.label, winner.cost, b.result, test.currency) : winnerText(winner.label, pct(winner.share ?? 0), winner.cost, b.result, test.currency);
+    // TF7: the result line carries the show's benchmark, or says there's none.
+    return b.benchmarked ? `${line}${benchmarkTail(b.benchmark, test.currency)}` : line;
   }
+  // TF6: a stopped test's line, on the panel and the share link.
+  if (test.state === "stopped" || (test.state === "no_clear_winner" && b.stopped)) return b.stopped ?? NO_CLEAR_WINNER;
   if (test.state === "no_clear_winner") return NO_CLEAR_WINNER;
   if (test.state === "not_enough_variants") return NOT_ENOUGH_VARIANTS;
   if (test.state === "waiting" || test.state === "making") {
-    const previous = all.filter((t) => t.n < test.n).sort((a, z) => z.n - a.n)[0];
+    // VP4: a pair waits on nothing, and CT6's tests never wait on a pair.
+    if (test.kind === "pair") return "";
+    const previous = all.filter((t) => t.n < test.n && t.kind !== "pair").sort((a, z) => z.n - a.n)[0];
     if (!previous) return "";
     if (ENDED.includes(previous.state) && test.kind === "statics") return waitingForStaticsText(previous.n);
     return waitingText(previous.n);
@@ -172,6 +231,8 @@ function restingState(b: Built, all: TestInput[], surface: "internal" | "share")
 /** TF2's running words. The share link never shows spend share (TT6, TF3), so its running line is new words, listed for design. */
 function runningState(b: Built, surface: "internal" | "share"): string {
   if (surface === "internal") return b.read.text;
+  // TF7: the extension and stop lines show on the share link too (they carry no spend share).
+  if (b.benchmarked && (b.read as { stage?: string }).stage !== "tf2") return b.read.text;
   if (b.read.state === "first_read_pending" || b.read.state === "not_delivering") return FIRST_READ_PENDING;
   if (b.read.state === "no_clear_winner") return NO_CLEAR_WINNER;
   if (b.read.state === "not_enough_variants") return NOT_ENOUGH_VARIANTS;
@@ -195,9 +256,13 @@ export function buildPanel(input: { eventCode: string | null; tests: TestInput[]
     const name = cardName(test, b.variants.map((v) => v.label));
     const daily = test.daily_budget_minor != null ? test.daily_budget_minor / 100 : null;
     const line = daily != null && test.budget_pct != null && test.runs_in === "tests_adset" ? budgetLine({ daily, sharePct: Number(test.budget_pct), cap: 10, atMinimum: test.at_minimum, currency: test.currency }) : null;
-    const adSet = testAdSetName(input.eventCode ?? "", test.format);
+    // TT8: the full ad set name as made; before it's made, the format's name without a date (a pair's "{kind} pair", VP4).
+    const pair = test.kind === "pair" ? readPairHeld(test.held) : null;
+    const adSet = test.adset_name?.trim() || (pair ? `${input.eventCode ?? ""} · Tests · ${pairAdSetKind(pair.pair)}` : testAdSetName(input.eventCode ?? "", test.format));
     const out: PanelRow[] = sortByShare(read.variants).map((v) => {
-      const cost = v.muted ? RIGHTS_MUTED : !v.judged || v.cost == null ? NOT_ENOUGH_SPEND : money(v.cost, test.currency);
+      // TF7: with the show's benchmark, a judged variant's figure carries it, "— · show £3.00" with no results yet.
+      const withShow = b.benchmarked && b.benchmark != null && v.judged && !v.muted;
+      const cost = v.muted ? RIGHTS_MUTED : withShow ? benchmarkCell(v.cost, b.benchmark, test.currency) : !v.judged || v.cost == null ? NOT_ENOUGH_SPEND : money(v.cost, test.currency);
       const sharePct = v.share == null ? null : pct(v.share);
       return {
         id: v.id,
@@ -210,7 +275,9 @@ export function buildPanel(input: { eventCode: string | null; tests: TestInput[]
         judged: v.judged,
         muted: Boolean(v.muted),
         leader: v.id === read.leaderId && !v.muted,
-        phone: phoneRow({ label: v.label, sharePct, judged: v.judged, muted: Boolean(v.muted), cost: v.cost, results: v.results }, b.result, test.currency),
+        phone: withShow
+          ? `${sharePct != null ? `${sharePct} % of spend · ` : ""}${v.label} · ${benchmarkFigure(v.cost, b.benchmark, b.result, test.currency)} · ${v.results}`
+          : phoneRow({ label: v.label, sharePct, judged: v.judged, muted: Boolean(v.muted), cost: v.cost, results: v.results }, b.result, test.currency),
       };
     });
     return {
@@ -225,6 +292,8 @@ export function buildPanel(input: { eventCode: string | null; tests: TestInput[]
       headers: headers(b.result),
       rows: out,
       pause: test.state === "no_clear_winner" && test.runs_in === "tests_adset" ? { title: `Pause ${adSet}`, detail: `Test ${test.n} had no clear winner` } : null,
+      spanLine: pair ? spanLine(pair) : null,
+      approvalLines: pair ? approvalLines(pair) : [],
     };
   });
   // TF-A / TF-B: with nothing running, the latest finished test stays open so its result and table can be read.
@@ -246,6 +315,8 @@ export function buildShareCards(input: { tests: TestInput[]; variants: VariantIn
       const state = test.state === "running" ? runningState(b, "share") : restingState(b, tests, "share");
       const rows: ShareRow[] = sortByShare(b.read.variants).map((v) => {
         if (v.muted) return { id: v.id, label: v.label, results: null, cost: RIGHTS_MUTED_SHARE };
+        // TF7: the share link's figures carry the show's benchmark too.
+        if (b.benchmarked && b.benchmark != null && v.judged) return { id: v.id, label: v.label, results: v.results, cost: benchmarkCell(v.cost, b.benchmark, test.currency) };
         if (!v.judged || v.cost == null) return { id: v.id, label: v.label, results: null, cost: NOT_ENOUGH_SPEND };
         return { id: v.id, label: v.label, results: v.results, cost: money(v.cost, test.currency) };
       });

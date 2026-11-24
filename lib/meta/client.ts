@@ -40,6 +40,7 @@ import {
   type BusinessUseCaseSnapshot,
 } from "./app-usage.ts";
 import { effectiveStatusAllowListFor } from "./adset-effective-status-filter.ts";
+import { countMetaCall, noteMetaUsage } from "./call-meter.ts";
 import {
   AD_ACCOUNT_BASE_FIELDS,
   AD_ACCOUNT_ENRICH_FIELDS,
@@ -335,6 +336,7 @@ async function executeGetWithRetry<T>(
     } catch (err) {
       networkError = err;
     }
+    countMetaCall();
 
     // Network failure — retryable up to `attempts`.
     if (!response) {
@@ -355,10 +357,19 @@ async function executeGetWithRetry<T>(
     const { appUsage, bucUsage } = recordUsageHeaders(response.headers, path);
 
     if (response.ok && !json.error) {
+      noteMetaUsage({ appUsage, rateLimited: false });
       return json as T;
     }
 
     const parsed = parseMetaError(json, response.status);
+    // Every attempt is one call; a run log (lib/meta/call-meter.ts) keeps
+    // the usage header Meta sent on the rate-limited one.
+    noteMetaUsage({
+      appUsage,
+      rateLimited:
+        response.status === 429 ||
+        (parsed.code != null && RATE_LIMIT_META_CODES.has(parsed.code)),
+    });
     parsed.rawErrorData = attachUsageToRawError(parsed.rawErrorData, appUsage, bucUsage);
     const budget = getRetryBudget(response.status, parsed.code);
     const remaining = attempts - attempt - 1;
@@ -529,11 +540,22 @@ export async function graphPostWithToken<T>(
       cache: "no-store",
     });
   } catch (err) {
+    countMetaCall();
     throw new Error(`Network error calling Meta API: ${String(err)}`);
   }
+  countMetaCall();
 
   const json = (await response.json()) as Record<string, unknown>;
   const { appUsage, bucUsage } = recordUsageHeaders(response.headers, path);
+  {
+    const e = (json.error ?? {}) as { code?: unknown };
+    noteMetaUsage({
+      appUsage,
+      rateLimited:
+        response.status === 429 ||
+        (typeof e.code === "number" && RATE_LIMIT_META_CODES.has(e.code)),
+    });
+  }
 
   if (!response.ok || json.error) {
     const e = (json.error ?? {}) as Record<string, unknown>;

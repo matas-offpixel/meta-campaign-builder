@@ -38,12 +38,18 @@ export type MetaWriteOpKind =
   | "refresh_campaign_lifetime_budget_update"
   /** P4 step 6: the Purchase campaign set active (migration 243). */
   | "refresh_campaign_status_update"
+  /** TF6: a creative test ad set's end_time moved out 4 days (lib/meta/adset-end-time-write.ts, migration 263). */
+  | "adset_end_time_update"
   /** Retargeting RT13: a running campaign's audience rule rewritten when the show's links change (migration 257). */
   | "retargeting_audience_rule_update"
   /** Retargeting RT17: a show's Meta A/B test, its two arm campaigns as 50 % cells (migration 259). */
   | "retargeting_study_create"
   /** Retargeting RT17: the test ended when its call is accepted (migration 259). */
-  | "retargeting_study_end";
+  | "retargeting_study_end"
+  /** SU1: a show's "{code} · Signups" customer list (lib/customer-lists/, migration 267). */
+  | "customer_list_create"
+  /** SU1: one batch of up to 10,000 hashed signups added to, removed from or (key op "replace") replacing a customer list's users (migration 267). */
+  | "customer_list_users";
 
 /**
  * Thrown only when a caller passes `{ required: true }` and the ledger

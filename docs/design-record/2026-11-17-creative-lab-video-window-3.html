@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Lab video window 3 — 17 Nov 2026</title>
+<style>
+:root{
+  --sand:#F0C9A8; --card:#e8d4c0; --edit:#f6ebe0; --paper:#fff8f0; --ink:#1e1810; --ink-2:#4a3d30; --ink-3:#6f6052;
+  --border:rgba(30,24,16,.10); --border-strong:rgba(30,24,16,.18); --muted:rgba(30,24,16,.06);
+  --olive:#4f5a1f; --ochre:#8a560c; --brick:#8f3424;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--sand);color:var(--ink);font:14px/1.5 var(--sans);font-feature-settings:"calt" 0}
+.wrap{max-width:1360px;margin:0 auto;padding:40px 24px 120px}
+h1{font-size:24px;font-weight:600;margin:0 0 6px}
+h2{font-size:20px;font-weight:600;margin:56px 0 8px}
+h3{font-size:13px;font-weight:600;margin:20px 0 6px}
+p{margin:0 0 10px;max-width:86ch}
+.lead{font-size:13px;color:var(--ink-2)}
+.k{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+code{font:12px var(--mono);background:var(--muted);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+figure{margin:0;min-width:0;max-width:100%}
+figcaption{font:700 9px/1.5 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+table.t{border-collapse:collapse;width:100%;font-size:12.5px;margin:10px 0 22px;background:var(--card);border-radius:8px;overflow:hidden;table-layout:fixed}
+table.t th,table.t td{text-align:left;vertical-align:top;padding:8px 12px;border-bottom:1px solid var(--border);overflow-wrap:anywhere}
+table.t th{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.t td:first-child{font-weight:600;width:190px}
+table.t ul{margin:4px 0 0 16px;padding:0}table.t li{margin:0 0 4px}
+.open{background:#f3e3c8;border:1px dashed var(--ochre);border-radius:8px;padding:10px 14px;font-size:12.5px;margin:10px 0 16px}
+.notes{font-size:12.5px;color:var(--ink-2)}.notes li{margin:0 0 6px;max-width:96ch}
+.frame{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start;margin:12px 0 24px}
+.vp{background:var(--paper);border:1px solid var(--border-strong);border-radius:8px;overflow:hidden;max-width:100%;padding:16px;font-size:13px}
+.vp.wide{width:760px}.vp.w393{width:393px}
+.ph{font:700 9px/1.4 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+.h{font-weight:600;font-size:14px;margin:0 0 4px}
+.sub{font-size:12px;color:var(--ink-2);margin:0 0 10px}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 10px}
+.chip{border:1px solid var(--border-strong);border-radius:999px;padding:3px 10px;font-size:12px;background:#fff}
+.chip.on{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.mono{font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase}
+.row{display:grid;grid-template-columns:22px 26px 1fr auto;gap:8px;align-items:center;padding:7px 0;border-top:1px solid var(--border)}
+.row .n{color:var(--ink-3);font:12px var(--mono)}
+.box{width:16px;height:16px;border:1.5px solid var(--ink);border-radius:3px;display:inline-block}
+.box.on{background:var(--ink)}
+.box.off{border-color:var(--ink-3);opacity:.45}
+.fs{font-size:11.5px;color:var(--ink-2)}
+.fs.warn{color:var(--brick)}
+.ok{color:var(--olive)}
+.btn{display:inline-block;border:1px solid var(--ink);border-radius:4px;padding:5px 10px;font:700 10px var(--mono);letter-spacing:.1em;text-transform:uppercase;background:var(--ink);color:var(--paper)}
+.btn.ghost{background:transparent;color:var(--ink)}
+.btn.dis{opacity:.4}
+.wave{position:relative;height:64px;background:repeating-linear-gradient(90deg,var(--ink-3) 0 2px,transparent 2px 5px);border-radius:4px;margin:26px 0 4px;opacity:.9}
+.wave .win{position:absolute;top:-4px;bottom:-4px;border:2px solid var(--ink);background:rgba(232,212,192,.55);border-radius:4px}
+.wave .drop{position:absolute;top:-10px;bottom:-10px;width:2px;background:var(--brick)}
+.wave .drop span{position:absolute;top:-16px;left:-20px;font:700 9px var(--mono);letter-spacing:.1em;color:var(--brick);white-space:nowrap}
+.tl{display:flex;justify-content:space-between;font:11px var(--mono);color:var(--ink-3)}
+.pv{width:150px;height:267px;background:#222;border-radius:6px;position:relative;flex:none;display:flex;align-items:center;justify-content:center;color:#fff;font:700 9px var(--mono);letter-spacing:.12em}
+.pv .play{position:absolute;bottom:10px;left:10px;width:28px;height:28px;border-radius:50%;background:#fff}
+.split{display:flex;gap:16px;align-items:flex-start}
+table.v{border-collapse:collapse;width:100%;font-size:12px;margin:6px 0}
+table.v th{font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);text-align:left;padding:4px 6px;border-bottom:1px solid var(--border-strong)}
+table.v td{padding:6px;border-bottom:1px solid var(--border)}
+table.v td.r,table.v th.r{text-align:right}
+.st{display:inline-block;border:1px solid var(--border-strong);border-radius:10px;padding:2px 8px;font:700 9px/1.5 var(--mono);letter-spacing:.1em;text-transform:uppercase}
+.st.run{border-style:dashed}
+.st.win{background:var(--olive);color:#fff;border-color:var(--olive)}
+.test{border:1px solid var(--border);border-radius:6px;padding:10px 12px;margin:8px 0;background:#fff}
+.test.dim{opacity:.55}
+.line{background:var(--card);border-radius:6px;padding:8px 10px;margin:6px 0;font-size:12px}
+.inv{text-decoration:underline dotted var(--brick);text-decoration-thickness:1.5px;text-underline-offset:3px}
+table.t table.t td:first-child{width:auto;font-weight:400}
+@media (max-width:560px){table.t th[style]{width:100px!important}table.t td:first-child{width:100px}}
+.st.fail{border-color:var(--brick);color:var(--brick)}
+.line .acts{float:right;font:700 9px var(--mono);letter-spacing:.1em;text-transform:uppercase}
+.line.wait{opacity:.6}
+.line.failed{border:1px solid var(--brick);background:#f6e3dc}
+.tick{display:inline-block;width:11px;height:11px;border:1.5px solid var(--ink);border-radius:2px;margin-right:6px;vertical-align:-1px}
+.tick.on{background:var(--ink)}
+.bar{display:inline-block;height:8px;background:var(--ink-3);border-radius:2px;vertical-align:middle;margin-right:6px}
+.sbar{position:relative;display:inline-block;width:100px;height:8px;background:var(--muted);border-radius:2px;vertical-align:middle;margin-right:8px}
+.sbar i{position:absolute;left:0;top:0;bottom:0;background:var(--ink-3);border-radius:2px}
+.sbar i.lead{background:var(--olive)}
+.sbar b{position:absolute;left:60px;top:-3px;bottom:-3px;width:1px;background:var(--ink)}
+.sbar s{position:absolute;left:10px;top:-3px;bottom:-3px;width:1px;background:var(--ink-3);opacity:.6}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<p class="k">Off/Pixel · design record · creative lab · video window · issue 3 · 17 November 2026</p>
+<h1>A drop is timed where it lands</h1>
+<p class="lead">This re-rules a candidate's time in VW7 of <code>2026-11-17-creative-lab-video-window-2.html</code> (#1322). With the bass-only detector, the right sections are found on P26-BDAY's real audio. But VW7 times a candidate at its rise point, the 50 ms step where the 2 s after are loudest against the 2 s before. On a ramp, that point is partway up. Clip 27's real drop is at 0:29.8 and its rise point is 0:30.1. Clip 30's approved cut lands at 0:11.48 at the end of a 2.3 s ramp, and its rise point is 0:09.9. The edit has to be built on where the drop lands.</p>
+<ul class="notes">
+<li><b>Replaced:</b> VW7's first sub-bullet, "A candidate's time is its rise point".</li>
+<li><b>Stands:</b> how candidates are found and merged, what "major" means, and "the main drop is the last major candidate that fits" (VW7). VW8, VW9 and the rest of VW1–VW6 also stand.</li>
+<li><b>Accepted from the build:</b> every level the drop rules read is the bass band, as VW12 sets out.</li>
+<li><b>Frames:</b> none change. VW-A and VW-B stand, because their fixtures already give the times where those drops land. VW-D is a schematic, here only.</li>
+<li><b>Invented:</b> the 1 dB margin, the 0.25 s average and the two 2 s spans are <span class="inv">invented</span>. Clips 27 and 30 settle them (acceptance).</li>
+</ul>
+
+<h2>Rulings</h2>
+<table class="t">
+<tr><th style="width:190px">#</th><th>Ruling</th></tr>
+<tr><td>VW10 · Where a drop lands</td><td>
+<ul>
+<li><b>A candidate's time is where it lands</b>, not its rise point. The rise point still finds the candidate and still measures it. The landing is the time everything else uses.</li>
+<li><b>The loud section.</b> L is the mean bass level of the loudest 2 s that starts within 2 s either side of the rise point.</li>
+<li><b>The landing</b> is the first 50 ms step, counting from 2 s before the rise point, where the mean bass level of the 0.25 s from that step reaches L − 1 dB or more.</li>
+<li><b>A landing is always found</b>, no later than the end of L's 2 s. That 2 s splits into eight 0.25 s blocks whose means average to L, so at least one block reaches L.</li>
+<li><b>Why a 0.25 s mean, not one step.</b> A lone hit in a riser, such as a snare at full level, can reach L for a single 50 ms step. A quarter second is about half a beat at 120–128 BPM, so the loud section has to have arrived, not just ticked.</li>
+<li><b>Why the search starts 2 s early.</b> A drop that hits hard can land before its rise point, because the rise compares 2 s either side and peaks a little after the hit. Clip 27 lands 0.3 s before its rise point.</li>
+<li><b>Stored with each candidate:</b> the landing as its time, plus its rise point and L, as data.</li>
+</ul></td></tr>
+<tr><td>VW11 · What reads the landing</td><td>
+<ul>
+<li><b>Measured from the landing:</b> VW2's fit (3 s or more before, 10 s or more after) and VW2's window (16 s from 4.0 s before the drop, with its shortening and earlier start).</li>
+<li><b>Shown as the landing, to 0.1 s:</b> the picker's times, "Use the drop at {m:ss.s}", and the candidate a refusal names.</li>
+<li><b>As #1322 rules them:</b> finding (a 6 dB rise over 2 s), merging within 4 s, and "major". A candidate's rise and its after-level against the clip's loudest 2 s are both measured from its rise point.</li>
+<li><b>Two candidates whose landings are under 4 s apart are one.</b> The one with the larger rise is kept.</li>
+<li><b>The main drop</b> is still the last major candidate that fits, and "last" is by landing.</li>
+</ul></td></tr>
+<tr><td>VW12 · The bass band (accepted from the build)</td><td>
+<ul>
+<li><b>Every level VW1, VW7 and VW10 read</b> is the bass band, 150 Hz and below, per 50 ms step in dB. It is the band #1295's track drop finder uses, through one shared function.</li>
+<li><b>VW3's "no sound" stays on the whole mix</b> (under −50 LUFS). A clip with a voice and no bass has sound, but no drop.</li>
+<li>The 6 dB, 3 dB and 4 s figures stand on the bass band. Clips 27 and 30 confirm them (acceptance).</li>
+</ul></td></tr>
+<tr><td>VW13 · Existing work</td><td>
+<ul>
+<li><b>As VW9:</b> approved renders and hand-set windows are kept. Detected windows are recomputed by the backfill's <code>--recheck</code>, and drafts are re-cut the next time they render.</li>
+<li><b>P26-BDAY:</b> clip 27's drafts move to the landing at 0:29.8. Clip 30's approved r3 is untouched, and its recomputed detected drop must land where r3 has it (acceptance).</li>
+</ul></td></tr>
+</table>
+
+<h2>The rule on a ramp</h2>
+<p class="lead">A schematic shaped like clip 30, not its real levels. The bass ramps up for 2.3 s, so the steepest part, the rise point, is partway up. The drop lands where the level reaches the loud section.</p>
+<div class="frame">
+<figure><figcaption>VW-D · 1280 · rise point and landing</figcaption>
+<div class="vp wide">
+<svg viewBox="0 0 720 236" width="100%" role="img" aria-label="Schematic: the bass level rises over a 2.3 s ramp from its rise point at 0:09.9 and lands at 0:11.5, where its quarter-second average first reaches 1 dB under the loud section" style="display:block;max-width:720px">
+<rect x="437.1" y="10" width="210.3" height="166" fill="rgba(79,90,31,.10)"/>
+<text x="542.3" y="24" text-anchor="middle" font-family="ui-monospace,Menlo,monospace" font-size="9" letter-spacing="1.2" fill="#4f5a1f">L · THE LOUDEST 2 S</text>
+<line x1="48" x2="700" y1="58.0" y2="58.0" stroke="#4f5a1f" stroke-width="1.2"/>
+<text x="52" y="53.0" font-family="ui-monospace,Menlo,monospace" font-size="9" fill="#4f5a1f">L</text>
+<line x1="48" x2="700" y1="66.4" y2="66.4" stroke="#8f3424" stroke-width="1.2" stroke-dasharray="4 3"/>
+<text x="52" y="78.4" font-family="ui-monospace,Menlo,monospace" font-size="9" fill="#8f3424">L − 1 dB</text>
+<polyline points="48.0,145.9 53.3,145.4 58.5,145.8 63.8,147.1 69.0,149.1 74.3,151.4 79.5,153.4 84.8,154.9 90.1,155.4 95.3,155.0 100.6,153.6 105.8,151.6 111.1,149.4 116.4,147.3 121.6,145.9 126.9,145.4 132.1,145.8 137.4,147.2 142.6,149.2 147.9,151.5 153.2,153.5 158.4,154.9 163.7,155.4 168.9,155.0 174.2,153.6 179.5,151.6 184.7,149.3 190.0,147.3 195.2,147.8 200.5,145.2 205.7,143.9 211.0,143.7 216.3,144.4 221.5,145.5 226.8,146.2 232.0,146.0 237.3,144.6 242.5,142.1 247.8,138.7 253.1,135.3 258.3,132.3 263.6,130.4 268.8,129.8 274.1,130.2 279.4,131.2 284.6,132.1 289.9,132.4 295.1,131.5 300.4,129.4 305.6,126.3 310.9,122.9 316.2,119.6 321.4,117.2 326.7,116.0 331.9,116.0 337.2,116.9 342.5,117.9 347.7,118.5 353.0,118.2 358.2,116.6 363.5,113.9 368.7,110.5 374.0,107.1 379.3,104.3 384.5,102.5 389.8,102.0 395.0,102.6 400.3,103.6 405.5,104.5 410.8,104.6 416.1,103.6 421.3,101.3 426.6,98.1 431.8,63.0 437.1,44.6 442.4,63.0 447.6,63.0 452.9,63.0 458.1,63.0 463.4,63.0 468.6,63.0 473.9,63.0 479.2,63.0 484.4,63.0 489.7,44.6 494.9,63.0 500.2,63.0 505.5,63.0 510.7,63.0 516.0,63.0 521.2,63.0 526.5,63.0 531.7,63.0 537.0,44.6 542.3,63.0 547.5,63.0 552.8,63.0 558.0,63.0 563.3,63.0 568.5,63.0 573.8,63.0 579.1,63.0 584.3,63.0 589.6,44.6 594.8,63.0 600.1,63.0 605.4,63.0 610.6,63.0 615.9,63.0 621.1,63.0 626.4,63.0 631.6,63.0 636.9,44.6 642.2,44.6 647.4,63.0 652.7,63.0 657.9,63.0 663.2,63.0 668.5,63.0 673.7,63.0 679.0,63.0 684.2,63.0 689.5,44.6 694.7,63.0 700.0,63.0" fill="none" stroke="#4a3d30" stroke-width="1.6"/>
+<line x1="268.8" x2="268.8" y1="10" y2="176" stroke="#6f6052" stroke-width="1.2" stroke-dasharray="3 3"/>
+<text x="268.8" y="204" text-anchor="middle" font-family="ui-monospace,Menlo,monospace" font-size="9" letter-spacing="1" fill="#6f6052">RISE POINT 0:09.9</text>
+<line x1="437.1" x2="437.1" y1="10" y2="176" stroke="#8f3424" stroke-width="2"/>
+<text x="437.1" y="204" text-anchor="middle" font-family="ui-monospace,Menlo,monospace" font-size="9" font-weight="700" letter-spacing="1" fill="#8f3424">LANDS 0:11.5</text>
+<text x="69.0" y="188" text-anchor="middle" font-family="ui-monospace,Menlo,monospace" font-size="9" fill="#6f6052">0:08</text>
+<text x="174.2" y="188" text-anchor="middle" font-family="ui-monospace,Menlo,monospace" font-size="9" fill="#6f6052">0:09</text>
+<text x="279.4" y="188" text-anchor="middle" font-family="ui-monospace,Menlo,monospace" font-size="9" fill="#6f6052">0:10</text>
+<text x="384.5" y="188" text-anchor="middle" font-family="ui-monospace,Menlo,monospace" font-size="9" fill="#6f6052">0:11</text>
+<text x="489.7" y="188" text-anchor="middle" font-family="ui-monospace,Menlo,monospace" font-size="9" fill="#6f6052">0:12</text>
+<text x="594.8" y="188" text-anchor="middle" font-family="ui-monospace,Menlo,monospace" font-size="9" fill="#6f6052">0:13</text>
+<text x="700.0" y="188" text-anchor="middle" font-family="ui-monospace,Menlo,monospace" font-size="9" fill="#6f6052">0:14</text>
+<line x1="58.5" x2="479.2" y1="216" y2="216" stroke="#6f6052"/><line x1="58.5" x2="58.5" y1="212" y2="220" stroke="#6f6052"/><line x1="479.2" x2="479.2" y1="212" y2="220" stroke="#6f6052"/>
+<text x="268.8" y="230" text-anchor="middle" font-family="ui-monospace,Menlo,monospace" font-size="9" fill="#6f6052">L's 2 s may start anywhere here</text>
+</svg>
+</div></figure>
+</div>
+
+<h2>Expected figures</h2>
+<table class="t">
+<tr><th style="width:190px">Clip</th><th>Rise point (data)</th><th>Lands (its time)</th><th>Check</th></tr>
+<tr><td>P26-BDAY clip 27</td><td>0:30.1</td><td>0:29.8</td><td>the real drop, at the clip's loudest point · within 0.15 s</td></tr>
+<tr><td>P26-BDAY clip 30</td><td>0:09.9</td><td>0:11.5</td><td>where the approved r3 lands (0:11.48) · within 0.15 s</td></tr>
+<tr><td>XMPL clip 07 (VW-A)</td><td>—</td><td>0:31.2</td><td>the hand-written fixture's time is the landing · VW-A unchanged</td></tr>
+</table>
+
+<h2>Acceptance</h2>
+<ul class="notes">
+<li><b>Real audio.</b> Run the detector on P26-BDAY's clip 27 and clip 30:
+<ul>
+<li>clip 27 must land at 0:29.8, within 0.15 s;</li>
+<li>clip 30 must land at 0:11.5, within 0.15 s;</li>
+<li>each must still be its clip's main drop under VW7.</li>
+</ul>
+Both become fixtures, holding their real bass levels around the drop, not just the times.</li>
+<li><b>If either misses</b>, the build stops and reports for each clip:
+<ul>
+<li>the rise point and L;</li>
+<li>the per-step bass level and the 0.25 s mean, from 2 s before the rise point to the end of L's 2 s;</li>
+<li>where it lands for each margin (0.5, 1, 1.5 and 2 dB) with each mean (0.05, 0.25 and 0.5 s).</li>
+</ul>
+Design re-rules the two figures from that table before merge. The build doesn't tune them by trial.</li>
+<li><b>Synthetic tests:</b>
+<ul>
+<li>a step from quiet to loud lands on the step, within one 50 ms step;</li>
+<li>a 2.3 s ramp that ends in a step lands on the step, not on its rise point;</li>
+<li>a lone full-level hit 1 s before the drop doesn't land the drop early;</li>
+<li>a hard drop whose rise point falls after it lands before its rise point;</li>
+<li>a landing is always found, by the end of L's 2 s;</li>
+<li>two candidates landing under 4 s apart merge, keeping the larger rise;</li>
+<li>VW2's fit and window measure from the landing.</li>
+</ul></li>
+<li><b>Frames:</b> none change. VW-A and VW-B baselines stand.</li>
+</ul>
+
+<h2>Hand-back</h2>
+<table class="t">
+<tr><th style="width:190px">Piece</th><th>Build</th></tr>
+<tr><td>HV9 · The landing</td><td>
+<ul>
+<li>In <code>DROP_RULE</code>, as named constants:
+<ul>
+<li>the margin, 1 dB;</li>
+<li>the mean, 0.25 s;</li>
+<li>how early the search starts, 2 s before the rise point;</li>
+<li>where L's 2 s may start, within 2 s either side of the rise point.</li>
+</ul></li>
+<li>A candidate's <code>tS</code> is its landing. Its rise point and L are stored as data, beside its onset distance.</li>
+</ul></td></tr>
+<tr><td>HV10 · Readers</td><td>
+<ul>
+<li>VW2's fit and window, the picker, "Use the drop at" and refusals read <code>tS</code>.</li>
+<li>Candidates are merged again on landing: under 4 s apart, keep the larger rise.</li>
+<li>"Major" keeps reading the rise and the after-level from the rise point.</li>
+</ul></td></tr>
+<tr><td>HV11 · Fixtures and backfill</td><td>
+<ul>
+<li>Clips 27 and 30 as fixtures from their real bass levels.</li>
+<li>The backfill's <code>--recheck</code> recomputes detected windows only.</li>
+</ul></td></tr>
+</table>
+
+<h2>Invented here</h2>
+<ul class="notes">
+<li>The landing as a drop's time.</li>
+<li>The 1 dB margin under L and the 0.25 s mean.</li>
+<li>The two 2 s spans: L's start, and how early the search starts.</li>
+<li>Merging on landings.</li>
+<li>VW-D's track and levels.</li>
+</ul>
+
+</div>
+</body>
+</html>

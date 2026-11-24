@@ -41,7 +41,9 @@ import { chooseVariant, describeGround, renderCutout, type CutoutResult } from "
 import { detectFaces, eyesMeasurable, faceGeometry, type FaceBox } from "../lib/creative-lab/face-detect.ts";
 import { refineAtSource, segmentPerson } from "../lib/creative-lab/segment.ts";
 import { APP_ID_KEY, APP_TAG_KEY, driveFromEnv } from "../lib/drive/client.ts";
-import { cardRuleException, exceptionLine } from "../lib/creative-lab/card-exceptions.ts";
+import { cardRuleException, exceptionAllows, exceptionLine } from "../lib/creative-lab/card-exceptions.ts";
+import { preparePhoto } from "../lib/creative-lab/photo-input.ts";
+import { photoRetirement, retiredLine } from "../lib/creative-lab/photo-retirements.ts";
 import type { DriveDb } from "../lib/drive/db.ts";
 import { ensureRouteFolder } from "../lib/drive/folders.ts";
 import { labArtistFolderName } from "../lib/drive/owner.ts";
@@ -220,7 +222,14 @@ if (scans.length) {
         say(`- ${asset.filename} (${asset.id}): logo, skipped`);
         continue;
       }
-      const j = await judge(await download(String(asset.storage_path)), artist);
+      const retired = photoRetirement(code, String(asset.id));
+      if (retired) {
+        say(`- ${asset.filename} (${asset.id}): retired — ${retiredLine(retired)}`);
+        continue;
+      }
+      const prepared = await preparePhoto(await download(String(asset.storage_path)));
+      if (prepared.note) say(`- ${asset.filename}: ${prepared.note}`);
+      const j = await judge(prepared.bytes, artist);
       say(`- ${asset.filename} (${asset.id}) → ${j.variant} · ${j.faces.length} face(s)`);
       say(`    ${ruleLine(j.a)}`);
       if (j.b) say(`    ${cutoutLine(j.b)}`);
@@ -275,7 +284,15 @@ for (const pick of picks) {
   const assetRes = await supabase.from("creative_assets").select("id, storage_path, filename").eq("id", pick.assetId).maybeSingle();
   if (assetRes.error || !assetRes.data) fail(`asset ${pick.assetId}: ${assetRes.error?.message ?? "not found"}`);
   debugTag = `${artistSlug(pick.artist)}-${pick.card}`;
-  const j = await judge(await download(String(assetRes.data.storage_path)), pick.artist);
+  const retired = photoRetirement(code, pick.assetId);
+  if (retired) {
+    say(`## ${pick.artist} · card ${pick.card} · ${assetRes.data.filename} (${pick.assetId}) → refused: ${retiredLine(retired)}`);
+    say("");
+    continue;
+  }
+  const prepared = await preparePhoto(await download(String(assetRes.data.storage_path)));
+  if (prepared.note) say(`${assetRes.data.filename}: ${prepared.note}`);
+  const j = await judge(prepared.bytes, pick.artist);
   const card = j.a;
   say(`## ${pick.artist} · card ${pick.card} · ${assetRes.data.filename} (${pick.assetId}) → variant ${j.variant}`);
   say(`${j.faces.length} face(s) · ${ruleLine(card)}`);
@@ -289,18 +306,29 @@ for (const pick of picks) {
     say(`- extension refused (${r.label}): ${Object.entries(r.strips).map(([e, st]) => `${e} ${stripFigures(st)}`).join("; ")}; seam it would have made: ${r.seams.map((sm) => `${sm.edge} ΔE p95 ${sm.p95.toFixed(2)}`).join(", ")}`);
   }
   if (j.variant === "A") {
-    if (card.squarePhotoScale > 0.8001) say(`- 1:1: the photo is too narrow to extend at the sides; drawn at ${card.squarePhotoScale.toFixed(3)}× the master's scale (not 0.8×), anchored on the eyes`);
-    if (card.squareShift) say(`- 1:1: the photo ran out; its window shifted ${card.squareShift} px (the text stays centred)`);
+    // O117–O119: the 4:5 and 1:1 are placed on their own; a skipped format says why.
+    for (const [fmt, f] of Object.entries(card.formats)) {
+      if (!f) continue;
+      if (!f.made) say(`- ${fmt}: skipped — ${f.skipped}`);
+      else say(`- ${fmt}: eyes ${f.eyeX.toFixed(3)} W · ${f.plan.eyes.toFixed(3)} H · head ${f.plan.headTop.toFixed(3)} · chin ${f.plan.chin.toFixed(3)} H · scale ${f.plan.scale.toFixed(3)}${f.notes.length ? ` · ${f.notes.join(" · ")}` : ""}${f.pass ? "" : ` · fails: ${f.rules.filter((r) => !r.pass).map((r) => r.detail).join("; ")}`}`);
+    }
   }
   const chosenB = j.variant === "B" ? j.b : null;
   const cc = j.b?.charcoal;
   say(`Disclosure: ${j.variant === "A" ? card.extensionLabel || "(none: the photo covers the frame)" : chosenB ? chosenB.disclosure : "–"}${cc ? ` · charcoal ${cc.used} (ruling); re-sampled: the panel's own pixels ${cc.panelOwn ?? "–"}, the panel as seen over the paint ${cc.panelSeen ?? "–"}` : ""}`);
   // A per-asset exception (lib/creative-lab/card-exceptions.ts) draws its variant although it fails.
-  const exception = j.variant === "skip" ? cardRuleException(code, pick.assetId) : null;
+  let exception = j.variant === "skip" ? cardRuleException(code, pick.assetId, String(assetRes.data.storage_path)) : null;
   if (exception) {
     const failed = exception.variant === "A" ? card.rules.filter((r) => !r.pass) : (j.b?.rules ?? []).filter((r) => !r.pass);
-    say(exceptionLine(exception, failed));
-    say(`Ruling: ${exception.ruling}`);
+    // A capped exception covers only the rules it names, within their caps (card-exceptions.ts exceptionAllows).
+    const covers = exceptionAllows(exception, failed.map((r) => r.rule), exception.variant === "B" ? (j.b?.figures ?? {}) : {});
+    if (covers.ok) {
+      say(exceptionLine(exception, failed));
+      say(`Ruling: ${exception.ruling}`);
+    } else {
+      say(`EXCEPTION NOT APPLIED (${exception.ruledBy}, ${exception.ruledOn}): ${covers.why}.`);
+      exception = null;
+    }
   }
   const variant = exception ? exception.variant : j.variant;
   if (variant === "skip") {
@@ -316,12 +344,17 @@ for (const pick of picks) {
   if (variant === "B" && !pickedB?.master) fail(`${pick.assetId}: the exception names B, but B was not drawn`);
   const chosen = variant === "A" ? { master: card.master, crop45: card.crop45, square: card.square } : { master: pickedB!.master!, crop45: pickedB!.crop45!, square: pickedB!.square! };
   const slug = artistSlug(pick.artist);
-  const outputs: { format: CardFormat; bytes: Buffer }[] = [
+  const outputs: { format: CardFormat; bytes: Buffer | null }[] = [
     { format: "9x16", bytes: chosen.master },
     { format: "4x5", bytes: chosen.crop45 },
     { format: "1x1", bytes: chosen.square },
   ];
   for (const o of outputs) {
+    // O119: one format can be skipped while the others are made.
+    if (!o.bytes) {
+      say(`- ${o.format}: not made (see above)`);
+      continue;
+    }
     if (exception && !exception.formats.includes(o.format)) {
       say(`- ${o.format}: not drawn (the exception covers ${exception.formats.join(", ")} only)`);
       continue;

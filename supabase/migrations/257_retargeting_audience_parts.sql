@@ -21,9 +21,14 @@
 --
 -- 2. RT13's daily rule rewrite (ops, 17 Nov: the refresh's token and write
 -- path, behind its gates) records each POST /{audience} { rule } on
--- meta_write_idempotency as op_kind 'retargeting_audience_rule_update'. The
--- op_kind CHECK keeps all 16 values live on prod on 17 Nov (read only) and
--- adds this one. Dropped by name, as above.
+-- meta_write_idempotency as op_kind 'retargeting_audience_rule_update'.
+-- Main's 263 already added that kind (with the layout test's two study kinds
+-- and its own adset_end_time_update), and prod holds all 20 (read only,
+-- 24 Nov). The signups engine's 267 (#1367) re-adds the same CHECK with
+-- those 20 plus customer_list_create and customer_list_users. So the op_kind
+-- CHECK is re-added here with all 22, whatever the order 257 and 267 are
+-- applied in: neither drops a kind the other adds (allowing two kinds before
+-- they're used is harmless). Dropped by name, as above.
 --
 -- Write only. Not applied from this branch. Ops applies from the PR head.
 
@@ -59,7 +64,12 @@ alter table public.meta_write_idempotency
     'refresh_campaign_create',
     'refresh_campaign_lifetime_budget_update',
     'refresh_campaign_status_update',
-    'retargeting_audience_rule_update'
+    'retargeting_audience_rule_update',
+    'retargeting_study_create',
+    'retargeting_study_end',
+    'adset_end_time_update',
+    'customer_list_create',
+    'customer_list_users'
   ));
 
 notify pgrst, 'reload schema';

@@ -140,6 +140,24 @@ export async function runDriveTick(
     });
   }
 
+  // 5b. approved audio snippets (CT10), under Videos for the track's artist. Within the same file cap.
+  await attempt("snippets", async () => {
+    const { fileSnippetRender, wantsSnippetFiling } = await import("../creative-tests/snippet-filing.ts");
+    const raw = db as unknown as Parameters<typeof fileSnippetRender>[0];
+    const res = await raw.from("creative_lab_snippet_renders").select("*").eq("status", "done").not("approved_at", "is", null).is("drive_status", null).order("updated_at", { ascending: true }).range(0, 49);
+    if (res.error) {
+      // Before migration 255 is applied the table isn't there: nothing to file.
+      if (/creative_lab_snippet_renders|does not exist|schema cache/i.test(res.error.message)) return;
+      throw new Error(`creative_lab_snippet_renders: ${res.error.message}`);
+    }
+    for (const row of (res.data ?? []) as Parameters<typeof fileSnippetRender>[2][]) {
+      if (filed >= (opts.maxFiles ?? 4) || !wantsSnippetFiling(row)) continue;
+      const outcome = await fileSnippetRender(raw, drive, row, { download: opts.download, now, today, calendar: opts.calendar, log });
+      if (outcome.ok) filed += 1;
+      else if ("error" in outcome) errors.push(`snippet ${row.id}: ${outcome.error}`);
+    }
+  });
+
   // 6. winners
   const judged = (await allRows(db, "creative_lab_rounds")).filter((round) => round.status === "judged");
   for (const round of judged) {

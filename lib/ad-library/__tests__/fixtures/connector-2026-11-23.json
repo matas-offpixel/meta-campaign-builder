@@ -1,0 +1,37 @@
+{
+  "fetched_at": "2026-11-23T23:30:00Z",
+  "calls": [
+    {
+      "query": {
+        "page_ids": [
+          "314321628698217"
+        ],
+        "countries": [
+          "GB"
+        ],
+        "ad_type": "ALL",
+        "ad_active_status": "ACTIVE",
+        "limit": 4
+      },
+      "response": {
+        "results": "{\"estimated_total_count\":25,\"ads\":[{\"id\":\"2251853179065181\",\"page_id\":314321628698217,\"page_name\":\"Broadwick Live\",\"ad_creative_link_title\":\"David Morales | Sat 20 Feb\",\"ad_creation_time\":1795193356,\"ad_delivery_start_time\":1795201832,\"ad_snapshot_url\":\"https:\\/\\/www.facebook.com\\/ads\\/library\\/?id=2251853179065181\",\"currency\":\"GBP\"},{\"id\":\"1137748865724631\",\"page_id\":314321628698217,\"page_name\":\"Broadwick Live\",\"ad_creative_link_title\":\"David Morales | Sat 20 Feb\",\"ad_creation_time\":1795193355,\"ad_delivery_start_time\":1795199411,\"ad_snapshot_url\":\"https:\\/\\/www.facebook.com\\/ads\\/library\\/?id=1137748865724631\",\"currency\":\"GBP\"},{\"id\":\"2388806141889098\",\"page_id\":314321628698217,\"page_name\":\"Broadwick Live\",\"ad_creative_link_title\":\"David Morales | Sat 20 Feb\",\"ad_creation_time\":1795193354,\"ad_delivery_start_time\":1795208241,\"ad_snapshot_url\":\"https:\\/\\/www.facebook.com\\/ads\\/library\\/?id=2388806141889098\",\"currency\":\"GBP\"},{\"id\":\"29407418555548522\",\"page_id\":314321628698217,\"page_name\":\"Broadwick Live\",\"ad_creative_link_title\":\"Julian Fijma | Electric Brixton\",\"ad_creation_time\":1793889244,\"ad_delivery_start_time\":1793894885,\"ad_snapshot_url\":\"https:\\/\\/www.facebook.com\\/ads\\/library\\/?id=29407418555548522\",\"currency\":\"GBP\"}]}"
+      }
+    },
+    {
+      "query": {
+        "page_ids": [
+          "443532440172"
+        ],
+        "countries": [
+          "GB"
+        ],
+        "ad_type": "ALL",
+        "ad_active_status": "ACTIVE",
+        "limit": 3
+      },
+      "response": {
+        "results": "{\"estimated_total_count\":9,\"ads\":[{\"id\":\"3484054128462323\",\"page_id\":443532440172,\"page_name\":\"Dj David Morales\",\"ad_creative_link_title\":\"David Morales, The Illustrious Blacks - ORDER (Tedd Patterson Remix)\",\"ad_creation_time\":1794422730,\"ad_delivery_start_time\":1795166022,\"ad_snapshot_url\":\"https:\\/\\/www.facebook.com\\/ads\\/library\\/?id=3484054128462323\",\"currency\":\"EUR\"},{\"id\":\"1068040539531378\",\"page_id\":443532440172,\"page_name\":\"Dj David Morales\",\"ad_creative_link_title\":\"David Morales, The Illustrious Blacks - ORDER (Tedd Patterson Remix)\",\"ad_creation_time\":1794422732,\"ad_delivery_start_time\":1795166113,\"ad_snapshot_url\":\"https:\\/\\/www.facebook.com\\/ads\\/library\\/?id=1068040539531378\",\"currency\":\"EUR\"},{\"id\":\"1762041955280110\",\"page_id\":443532440172,\"page_name\":\"Dj David Morales\",\"ad_creative_link_title\":\"David Morales, The Illustrious Blacks - ORDER (Tedd Patterson Remix)\",\"ad_creation_time\":1794422726,\"ad_delivery_start_time\":1795166406,\"ad_snapshot_url\":\"https:\\/\\/www.facebook.com\\/ads\\/library\\/?id=1762041955280110\",\"currency\":\"EUR\"}]}"
+      }
+    }
+  ]
+}

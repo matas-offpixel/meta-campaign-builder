@@ -15,13 +15,17 @@
  * the mask follows the photo's own edges. Nothing is generated: the mask only
  * says which source pixels are kept.
  *
- * Script-side only; never imported by a route.
+ * The artist-card scripts call it; the render tick bundles it (through
+ * artist-card.ts) and carries the two model files (next.config.ts), read from
+ * the working directory as face-api's are (face-detect.ts, #1304).
+ * personHeadBox finds the artist's head on a clip frame (O120).
  */
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { headFromMask, squareTiles, type Rect } from "./clip-head.ts";
 import { faceApiTf } from "./face-detect.ts";
 
 export const SELFIE_INPUT = 256;
@@ -44,7 +48,17 @@ type Tf = {
 
 let model: Promise<Awaited<ReturnType<Tf["loadGraphModel"]>>> | null = null;
 
-function modelDir(): string {
+export const SELFIE_DIR = join("lib", "creative-lab", "models", "selfie");
+
+/**
+ * The model's folder. In the Vercel function the traced files sit under the
+ * working directory (next.config.ts outputFileTracingIncludes) and a bundled
+ * import.meta.url can't be trusted to give a real path, so that copy wins.
+ * Scripts and tests resolve it from this file.
+ */
+export function modelDir(cwd: string = process.cwd(), exists: (path: string) => boolean = existsSync): string {
+  const traced = join(cwd, SELFIE_DIR);
+  if (exists(join(traced, "selfie.json"))) return traced;
   return join(dirname(fileURLToPath(import.meta.url)), "models", "selfie");
 }
 
@@ -202,4 +216,50 @@ export async function refineAtSource(image: Buffer, mask: PersonMask, region: { 
     for (let y = sy; y < ey; y += 1) for (let x = 0; x < rw; x += 1) alpha[y * W + x + x0] = q[(y - ay0) * rw + x]!;
   }
   return { width: W, height: H, alpha };
+}
+
+/**
+ * O120: the artist's head on one clip frame, from the person mask, in the
+ * frame's pixels; null when no person is found. The model reads each of
+ * squareTiles' squares at 256 × 256 (no guided filter: a head box needs no
+ * hair edge); the squares' masks are joined on a grid 256 px across the
+ * short side, by the larger value where they overlap, and headFromMask takes
+ * the largest person's top 0.18. About 0.23 s a square on an M-series CPU,
+ * three squares on a 9:16 frame; only frames with no face need it.
+ */
+export async function personHeadBox(image: Buffer): Promise<Rect | null> {
+  const sharp = (await import("sharp")).default;
+  const tf = (await faceApiTf()) as Tf;
+  const net = await selfie();
+  const rotated = await sharp(image).rotate().removeAlpha().toBuffer();
+  const meta = await sharp(rotated).metadata();
+  const W = meta.width ?? 0;
+  const H = meta.height ?? 0;
+  if (!W || !H) return null;
+  const tiles = squareTiles({ width: W, height: H });
+  const k = SELFIE_INPUT / tiles[0]!.width;
+  const gw = Math.max(1, Math.round(W * k));
+  const gh = Math.max(1, Math.round(H * k));
+  const grid = new Float32Array(gw * gh);
+  for (const t of tiles) {
+    const small = await sharp(rotated).extract(t).resize(SELFIE_INPUT, SELFIE_INPUT, { fit: "fill" }).raw().toBuffer();
+    const input = new Float32Array(SELFIE_INPUT * SELFIE_INPUT * 3);
+    for (let i = 0; i < input.length; i += 1) input[i] = small[i]! / 255;
+    const x = tf.tensor4d(input, [1, SELFIE_INPUT, SELFIE_INPUT, 3]);
+    const out = net.predict(x);
+    const m = await out.data();
+    x.dispose();
+    out.dispose();
+    const ox = Math.round(t.left * k);
+    const oy = Math.round(t.top * k);
+    for (let y = 0; y < SELFIE_INPUT && oy + y < gh; y += 1) {
+      for (let xx = 0; xx < SELFIE_INPUT && ox + xx < gw; xx += 1) {
+        const i = (oy + y) * gw + ox + xx;
+        grid[i] = Math.max(grid[i]!, m[y * SELFIE_INPUT + xx]!);
+      }
+    }
+  }
+  const head = headFromMask(grid, gw, gh);
+  if (!head) return null;
+  return { left: head.left / k, top: head.top / k, width: head.width / k, height: head.height / k };
 }

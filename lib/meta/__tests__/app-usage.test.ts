@@ -66,6 +66,12 @@ describe("parseAppUsageHeader", () => {
     assert.equal(parseAppUsageHeader("not json"), null);
   });
 
+  it("returns null, never throws, for JSON that is not an object", () => {
+    for (const v of ["null", "5", '"text"', "[1,2,3]", "true"]) {
+      assert.equal(parseAppUsageHeader(v), null, v);
+    }
+  });
+
   it("defaults missing/non-numeric fields to 0", () => {
     const snapshot = parseAppUsageHeader('{"call_count":"oops"}');
     assert.deepEqual(snapshot, {

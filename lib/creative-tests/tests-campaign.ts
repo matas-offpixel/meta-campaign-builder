@@ -14,7 +14,6 @@
 
 import { buildCampaignPayload } from "../meta/campaign.ts";
 import type { CampaignObjective } from "../types.ts";
-import { TF1 } from "./budget.ts";
 import { testsCampaignName } from "./words.ts";
 
 export { testsCampaignName };
@@ -114,8 +113,11 @@ export function londonDayLabel(at: Date | string): string {
   return `${Number(day.slice(8, 10))} ${MONTHS[Number(day.slice(5, 7)) - 1]}`;
 }
 
-/** TT10's {kind}: Video or Statics for a creative test (by its format), AB copy, Artist cards. */
-export const TEST_AD_SET_KINDS = ["Video", "Statics", "AB copy", "Artist cards"] as const;
+/**
+ * TT10's {kind}: Video or Statics for a creative test (by its format), AB copy, Artist cards,
+ * and a variant pair's "{kind} pair" (VP4, 2026-11-18-creative-test-variant-pairs).
+ */
+export const TEST_AD_SET_KINDS = ["Video", "Statics", "AB copy", "Artist cards", "Track pair", "Clip pair", "Card pair"] as const;
 export type TestAdSetKind = (typeof TEST_AD_SET_KINDS)[number];
 
 /** A creative test's {kind}, by its format. */
@@ -138,8 +140,12 @@ export function testsAdSetName(eventCode: string, kind: TestAdSetKind, createdAt
   for (let n = 2; ; n += 1) if (!names.has(`${base} · ${n}`)) return `${base} · ${n}`;
 }
 
-/** How many days a test's ad set runs (TF1's hold). */
-export const TEST_AD_SET_DAYS = TF1.holdDays;
+/**
+ * How many days a test's ad set runs: TF1's hold (budget.ts TF1.holdDays; a test pins the two
+ * together). Written out rather than imported: budget.ts imports the refresh's plan guard, which
+ * imports the refresh's loader, which imports this file, and that cycle breaks at load time.
+ */
+export const TEST_AD_SET_DAYS = 4;
 
 /** London's calendar date of an instant, YYYY-MM-DD. */
 export function londonDay(at: Date): string {

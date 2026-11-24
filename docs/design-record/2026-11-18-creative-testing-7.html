@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Creative testing issue 7 — 18 Nov 2026</title>
+<style>
+:root{
+  --sand:#F0C9A8; --card:#e8d4c0; --edit:#f6ebe0; --paper:#fff8f0; --ink:#1e1810; --ink-2:#4a3d30; --ink-3:#6f6052;
+  --border:rgba(30,24,16,.10); --border-strong:rgba(30,24,16,.18); --muted:rgba(30,24,16,.06);
+  --olive:#4f5a1f; --ochre:#8a560c; --brick:#8f3424;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--sand);color:var(--ink);font:14px/1.5 var(--sans);font-feature-settings:"calt" 0}
+.wrap{max-width:1360px;margin:0 auto;padding:40px 24px 120px}
+h1{font-size:24px;font-weight:600;margin:0 0 6px}
+h2{font-size:20px;font-weight:600;margin:56px 0 8px}
+h3{font-size:13px;font-weight:600;margin:20px 0 6px}
+p{margin:0 0 10px;max-width:86ch}
+.lead{font-size:13px;color:var(--ink-2)}
+.k{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+code{font:12px var(--mono);background:var(--muted);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+figure{margin:0;min-width:0;max-width:100%}
+figcaption{font:700 9px/1.5 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+table.t{border-collapse:collapse;width:100%;font-size:12.5px;margin:10px 0 22px;background:var(--card);border-radius:8px;overflow:hidden;table-layout:fixed}
+table.t th,table.t td{text-align:left;vertical-align:top;padding:8px 12px;border-bottom:1px solid var(--border);overflow-wrap:anywhere}
+table.t th{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.t td:first-child{font-weight:600;width:190px}
+table.t ul{margin:4px 0 0 16px;padding:0}table.t li{margin:0 0 4px}
+.open{background:#f3e3c8;border:1px dashed var(--ochre);border-radius:8px;padding:10px 14px;font-size:12.5px;margin:10px 0 16px}
+.notes{font-size:12.5px;color:var(--ink-2)}.notes li{margin:0 0 6px;max-width:96ch}
+.frame{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start;margin:12px 0 24px}
+.vp{background:var(--paper);border:1px solid var(--border-strong);border-radius:8px;overflow:hidden;max-width:100%;padding:16px;font-size:13px}
+.vp.wide{width:760px}.vp.w393{width:393px}
+.ph{font:700 9px/1.4 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+.h{font-weight:600;font-size:14px;margin:0 0 4px}
+.sub{font-size:12px;color:var(--ink-2);margin:0 0 10px}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 10px}
+.chip{border:1px solid var(--border-strong);border-radius:999px;padding:3px 10px;font-size:12px;background:#fff}
+.chip.on{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.mono{font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase}
+.row{display:grid;grid-template-columns:22px 26px 1fr auto;gap:8px;align-items:center;padding:7px 0;border-top:1px solid var(--border)}
+.row .n{color:var(--ink-3);font:12px var(--mono)}
+.box{width:16px;height:16px;border:1.5px solid var(--ink);border-radius:3px;display:inline-block}
+.box.on{background:var(--ink)}
+.box.off{border-color:var(--ink-3);opacity:.45}
+.fs{font-size:11.5px;color:var(--ink-2)}
+.fs.warn{color:var(--brick)}
+.ok{color:var(--olive)}
+.btn{display:inline-block;border:1px solid var(--ink);border-radius:4px;padding:5px 10px;font:700 10px var(--mono);letter-spacing:.1em;text-transform:uppercase;background:var(--ink);color:var(--paper)}
+.btn.ghost{background:transparent;color:var(--ink)}
+.btn.dis{opacity:.4}
+.wave{position:relative;height:64px;background:repeating-linear-gradient(90deg,var(--ink-3) 0 2px,transparent 2px 5px);border-radius:4px;margin:26px 0 4px;opacity:.9}
+.wave .win{position:absolute;top:-4px;bottom:-4px;border:2px solid var(--ink);background:rgba(232,212,192,.55);border-radius:4px}
+.wave .drop{position:absolute;top:-10px;bottom:-10px;width:2px;background:var(--brick)}
+.wave .drop span{position:absolute;top:-16px;left:-20px;font:700 9px var(--mono);letter-spacing:.1em;color:var(--brick);white-space:nowrap}
+.tl{display:flex;justify-content:space-between;font:11px var(--mono);color:var(--ink-3)}
+.pv{width:150px;height:267px;background:#222;border-radius:6px;position:relative;flex:none;display:flex;align-items:center;justify-content:center;color:#fff;font:700 9px var(--mono);letter-spacing:.12em}
+.pv .play{position:absolute;bottom:10px;left:10px;width:28px;height:28px;border-radius:50%;background:#fff}
+.split{display:flex;gap:16px;align-items:flex-start}
+table.v{border-collapse:collapse;width:100%;font-size:12px;margin:6px 0}
+table.v th{font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);text-align:left;padding:4px 6px;border-bottom:1px solid var(--border-strong)}
+table.v td{padding:6px;border-bottom:1px solid var(--border)}
+table.v td.r,table.v th.r{text-align:right}
+.st{display:inline-block;border:1px solid var(--border-strong);border-radius:10px;padding:2px 8px;font:700 9px/1.5 var(--mono);letter-spacing:.1em;text-transform:uppercase}
+.st.run{border-style:dashed}
+.st.win{background:var(--olive);color:#fff;border-color:var(--olive)}
+.test{border:1px solid var(--border);border-radius:6px;padding:10px 12px;margin:8px 0;background:#fff}
+.test.dim{opacity:.55}
+.line{background:var(--card);border-radius:6px;padding:8px 10px;margin:6px 0;font-size:12px}
+.inv{text-decoration:underline dotted var(--brick);text-decoration-thickness:1.5px;text-underline-offset:3px}
+table.t table.t td:first-child{width:auto;font-weight:400}
+@media (max-width:560px){table.t th[style]{width:100px!important}table.t td:first-child{width:100px}}
+.st.fail{border-color:var(--brick);color:var(--brick)}
+.line .acts{float:right;font:700 9px var(--mono);letter-spacing:.1em;text-transform:uppercase}
+.line.wait{opacity:.6}
+.line.failed{border:1px solid var(--brick);background:#f6e3dc}
+.tick{display:inline-block;width:11px;height:11px;border:1.5px solid var(--ink);border-radius:2px;margin-right:6px;vertical-align:-1px}
+.tick.on{background:var(--ink)}
+.bar{display:inline-block;height:8px;background:var(--ink-3);border-radius:2px;vertical-align:middle;margin-right:6px}
+.sbar{position:relative;display:inline-block;width:100px;height:8px;background:var(--muted);border-radius:2px;vertical-align:middle;margin-right:8px}
+.sbar i{position:absolute;left:0;top:0;bottom:0;background:var(--ink-3);border-radius:2px}
+.sbar i.lead{background:var(--olive)}
+.sbar b{position:absolute;left:60px;top:-3px;bottom:-3px;width:1px;background:var(--ink)}
+.sbar s{position:absolute;left:10px;top:-3px;bottom:-3px;width:1px;background:var(--ink-3);opacity:.6}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<p class="k">Off/Pixel · design record · creative testing · issue 7 · when the day-4 call is made · 18 November 2026</p>
+<h1>Creative testing issue 7: the end day's read decides</h1>
+<p class="lead">From #1346, the daily test read. TT9 ends a test ad set at 23:59 London on its fourth day. The build took TF2's "last read at day 4" as the first read at 96 h or more, which is the next morning's 08:00 read. Any extension TF6 writes then lands after the ad set has ended, so it's off overnight. This record moves the call onto the end day, so an extension is written before the ad set stops.</p>
+<p class="lead"><b>What this amends:</b> when TF2's day-4 read, and TF6's day-8 and day-12 reads, are made.</p>
+<p class="lead"><b>What stands:</b> TF1–TF4, TF5–TF8 (#1341), TT8–TT11, VP1–VP10 (#1339), R5's cap and #1297's cap sentence. Every figure, line and frame stands, TF-D included. It applies to every test TF2 calls.</p>
+<p class="lead">The fallback for a missed end-day read is <span class="inv">invented</span>.</p>
+
+<h2>Ruling</h2>
+<table class="t">
+<tr><th style="width:190px">#</th><th>Ruling</th></tr>
+<tr><td>TF9 · The end day's read decides</td><td>
+<ul>
+<li><b>The end day</b> is the London day of the ad set's 23:59 end: day 4 (TT9), then day 8 and day 12 after an extension (TF6).</li>
+<li><b>Its read is that day's 08:00 London read,</b> after the insights restate, however many hours the ad set has run. It is not the first read at 96 h. It covers everything up to the end of the day before.</li>
+<li><b>That read makes TF6's call,</b> and any write goes through the Tests path (TT8–TT9), behind the same gate:
+<ul>
+<li><b>A winner</b> (TF2's read and the benchmark, TF5): "Ready to call", as now. The ad set runs to its 23:59 end.</li>
+<li><b>All above the benchmark, and the hold fits the cap:</b> the extension. The end moves to 23:59 London four days later, written that morning, so the ad set never stops. The line is "Extended to {d Mon}: …" (TF7).</li>
+<li><b>All above the benchmark, and the hold doesn't fit</b>, or the day-8 rule says stop: the stop. The ad set is paused at that read, so the end day's remaining budget isn't spent, and TF6's stop line shows.</li>
+<li><b>No benchmark</b> (TF5) and no winner: nothing is written. The ad set runs to its 23:59 end.</li>
+</ul></li>
+<li><b>The end day's own hours</b> still count:
+<ul>
+<li>after an extension, the next day's read includes them as usual;</li>
+<li>when the ad set ends without one, the read the morning after it ends is its last. It reads all the spend and can still find a winner. Only when it finds none does the test read "No clear winner by day 4". With no benchmark there's no extension, so this is always day 4.</li>
+</ul></li>
+<li><b>A missed end-day read.</b> If the end day's read hasn't run by 23:00 London, nothing is written that day. The next morning's read then decides as the build does now, and an extension then restarts the ad set after its night off.</li>
+<li><b>Never:</b>
+<ul>
+<li>two writes for one end day (the ledger's one row per write stands);</li>
+<li>a write from a read that doesn't cover the whole of the day before;</li>
+<li>a pause or an extension on any day other than an end day.</li>
+</ul></li>
+</ul></td></tr>
+</table>
+
+<h2>Example</h2>
+<p class="lead">P26-BDAY's Test 2 · Track pair · Get Hard (#1341's example). It was made on 18 Nov, so day 4 ends at 23:59 on 22 Nov.</p>
+<ul class="notes">
+<li><b>22 Nov, 08:00:</b> the read covers up to the end of 21 Nov. Both variants are above £3.00, and the £4.00 hold fits the cap. The end moves to 23:59 on 26 Nov that morning, and the panel reads "Extended to 26 Nov: both above the show's £3.00 per checkout". The ad set keeps running through 22 Nov and on.</li>
+<li><b>26 Nov, 08:00:</b> the day-8 read covers up to the end of 25 Nov. Neither variant has improved, so the ad set is paused at that read with "Stopped: both above the show's £3.00 per checkout".</li>
+</ul>
+<p class="lead">TF-D's figures and words stand as #1341 draws them. No frame is added or re-shot.</p>
+
+<h2>Hand-back</h2>
+<table class="t">
+<tr><th style="width:190px">Piece</th><th>Build</th></tr>
+<tr><td>HT4 · The end-day read (#1346)</td><td>
+<ul>
+<li>The decision runs at the 08:00 London read on the ad set's end day (day 4, 8 or 12), not at the first read at 96 h.</li>
+<li>Extend or pause is written that morning, through the existing write path, one ledger row per write, behind the killswitches.</li>
+<li>When no write is made, the morning-after read is the test's last read and can still find a winner.</li>
+<li>No write after 23:00 London on the end day. A missed day falls back to the next morning's read.</li>
+<li>Unit tests:
+<ul>
+<li>an extension written on the end day, with no gap in the ad set's run;</li>
+<li>a stop paused on the end day;</li>
+<li>a no-benchmark test with no write, then a winner found the morning after;</li>
+<li>the same with no winner, reading "No clear winner by day 4";</li>
+<li>a read that doesn't cover the day before, making no write;</li>
+<li>a missed end day falling back to the next morning;</li>
+<li>a second run on the same end day, making no second write.</li>
+</ul></li>
+</ul></td></tr>
+</table>
+
+<h2>Acceptance</h2>
+<ul class="notes">
+<li><b>No night off:</b> an extended ad set's end date is moved before 23:59 on its end day, and Meta shows no gap in delivery.</li>
+<li><b>A stop:</b> a stop pauses at the end day's 08:00 read, with TF6's line.</li>
+<li><b>No write:</b> a test that ends without a write still gets its last read the morning after.</li>
+<li><b>Words and frames:</b> every line and frame reads as #1341 rules it.</li>
+</ul>
+
+<h2>Invented here</h2>
+<ul class="notes">
+<li><b>The 23:00 London cut-off,</b> and the fallback to the next morning's read.</li>
+<li><b>The morning-after last read</b> for a test that ends without a write.</li>
+</ul>
+
+<h2>Open for Matas</h2>
+<p class="notes">None. A stop pauses at the end day's read, because Matas's rule is to stop the test and pause its ad set. The end day's last hours aren't run for a test that's already lost to the show.</p>
+
+</div>
+</body>
+</html>
