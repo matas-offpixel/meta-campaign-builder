@@ -11,18 +11,14 @@
  * matches on the event code or on the show's name (CC-3's `showName` rule:
  * "AZYR b2b Partiboi69" → "AZYR"), case-insensitive, for the event's client.
  *
- * Where the list is stored (design B, no migration): one item per template,
- * kind customer_list, list_role signups, family_key / page_id /
- * retention_days / interest_id null and meta_audience_id null, with the
- * lists in `detail.show_lists` [{ code, meta_audience_id, ad_account_id,
- * name }]. One item per show list (design A) doesn't fit 266's unique key
- * (template, kind, list_role, family_key, page_id, retention_days,
- * interest_id): two shows' items would differ only in meta_audience_id.
- * Widening that key breaks CC-3's two upserts (onConflict on those seven
- * columns), so it is the coordinator's call; this module is the one place
- * to change.
+ * Where the list is stored (design A, Matas, 24 Nov): one item per show
+ * list, kind customer_list, list_role signups, meta_audience_id the list,
+ * family_key / page_id / retention_days / interest_id null, and detail
+ * { name, code, ad_account_id, source: "show_signups" }. Migration 267
+ * widens 266's unique key with meta_audience_id so two shows' items sit in
+ * one template.
  *
- * Idempotent: a list already in `show_lists` is left. Rows and results carry
+ * Idempotent: a template that already holds the list is left. Rows and results carry
  * names and list ids, never person data.
  *
  * No `@/` imports, so node --test loads it.
@@ -30,7 +26,8 @@
 
 import type { Db } from "./sync.ts";
 
-export const SHOW_LISTS_ITEM_NAME = "Show signup lists";
+/** detail.source on the items this module writes. */
+export const SHOW_SIGNUPS_SOURCE = "show_signups";
 
 export type TemplateRow = {
   id: string;
@@ -41,8 +38,6 @@ export type TemplateRow = {
   /** A template #1363 proposes and prod doesn't have yet (dry run only). */
   proposed?: boolean;
 };
-
-export type ShowListEntry = { code: string; meta_audience_id: string; ad_account_id: string; name: string };
 
 export type TemplateAction = {
   templateId: string;
@@ -81,20 +76,6 @@ export async function loadClientTemplates(db: Db, clientId: string | null): Prom
   return { templates, note: templates.length ? null : "the client has no templates" };
 }
 
-type ItemRow = {
-  id: string;
-  family_key: string | null;
-  page_id: string | null;
-  retention_days: number | null;
-  interest_id: string | null;
-  detail: Record<string, unknown> | null;
-};
-
-function entriesOf(detail: Record<string, unknown> | null): ShowListEntry[] {
-  const v = detail?.show_lists;
-  return Array.isArray(v) ? (v.filter((e) => e && typeof e === "object" && typeof (e as ShowListEntry).meta_audience_id === "string") as ShowListEntry[]) : [];
-}
-
 /**
  * Adds the show's list to every matching template (write), or says what it
  * would add (dry; a proposed template is always "would_add"). Never throws:
@@ -122,18 +103,17 @@ export async function addShowListToTemplates(args: {
     }
     const res = await db
       .from("audience_template_items")
-      .select("id, family_key, page_id, retention_days, interest_id, detail")
+      .select("id")
       .eq("template_id", t.id)
       .eq("kind", "customer_list")
       .eq("list_role", "signups")
-      .range(0, 999);
+      .eq("meta_audience_id", list.meta_audience_id)
+      .limit(1);
     if (res.error) {
       act("failed", `audience_template_items read: ${res.error.code ?? "error"}`);
       continue;
     }
-    const item = ((res.data ?? []) as ItemRow[]).find((i) => i.family_key == null && i.page_id == null && i.retention_days == null && i.interest_id == null);
-    const entries = entriesOf(item?.detail ?? null);
-    if (entries.some((e) => e.meta_audience_id === list.meta_audience_id)) {
+    if ((res.data ?? []).length) {
       act("present");
       continue;
     }
@@ -141,22 +121,21 @@ export async function addShowListToTemplates(args: {
       act("would_add");
       continue;
     }
-    const entry: ShowListEntry = { code: event.code, meta_audience_id: list.meta_audience_id!, ad_account_id: list.ad_account_id, name: list.name };
-    const write = item
-      ? await db.from("audience_template_items").update({ detail: { ...(item.detail ?? {}), show_lists: [...entries, entry] } }).eq("id", item.id)
-      : await db.from("audience_template_items").insert({
-          template_id: t.id,
-          user_id: t.user_id,
-          kind: "customer_list",
-          list_role: "signups",
-          family_key: null,
-          page_id: null,
-          retention_days: null,
-          interest_id: null,
-          meta_audience_id: null,
-          detail: { name: SHOW_LISTS_ITEM_NAME, show_lists: [entry] },
-        });
-    if (write.error) act("failed", `audience_template_items write: ${write.error.code ?? "error"}`);
+    const ins = await db.from("audience_template_items").insert({
+      template_id: t.id,
+      user_id: t.user_id,
+      kind: "customer_list",
+      list_role: "signups",
+      family_key: null,
+      page_id: null,
+      retention_days: null,
+      interest_id: null,
+      meta_audience_id: list.meta_audience_id,
+      detail: { name: list.name, code: event.code, ad_account_id: list.ad_account_id, source: SHOW_SIGNUPS_SOURCE },
+    });
+    // 23505: another run added it between the read and the insert.
+    if (ins.error && ins.error.code === "23505") act("present");
+    else if (ins.error) act("failed", `audience_template_items write: ${ins.error.code ?? "error"}`);
     else act("added");
   }
   return { actions, note: null };

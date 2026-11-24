@@ -418,14 +418,17 @@ describe("genre lists get nothing; the show list joins its templates", () => {
     const listId = calls[0].id;
     assert.deepEqual(res.rows[0].templates.map((t) => [t.template, t.action]), [["House & disco", "added"]]);
     const items = db.tables.audience_template_items;
-    assert.equal(items.length, 3, "one show-lists item next to the two genre lists");
+    assert.equal(items.length, 3, "one item for the show's list next to the two genre lists");
     const added = items[2];
     assert.equal(added.kind, "customer_list");
     assert.equal(added.list_role, "signups");
     assert.equal(added.family_key, null);
-    assert.equal(added.meta_audience_id, null);
+    assert.equal(added.page_id, null);
+    assert.equal(added.retention_days, null);
+    assert.equal(added.interest_id, null);
+    assert.equal(added.meta_audience_id, listId);
     assert.equal(added.user_id, "user-1");
-    assert.deepEqual((added.detail as { show_lists: unknown }).show_lists, [{ code: "NX27-GLITTERBOX", meta_audience_id: listId, ad_account_id: ACT, name: "NX27-GLITTERBOX · Signups" }]);
+    assert.deepEqual(added.detail, { name: "NX27-GLITTERBOX · Signups", code: "NX27-GLITTERBOX", ad_account_id: ACT, source: "show_signups" });
     // The genre items are as they were.
     assert.deepEqual(items.slice(0, 2), TEMPLATES().audience_template_items);
 
@@ -434,7 +437,7 @@ describe("genre lists get nothing; the show list joins its templates", () => {
     assert.equal(db.tables.audience_template_items.length, 3);
   });
 
-  it("a second show in the same template is appended to the same item", async () => {
+  it("a second show in the same template gets its own item (267's key holds meta_audience_id)", async () => {
     const tables = TEMPLATES("Glitterbox, Fol Amour");
     tables.audience_template_items.push({
       id: "i3",
@@ -445,14 +448,27 @@ describe("genre lists get nothing; the show list joins its templates", () => {
       page_id: null,
       retention_days: null,
       interest_id: null,
-      meta_audience_id: null,
-      detail: { name: "Show signup lists", show_lists: [{ code: "NX26-FOLAMOUR", meta_audience_id: "120250000000000077", ad_account_id: ACT, name: "NX26-FOLAMOUR · Signups" }] },
+      meta_audience_id: "120250000000000077",
+      detail: { name: "NX26-FOLAMOUR · Signups", code: "NX26-FOLAMOUR", ad_account_id: ACT, source: "show_signups" },
     });
     const db = baseDb([row({ meta_audience_id: SHOW_LIST.id, cursor: "c1" })], tables);
     const { graph } = fakeGraph([SHOW_LIST]);
-    await runCustomerListSync({ db, graph, readHashed: fakeCirqlin({}).reader, env: ON, now: AT_TRIGGER, mode: "write", log: () => {} }, work([row({ meta_audience_id: SHOW_LIST.id, cursor: "c1" })]));
-    const lists = (db.tables.audience_template_items[2].detail as { show_lists: { code: string }[] }).show_lists;
-    assert.deepEqual(lists.map((l) => l.code), ["NX26-FOLAMOUR", "NX27-GLITTERBOX"]);
+    const res = await runCustomerListSync({ db, graph, readHashed: fakeCirqlin({}).reader, env: ON, now: AT_TRIGGER, mode: "write", log: () => {} }, work([row({ meta_audience_id: SHOW_LIST.id, cursor: "c1" })]));
+    assert.deepEqual(res.rows[0].templates.map((t) => t.action), ["added"]);
+    const signups = db.tables.audience_template_items.filter((i) => i.list_role === "signups");
+    assert.deepEqual(signups.map((i) => i.meta_audience_id), ["120250000000000077", SHOW_LIST.id]);
+    // The two differ only in meta_audience_id: the key 267 rebuilds tells them apart.
+    const key = (i: Record<string, unknown>) => ["template_id", "kind", "list_role", "family_key", "page_id", "retention_days", "interest_id"].map((k) => i[k] ?? null).join("|");
+    assert.equal(key(signups[0]), key(signups[1]));
+  });
+
+  it("an insert that loses a race (23505) reads as present, not failed", async () => {
+    const db = baseDb([row({ meta_audience_id: SHOW_LIST.id, cursor: "c1" })], TEMPLATES());
+    db.failWrites.audience_template_items = { code: "23505", message: "duplicate key value violates unique constraint" };
+    const { graph } = fakeGraph([SHOW_LIST]);
+    const res = await runCustomerListSync({ db, graph, readHashed: fakeCirqlin({}).reader, env: ON, now: AT_TRIGGER, mode: "write", log: () => {} }, work([row({ meta_audience_id: SHOW_LIST.id, cursor: "c1" })]));
+    assert.deepEqual(res.rows[0].templates.map((t) => t.action), ["present"]);
+    assert.equal(res.rows[0].error, null);
   });
 
   it("matching: code or CC-3's show name, case-insensitive; another client's or show's templates don't match", () => {
@@ -702,7 +718,7 @@ describe("migration 267", () => {
   const sql = readFileSync("supabase/migrations/267_customer_list_syncs.sql", "utf8");
   const kindsIn = (text: string) => [...text.slice(text.indexOf("add constraint meta_write_idempotency_op_kind_check")).matchAll(/'([a-z_]+)'/g)].map((m) => m[1]);
 
-  it("adds both kinds, keeps every kind live on prod (read 24 Nov), and re-adds the same list as 257", () => {
+  it("re-adds exactly the 22 kinds live on prod (pg_constraint, 24 Nov, after 257), the same list as 257", () => {
     const listed = kindsIn(sql);
     const live = ["campaign_create", "adset_create", "ad_create", "creative_upload", "adset_targeting_update", "adset_destination_update", "refresh_creative_create", "refresh_ad_create", "ad_status_update", "adset_status_update", "refresh_adset_budget_update", "refresh_adset_create", "refresh_custom_conversion_create", "refresh_campaign_create", "refresh_campaign_lifetime_budget_update", "refresh_campaign_status_update", "retargeting_audience_rule_update", "retargeting_study_create", "retargeting_study_end", "adset_end_time_update"];
     for (const kind of [...live, "customer_list_create", "customer_list_users"]) assert.ok(listed.includes(kind), kind);
@@ -720,6 +736,12 @@ describe("migration 267", () => {
     assert.match(sql, /unique nulls not distinct \(event_id, kind, meta_audience_id\)/);
     assert.match(sql, /enable row level security/);
     assert.doesNotMatch(sql, /create policy/i);
-    assert.doesNotMatch(sql, /audience_template_items/i, "266's template items need no change");
+  });
+
+  it("rebuilds audience_template_items_unique with meta_audience_id, by name, drop before add", () => {
+    const drop = sql.indexOf("drop constraint if exists audience_template_items_unique");
+    const add = sql.indexOf("add constraint audience_template_items_unique unique nulls not distinct");
+    assert.ok(drop > 0 && add > drop);
+    assert.match(sql, /unique nulls not distinct\s*\(template_id, kind, list_role, family_key, page_id, retention_days, interest_id, meta_audience_id\)/);
   });
 });

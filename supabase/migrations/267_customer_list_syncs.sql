@@ -12,8 +12,14 @@
 -- replace is what drops it, within 7 days.
 --
 -- No other list is written. Genre and high-value lists the app didn't make
--- get nothing; a show's list joins its audience templates instead
--- (an item in migration 266's template items, unchanged here).
+-- get nothing; a show's list joins its audience templates instead: one
+-- customer_list / signups item per show list, with its meta_audience_id.
+-- 266's audience_template_items_unique can't hold two of those in one
+-- template (they differ only in meta_audience_id), so this migration
+-- rebuilds it with meta_audience_id as the eighth column, nulls not
+-- distinct. Widening a unique key never fails on rows already there (prod
+-- had 0 on 24 Nov). Every upsert on the old seven columns must name
+-- meta_audience_id too (#1363: the seed and lib/actions/audience-templates.ts).
 --
 -- One row per (event, kind, Meta list); kind is 'show' only, kept as a
 -- column for a later list the app makes. A row is written by
@@ -32,11 +38,10 @@
 --                         CIRQLIN's cursors) or POST /{audience_id}/usersreplace
 --                         (key op replace, with the session id and batch_seq).
 --                         Never keyed on the hashes.
--- The CHECK is re-added by name with every kind live on prod (read 24 Nov:
--- the 20 kinds 263 installed, which already include 257's
--- retargeting_audience_rule_update and 259's two study kinds) plus these two:
--- the same 22 kinds 257 (merged, #1318) re-adds, so 257 and 267 apply in
--- either order.
+-- The CHECK is re-added by name with exactly the kinds live on prod, read
+-- from pg_constraint on 24 Nov after 257 was applied (20261124184926): 22
+-- kinds, which already hold these two (257 re-added them). Re-adding them
+-- here keeps 267 complete on a database without 257.
 --
 -- Service role only: RLS on, no policy for anon or authenticated. Writes come
 -- from the cron and the script with the service-role key.
@@ -89,6 +94,20 @@ comment on table public.customer_list_syncs is
 
 comment on column public.customer_list_syncs.last_replaced_at is
   'The last weekly full replace (POST /{id}/usersreplace from a no-cursor CIRQLIN read): Mondays 08:00 London, or the first run 7 days after the last. Drops GDPR erasures, which never appear in CIRQLIN''s removed.';
+
+-- ── audience_template_items: one item per show list ─────────────────────────
+
+alter table public.audience_template_items
+  drop constraint if exists audience_template_items_unique;
+
+alter table public.audience_template_items
+  add constraint audience_template_items_unique unique nulls not distinct
+    (template_id, kind, list_role, family_key, page_id, retention_days, interest_id, meta_audience_id);
+
+comment on constraint audience_template_items_unique on public.audience_template_items is
+  'One item per role, page, interest and (migration 267) Meta list: a template holds every show''s "{code} · Signups" list as its own customer_list / signups item.';
+
+-- ── meta_write_idempotency: the two op kinds ────────────────────────────────
 
 alter table public.meta_write_idempotency
   drop constraint if exists meta_write_idempotency_op_kind_check;
