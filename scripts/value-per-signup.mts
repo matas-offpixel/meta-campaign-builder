@@ -12,7 +12,20 @@
 //
 // Usage:
 //   npx tsx --env-file=.env.local scripts/value-per-signup.mts --dry-run
+//     [--cirqlin-env ~/cirqlin/.env.local]
 //     [--client "Electric"] [--event NX26-RUDIMENTAL] [--today 2026-11-24]
+//
+// Rulings (Matas, 24 Nov, "F4 go"), in lib/value-per-signup/model.ts:
+//   1. the whole presale London day, flagged includes_general_sale when GS
+//      opens on a day the count covers; 2. signups up to the presale open;
+//   3. no count before P → from 0, said in the gaps; 4. per client, pooled
+//   value with the median beside it, stand-in signups listed but left out.
+//
+// --cirqlin-env: the CIRQLIN project's env file (its URL and service key,
+// read from the file, never printed or put in process.env). With it, CIRQLIN
+// signups are a head count of CIRQLIN's signups rows (verdict ok) created
+// before presale_at: no rows are returned. Without it, CIRQLIN is cut at P−1
+// from the daily feed, and each such show says so.
 //
 // Reads (all paged — loadAllPaged, the 1,000-row PostgREST cap):
 //   clients, events               archived clients and cancelled shows left out
@@ -24,7 +37,9 @@
 //                                 (migration 249; 0 rows on 23 Nov, printed
 //                                 next to the counted figure if any appear).
 //   signup_source_snapshots       CIRQLIN daily signups (HE4's loadSignupDays).
-//   event_signups                 landing-page signups: a head count, no rows.
+//   CIRQLIN signups (other project) head count before presale_at, verdict ok.
+//   event_signups                 landing-page signups before presale_at: a
+//                                 head count, no rows.
 //   mailchimp_tag_snapshots       the tag on P−1 (HE4's loadMailchimpDayCount),
 //                                 else its nearest earlier day within 7 days.
 //   ad_daily_insights             Meta registrations and signup-objective spend
@@ -32,8 +47,13 @@
 //                                 the show (metaCampaignOwners).
 //   internal_count_blocks/reports HE4's 24-hour Internal Counts read, shown as
 //                                 a cross-check column only.
+//   internal_count_review_items,  whether an unlinked Internal Counts show name
+//   internal_count_show_names     has been confirmed by ops (read only).
 //
 // Requires env: NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY.
+
+import { readFileSync } from "node:fs";
+import { parseEnv } from "node:util";
 
 import { createClient } from "@supabase/supabase-js";
 
@@ -50,7 +70,9 @@ import {
   daysBetween,
   pickSignups,
   presaleDayReading,
+  readingGaps,
   rollupClient,
+  signupCandidates,
   valueOf,
   type ShowValue,
   type SignupCandidate,
@@ -73,6 +95,31 @@ const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
 if (!url || !key) throw new Error("NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required.");
 const db = createClient(url, key, { auth: { persistSession: false } });
+
+// CIRQLIN's own project, for the open-time signup count (ruling 2). Read only.
+const cirqlinEnvPath = value("--cirqlin-env");
+const cirqlin = (() => {
+  if (!cirqlinEnvPath) return null;
+  const env = parseEnv(readFileSync(cirqlinEnvPath.replace(/^~/, process.env.HOME ?? "~"), "utf8"));
+  const cu = env.NEXT_PUBLIC_SUPABASE_URL;
+  const ck = env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!cu || !ck) throw new Error(`--cirqlin-env ${cirqlinEnvPath}: NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required.`);
+  if (cu === url) throw new Error("--cirqlin-env points at this app's project, not CIRQLIN's.");
+  return createClient(cu, ck, { auth: { persistSession: false } });
+})();
+
+/** CIRQLIN signups (verdict ok, as its daily feed counts) created before the open. A head count: no rows come back. */
+async function cirqlinBeforeOpen(pageId: string, presaleAt: string): Promise<number | null> {
+  if (!cirqlin) return null;
+  const { count, error } = await cirqlin
+    .from("signups")
+    .select("id", { count: "exact", head: true })
+    .eq("page_id", pageId)
+    .eq("spam_verdict", "ok")
+    .lt("created_at", new Date(presaleAt).toISOString());
+  if (error) throw new Error(`CIRQLIN signups count failed: ${error.message}`);
+  return count ?? 0;
+}
 
 type EventRow = {
   id: string;
@@ -98,13 +145,6 @@ async function inChunks<T>(ids: readonly string[], read: (chunk: string[]) => Pr
 
 const timeOf = (instant: string, tz: string) =>
   new Intl.DateTimeFormat("en-GB", { timeZone: tz, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(instant));
-
-/** The instant London's day `day` starts. */
-function londonStart(day: string): string {
-  const utc = new Date(`${day}T00:00:00Z`);
-  const bst = new Date(utc.getTime() - 3_600_000);
-  return (dayIn(bst.toISOString(), TZ) === day ? bst : utc).toISOString();
-}
 
 const SYMBOL: Record<string, string> = { GBP: "£", EUR: "€", USD: "$" };
 const money = (v: number | null, currency: string | null) =>
@@ -317,52 +357,59 @@ async function main() {
     const entered = log ? { tickets: log.presale_day_tickets, price: log.avg_ticket_price == null ? null : Number(log.avg_ticket_price) } : null;
     const price = averagePrice(entered?.price ?? null, tiersBy.get(e.id) ?? [], reading);
     if (reading && !price) gaps.push("price: no tiers and no revenue on the counts");
+    gaps.push(...readingGaps(reading));
 
     // HE4's 24-hour Internal Counts read, cross-check only.
     const ic = await loadInternalCounts(db, e.id);
     const ic24 = presaleDayCount(ic, e.presale_at!)?.tickets ?? null;
 
-    // Signup candidates, all through P−1.
-    const candidates: SignupCandidate[] = [];
+    // Signup candidates, up to the presale open where the source allows it (ruling 2).
     const signupDays = await loadSignupDays(db, e.id);
     const cq = signupsAtPresaleFigure(signupDays, p.presaleDay, null, p.tz);
-    if (cq.kind === "value" && cq.from === "CIRQLIN") {
-      candidates.push({ source: "CIRQLIN", value: cq.value, estimated: false, note: `daily signups ${short(String(cq.detail?.fromDay))}–${short(String(cq.detail?.throughDay))}` });
-    } else if (signupDays?.length) {
-      gaps.push(`CIRQLIN: page history starts ${short(signupDays[0]!.day)}, after P−1`);
-    }
+    const cirqlinThroughP1 = cq.kind === "value" && cq.from === "CIRQLIN" ? cq.value : null;
+    if (cirqlinThroughP1 == null && signupDays?.length) gaps.push(`CIRQLIN: page history starts ${short(signupDays[0]!.day)}, after P−1`);
+    const cirqlinAtOpen = e.cirqlin_page_id ? await cirqlinBeforeOpen(e.cirqlin_page_id, e.presale_at!) : null;
+    if (cirqlinAtOpen != null && cirqlinThroughP1 != null && cirqlinAtOpen < cirqlinThroughP1) gaps.push(`CIRQLIN: ${cirqlinAtOpen} before the open is below the daily feed's ${cirqlinThroughP1} to P−1`);
     const { count: lp, error: lpErr } = await db
       .from("event_signups")
       .select("id", { count: "exact", head: true })
       .eq("event_id", e.id)
       .is("deleted_at", null)
       .is("deduplicated_signup_id", null)
-      .lt("created_at", londonStart(p.presaleDay));
+      .lt("created_at", new Date(e.presale_at!).toISOString());
     if (lpErr) throw new Error(`event_signups count failed: ${lpErr.message}`);
-    if (lp) candidates.push({ source: "landing page", value: lp, estimated: false, note: "event_signups before P (deduped)" });
     const tag = e.mailchimp_tag?.trim() || null;
+    let mailchimpP1: { value: number; note: string } | null = null;
+    let mailchimpEarlier: { value: number; note: string } | null = null;
     if (tag) {
       const p1 = addDays(p.presaleDay, -1);
       const exact = mailchimpSignupsFigure(await loadMailchimpDayCount(db, e.id, tag, p1, p.tz), p.presaleDay, p.tz);
-      if (exact.kind === "value") candidates.push({ source: "Mailchimp P−1", value: exact.value, estimated: false, note: `tag on ${short(p1)}${exact.source === "est." ? ", not the end-of-day read" : ""}` });
+      if (exact.kind === "value") mailchimpP1 = { value: exact.value, note: `tag on ${short(p1)}${exact.source === "est." ? ", not the end-of-day read" : ""}` };
       else {
         for (let back = 2; back <= 8; back++) {
           const day = addDays(p.presaleDay, -back);
           const mc = await loadMailchimpDayCount(db, e.id, tag, day, p.tz);
           if (mc.subscribers != null && mc.day === day) {
-            candidates.push({ source: "Mailchimp earlier day", value: mc.subscribers, estimated: true, note: `tag on ${short(day)}, ${back} days before P` });
+            mailchimpEarlier = { value: mc.subscribers, note: `tag on ${short(day)}, ${back} days before P` };
             break;
           }
         }
       }
-      if (!candidates.some((c) => c.source.startsWith("Mailchimp"))) gaps.push(`Mailchimp: tag "${tag}" has no row from ${short(addDays(p.presaleDay, -8))} to ${short(p1)}`);
+      if (!mailchimpP1 && !mailchimpEarlier) gaps.push(`Mailchimp: tag "${tag}" has no row from ${short(addDays(p.presaleDay, -8))} to ${short(p1)}`);
     }
     const m = meta.get(e.id);
-    if (m && m.registrations > 0) candidates.push({ source: "Meta registrations", value: m.registrations, estimated: true, note: "Meta-attributed, before P" });
+    const candidates = signupCandidates({
+      cirqlinAtOpen,
+      cirqlinThroughP1,
+      landingPageAtOpen: lp ?? null,
+      mailchimpP1,
+      mailchimpEarlier,
+      metaRegistrations: m && m.registrations > 0 ? m.registrations : null,
+    });
     const signups = pickSignups(candidates);
     if (!signups) gaps.push("signups: no CIRQLIN, landing page, Mailchimp or Meta registrations before P");
+    else if (signups.estimated) gaps.push(`signups: only a stand-in (${signups.source} ${n(signups.value)}); listed, not in the value`);
     const tickets = reading ? reading.tickets : null;
-    const sharedDay = p.gsDay === p.presaleDay;
     rows.push({
       eventId: e.id,
       client: clientOf(e),
@@ -374,7 +421,7 @@ async function main() {
       tickets,
       signups,
       price,
-      sharedDay,
+      includesGeneralSale: reading?.includesGeneralSale ?? false,
       ...valueOf(tickets, signups, price),
       reading,
       ic24,
@@ -385,9 +432,6 @@ async function main() {
     });
   }
 
-  /** Counted signups only (CIRQLIN, landing page, Mailchimp on P−1) go into the headline. */
-  const counted = (r: Row) => !!r.signups && !r.signups.estimated;
-
   // Internal Counts shows the importer hasn't linked to an event (alias not confirmed), from 1 Sep.
   const unmatched = await loadAllPaged<{ id: string; show_name: string | null; count_date: string | null }>(
     db,
@@ -396,10 +440,34 @@ async function main() {
     ["id"],
     (q) => q.is("event_id", null).gte("count_date", "2026-09-01"),
   );
+  // Ruling 5: ops confirm those names in the review queue. Read only.
+  const unmatchedNames = [...new Set(unmatched.map((b) => (b.show_name ?? "").trim()).filter(Boolean))].sort();
+  const [reviewRows, nameRows] = unmatchedNames.length
+    ? await Promise.all([
+        loadAllPaged<{ id: string; show_name: string | null; resolution: string | null; resolved_at: string | null }>(
+          db,
+          "internal_count_review_items",
+          "id,show_name,resolution,resolved_at",
+          ["id"],
+          (q) => q.eq("kind", "unmatched_show").in("show_name", unmatchedNames),
+        ),
+        loadAllPaged<{ name: string; event_id: string | null; not_ours: boolean }>(db, "internal_count_show_names", "name,event_id,not_ours", ["name"], (q) =>
+          q.in("name", unmatchedNames),
+        ),
+      ])
+    : [[], []];
+  const aliasState = (name: string) => {
+    const decided = nameRows.find((r) => r.name === name);
+    if (decided) return decided.not_ours ? "decided: not ours" : `confirmed → ${label(allEvents.find((e) => e.id === decided.event_id) ?? ({ id: decided.event_id } as EventRow))}`;
+    const items = reviewRows.filter((r) => r.show_name === name);
+    if (!items.length) return "no review item";
+    return items.some((r) => !r.resolved_at) ? "pending in the review queue" : `review resolved (${items.map((r) => r.resolution).join(", ")}), no event linked`;
+  };
 
   // ── print ──
   console.log(`Value per signup · dry run, read only, nothing written · ${today} (London) · ${new Date().toISOString()}`);
-  console.log(`Formula: presale-day tickets ÷ signups at presale (through P−1) × average ticket price.`);
+  console.log(`Formula: presale-day tickets ÷ signups at the presale open × average ticket price.`);
+  console.log(`CIRQLIN open-time read: ${cirqlin ? "on (head counts on CIRQLIN's signups before presale_at)" : "off (no --cirqlin-env; CIRQLIN is cut at P−1)"}.`);
   console.log(
     `Scope: ${events.length} shows (archived clients and cancelled shows out); ${presale.length} with presale_at, ${past.length} with the presale day before today, ${presale.length - past.length} still ahead. presale_logs rows: ${logRows.length}.\n`,
   );
@@ -422,7 +490,7 @@ async function main() {
             n(r.reading?.throughNextCount),
             n(r.ic24),
             n(r.signups?.value),
-            r.signups ? `${r.signups.source}${r.signups.estimated ? " (est.)" : ""}` : "—",
+            r.signups ? `${r.signups.source}${r.signups.cut === "P−1" ? " to P−1" : ""}${r.signups.estimated ? " (stand-in)" : ""}` : "—",
             pct(r.conversion),
             money(r.price?.value ?? null, cur),
             r.price?.source ?? "—",
@@ -434,41 +502,42 @@ async function main() {
         }),
       ),
     );
-    const roll = rollupClient(client, list.filter(counted));
-    const est = rollupClient(client, list);
+    const roll = rollupClient(client, list);
     console.log(
-      `\n${client}: value per signup ${money(roll.pooled, roll.currency)} pooled over ${roll.withValue} of ${list.length} past-presale shows (those with counted signups) (conversion ${pct(roll.pooledConversion)}); ` +
-        `${money(roll.pooledExShared, roll.currency)} over the ${roll.showsExShared} without general sale on the presale day; median per show ${money(roll.median, roll.currency)}. ` +
-        `With estimated signups (Meta registrations, Mailchimp earlier day) as well: ${money(est.pooled, est.currency)} over ${est.withValue}.`,
+      `\n${client}: value per signup ${money(roll.pooled, roll.currency)} pooled over ${roll.withValue} of ${list.length} past-presale shows (conversion ${pct(roll.pooledConversion)}); ` +
+        `median per show ${money(roll.median, roll.currency)}. ${roll.includesGeneralSale} of the ${roll.withValue} include general-sale tickets (GS opened on a day the count covers).`,
     );
+    if (roll.standIns.length) {
+      console.log(`Stand-ins, not in the value: ${roll.standIns.map((r) => `${r.label} ${money(r.valuePerSignup, r.price?.currency ?? "GBP")} (${r.signups!.source} ${n(r.signups!.value)}, conversion ${pct(r.conversion)})`).join("; ")}`);
+    }
     const others = list.filter((r) => r.candidates.length > 1);
     if (others.length) {
-      console.log(`Signup sources side by side (first in order is used: CIRQLIN → landing page → Mailchimp P−1 → Mailchimp earlier day → Meta registrations):`);
+      console.log(`Signup sources side by side (first in order is used: CIRQLIN → landing page → Mailchimp P−1 → stand-ins: Mailchimp earlier day → Meta registrations):`);
       for (const r of others) console.log(`  ${r.label}: ${r.candidates.map((c) => `${c.source} ${n(c.value)} (${c.note})`).join(" · ")}`);
     }
   }
 
-  // Headline across clients.
+  // Headline: one line per client, each from its own shows only (ruling 4).
   console.log(`\n## Headline per client\n`);
   console.log(
     table(
-      ["Client", "Past presales", "With a value", "Pooled value/signup", "Ex GS-same-day (n)", "Median", "Conversion", "Incl. est. signups (n)"],
+      ["Client", "Past presales", "In the value", "Value/signup (pooled)", "Median", "Conversion", "incl. GS (n)", "Stand-ins (listed, not in the value)"],
       [...byClient].map(([client, list]) => {
-        const r = rollupClient(client, list.filter(counted));
-        const e = rollupClient(client, list);
+        const r = rollupClient(client, list);
         return [
           client,
           String(list.length),
           String(r.withValue),
           money(r.pooled, r.currency),
-          `${money(r.pooledExShared, r.currency)} (${r.showsExShared})`,
           money(r.median, r.currency),
           pct(r.pooledConversion),
-          `${money(e.pooled, e.currency)} (${e.withValue})`,
+          String(r.includesGeneralSale),
+          r.standIns.map((x) => `${x.label} ${money(x.valuePerSignup, x.price?.currency ?? "GBP")}`).join(", ") || "—",
         ];
       }),
     ),
   );
+  console.log(`No value is carried from one client to another: a client with no shows in the value reads —.`);
 
   // Gaps.
   console.log(`\n## Gaps\n`);
@@ -483,8 +552,8 @@ async function main() {
     um.set(name, cur);
   }
   if (um.size) {
-    console.log(`\n  Internal Counts blocks with no event linked (since 1 Sep; a show here has counts the table can't use until its alias is confirmed):`);
-    console.log(`    ${[...um].sort(([, a], [, b]) => b.last.localeCompare(a.last)).map(([name, v]) => `${name} (${v.n}, ${short(v.first)}–${short(v.last)})`).join(", ")}`);
+    console.log(`\n  Internal Counts blocks with no event linked (since 1 Sep; a show here has counts the table can't use until ops confirm its alias in the review queue):`);
+    for (const [name, v] of [...um].sort(([, a], [, b]) => b.last.localeCompare(a.last))) console.log(`    ${name} (${v.n} blocks, ${short(v.first)}–${short(v.last)}): ${aliasState(name)}`);
   }
   const ahead = presale.filter((p) => p.presaleDay >= today);
   if (ahead.length) console.log(`\n  Presale today or ahead (no reading yet): ${ahead.map((p) => `${label(p.event)} ${short(p.presaleDay)}`).join(", ")}`);
@@ -496,10 +565,12 @@ async function main() {
   }
   console.log(
     `\nKey: P = presale_at's London day. "read" = source, the end count's day (* = the P+1 count) − the base count. "to P+1" = the first P+1 count − base when the P count was used (sensitivity). ` +
-      `"IC 24h" = HE4's Internal Counts read (latest count landed within 24 h of the open, by email time), cross-check only. Signups are counted through P−1. ` +
-      `"Meta spend<P" = Meta signup-objective spend before P on the show's campaigns; Cost/signup divides it by the signups used. ` +
-      `Shared day: when general sale opens on P (Electric: presale 12:00, GS 14:00), the day's count holds both and is not split (Internal Counts are daily); those shows stay in, flagged "GS same day", and each client line also gives the value without them. ` +
-      `The headline uses counted signups only (CIRQLIN, landing page, Mailchimp on P−1); estimated signups are shown beside it.`,
+      `"IC 24h" = HE4's Internal Counts read (latest count landed within 24 h of the open, by email time), cross-check only. ` +
+      `Ruling 1: the whole presale London day is counted; when general sale opens on a day the end count covers (Electric: presale 12:00, GS 14:00 the same day), the count holds both, is not split, and is flagged includes_general_sale. ` +
+      `Ruling 2: signups count up to presale_at (CIRQLIN and landing page to the minute; Mailchimp and Meta are daily, so cut at P−1). ` +
+      `Ruling 3: with no count before P the base is 0, and the gaps say so. ` +
+      `Ruling 4: each client's value is pooled over its own shows with counted signups (CIRQLIN, landing page, Mailchimp P−1), the median beside it; stand-ins (Mailchimp earlier day, Meta registrations) are listed, not in the value. ` +
+      `"Meta spend<P" = Meta signup-objective spend before P on the show's campaigns; Cost/signup divides it by the signups used.`,
   );
 }
 

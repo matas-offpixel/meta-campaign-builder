@@ -25,10 +25,19 @@
  *   Internal Counts rows are stamped 12:00Z on the count date, so the day is
  *   all a snapshot says; the time of the count isn't known.
  *
- * Shared day: when general sale opens on P, the presale-day count holds
- * general-sale tickets too. The show is kept, flagged "GS same day", and the
- * client line gives the value with and without those shows. When end is the
- * P+1 count and general sale opened on P+1, it is flagged the same way.
+ * Rulings (Matas, 24 Nov, "F4 go"):
+ *   1. The whole presale London day is counted. When general sale opens on a
+ *      day the end count covers (P, or P+1 when the P+1 count is used), the
+ *      figure holds general-sale tickets too and is flagged
+ *      `includes_general_sale`. It is never split.
+ *   2. Signups count up to the presale open time (presale_at), not the day
+ *      before. A source that is only daily is cut at P−1 and says so.
+ *   3. With no count before P the presale-day count starts from 0, and the
+ *      gap list says so (readingGaps).
+ *   4. The per-client value is the pooled figure over that client's own shows
+ *      with counted signups, the median beside it; never borrowed across
+ *      clients. Stand-in signups (Meta registrations, a Mailchimp count from an
+ *      earlier day) stay out of the value and are listed.
  *
  * Average price, first that holds:
  *   1. presale_logs.avg_ticket_price (entered; migration 249, 0 rows on 23 Nov).
@@ -36,12 +45,15 @@
  *   3. The presale-day increment's revenue ÷ its tickets (same two counts).
  *   4. The end count's cumulative revenue ÷ its tickets.
  *
- * Signups at presale: counted through the day before P (HE4's rule), first
- * that holds, every candidate printed so the sources can be compared:
- *   CIRQLIN daily signups (signup_source_snapshots) → landing-page signups
- *   (event_signups, counts only) → the Mailchimp tag on P−1 (HE4) → the tag's
- *   nearest earlier day within 7 days (est.) → Meta registrations before P
- *   (est.: attributed conversions, not people).
+ * Signups at presale (ruling 2), first that holds, every candidate printed
+ * so the sources can be compared:
+ *   CIRQLIN signups created before presale_at (CIRQLIN's signups table,
+ *   verdict ok: the same rows as its daily feed; a head count, no rows), else
+ *   CIRQLIN daily signups through P−1 (signup_source_snapshots) → landing-page
+ *   signups created before presale_at (event_signups, counts only) → the
+ *   Mailchimp tag on P−1 (daily only; the tag event log is not complete) →
+ *   stand-ins: the tag's nearest earlier day within 7 days, Meta registrations
+ *   before P (attributed conversions, not people).
  *
  * Relative imports only: the `node --test` runner can't resolve `@/`.
  */
@@ -77,8 +89,13 @@ export interface PresaleDayReading {
   base: Snap | null;
   /** The P+1 count less base, when end is the P count and a P+1 count exists. */
   throughNextCount: number | null;
+  /** Ruling 1: general sale opened on a day the end count covers. */
+  includesGeneralSale: boolean;
   flags: string[];
 }
+
+export const INCLUDES_GENERAL_SALE = "includes_general_sale";
+export const BASE_ZERO = "no count before P; base 0";
 
 const latest = (list: Snap[]) => [...list].sort((a, b) => b.snapshotAt.localeCompare(a.snapshotAt))[0] ?? null;
 const earliest = (list: Snap[]) => [...list].sort((a, b) => a.snapshotAt.localeCompare(b.snapshotAt))[0] ?? null;
@@ -107,13 +124,21 @@ export function presaleDayReading(snaps: readonly Snap[], presaleDay: string, ge
     if (onDay) flags.push("P count shows no sales (taken before the open); used P+1");
     else flags.push("no count on P; used P+1");
   }
-  if (!base) flags.push("no count before P; base 0");
+  if (!base) flags.push(BASE_ZERO);
   else if (base.tickets > 0 && daysBetween(base.day, presaleDay) > 3) flags.push(`base is ${daysBetween(base.day, presaleDay)} days before P`);
-  if (generalSaleDay === presaleDay) flags.push("GS same day");
-  else if (endRead === "next_day" && generalSaleDay === next) flags.push("P+1 count includes GS day");
+  const includesGeneralSale = generalSaleDay != null && generalSaleDay >= presaleDay && generalSaleDay <= end.day;
+  if (includesGeneralSale) flags.push(INCLUDES_GENERAL_SALE);
   if (end.tickets < baseTickets) flags.push("count fell from base");
   const throughNextCount = endRead === "on_day" && nextDay ? nextDay.tickets - baseTickets : null;
-  return { tickets: Math.max(0, end.tickets - baseTickets), source, end, endRead, base, throughNextCount, flags };
+  return { tickets: Math.max(0, end.tickets - baseTickets), source, end, endRead, base, throughNextCount, includesGeneralSale, flags };
+}
+
+/** Ruling 3: the gap-list lines a reading carries. */
+export function readingGaps(reading: PresaleDayReading | null): string[] {
+  if (!reading) return [];
+  const out: string[] = [];
+  if (!reading.base) out.push(`tickets: no count before P, so the presale-day count starts from 0 (${reading.end.tickets} on ${reading.end.day} is all counted as presale-day sales)`);
+  return out;
 }
 
 export type PriceSource = "entered" | "tiers" | "presale-day revenue" | "cumulative revenue";
@@ -172,9 +197,48 @@ export type SignupSource = "CIRQLIN" | "landing page" | "Mailchimp P−1" | "Mai
 export interface SignupCandidate {
   source: SignupSource;
   value: number;
-  /** est. = not a count of people through P−1. */
+  /** A stand-in: not a count of people up to the open. Never in the value (ruling 4). */
   estimated: boolean;
+  /** Where the count stops: the presale open (presale_at), or the end of P−1 for a daily-only source. */
+  cut?: "open" | "P−1";
   note: string;
+}
+
+export interface SignupInputs {
+  /** CIRQLIN signups (verdict ok) created before presale_at; null = not read. */
+  cirqlinAtOpen: number | null;
+  /** CIRQLIN daily signups summed through P−1; null = no page history before P. */
+  cirqlinThroughP1: number | null;
+  /** event_signups created before presale_at (deduped, not deleted). */
+  landingPageAtOpen: number | null;
+  /** The Mailchimp tag's count on P−1 (daily only). */
+  mailchimpP1: { value: number; note: string } | null;
+  /** The tag on a day before P−1 (stand-in). */
+  mailchimpEarlier: { value: number; note: string } | null;
+  /** Meta-attributed registrations before P (stand-in). */
+  metaRegistrations: number | null;
+}
+
+/** Ruling 2: the signup candidates, cut at the presale open where the source allows it. */
+export function signupCandidates(i: SignupInputs): SignupCandidate[] {
+  const out: SignupCandidate[] = [];
+  if (i.cirqlinAtOpen != null && i.cirqlinAtOpen > 0) {
+    const onP = i.cirqlinThroughP1 != null ? i.cirqlinAtOpen - i.cirqlinThroughP1 : null;
+    out.push({
+      source: "CIRQLIN",
+      value: i.cirqlinAtOpen,
+      estimated: false,
+      cut: "open",
+      note: `created before the open${onP != null ? `: ${i.cirqlinThroughP1} to P−1 + ${onP} on P before it` : ""}`,
+    });
+  } else if (i.cirqlinThroughP1 != null && i.cirqlinThroughP1 > 0) {
+    out.push({ source: "CIRQLIN", value: i.cirqlinThroughP1, estimated: false, cut: "P−1", note: "daily signups to P−1 (no open-time read)" });
+  }
+  if (i.landingPageAtOpen) out.push({ source: "landing page", value: i.landingPageAtOpen, estimated: false, cut: "open", note: "event_signups before the open (deduped)" });
+  if (i.mailchimpP1) out.push({ source: "Mailchimp P−1", value: i.mailchimpP1.value, estimated: false, cut: "P−1", note: `${i.mailchimpP1.note}; daily only, cut at P−1` });
+  if (i.mailchimpEarlier) out.push({ source: "Mailchimp earlier day", value: i.mailchimpEarlier.value, estimated: true, cut: "P−1", note: i.mailchimpEarlier.note });
+  if (i.metaRegistrations) out.push({ source: "Meta registrations", value: i.metaRegistrations, estimated: true, cut: "P−1", note: "Meta-attributed, before P" });
+  return out;
 }
 
 export const SIGNUP_ORDER: readonly SignupSource[] = ["CIRQLIN", "landing page", "Mailchimp P−1", "Mailchimp earlier day", "Meta registrations"];
@@ -200,7 +264,8 @@ export interface ShowValue {
   conversion: number | null;
   /** conversion × price */
   valuePerSignup: number | null;
-  sharedDay: boolean;
+  /** Ruling 1. */
+  includesGeneralSale: boolean;
 }
 
 export function valueOf(tickets: number | null, signups: SignupCandidate | null, price: Price | null): { conversion: number | null; valuePerSignup: number | null } {
@@ -213,14 +278,18 @@ export interface ClientRollup {
   client: string;
   currency: string | null;
   shows: number;
+  /** Shows in the value: counted signups (not a stand-in), tickets and a price. */
   withValue: number;
-  /** Σ (tickets × price) ÷ Σ signups over shows with a value. */
+  /** Ruling 4: Σ (tickets × price) ÷ Σ signups over this client's shows in the value. */
   pooled: number | null;
-  pooledExShared: number | null;
-  showsExShared: number;
+  /** Beside the pooled value. */
   median: number | null;
-  /** Σ tickets ÷ Σ signups over shows with a value. */
+  /** Σ tickets ÷ Σ signups over the shows in the value. */
   pooledConversion: number | null;
+  /** How many shows in the value hold general-sale tickets (ruling 1). */
+  includesGeneralSale: number;
+  /** Shows whose only signups are a stand-in: listed, never in the value. */
+  standIns: ShowValue[];
 }
 
 function median(xs: number[]): number | null {
@@ -230,32 +299,30 @@ function median(xs: number[]): number | null {
   return s.length % 2 ? s[m]! : (s[m - 1]! + s[m]!) / 2;
 }
 
-function pool(list: ShowValue[]): { value: number | null; conversion: number | null } {
+/** Ruling 4: one client's shows only. A show from another client is an error, never pooled in. */
+export function rollupClient(client: string, shows: readonly ShowValue[]): ClientRollup {
+  const other = shows.find((s) => s.client !== client);
+  if (other) throw new Error(`rollupClient(${client}): ${other.label} belongs to ${other.client}; values are never borrowed across clients`);
+  const valued = shows.filter((s) => s.valuePerSignup != null && !s.signups!.estimated);
+  const standIns = shows.filter((s) => s.valuePerSignup != null && s.signups!.estimated);
+  const currencies = [...new Set(valued.map((s) => s.price?.currency ?? null))];
   let rev = 0;
   let tix = 0;
   let sign = 0;
-  for (const s of list) {
+  for (const s of valued) {
     rev += s.tickets! * s.price!.value;
     tix += s.tickets!;
     sign += s.signups!.value;
   }
-  return sign > 0 ? { value: rev / sign, conversion: tix / sign } : { value: null, conversion: null };
-}
-
-export function rollupClient(client: string, shows: readonly ShowValue[]): ClientRollup {
-  const valued = shows.filter((s) => s.valuePerSignup != null);
-  const currencies = [...new Set(valued.map((s) => s.price?.currency ?? null))];
-  const exShared = valued.filter((s) => !s.sharedDay);
-  const all = pool(valued);
   return {
     client,
     currency: currencies.length === 1 ? currencies[0]! : currencies.length ? "mixed" : null,
     shows: shows.length,
     withValue: valued.length,
-    pooled: all.value,
-    pooledExShared: pool(exShared).value,
-    showsExShared: exShared.length,
+    pooled: sign > 0 ? rev / sign : null,
     median: median(valued.map((s) => s.valuePerSignup!)),
-    pooledConversion: all.conversion,
+    pooledConversion: sign > 0 ? tix / sign : null,
+    includesGeneralSale: valued.filter((s) => s.includesGeneralSale).length,
+    standIns,
   };
 }
