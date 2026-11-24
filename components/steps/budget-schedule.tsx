@@ -631,7 +631,7 @@ export function LocationPicker({
                     onClick={() => addFromSearch(r)}
                     className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-muted transition-colors"
                   >
-                    <span className="truncate">{formatResultLabel(r)}</span>
+                    <span className="min-w-0 break-words">{formatResultLabel(r)}</span>
                     <div className="flex items-center gap-2 shrink-0 ml-2">
                       <Badge variant="outline" className="text-[10px]">{typeLabel(r.type)}</Badge>
                       <Plus className="h-3.5 w-3.5 text-primary" />
