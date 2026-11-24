@@ -1,31 +1,44 @@
 /**
- * Signups into Meta (SU1, SU2): the sync engine.
+ * Signups into Meta (SU1): the sync engine.
  *
  * Input: enabled customer_list_syncs rows, grouped by event (the cron and
- * `--run`), or the rows `--enable` would write, in memory (`--dry-run`).
+ * `--run`), or the row `--enable` would write, in memory (`--dry-run`).
  * For each event that is active (presale day 08:00 London, or general sale
- * with no presale, to the end of show day):
+ * with no presale, to the end of show day), its show list "{code} · Signups",
+ * read from CIRQLIN with scope=show:
  *
- *   show row   scope=show. Reads CIRQLIN first; only then finds or makes
- *              "{code} · Signups" (subtype CUSTOM, customer_file_source
- *              USER_PROVIDED_ONLY) in the row's ad account, registers it as
- *              meta_custom_audiences list_role 'signups', and sends adds
- *              (POST /{id}/users) and removes (DELETE /{id}/users).
- *   genre row  scope=promoter. Adds only, to a list that already exists and
- *              is held in the row's ad account (read with a GET each run). It
- *              never creates or replaces a list.
+ *   first sync  no cursor: CIRQLIN's snapshot of everyone who counts, paged
+ *               while has_more. Only after a good read is the list found
+ *               (registered, or by name in the row's ad account) or made
+ *               (subtype CUSTOM, customer_file_source USER_PROVIDED_ONLY),
+ *               registered as meta_custom_audiences list_role 'signups', and
+ *               sent (POST /{id}/users).
+ *   daily       from the row's cursor: adds (POST /{id}/users) and removes
+ *               (DELETE /{id}/users; withdrawn, deleted, flagged).
+ *   weekly      the Monday 08:00 London run (or the first run 7 days after the
+ *               last replace): a no-cursor read to the end, then the list's
+ *               users are replaced (POST /{id}/usersreplace, one session,
+ *               batches of 10,000, last_batch_flag on the last). A GDPR
+ *               erasure never shows in `removed`, so this is what drops it,
+ *               within 7 days. The snapshot's cursor is stored after.
  *
- * Batches of 10,000, schema [EMAIL_SHA256, PHONE_SHA256]. The row's cursor
- * moves only after every batch of a CIRQLIN page is on Meta, so a failure
- * resends from the same cursor (Meta's lists are sets: a resend never makes a
- * duplicate, and that's also why a hand upload before the engine starts is
- * safe). A failed CIRQLIN read leaves the row, and the list, as they were.
+ * Every run with the list known also puts it in the event's audience
+ * templates (lib/customer-lists/templates.ts). No other list is ever written:
+ * a genre or high-value list the app didn't make gets nothing.
+ *
+ * Batches of 10,000, schema [EMAIL_SHA256, PHONE_SHA256], CIRQLIN's hashes as
+ * they are. The row's cursor moves only after every batch of a page (or of
+ * the whole replace) is on Meta, so a failure resends from the same cursor
+ * (Meta's lists are sets: a resend never makes a duplicate, and that's why a
+ * hand upload before the engine starts is safe). A failed CIRQLIN read,
+ * `not_linked` (an unknown tag) included, leaves the row and the list as
+ * they were.
  *
  * Writes: OFFPIXEL_META_CUSTOMER_LIST_WRITES_ENABLED exactly "true" and mode
  * "write", else the run is a dry run (CIRQLIN read, Meta GETs, counts). Every
- * write goes through meta_write_idempotency with `{ required: true }`: no
- * ledger row, no call. The ledger key holds the list, direction and CIRQLIN's
- * cursors, never a hash.
+ * Meta write goes through meta_write_idempotency with `{ required: true }`:
+ * no ledger row, no call. customer_list_users keys hold the list, `op` (add,
+ * remove, replace) and CIRQLIN's cursors or the replace session, never a hash.
  *
  * Person data: the hashes are in memory only, for the call. Rows, results,
  * errors and log lines carry counts, list ids and reasons.
@@ -38,11 +51,15 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { isArchivedClientStatus } from "../db/client-status.ts";
 import { withMetaWriteIdempotency, type MetaWriteContext } from "../meta/write-idempotency.ts";
 import { recordRoleList } from "../retargeting/list-row.ts";
-import type { ConsentScope, HashedReader, HashedReadFailure, HashedReadResult } from "./cirqlin-hashed.ts";
+import type { ConsentScope, HashedEntry, HashedReader, HashedReadFailure, HashedReadResult } from "./cirqlin-hashed.ts";
 import {
   customerListWritesEnabled,
+  londonDate,
   normaliseAccount,
   PAGES_PER_RUN_MAX,
+  replaceDue,
+  replaceSessionId,
+  REPLACE_PAGES_MAX,
   safeError,
   showListCreateBody,
   showListName,
@@ -50,10 +67,12 @@ import {
   usersBatches,
   type UsersPayload,
 } from "./rules.ts";
+import { addShowListToTemplates, type TemplateAction, type TemplateRow } from "./templates.ts";
 
 export type Db = Pick<SupabaseClient, "from">;
 
-export type SyncKind = "show" | "genre";
+/** The show's own list. 267 keeps the column for a later kind the app makes; no other list is written. */
+export type SyncKind = "show";
 
 export interface SyncRow {
   /** Null for a row `--dry-run` plans and never writes. */
@@ -68,15 +87,19 @@ export interface SyncRow {
   removed_total: number;
   last_sent_at: string | null;
   last_error: string | null;
+  /** The last weekly full replace (migration 267). */
+  last_replaced_at?: string | null;
+  last_replace_count?: number | null;
+  created_at?: string | null;
   /** The list's name, for the report (planned rows only). */
   list_name?: string | null;
-  /** Where a genre list came from: a template item, or the venue's high-value list. */
-  source?: string | null;
 }
 
 export interface SyncEvent {
   id: string;
   event_code: string;
+  /** events.name, to match CC-3's templates (their shows are names). */
+  name?: string | null;
   user_id: string;
   client_id: string | null;
   client_status: string | null;
@@ -92,6 +115,9 @@ export type MetaAudience = { id: string; name: string; subtype: string | null; a
 
 export type UsersResult = { received: number; invalid: number };
 
+/** Meta's usersreplace session: one id for the whole replace, batch_seq from 1. */
+export type ReplaceSession = { session_id: number; batch_seq: number; last_batch_flag: boolean; estimated_num_total: number };
+
 export interface CustomerListGraph {
   /** GET /{act}/customaudiences, every page (id, name, subtype, account_id). */
   listAudiences(account: string): Promise<MetaAudience[]>;
@@ -103,13 +129,19 @@ export interface CustomerListGraph {
   addUsers(audienceId: string, payload: UsersPayload): Promise<UsersResult>;
   /** DELETE /{id}/users { payload }. */
   removeUsers(audienceId: string, payload: UsersPayload): Promise<UsersResult>;
+  /** POST /{id}/usersreplace { payload, session }. */
+  replaceUsers(audienceId: string, payload: UsersPayload, session: ReplaceSession): Promise<UsersResult>;
 }
 
 export type RowOutcome =
   | "sent"
+  | "replaced"
   | "up_to_date"
   | "would_send"
   | "would_create"
+  | "would_replace"
+  | "replace_too_large"
+  | "replace_empty"
   | "waiting"
   | "show_passed"
   | "no_sale_date"
@@ -119,7 +151,6 @@ export type RowOutcome =
   | "no_crm_tag"
   | "no_ledger_draft"
   | "other_account"
-  | "not_customer_list"
   | "list_not_found"
   | "meta_error"
   | "row_write_failed"
@@ -137,10 +168,13 @@ export interface RowReport {
   pages: number;
   /** Adds sent (write) or that would be sent (dry). */
   added: number;
-  /** Removes sent (show) or that would be sent (dry). */
+  /** Removes sent or that would be sent (dry). */
   removed: number;
-  /** Removes CIRQLIN listed that a genre list never gets (adds only). */
-  removedNotSent: number;
+  /** Users the weekly replace sent, or would send (dry). */
+  replaced: number;
+  /** The list's audience templates: added, present, would_add, failed. */
+  templates: TemplateAction[];
+  templatesNote: string | null;
   /** CIRQLIN's counts on the first page, when it gave them. */
   counts: { consented_show: number; consented_promoter: number; not_consented: number } | null;
   triggerAt: string | null;
@@ -168,6 +202,8 @@ export interface SyncDeps {
   mode: "write" | "dry";
   /** Counts-only log lines. Default console.log. */
   log?: (line: string) => void;
+  /** Templates to match the show against instead of the table's (the dry run's #1363 proposals). */
+  templates?: TemplateRow[];
 }
 
 export type SyncWork = { event: SyncEvent; rows: SyncRow[] };
@@ -199,6 +235,11 @@ function countedGraph(graph: CustomerListGraph, tally: { reads: number; writes: 
       if (!allowWrites) refuse("remove");
       tally.writes += 1;
       return graph.removeUsers(id, p);
+    },
+    replaceUsers: async (id, p, session) => {
+      if (!allowWrites) refuse("replace");
+      tally.writes += 1;
+      return graph.replaceUsers(id, p, session);
     },
   };
 }
@@ -242,14 +283,16 @@ function emptyReport(event: SyncEvent, row: SyncRow, outcome: RowOutcome, trigge
     eventCode: event.event_code,
     kind: row.kind,
     listId: row.meta_audience_id,
-    listName: row.list_name ?? (row.kind === "show" ? showListName(event.event_code) : null),
+    listName: row.list_name ?? showListName(event.event_code),
     account: row.ad_account_id,
-    source: row.source ?? null,
+    source: "show",
     outcome,
     pages: 0,
     added: 0,
     removed: 0,
-    removedNotSent: 0,
+    replaced: 0,
+    templates: [],
+    templatesNote: null,
     counts: null,
     triggerAt: triggerAt ? triggerAt.toISOString() : null,
     error: null,
@@ -264,7 +307,7 @@ export async function runCustomerListSync(deps: SyncDeps, work: SyncWork[]): Pro
   const graph = countedGraph(deps.graph, tally, mode === "write");
   let cirqlinReads = 0;
   const readCache = new Map<string, Promise<HashedReadResult>>();
-  const read = (tag: string, scope: ConsentScope, since: string | null) => {
+  const read = (tag: string, scope: ConsentScope, since: string | null): Promise<HashedReadResult> => {
     const key = `${tag}\u0000${scope}\u0000${since ?? ""}`;
     let hit = readCache.get(key);
     if (!hit) {
@@ -299,9 +342,8 @@ export async function runCustomerListSync(deps: SyncDeps, work: SyncWork[]): Pro
   for (const { event, rows } of work) {
     const state = syncState(event, deps.now);
     const triggerAt = "triggerAt" in state ? state.triggerAt : null;
-    const enabledRows = rows.filter((r) => r.enabled);
-    // The show row first: a genre add doesn't wait on it, but the report reads in that order.
-    enabledRows.sort((a, b) => (a.kind === b.kind ? 0 : a.kind === "show" ? -1 : 1));
+    // Show rows only: no other list is ever written.
+    const enabledRows = rows.filter((r) => r.enabled && r.kind === "show");
 
     const early: RowOutcome | null = isArchivedClientStatus(event.client_status)
       ? "archived_client"
@@ -340,7 +382,7 @@ export async function runCustomerListSync(deps: SyncDeps, work: SyncWork[]): Pro
       }
       if (["meta_error", "row_write_failed", "no_ledger_draft"].includes(report.outcome)) ok = false;
       log(
-        `[customer-list-sync] event=${report.eventCode} kind=${report.kind} list=${report.listId ?? "-"} account=${report.account} outcome=${report.outcome} pages=${report.pages} added=${report.added} removed=${report.removed}${report.removedNotSent ? ` removed_not_sent=${report.removedNotSent}` : ""}${report.error ? ` error=${report.error}` : ""}`,
+        `[customer-list-sync] event=${report.eventCode} list=${report.listId ?? "-"} account=${report.account} outcome=${report.outcome} pages=${report.pages} added=${report.added} removed=${report.removed} replaced=${report.replaced} templates=${report.templates.map((t) => `${t.action}`).join(",") || "-"}${report.error ? ` error=${report.error}` : ""}`,
       );
     }
   }
@@ -357,7 +399,7 @@ export async function runCustomerListSync(deps: SyncDeps, work: SyncWork[]): Pro
   };
 }
 
-async function syncRow(args: {
+type RowArgs = {
   deps: SyncDeps;
   mode: "write" | "dry";
   graph: CustomerListGraph;
@@ -369,7 +411,12 @@ async function syncRow(args: {
   row: SyncRow;
   tag: string;
   report: RowReport;
-}): Promise<void> {
+};
+
+/** The show list reads scope=show. scope=promoter is kept in the client for later; nothing reads it yet. */
+const SHOW_SCOPE: ConsentScope = "show";
+
+async function syncRow(args: RowArgs): Promise<void> {
   const { deps, mode, graph, read, ledger, event, row, tag, report } = args;
   const account = row.ad_account_id;
   if (normaliseAccount(account) !== event.account) {
@@ -377,41 +424,19 @@ async function syncRow(args: {
     return;
   }
 
-  // A genre list must already exist, be a customer list, and be held in this account.
-  if (row.kind === "genre") {
-    if (!row.meta_audience_id) {
-      report.outcome = "list_not_found";
-      return;
-    }
-    const audience = await args.getAudience(row.meta_audience_id);
-    if (!audience) {
-      report.outcome = "list_not_found";
-      return;
-    }
-    report.listName = report.listName ?? audience.name;
-    if (!sameAccount(audience, account)) {
-      report.outcome = "other_account";
-      return;
-    }
-    if (!isCustomerList(audience)) {
-      report.outcome = "not_customer_list";
-      return;
-    }
-  }
-
-  const scope: ConsentScope = row.kind === "show" ? "show" : "promoter";
-  let since = row.cursor;
-  const first = await read(tag, scope, since);
+  const doReplace = !!row.meta_audience_id && replaceDue(row, deps.now);
+  const first = await read(tag, SHOW_SCOPE, doReplace ? null : row.cursor);
   if (!first.ok) {
-    // Leaves the row, and Meta, as they were.
+    // Leaves the row, and Meta, as they were. not_linked: CIRQLIN has no page with this tag.
     report.outcome = `cirqlin_${first.reason}` as RowOutcome;
     return;
   }
   report.counts = first.page.counts;
 
-  // The show list: found (registered, or by name in the account), else made.
+  // The show list: the row's, else found (registered, or by name in the account), else made.
+  const name = showListName(event.event_code);
   let listId = row.meta_audience_id;
-  if (row.kind === "show" && listId) {
+  if (listId) {
     const audience = await args.getAudience(listId);
     if (!audience) {
       report.outcome = "list_not_found";
@@ -421,9 +446,7 @@ async function syncRow(args: {
       report.outcome = "other_account";
       return;
     }
-  }
-  if (row.kind === "show" && !listId) {
-    const name = showListName(event.event_code);
+  } else {
     listId = await registeredShowList(deps.db, event.id, account);
     if (!listId) {
       const byName = (await args.listAudiences(account)).find((a) => a.name === name && isCustomerList(a) && sameAccount(a, account));
@@ -455,20 +478,39 @@ async function syncRow(args: {
       const reg = !event.client_id
         ? { ok: false, error: "event has no client" }
         : await recordRoleList(deps.db, {
-        userId: event.user_id,
-        clientId: event.client_id,
-        eventId: event.id,
-        name,
-        role: "signups",
-        metaAudienceId: listId,
-        adAccountId: account,
-        now: deps.now,
-      });
+            userId: event.user_id,
+            clientId: event.client_id,
+            eventId: event.id,
+            name,
+            role: "signups",
+            metaAudienceId: listId,
+            adAccountId: account,
+            now: deps.now,
+          });
       if (!reg.ok) report.error = safeError(`meta_custom_audiences not registered: ${reg.error ?? "unknown"}`);
     }
-    report.listId = listId;
+  }
+  report.listId = listId;
+
+  // The list joins its audience templates (every run: idempotent, so a failed write retries).
+  const t = await addShowListToTemplates({
+    db: deps.db,
+    mode,
+    event: { code: event.event_code, name: event.name ?? null, client_id: event.client_id },
+    list: { meta_audience_id: listId, ad_account_id: account, name },
+    templates: deps.templates,
+  });
+  report.templates = t.actions;
+  report.templatesNote = t.note;
+  const failedTemplates = t.actions.filter((a) => a.action === "failed");
+  if (failedTemplates.length) report.error = safeError([report.error, ...failedTemplates.map((a) => `template ${a.template}: ${a.error}`)].filter(Boolean).join("; "));
+
+  if (doReplace && listId) {
+    await replaceList({ ...args, listId, first });
+    return;
   }
 
+  let since = row.cursor;
   let sentTotal = row.sent_total;
   let removedTotal = row.removed_total;
   let page: HashedReadResult = first;
@@ -477,10 +519,9 @@ async function syncRow(args: {
     const p = page.page;
     report.pages += 1;
     const adds = usersBatches(p.added);
-    const removes = row.kind === "show" ? usersBatches(p.removed) : [];
+    const removes = usersBatches(p.removed);
     const addCount = adds.reduce((s, b) => s + b.data.length, 0);
     const removeCount = removes.reduce((s, b) => s + b.data.length, 0);
-    if (row.kind === "genre") report.removedNotSent += p.removed.length;
 
     if (mode === "dry" || !listId) {
       report.added += addCount;
@@ -535,7 +576,7 @@ async function syncRow(args: {
     const next = p.cursor;
     if (!p.hasMore || !next || next === since) break;
     since = next;
-    page = await read(tag, scope, since);
+    page = await read(tag, SHOW_SCOPE, since);
   }
 
   if (report.outcome === "up_to_date") {
@@ -544,15 +585,102 @@ async function syncRow(args: {
   }
 }
 
+/**
+ * The weekly full replace: CIRQLIN's no-cursor snapshot read to the end
+ * (has_more), then one usersreplace session over it. Nothing is sent unless
+ * the whole snapshot was read. The cursor moves to the snapshot's only once
+ * the last batch is on Meta.
+ */
+async function replaceList(args: RowArgs & { listId: string; first: Extract<HashedReadResult, { ok: true }> }): Promise<void> {
+  const { deps, mode, graph, read, ledger, row, tag, report, listId } = args;
+  const all: HashedEntry[] = [];
+  let page: HashedReadResult = args.first;
+  let since: string | null = null;
+  let cursor: string | null = null;
+  let complete = false;
+  for (let n = 0; n < REPLACE_PAGES_MAX; n += 1) {
+    if (!page.ok) {
+      report.outcome = `cirqlin_${page.reason}` as RowOutcome;
+      return;
+    }
+    report.pages += 1;
+    all.push(...page.page.added);
+    cursor = page.page.cursor;
+    if (!page.page.hasMore) {
+      complete = true;
+      break;
+    }
+    if (!cursor || cursor === since) {
+      // has_more with nowhere to go: half a snapshot is never a replace.
+      report.outcome = "cirqlin_bad_shape";
+      return;
+    }
+    since = cursor;
+    page = await read(tag, SHOW_SCOPE, since);
+  }
+  if (!complete) {
+    report.outcome = "replace_too_large";
+    return;
+  }
+  const batches = usersBatches(all);
+  const total = batches.reduce((s, b) => s + b.data.length, 0);
+  if (!total) {
+    // Meta can't replace with nobody; the daily removes already emptied what CIRQLIN withdrew.
+    report.outcome = "replace_empty";
+    return;
+  }
+  if (mode === "dry") {
+    report.replaced = total;
+    report.outcome = "would_replace";
+    return;
+  }
+  const sessionId = replaceSessionId(listId, londonDate(deps.now));
+  let sent = 0;
+  for (let i = 0; i < batches.length; i += 1) {
+    const batch = batches[i];
+    const session: ReplaceSession = { session_id: sessionId, batch_seq: i + 1, last_batch_flag: i === batches.length - 1, estimated_num_total: total };
+    try {
+      const received = await withMetaWriteIdempotency(
+        ledger,
+        "customer_list_users",
+        { audience_id: listId, op: "replace", session_id: sessionId, batch_seq: i + 1, of: batches.length, rows: batch.data.length },
+        async () => String((await graph.replaceUsers(listId, batch, session)).received),
+        { required: true },
+      );
+      sent += Number(received) || 0;
+    } catch (err) {
+      report.replaced = sent;
+      report.outcome = "meta_error";
+      report.error = safeError(`replace batch ${i + 1} of ${batches.length} (${batch.data.length} rows): ${safeError(err)}`);
+      if (row.id) await deps.db.from("customer_list_syncs").update({ last_error: report.error }).eq("id", row.id);
+      return;
+    }
+  }
+  report.replaced = sent;
+  report.outcome = "replaced";
+  if (row.id) {
+    const at = deps.now.toISOString();
+    const upd = await deps.db
+      .from("customer_list_syncs")
+      .update({ cursor, last_replaced_at: at, last_replace_count: total, last_sent_at: at, last_error: null })
+      .eq("id", row.id);
+    if (upd.error) {
+      report.outcome = "row_write_failed";
+      report.error = safeError(upd.error);
+    }
+  }
+}
+
 // ─── Loading the cron's work ─────────────────────────────────────────────────
 
 const PAGE = 1000;
 
-export const EVENT_COLS = "id, event_code, user_id, client_id, mailchimp_tag, presale_at, general_sale_at, event_date, meta_ad_account_id, venue_id, venue_name";
+export const EVENT_COLS = "id, event_code, name, user_id, client_id, mailchimp_tag, presale_at, general_sale_at, event_date, meta_ad_account_id, venue_id, venue_name";
 
 export type EventRow = {
   id: string;
   event_code: string | null;
+  name?: string | null;
   user_id: string;
   client_id: string | null;
   mailchimp_tag: string | null;
@@ -608,6 +736,7 @@ export async function workForRows(
       event: {
         id: e.id,
         event_code: e.event_code,
+        name: e.name ?? null,
         user_id: e.user_id,
         client_id: e.client_id,
         client_status: e.client_id ? (status.get(e.client_id) ?? null) : null,

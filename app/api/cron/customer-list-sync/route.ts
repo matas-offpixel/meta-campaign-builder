@@ -12,14 +12,15 @@ import { createServiceRoleClient } from "@/lib/supabase/server";
 /**
  * GET /api/cron/customer-list-sync
  *
- * Signups into Meta (SU1, SU2; scratch/campaign-replicate/signups-to-meta.md).
- * For every enabled customer_list_syncs row (written per event by
- * scripts/customer-list-sync.mts --enable, never here): from presale day
- * 08:00 London (general sale with no presale) to show day, the show's
- * "{code} · Signups" list is made if it isn't there, and CIRQLIN's consented
- * signups, as hashes, are added to it (and withdrawn ones removed), and added
- * to the genre lists of the event's audience template in the same account.
- * lib/customer-lists/sync.ts has the rules.
+ * Signups into Meta (SU1; scratch/campaign-replicate/signups-to-meta.md,
+ * CIRQLIN's hashed read cirqlin #682). For every enabled customer_list_syncs
+ * row (written per event by scripts/customer-list-sync.mts --enable, never
+ * here): from presale day 08:00 London (general sale with no presale) to
+ * show day, the show's "{code} · Signups" list is made if it isn't there and
+ * kept current from CIRQLIN's consented signups (scope=show, as hashes):
+ * daily adds and removes by cursor, and a full replace on the Monday run
+ * (usersreplace), which drops GDPR erasures. The list also joins its audience
+ * templates. No other list is written. lib/customer-lists/sync.ts has the rules.
  *
  * vercel.json runs "0 7,8 * * *" (UTC) and the sync acts on the one that is
  * 08:00 London; `?force=1` runs it whatever the hour, `?event=CODE` narrows it.
@@ -78,7 +79,7 @@ async function handleGET(req: NextRequest) {
   }
 }
 
-type RowCounts = { outcome?: string; added?: number; removed?: number };
+type RowCounts = { outcome?: string; added?: number; removed?: number; replaced?: number };
 
 function rowList(b: Record<string, unknown>): RowCounts[] {
   return Array.isArray(b.rows) ? (b.rows as RowCounts[]) : [];
@@ -98,13 +99,14 @@ export const GET = withCronRunLog(
         return null;
       }
     },
-    rows: (b) => rowList(b).filter((r) => r.outcome === "sent").length,
+    rows: (b) => rowList(b).filter((r) => r.outcome === "sent" || r.outcome === "replaced").length,
     considered: (b) => rowList(b).length,
     detail: (b) => ({
       events: num(b.events),
       lists: rowList(b).length,
       added: rowList(b).reduce((s, r) => s + num(r.added), 0),
       removed: rowList(b).reduce((s, r) => s + num(r.removed), 0),
+      replaced: rowList(b).reduce((s, r) => s + num(r.replaced), 0),
       outcomes: rowList(b).map((r) => r.outcome ?? "unknown"),
       metaReads: num(b.metaReads),
       metaWrites: num(b.metaWrites),

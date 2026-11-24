@@ -10,13 +10,15 @@
  *   POST   /{act}/customaudiences  { name, subtype, customer_file_source, description }
  *   POST   /{audience}/users       payload={ schema, data }   (form-encoded)
  *   DELETE /{audience}/users       payload={ schema, data }
+ *   POST   /{audience}/usersreplace payload={ schema, data }
+ *                                   session={ session_id, batch_seq, last_batch_flag, estimated_num_total }
  *
  * `reads` / `writes` count every Graph attempt for the run's report.
  */
 
 import { graphGetWithToken } from "../meta/client.ts";
 import { redactHashes } from "./rules.ts";
-import type { CustomerListGraph, MetaAudience, UsersResult } from "./sync.ts";
+import type { CustomerListGraph, MetaAudience, ReplaceSession, UsersResult } from "./sync.ts";
 
 const API_VERSION = process.env.META_API_VERSION ?? "v21.0";
 const BASE = `https://graph.facebook.com/${API_VERSION}`;
@@ -123,6 +125,13 @@ export function liveCustomerListGraph(token: string): CustomerListGraph & { read
       writes += 1;
       return usersResult(await write("DELETE", `/${audienceId}/users`, { payload: JSON.stringify(payload) }, token), payload.data.length);
     },
+    async replaceUsers(audienceId, payload, session: ReplaceSession) {
+      writes += 1;
+      return usersResult(
+        await write("POST", `/${audienceId}/usersreplace`, { payload: JSON.stringify(payload), session: JSON.stringify(session) }, token),
+        payload.data.length,
+      );
+    },
   };
 }
 
@@ -131,5 +140,5 @@ export function readOnlyGraph(graph: CustomerListGraph): CustomerListGraph {
   const refuse = async (): Promise<never> => {
     throw new Error("dry run: Meta writes are refused");
   };
-  return { listAudiences: (a) => graph.listAudiences(a), getAudience: (id) => graph.getAudience(id), createList: refuse, addUsers: refuse, removeUsers: refuse };
+  return { listAudiences: (a) => graph.listAudiences(a), getAudience: (id) => graph.getAudience(id), createList: refuse, addUsers: refuse, removeUsers: refuse, replaceUsers: refuse };
 }

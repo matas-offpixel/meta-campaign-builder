@@ -1,27 +1,29 @@
 /**
- * CIRQLIN's consented signups for one page, as hashes only (SU3).
+ * CIRQLIN's consented signups for one page, as hashes only (cirqlin #682).
  *
  * GET {CIRQLIN_API_BASE}/api/partner/signups/hashed
- *       ?crm_base_tag={tag}&scope=show|promoter&since={cursor}
- *   Authorization: Bearer {CIRQLIN_PARTNER_READ_SECRET}
+ *       ?crm_base_tag={events.mailchimp_tag}&scope=show|promoter&since={cursor}&limit={<=10000}
+ *   Authorization: Bearer {CIRQLIN_PARTNER_HASHES_SECRET}
  *
- * The shape is the spec's (scratch/campaign-replicate/signups-to-meta.md,
- * "To the CIRQLIN thread"):
+ * The secret is the endpoint's own, not CIRQLIN_PARTNER_READ_SECRET (the
+ * counts-only read). Response:
  *
- *   { cursor, added: [{ em?, ph? }], removed: [{ em?, ph? }],
- *     counts: { consented_show, consented_promoter, not_consented },
- *     has_more? }
+ *   { cursor, has_more, added: [{ em?, ph? }], removed: [{ em?, ph? }],
+ *     counts: { consented_show, consented_promoter, not_consented } }
  *
- * `em` is sha256(lower(trim(email))) and `ph` sha256(E.164 digits, no plus),
- * both 64 lower-case hex. Raw emails and phones never leave CIRQLIN. A page
- * holds up to 10,000 entries; `has_more` (or a full page) means read again
- * from the returned cursor.
+ * `em` is sha256(lower(trim(email))) and `ph` sha256(E.164 digits, no "+"),
+ * 64 lower-case hex, sent to Meta as EMAIL_SHA256 / PHONE_SHA256 as they are
+ * (never re-hashed). With no cursor the read is everyone who counts, at a
+ * snapshot, paged while `has_more`; after that the cursor gives changes
+ * (`removed` = withdrawn, deleted or flagged). A GDPR erasure never shows in
+ * `removed`: the weekly full replace drops it (lib/customer-lists/sync.ts).
  *
- * The endpoint is being built in the CIRQLIN repo. Until it answers, a 404,
- * 405 or 501 reads `not_available` and the sync leaves every row as it was.
+ * An unknown tag is a 404: `not_linked`, nothing is written. 405 / 501 read
+ * `not_available`.
  *
  * Never throws. Never logs. A result carries counts and reasons only: the
  * hashes live in `page.added` / `page.removed`, in memory, for the upload.
+ * The bearer is never in a result or an error.
  *
  * Pure apart from the injected fetch. No `@/` imports, so node --test loads it.
  */
@@ -48,14 +50,18 @@ export type HashedPage = {
 
 export type HashedReadFailure = {
   ok: false;
-  /** not_available: the endpoint isn't live (404/405/501). */
-  reason: "not_available" | "not_configured" | "unauthorized" | "http_error" | "timeout" | "network" | "bad_shape" | "no_tag";
+  /** not_linked: CIRQLIN has no page with this tag (404). not_available: the endpoint answers 405 / 501. */
+  reason: "not_linked" | "not_available" | "not_configured" | "unauthorized" | "http_error" | "timeout" | "network" | "bad_shape" | "no_tag";
   status?: number;
 };
 
 export type HashedReadResult = { ok: true; page: HashedPage } | HashedReadFailure;
 
-export type HashedReader = (args: { tag: string; scope: ConsentScope; since: string | null }) => Promise<HashedReadResult>;
+export type HashedReadArgs = { tag: string; scope: ConsentScope; since: string | null; limit?: number };
+
+export type HashedReader = (args: HashedReadArgs) => Promise<HashedReadResult>;
+
+export const CIRQLIN_HASHES_SECRET_ENV = "CIRQLIN_PARTNER_HASHES_SECRET";
 
 const HEX64 = /^[0-9a-f]{64}$/;
 
@@ -93,11 +99,13 @@ export function parseHashedPage(body: unknown): HashedPage | null {
   };
 }
 
-export function hashedUrl(base: string, args: { tag: string; scope: ConsentScope; since: string | null }): string {
+export function hashedUrl(base: string, args: HashedReadArgs): string {
   const url = new URL(CIRQLIN_HASHED_PATH, base);
   url.searchParams.set("crm_base_tag", args.tag);
   url.searchParams.set("scope", args.scope);
   if (args.since) url.searchParams.set("since", args.since);
+  const limit = Math.min(CIRQLIN_PAGE_MAX, Math.max(1, Math.floor(args.limit ?? CIRQLIN_PAGE_MAX)));
+  url.searchParams.set("limit", String(limit));
   return url.toString();
 }
 
@@ -110,16 +118,16 @@ export function cirqlinHashedReader(opts?: {
   env?: Record<string, string | undefined>;
 }): HashedReader {
   const env = opts?.env ?? process.env;
-  return async ({ tag, scope, since }) => {
+  return async ({ tag, scope, since, limit }) => {
     const trimmed = tag.trim();
     if (!trimmed) return { ok: false, reason: "no_tag" };
-    const secret = (opts?.secret ?? env.CIRQLIN_PARTNER_READ_SECRET ?? "").trim();
+    const secret = (opts?.secret ?? env[CIRQLIN_HASHES_SECRET_ENV] ?? "").trim();
     if (!secret) return { ok: false, reason: "not_configured" };
     const base = (opts?.base ?? env.CIRQLIN_API_BASE ?? CIRQLIN_DEFAULT_API_BASE).trim() || CIRQLIN_DEFAULT_API_BASE;
     const fetchImpl = opts?.fetchImpl ?? fetch;
     let res: Response;
     try {
-      res = await fetchImpl(hashedUrl(base, { tag: trimmed, scope, since }), {
+      res = await fetchImpl(hashedUrl(base, { tag: trimmed, scope, since, limit }), {
         method: "GET",
         headers: { Authorization: `Bearer ${secret}`, Accept: "application/json" },
         cache: "no-store",
@@ -129,7 +137,8 @@ export function cirqlinHashedReader(opts?: {
       const name = err instanceof Error ? err.name : "";
       return { ok: false, reason: name === "TimeoutError" || name === "AbortError" ? "timeout" : "network" };
     }
-    if (res.status === 404 || res.status === 405 || res.status === 501) return { ok: false, reason: "not_available", status: res.status };
+    if (res.status === 404) return { ok: false, reason: "not_linked", status: 404 };
+    if (res.status === 405 || res.status === 501) return { ok: false, reason: "not_available", status: res.status };
     if (res.status === 401 || res.status === 403) return { ok: false, reason: "unauthorized", status: res.status };
     if (!res.ok) return { ok: false, reason: "http_error", status: res.status };
     let body: unknown;

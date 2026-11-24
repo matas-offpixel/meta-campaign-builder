@@ -1,10 +1,12 @@
 /**
- * The signup sync's rules (SU1, SU2): when a show's list is made, which ad
- * account it lives in, what Meta is sent, and how errors are kept free of
- * person data.
+ * The signup sync's rules (SU1): when a show's list is made, when it is fully
+ * replaced, which ad account it lives in, what Meta is sent, and how errors
+ * are kept free of person data.
  *
  * Pure. No `@/` imports, so node --test loads it.
  */
+
+import { createHash } from "node:crypto";
 
 import { CIRQLIN_PAGE_MAX, type HashedEntry } from "./cirqlin-hashed.ts";
 
@@ -19,6 +21,10 @@ export function customerListWritesEnabled(env: Record<string, string | undefined
 export const USERS_BATCH_MAX = CIRQLIN_PAGE_MAX;
 /** CIRQLIN pages read per list per run, so a backlog can't hold the cron past its time. */
 export const PAGES_PER_RUN_MAX = 20;
+/** Snapshot pages a weekly replace may read (500,000 entries). A bigger list skips the replace and says so. */
+export const REPLACE_PAGES_MAX = 50;
+/** A replace is due at least this often: an erased fan (never in CIRQLIN's `removed`) is gone within 7 days. */
+export const REPLACE_EVERY_MS = 7 * 24 * 60 * 60 * 1000;
 
 export const USERS_SCHEMA = ["EMAIL_SHA256", "PHONE_SHA256"] as const;
 
@@ -34,6 +40,12 @@ const LONDON = "Europe/London";
 /** The London calendar day of an instant, "YYYY-MM-DD". */
 export function londonDate(at: Date): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: LONDON, year: "numeric", month: "2-digit", day: "2-digit" }).format(at);
+}
+
+/** Mon = 1 … Sun = 7, London. */
+export function londonWeekday(at: Date): number {
+  const day = new Intl.DateTimeFormat("en-GB", { timeZone: LONDON, weekday: "short" }).format(at);
+  return ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].indexOf(day) + 1;
 }
 
 function londonHour(at: Date): number {
@@ -110,15 +122,6 @@ export function pickAccount(eventAccount: string | null, venueAccount: string | 
   return { eventAccount, venueAccount, chosen: null, source: "none" };
 }
 
-/**
- * The venue's high-value list, by ad account and name. Resolved to a Meta id
- * by a read (a meta_custom_audiences row, else the account's listing), never
- * by an id written here. NX Newcastle's ads run in NX Promoter.
- */
-export const HIGH_VALUE_LIST_BY_ACCOUNT: Readonly<Record<string, string>> = {
-  act_606252931141334: "NX LOVES DATA CSV",
-};
-
 // ─── Meta payloads ───────────────────────────────────────────────────────────
 
 export type UsersPayload = { schema: readonly string[]; data: string[][] };
@@ -129,6 +132,37 @@ export function usersBatches(entries: HashedEntry[], size = USERS_BATCH_MAX): Us
   const out: UsersPayload[] = [];
   for (let i = 0; i < rows.length; i += size) out.push({ schema: USERS_SCHEMA, data: rows.slice(i, i + size) });
   return out;
+}
+
+// ─── The weekly full replace ─────────────────────────────────────────────────
+
+export type ReplaceRowState = { cursor: string | null; last_replaced_at?: string | null; created_at?: string | null };
+
+/**
+ * A show list's users are fully replaced (POST /{id}/usersreplace from a
+ * no-cursor CIRQLIN read) on the Monday 08:00 London run, and on any later
+ * run once 7 days have passed since the last replace (or since the row was
+ * made, before its first), so a missed Monday is caught up the next day.
+ * Never before the first sync (no cursor: that read is already the full
+ * list) and never twice on one London day.
+ */
+export function replaceDue(row: ReplaceRowState, now: Date): boolean {
+  if (!row.cursor) return false;
+  const last = row.last_replaced_at ? new Date(row.last_replaced_at) : null;
+  if (last && londonDate(last) === londonDate(now)) return false;
+  if (londonWeekday(now) === 1) return true;
+  const since = last ?? (row.created_at ? new Date(row.created_at) : null);
+  return !!since && now.getTime() - since.getTime() >= REPLACE_EVERY_MS;
+}
+
+/**
+ * Meta's replace session id: a positive integer under 2^52, the same for one
+ * list on one London day, so a retry that day carries on the ledger's
+ * session (finished batches replay from the ledger) and the next day starts
+ * a new one.
+ */
+export function replaceSessionId(audienceId: string, day: string): number {
+  return Number.parseInt(createHash("sha256").update(`${audienceId}:${day}`).digest("hex").slice(0, 13), 16) + 1;
 }
 
 export function showListCreateBody(code: string): Record<string, unknown> {
