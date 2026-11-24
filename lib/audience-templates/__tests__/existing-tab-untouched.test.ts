@@ -88,14 +88,25 @@ describe("the existing Audiences tab is untouched", () => {
   });
 
   it("no template file reaches a Meta write", () => {
+    // The seed reads Electric's lists with GET /act_{id}/customaudiences
+    // (graph-lists.ts, guarded in the script); nothing else names the edge.
+    const reads = new Set(["lib/audience-templates/graph-lists.ts", "scripts/seed-audience-templates.mts"]);
     for (const f of TEMPLATE_FILES) {
       const src = read(f);
-      assert.doesNotMatch(src, /assertMetaAudienceWritesEnabled|createCustomAudience|graphPost|metaPost|\/customaudiences/i, f);
+      assert.doesNotMatch(src, /assertMetaAudienceWritesEnabled|createCustomAudience|graphPost|metaPost/i, f);
+      if (!reads.has(f)) assert.doesNotMatch(src, /\/customaudiences/i, f);
+      assert.doesNotMatch(src, /method: "(POST|DELETE|PUT|PATCH)"/, f);
       const metaImports = [...src.matchAll(/from "(?:@\/|\.\.\/)lib\/meta\/([^"]+)"/g)].map((m) => m[1]);
       for (const m of metaImports) assert.ok(m === "ad-account" || m === "ad-account.ts" || m === "audience-write", `${f} imports lib/meta/${m}`);
     }
     const action = read("lib/actions/audience-templates.ts");
     assert.match(action, /import \{ metaAudienceWritesEnabled \} from "@\/lib\/meta\/audience-write";/);
+  });
+
+  it("the seed's Graph guard refuses anything but GET on the customaudiences edge", () => {
+    const script = read("scripts/seed-audience-templates.mts");
+    assert.match(script, /if \(!isAllowedGraphRead\(url, init\?\.method\)\) \{\s*metaRefused \+= 1;\s*throw/);
+    assert.doesNotMatch(read("components/audience-templates/audience-templates-panel.tsx") + read("lib/actions/audience-templates.ts"), /graph\.facebook|fetchAccountAudiences/);
   });
 
   it("the Audiences step's files don't know about templates", () => {

@@ -54,6 +54,8 @@ export interface TemplateItemDetail {
   threshold?: number;
   /** The shows (event codes) whose launches used this item, for the seed's ranking. */
   shows?: string[];
+  /** A list's holding account (`act_…`), read from Meta by the seed. */
+  heldIn?: string;
   [key: string]: unknown;
 }
 
@@ -72,7 +74,7 @@ export interface AudienceTemplate {
 
 /** An audience the app knows exists in an ad account. */
 export interface KnownAudience {
-  source: "row" | "launch";
+  source: "row" | "launch" | "meta";
   metaAudienceId: string;
   /** Always `act_…`. */
   accountId: string;
@@ -98,6 +100,12 @@ export interface ResolvedItem {
   reusedIds: string[];
   /** Audiences Meta would be asked to make for this item with writes on. */
   metaCreates: number;
+  /**
+   * A list with a Meta id that this account can't use yet: the account that
+   * holds it, so it can be shared in Business Manager. A list is never
+   * re-uploaded, so it costs no Meta create.
+   */
+  heldIn: string | null;
 }
 
 export interface ResolvedTemplate {
@@ -169,6 +177,9 @@ function needs(item: TemplateItem, known: KnownAudience[], pixelId: string | nul
     case "interest":
       return [];
     case "customer_list":
+      // A list saved with its Meta id is that list: this account can use it
+      // when it holds it or it's shared here. Never matched by role instead.
+      if (item.metaAudienceId) return [known.find((k) => k.metaAudienceId === item.metaAudienceId) ?? null];
       return [known.find((k) => matchList(item, k)) ?? null];
     case "retargeting_pool":
       return [known.find((k) => matchPool(item, k, pixelId)) ?? null];
@@ -190,11 +201,14 @@ export function resolveTemplate(
   const resolved = items.map((item): ResolvedItem => {
     const covered = needs(item, here, pixelId);
     const missing = covered.filter((c) => c == null).length;
+    const listById = item.kind === "customer_list" && Boolean(item.metaAudienceId);
+    const holder = listById && missing > 0 ? (typeof item.detail.heldIn === "string" ? item.detail.heldIn : null) : null;
     return {
       item,
       status: missing === 0 ? "reused" : "create",
       reusedIds: covered.flatMap((c) => (c ? [c.metaAudienceId] : [])),
-      metaCreates: missing,
+      metaCreates: listById ? 0 : missing,
+      heldIn: holder,
     };
   });
   return {
@@ -294,12 +308,17 @@ export function knownFromDraftAudiences(audiences: unknown): KnownAudience[] {
   });
 }
 
-/** One known audience per Meta id: a row beats a launch record of the same id. */
+/**
+ * One known audience per Meta id per account (a shared list is known in each
+ * account that can use it). A row beats a Meta read or a launch record.
+ */
 export function dedupeKnown(known: KnownAudience[]): KnownAudience[] {
-  const byId = new Map<string, KnownAudience>();
+  const rank = { row: 2, meta: 1, launch: 0 } as const;
+  const byKey = new Map<string, KnownAudience>();
   for (const k of known) {
-    const had = byId.get(k.metaAudienceId);
-    if (!had || (had.source === "launch" && k.source === "row")) byId.set(k.metaAudienceId, k);
+    const key = `${k.metaAudienceId}|${normalizeAccount(k.accountId) ?? k.accountId}`;
+    const had = byKey.get(key);
+    if (!had || rank[k.source] > rank[had.source]) byKey.set(key, k);
   }
-  return [...byId.values()];
+  return [...byKey.values()];
 }

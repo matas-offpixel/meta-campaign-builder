@@ -20,8 +20,12 @@
  *     the shows used (all of them with one show). Ranked by the Electric
  *     slice of interest_clusters.live_evidence when a cluster holding the
  *     interest reads ok or better, then by shows.
- *   - Customer lists and retargeting pools: by role, from the brief. These
- *     resolve in each account by role, never by id.
+ *   - Customer lists: Electric's genre lists as Meta holds them (ops, 24 Nov:
+ *     TEMPLATE_LISTS in graph-lists.ts), each saved with its Meta id and the
+ *     account that holds it. They're never re-uploaded: an account that
+ *     can't use one gets it shared. A list Meta didn't return is saved by
+ *     role and family only.
+ *   - Retargeting pools: by role, from the brief, resolved in each account.
  *
  * Genre keys are the code's (lib/learning/genre/families.ts), as design
  * ruled in RC5: melodic_prog, commercial.
@@ -30,6 +34,7 @@
  */
 
 import type { GenrePoolKey } from "../learning/genre/families.ts";
+import { NAMED_LISTS, TEMPLATE_LISTS, type ListPlacement } from "./graph-lists.ts";
 import type { AudienceTemplate, TemplateItem } from "./resolve.ts";
 import { TEMPLATE_NAMES } from "./words.ts";
 
@@ -59,7 +64,6 @@ export interface TemplateDef {
   families: GenrePoolKey[];
   /** The brief's shows, by event code. */
   briefShows: string[];
-  lists: Array<{ role: "buyers" | "signups" | "similar"; family: GenrePoolKey; name: string }>;
   /** Page groups from the template's own shows to leave out. */
   excludeGroups: RegExp[];
   /** Page groups taken from any of the client's shows (crossover). */
@@ -82,10 +86,6 @@ export const TEMPLATE_DEFS: readonly TemplateDef[] = [
     name: TEMPLATE_NAMES[0],
     families: ["house_tech", "disco"],
     briefShows: ["NX26-LOCKLEAD", "NX27-EWANMCVICAR", "NX26-FOLAMOUR", "NX26-ROBBIEDOHERTY", "NX27-JULIANFIJMA"],
-    lists: [
-      { role: "buyers", family: "house_tech", name: "Tech house buyers" },
-      { role: "buyers", family: "disco", name: "Disco buyers" },
-    ],
     excludeGroups: [],
     crossoverGroups: [],
     mustPages: [],
@@ -94,7 +94,6 @@ export const TEMPLATE_DEFS: readonly TemplateDef[] = [
     name: TEMPLATE_NAMES[1],
     families: ["garage_bass", "house_tech"],
     briefShows: ["NX27-SILVABUMPA", "NX26-IPC"],
-    lists: [{ role: "buyers", family: "house_tech", name: "Tech house buyers" }],
     excludeGroups: [/disco/i],
     crossoverGroups: [/garage/i, /techno/i, /dnb|d&b|drum/i, /bass|dubstep/i],
     mustPages: ["Mall Grab", "HAAI"],
@@ -103,7 +102,6 @@ export const TEMPLATE_DEFS: readonly TemplateDef[] = [
     name: TEMPLATE_NAMES[2],
     families: ["techno", "hard_techno", "melodic_prog"],
     briefShows: ["NX26-AZYR", "NX26-SCHAK"],
-    lists: [{ role: "buyers", family: "techno", name: "Techno buyers" }],
     excludeGroups: [],
     crossoverGroups: [/techno/i, /trance|melodic/i],
     mustPages: ["Paul van Dyk", "Dave Pearce"],
@@ -112,10 +110,6 @@ export const TEMPLATE_DEFS: readonly TemplateDef[] = [
     name: TEMPLATE_NAMES[3],
     families: ["commercial", "house_tech", "disco"],
     briefShows: ["NX26-DOD", "NX26-RUDIMENTAL"],
-    lists: [
-      { role: "buyers", family: "house_tech", name: "Tech house buyers" },
-      { role: "buyers", family: "disco", name: "Disco buyers" },
-    ],
     excludeGroups: [],
     crossoverGroups: [/dnb|d&b|drum/i],
     mustPages: [],
@@ -232,6 +226,8 @@ export interface SeedInput {
   drafts: SeedDraft[];
   pageNames: Record<string, string>;
   clusters: SeedCluster[];
+  /** Where Electric's lists are in Meta (graph-lists.ts placeLists). */
+  lists?: ListPlacement[];
   /** The shows' own pages per template, at most (the brief's and crossover pages are always kept). */
   pageCap?: number;
   /** Interests per template, at most. */
@@ -372,18 +368,27 @@ export function planTemplates(input: SeedInput): SeedProposal[] {
       )
       .slice(0, interestCap);
 
+    const lists = (TEMPLATE_LISTS[def.name] ?? []).flatMap((name) => {
+      const named = NAMED_LISTS.find((l) => l.name === name);
+      if (!named) return [];
+      const placed = input.lists?.find((p) => p.list.name === name) ?? null;
+      return [{ named, placed }];
+    });
     const items: TemplateItem[] = [
-      ...def.lists.map(
-        (l): TemplateItem => ({
+      ...lists.map(
+        ({ named, placed }): TemplateItem => ({
           kind: "customer_list",
-          listRole: l.role,
-          familyKey: l.family,
+          // Past ticket and signup data; Matas confirms the role.
+          listRole: "buyers",
+          familyKey: named.family,
           pageId: null,
           retentionDays: null,
           interestId: null,
           interestName: null,
-          metaAudienceId: null,
-          detail: { name: l.name },
+          metaAudienceId: placed?.id ?? null,
+          detail: placed?.id
+            ? { name: placed.metaName ?? named.name, ...(placed.holder ? { heldIn: placed.holder } : {}) }
+            : { name: named.name },
         }),
       ),
       ...POOLS.map(

@@ -5,13 +5,18 @@
 // and which Will be created. lib/audience-templates/seed.ts does the
 // planning, lib/audience-templates/resolve.ts the reuse (see their headers).
 //
-// Dry run by default: SELECTs only, prints the proposal. Writes nothing and
-// never calls Meta: every request to graph.facebook.com is counted and
-// refused, and the count is printed (it should read 0).
+// Dry run by default: SELECTs and read-only Graph GETs, prints the proposal.
+// Writes nothing. Meta is read for one thing: Electric's customer lists, by
+// GET /act_{id}/customaudiences (every page) in each Electric account
+// (lib/audience-templates/graph-lists.ts). Every Graph request is counted;
+// anything that isn't a GET on that edge is refused. No audience is created,
+// shared or uploaded, ever, by this script.
 //
 //   --apply             writes the templates (audience_templates +
-//                       audience_template_items) as --user. Only after Matas
-//                       has confirmed the printed proposal.
+//                       audience_template_items) and registers the template
+//                       lists as meta_custom_audiences rows (the rows the dry
+//                       run prints), as --user. Only after Matas has
+//                       confirmed the printed proposal.
 //   --confirmed         with --apply, stamps confirmed_by = --user and
 //                       confirmed_at = now (RC5: "confirmed by {name} {date}").
 //                       Without it the templates are saved "Not confirmed yet".
@@ -40,6 +45,14 @@ import {
 } from "../lib/audience-templates/resolve.ts";
 import { pageNamesFromDrafts, planTemplates, type SeedCluster, type SeedDraft, type SeedEvent } from "../lib/audience-templates/seed.ts";
 import { templateRows } from "../lib/audience-templates/store.ts";
+import {
+  fetchAccountAudiences,
+  isAllowedGraphRead,
+  knownFromPlacements,
+  listRegisterRows,
+  placeLists,
+  type AccountListing,
+} from "../lib/audience-templates/graph-lists.ts";
 
 const ELECTRIC = "f9045034-2788-4b1d-94d1-1a5ab7fa5ac8";
 const PAGE = 1000;
@@ -60,14 +73,18 @@ const USER = arg("--user") ?? MATAS_USER_IDS[0]!;
 const CLIENT = arg("--client") ?? ELECTRIC;
 const JSON_OUT = arg("--json");
 
-// ── Meta guard: count and refuse every Graph request ───────────────────────
+// ── Meta guard: GET /act_{id}/customaudiences only, every request counted ──
 let metaCalls = 0;
+let metaRefused = 0;
 const realFetch = globalThis.fetch;
 globalThis.fetch = (async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
   const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
   if (/graph\.facebook\.com/.test(url)) {
+    if (!isAllowedGraphRead(url, init?.method)) {
+      metaRefused += 1;
+      throw new Error("seed-audience-templates: only GET /act_{id}/customaudiences is allowed");
+    }
     metaCalls += 1;
-    throw new Error("seed-audience-templates: Meta calls are refused (DB reads only)");
   }
   return realFetch(input, init);
 }) as typeof fetch;
@@ -187,13 +204,27 @@ const clusters: SeedCluster[] = clusterRows.map((r) => {
   };
 });
 
+// ── Meta, read-only: Electric's customer lists in each account ─────────────
+const token = process.env.META_ACCESS_TOKEN;
+if (!token) throw new Error("META_ACCESS_TOKEN is required to read the customer lists (--env-file=.env.local)");
+const version = process.env.META_API_VERSION || "v21.0";
+const listings: AccountListing[] = [];
+for (const a of accounts) listings.push(await fetchAccountAudiences(a, { token, version, fetch: globalThis.fetch }));
+const placements = placeLists(listings);
+
 const known: KnownAudience[] = dedupeKnown([
   ...knownFromRows(audienceRows as unknown as CustomAudienceRow[]),
   ...drafts.flatMap((d) => knownFromDraftAudiences(d.audiences)),
+  ...knownFromPlacements(placements),
 ]);
 
+const registered = new Set(
+  (audienceRows as Row[]).flatMap((r) => (r.meta_audience_id ? [`${r.meta_audience_id}|${normalizeAccount(r.meta_ad_account_id as string)}`] : [])),
+);
+const registerRows = listRegisterRows(placements, { userId: USER, clientId: CLIENT, registered });
+
 // ── Plan ───────────────────────────────────────────────────────────────────
-const proposals = planTemplates({ clientId: CLIENT, businessId, events, drafts, pageNames, clusters }).filter(
+const proposals = planTemplates({ clientId: CLIENT, businessId, events, drafts, pageNames, clusters, lists: placements }).filter(
   (p) => ONLY.length === 0 || ONLY.includes(p.def.name),
 );
 
@@ -210,6 +241,36 @@ log(`Known audiences in the accounts: ${known.filter((k) => k.source === "row").
 log(`Accounts: ${accounts.map((a) => `${acctLabel(a)} · pixel ${pixelLabel(pixelFor(a))}`).join("; ")}`);
 if (outsideAccounts.length) log(`Not in the business, left out: ${outsideAccounts.join(", ")}`);
 log(`Ranking: tag_performance has no audience or page dimension (its dimensions are creative tags), so pages rank by shows used. Interests rank by Electric's interest_clusters.live_evidence slice where it reads ok or better: ${clusters.filter((c) => c.confidence && ["ok", "good", "strong"].includes(c.confidence)).length} clusters do.`);
+log();
+
+// ── Electric's customer lists, by account ──────────────────────────────────
+log(`## Customer lists, by account (Meta, read-only)`);
+log();
+log(`Listings: ${listings.map((l) => `${acctLabel(l.accountId)} ${l.audiences.length} audiences in ${l.requests} requests${l.error ? ` · ERROR ${l.error}` : ""}`).join("; ")}`);
+log(`Which account holds a list: the audience's own account_id (its owner) in Meta's answer. A list another account can use shows in that account's listing with the holder's account_id; that's what "shared to" means here.`);
+log();
+log(`| List | Use | Meta id | Held in | Shared to | Approx. size | Updated | Meta status |`);
+log(`|---|---|---|---|---|---|---|---|`);
+for (const pl of placements) {
+  const size = pl.countLower != null ? `${pl.countLower.toLocaleString("en-GB")}–${(pl.countUpper ?? pl.countLower).toLocaleString("en-GB")}` : "";
+  log(
+    `| ${pl.metaName ?? pl.list.name}${pl.id ? "" : " (not found)"} | ${pl.list.use === "template" ? "templates" : "per show, not in templates"} | ${pl.id ?? ""} | ${pl.holder ? acctLabel(pl.holder) : ""} | ${pl.sharedTo.map(acctLabel).join(", ") || "none of the others"} | ${size} | ${pl.timeUpdated?.slice(0, 10) ?? ""} | ${pl.operation ?? ""}${pl.outdated ? " · OUTDATED" : ""} |`,
+  );
+  if (pl.alsoMatched.length) log(`|  ↳ also named like it | | ${pl.alsoMatched.join(", ")} | | | | | |`);
+}
+const outdated = placements.filter((pl) => pl.outdated);
+log();
+log(outdated.length ? `Outdated per Meta: ${outdated.map((pl) => `${pl.metaName} (updated ${pl.timeUpdated?.slice(0, 10)})`).join(", ")}` : `Outdated per Meta: none (every list reads "${[...new Set(placements.filter((pl) => pl.id).map((pl) => pl.operation))].join(" / ")}").`);
+log();
+log(`### meta_custom_audiences rows --apply would register (${registerRows.length})`);
+log();
+log(`Shape copied from lib/retargeting/list-row.ts listRowPayload, the only customer-list writer: prod has no customer_list row to copy from (SELECT, 24 Nov). event_id and list_role null; no counts stored.`);
+log();
+log(`| name | meta_audience_id | meta_ad_account_id | funnel_stage | audience_subtype | list_role | retention_days | source_id | status | client_id |`);
+log(`|---|---|---|---|---|---|---|---|---|---|`);
+for (const r of registerRows) {
+  log(`| ${r.name} | ${r.meta_audience_id} | ${r.meta_ad_account_id} | ${r.funnel_stage} | ${r.audience_subtype} | null | null | ${r.source_id} | ${r.status} | ${r.client_id} |`);
+}
 log();
 
 const totals: Array<{ template: string; account: string; reused: number; toCreate: number; metaCreates: number }> = [];
@@ -229,7 +290,7 @@ for (const p of proposals) {
       it.kind === "customer_list" ? it.detail.name : it.kind === "retargeting_pool" ? it.listRole : it.kind === "page_engagers" ? (it.detail.name ?? "(no name stored)") : it.interestName;
     const role =
       it.kind === "customer_list"
-        ? `${it.listRole}, ${it.familyKey}`
+        ? `${it.listRole}${it.familyKey ? `, ${it.familyKey}` : ""}`
         : it.kind === "retargeting_pool"
           ? `${it.retentionDays} days${it.detail.threshold ? `, ${it.detail.threshold}% watched` : ""}`
           : it.kind === "page_engagers"
@@ -237,7 +298,11 @@ for (const p of proposals) {
             : it.interestId;
     const page = it.kind === "page_engagers" ? p.pages.find((x) => x.pageId === it.pageId) : null;
     const interest = it.kind === "interest" ? p.interests.find((x) => x.id === it.interestId) : null;
-    const behind = page
+    const behind = it.kind === "customer_list"
+      ? it.metaAudienceId
+        ? `Meta ${it.metaAudienceId} · held in ${it.detail.heldIn ? acctLabel(String(it.detail.heldIn)) : "unknown"}`
+        : "not found in Meta: by role and family"
+      : page
       ? `${page.why}${page.shows.length ? ` · ${page.shows.length} shows (${page.shows.join(", ")})` : ""}${page.groups.length ? ` · groups: ${page.groups.join(", ")}` : ""}`
       : interest
         ? `${interest.shows.length} shows${interest.evidence ? ` · ${interest.evidence.cluster} cprIndex ${interest.evidence.cprIndex} (${interest.evidence.confidence})` : ""}`
@@ -253,6 +318,13 @@ for (const p of proposals) {
     totals.push({ template: t.name, account: a, reused: r.reused, toCreate: r.toCreate, metaCreates: r.metaCreates });
     log(`| ${acctLabel(a)} | ${pixelLabel(pixelFor(a))} | ${r.reused} | ${r.toCreate} | ${r.metaCreates} |`);
   }
+  for (const a of accounts) {
+    const r = resolveTemplate(t.items, a, known, pixelFor(a));
+    const elsewhere = r.items.filter((x) => x.heldIn);
+    if (elsewhere.length) {
+      log(`- ${acctLabel(a)}: ${elsewhere.map((x) => x.item.detail.name).join(", ")} read "Will be created" — held in ${[...new Set(elsewhere.map((x) => acctLabel(x.heldIn!)))].join(", ")}, not shared here. Share in Business Manager; never re-uploaded (0 Meta creates).`);
+    }
+  }
   const nx = accounts[0];
   if (nx) {
     const r = resolveTemplate(t.items, nx, known, pixelFor(nx));
@@ -265,7 +337,7 @@ for (const p of proposals) {
 
 log(`## Meta calls`);
 log();
-log(`Meta calls made by this dry run: ${metaCalls} (Graph reads 0 expected, writes never).`);
+log(`Meta calls made by this dry run: ${metaCalls}, all GET /act_{id}/customaudiences (${listings.map((l) => `${acctLabel(l.accountId)} ${l.requests}`).join(", ")}). Refused: ${metaRefused}. No write, share or upload.`);
 log(`Meta creates the "Will be created" items would need with OFFPIXEL_META_AUDIENCE_WRITES_ENABLED on, per account: ${accounts
   .map((a) => `${acctLabel(a)} ${totals.filter((x) => x.account === a).reduce((s, x) => s + x.metaCreates, 0)}`)
   .join(" · ")}. Reused items need none.`);
@@ -274,12 +346,17 @@ log();
 if (!APPLY) {
   log(`Dry run: nothing written. Matas confirms, then --apply --confirmed.`);
   console.log(out.join("\n"));
-  if (JSON_OUT) writeFileSync(JSON_OUT, JSON.stringify({ proposals, totals, metaCalls }, null, 2));
+  if (JSON_OUT) writeFileSync(JSON_OUT, JSON.stringify({ proposals, totals, placements, registerRows, metaCalls }, null, 2));
   process.exit(0);
 }
 
 // ── Apply (only after Matas confirms) ──────────────────────────────────────
 const now = new Date().toISOString();
+if (registerRows.length) {
+  const reg = await db.from("meta_custom_audiences").insert(registerRows);
+  if (reg.error) throw new Error(`meta_custom_audiences: ${reg.error.message}`);
+  log(`Registered ${registerRows.length} customer lists as meta_custom_audiences rows`);
+}
 for (const p of proposals) {
   const { template, items } = templateRows(p.template, USER, CONFIRMED ? { by: USER, at: now } : null);
   const up = await db.from("audience_templates").upsert(template, { onConflict: "user_id,business_id,name" }).select("id").single();

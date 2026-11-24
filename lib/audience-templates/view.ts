@@ -99,7 +99,14 @@ function itemRow(r: ResolvedItem, ctx: ViewContext): TemplateRow {
   const days = it.retentionDays ?? 0;
   switch (it.kind) {
     case "customer_list":
-      return { ...base, title: it.detail.name ?? "", line: fw("frame.list.line", { role: it.listRole ?? "", family: it.familyKey ?? "" }) };
+      return {
+        ...base,
+        title: it.detail.name ?? "",
+        // RC-E's line; a list for every genre has no family, so it stops at the role.
+        line: it.familyKey
+          ? fw("frame.list.line", { role: it.listRole ?? "", family: it.familyKey })
+          : fw("frame.list.line", { role: it.listRole ?? "" }).replace(/, \{family\}$/, ""),
+      };
     case "retargeting_pool":
       if (it.listRole === "video_viewers") {
         return { ...base, title: fw("frame.pool.video_viewers"), line: fw("frame.pool.video.line", { threshold: Number(it.detail.threshold ?? 0), days }) };
