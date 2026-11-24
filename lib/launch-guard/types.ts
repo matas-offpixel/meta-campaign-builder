@@ -5,6 +5,8 @@
  * `node --experimental-strip-types --test`.
  */
 
+import type { PinPresetKey } from "../meta/location-pins.ts";
+
 /** One venue's ad account and pixel. Replaced by the venue card (R2). */
 export interface VenueDefault {
   /** `events.venue_key`, e.g. "nx newcastle". */
@@ -71,7 +73,12 @@ export type LaunchCheckKey =
   /** Ops' ruling 4 (24 Nov): the event's venue has no account or pixel stored. A warning. */
   | "venue_not_set"
   /** RC8 (#1362): a published draft's page or Instagram isn't the live ads'. A warning. */
-  | "identity_not_live";
+  | "identity_not_live"
+  /**
+   * #1370 LP4: a location is a known-ambiguous Meta city (Leeds, Kent). A
+   * warning. Words and map live in lib/meta/location-pins.ts.
+   */
+  | "region_mismatch";
 
 export type LaunchCheckSeverity = "blocker" | "warning";
 
@@ -86,7 +93,8 @@ export type GuardField =
   | "ad_name"
   | "audience_name"
   | "page"
-  | "instagram";
+  | "instagram"
+  | "location";
 
 /** One place a check looked at: the field, the ad (or audience) name, the value. */
 export interface GuardFinding {
@@ -119,6 +127,12 @@ export type LaunchCheckFix = (
   | { action: "use_live_identity"; label: string; field: "page" | "instagram"; from: string; to: string }
   /** "Keep {draft page}": who kept which page or Instagram, and when (RC8). */
   | { action: "keep_identity"; label: string; field: "page" | "instagram"; id: string }
+  /** location.region_mismatch.fix: every open location on that Meta city key becomes the preset's pin (#1370 LP5). */
+  | { action: "use_location_pin"; label: string; cityKey: string; preset: PinPresetKey }
+  /** "Add a pin" (no preset for the city): back to Locations. */
+  | { action: "open_locations"; label: string }
+  /** "Keep Leeds, Kent": who kept it and when, on each selection, the way #1370 stores it. */
+  | { action: "keep_location"; label: string; cityKey: string }
 ) & { names?: readonly string[] };
 
 export interface LaunchCheck {

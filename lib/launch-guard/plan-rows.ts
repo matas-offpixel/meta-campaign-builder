@@ -18,6 +18,8 @@ function sectionFor(check: LaunchCheck): PlanDrawerSection {
   }
   // An ad's own page or Instagram is set on the creative; the draft's in details.
   if ((field === "page" || field === "instagram") && check.findings[0]?.adName) return "f-creatives";
+  // Locations are picked per ad set.
+  if (field === "location") return "f-adsets";
   return "f-audiences";
 }
 

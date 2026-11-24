@@ -396,6 +396,11 @@ export function WizardShell({ draftId, linkedPlan = null }: WizardShellProps) {
       changeStep(fix.where === "settings" ? 0 : 4);
       return;
     }
+    if (fix.action === "open_locations") {
+      // "Add a pin" for a city with no preset: the pin form is on Locations.
+      changeStep(5);
+      return;
+    }
     // "Use the live ads' page" and "Keep {page}" change the draft only (applyLaunchCheckFix), never Meta.
     if (fix.action === "open_venue_card") {
       // TODO(R2): the venue card's own route once it exists.

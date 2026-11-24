@@ -4,7 +4,18 @@ import {
   replaceEventCodePrefix,
 } from "../campaign-event.ts";
 import { parseBracketedEventCode } from "../insights/meta-event-code-match.ts";
-import type { CampaignDraft } from "../types.ts";
+import {
+  PIN_PRESETS,
+  keepRegionMismatch,
+  keptRegionMismatchLine,
+  openRegionMismatch,
+  presetPinGroup,
+  regionMismatchForSelection,
+  swapGroupForPinPreset,
+  type PinPresetKey,
+  type RegionMismatch,
+} from "../meta/location-pins.ts";
+import type { CampaignDraft, LocationSelection, LocationTargetingGroup } from "../types.ts";
 
 import {
   buildReferenceTerms,
@@ -38,7 +49,7 @@ import { LAUNCH_GUARD_WORDS as W } from "./words.ts";
  * shows and who holds the draft's page and Instagram account
  * (`loadLaunchGuardContext`). Checks run in this order: venue not set,
  * pixel, account, another show, name, artist caption, page, Instagram,
- * link. Blockers come first in that order, then the warnings.
+ * live ads, link, location (#1370's Leeds, Kent). Blockers come first in that order, then the warnings.
  */
 export function checkLaunchReferences(
   draft: CampaignDraft,
@@ -73,6 +84,7 @@ export function checkLaunchReferences(
     ...pageChecks,
     ...checkIdentityNotLive(draft, live, ownership, firedFields),
     ...checkLink(draft, event, blockedLinks),
+    ...checkRegionMismatch(draft),
   ];
   const ordered = [
     ...checks.filter((check) => check.severity === "blocker"),
@@ -330,6 +342,7 @@ const UNIT: Record<GuardField, { one: string; many: string; evidence: string }> 
   campaign_name: { one: "ad", many: "ads", evidence: "Links" },
   page: { one: "ad", many: "ads", evidence: "Links" },
   instagram: { one: "ad", many: "ads", evidence: "Links" },
+  location: { one: "ad", many: "ads", evidence: "Links" },
 };
 
 const FIELD_ORDER: readonly GuardField[] = ["link", "headline", "primary_text", "ad_name", "audience_name"];
@@ -768,6 +781,123 @@ export function keptIdentityLines(draft: CampaignDraft): string[] {
   return lines;
 }
 
+// ── location (warning, #1370 LP4) ──────────────────────────────────────
+// A location on #1370's known-ambiguity list (Leeds, Kent). The map, the
+// words, Keep and the pin all come from lib/meta/location-pins.ts; no city
+// key or word of that list is written here.
+
+/** The preset pin's name, for the fix button: it keeps its case (RC8). */
+const presetName = (key: PinPresetKey) => PIN_PRESETS[key].name;
+
+/** Every location the draft holds: its Locations rows and the exclusion pool. */
+function draftLocations(draft: CampaignDraft): {
+  groups: readonly LocationTargetingGroup[];
+  pool: readonly LocationSelection[];
+} {
+  return {
+    groups: draft.budgetSchedule?.locationGroups ?? [],
+    pool: draft.budgetSchedule?.excludedLocations ?? [],
+  };
+}
+
+/** One line per Meta city key on the list, open (not kept) anywhere in the draft. */
+function openMismatches(draft: CampaignDraft): RegionMismatch[] {
+  const { groups, pool } = draftLocations(draft);
+  const byKey = new Map<string, RegionMismatch>();
+  for (const group of groups) {
+    const open = openRegionMismatch(group);
+    if (open && !byKey.has(open.mismatch.cityKey)) byKey.set(open.mismatch.cityKey, open.mismatch);
+  }
+  for (const sel of pool) {
+    if (sel.regionMismatchKept) continue;
+    const mismatch = regionMismatchForSelection(sel);
+    if (mismatch && !byKey.has(mismatch.cityKey)) byKey.set(mismatch.cityKey, mismatch);
+  }
+  return [...byKey.values()];
+}
+
+function checkRegionMismatch(draft: CampaignDraft): LaunchCheck[] {
+  return openMismatches(draft).map((mismatch) => {
+    const place = `${mismatch.entry.name}, ${mismatch.entry.actual}`;
+    const fixes: LaunchCheckFix[] = [
+      mismatch.pinPreset
+        ? {
+            action: "use_location_pin",
+            label: mismatch.fix,
+            cityKey: mismatch.cityKey,
+            preset: mismatch.pinPreset,
+            names: [presetName(mismatch.pinPreset)],
+          }
+        : { action: "open_locations", label: mismatch.fix },
+      { action: "keep_location", label: mismatch.keep, cityKey: mismatch.cityKey, names: [place] },
+    ];
+    return {
+      key: "region_mismatch",
+      severity: "warning",
+      label: place,
+      sentence: mismatch.line,
+      evidence: "",
+      fixes,
+      findings: [{ field: "location", adName: null, value: mismatch.cityKey }],
+    };
+  });
+}
+
+/** "Leeds, Kent kept by {who}, {date, time}" for each kept location, from #1370's words. */
+export function keptLocationLines(draft: CampaignDraft): string[] {
+  const { groups, pool } = draftLocations(draft);
+  const lines = [...groups.flatMap((group) => group.selections), ...pool]
+    .map(keptRegionMismatchLine)
+    .filter((line): line is string => !!line);
+  return [...new Set(lines)];
+}
+
+const onKey = (sel: LocationSelection, cityKey: string) =>
+  !sel.regionMismatchKept && regionMismatchForSelection(sel)?.cityKey === cityKey;
+
+/**
+ * The pin fix (location.region_mismatch.fix): each Locations row holding the city becomes the
+ * preset's pin (keeping its id, tier and mode, as Step 5 does), and each
+ * pooled exclusion becomes the pin with the same id, so the ad sets that
+ * exclude it exclude the pin.
+ */
+export function pinLocation(draft: CampaignDraft, cityKey: string, preset: PinPresetKey): CampaignDraft {
+  const { groups, pool } = draftLocations(draft);
+  return {
+    ...draft,
+    budgetSchedule: {
+      ...draft.budgetSchedule,
+      locationGroups: groups.map((group) =>
+        group.selections.some((sel) => onKey(sel, cityKey)) ? swapGroupForPinPreset(group, preset) : group,
+      ),
+      excludedLocations: pool.map((sel) => {
+        if (!onKey(sel, cityKey)) return sel;
+        const pin = presetPinGroup(preset, { mode: sel.mode, tier: sel.tier }).selections[0]!;
+        return { ...pin, id: sel.id };
+      }),
+    },
+  };
+}
+
+/** "Keep Leeds, Kent": who and when on each selection with that key (#1370's `regionMismatchKept`). */
+export function keepLocation(draft: CampaignDraft, cityKey: string, keptBy: string, now: Date): CampaignDraft {
+  const { groups, pool } = draftLocations(draft);
+  return {
+    ...draft,
+    budgetSchedule: {
+      ...draft.budgetSchedule,
+      locationGroups: groups.map((group) =>
+        group.selections
+          .filter((sel) => onKey(sel, cityKey))
+          .reduce((next, sel) => keepRegionMismatch(next, sel.id, keptBy, now), group),
+      ),
+      excludedLocations: pool.map((sel) =>
+        onKey(sel, cityKey) ? { ...sel, regionMismatchKept: { keptBy, keptAt: now.toISOString() } } : sel,
+      ),
+    },
+  };
+}
+
 // ── 7. link (warning) ──────────────────────────────────────────────────
 
 /** Every URL that is this event's own page: signup, ticket link, its crqln.com/l/ page. */
@@ -891,6 +1021,10 @@ export function applyLaunchCheckFix(
       return takeIdentity(draft, fix.field, fix.from, fix.to);
     case "keep_identity":
       return keepIdentity(draft, fix.field, fix.id, fix.names?.[0]?.replace(/^@/, "") ?? null, context.keptBy, context.now);
+    case "use_location_pin":
+      return pinLocation(draft, fix.cityKey, fix.preset);
+    case "keep_location":
+      return keepLocation(draft, fix.cityKey, context.keptBy, context.now);
     default:
       return draft;
   }
