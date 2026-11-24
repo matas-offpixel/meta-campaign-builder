@@ -26,19 +26,19 @@ import { REPLICATE_WORDS } from "@/lib/replicate/words";
 
 type ErrorCode = "not_signed_in" | "not_operator" | "draft_not_found" | "event_not_found" | "save_failed";
 
-function errorText(code: ErrorCode, message?: string): string {
-  // Plain errors, not ruled words: the record has none for these.
+/** RC12: each error is a row; nothing the server says reaches the screen. */
+export function errorText(code: ErrorCode): string {
   switch (code) {
     case "not_signed_in":
-      return "Sign in again.";
+      return REPLICATE_WORDS["replicate.error.signed_out"];
     case "not_operator":
-      return "Operators only.";
+      return REPLICATE_WORDS["replicate.error.not_operator"];
     case "draft_not_found":
-      return "Campaign not found.";
+      return REPLICATE_WORDS["replicate.error.draft_not_found"];
     case "event_not_found":
-      return "Event not found.";
+      return REPLICATE_WORDS["replicate.error.event_not_found"];
     default:
-      return message ?? "Could not save the draft.";
+      return REPLICATE_WORDS["replicate.error.save_failed"];
   }
 }
 
@@ -76,7 +76,9 @@ export function ReplicateDialog({
     setPicked(null);
     setAnswers({});
     setError(null);
-    listReplicateTargets(draftId, londonToday()).then((res) => {
+    listReplicateTargets(draftId, londonToday())
+      .catch(() => ({ ok: false as const, error: "draft_not_found" as const }))
+      .then((res) => {
       if (cancelled) return;
       if (!res.ok) {
         setError(errorText(res.error));
@@ -103,9 +105,9 @@ export function ReplicateDialog({
     setBusy(true);
     setError(null);
     try {
-      const res = await previewReplicateToEvent(draftId, pickedEvent.id);
+      const res = await previewReplicateToEvent(draftId, pickedEvent.id).catch(() => ({ ok: false as const, error: "event_not_found" as const }));
       if (!res.ok) {
-        setError(errorText(res.error, res.message));
+        setError(errorText(res.error));
         return;
       }
       setSummary(res);
@@ -120,9 +122,9 @@ export function ReplicateDialog({
     setBusy(true);
     setError(null);
     try {
-      const res = await replicateToEvent(draftId, pickedEvent.id);
+      const res = await replicateToEvent(draftId, pickedEvent.id).catch(() => ({ ok: false as const, error: "save_failed" as const }));
       if (!res.ok) {
-        setError(errorText(res.error, res.message));
+        setError(errorText(res.error));
         return;
       }
       onClose();
@@ -158,6 +160,7 @@ export function ReplicateDialog({
               onCancel={onClose}
               onNext={() => void next()}
               busy={busy || events === null}
+              loaded={events !== null}
               error={error}
             />
           )}

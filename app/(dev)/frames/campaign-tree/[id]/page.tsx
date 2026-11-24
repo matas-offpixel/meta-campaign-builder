@@ -4,9 +4,9 @@ import { CampaignTreeFrameMount } from "@/components/campaign-tree/campaign-tree
 import { CAMPAIGN_TREE_FRAME_IDS, type CampaignTreeFrameId } from "@/scripts/plan-frames/campaign-tree-fixtures";
 
 /**
- * Campaign creator, part 4 frames at /frames/campaign-tree/{id}: RC-A, RC-B,
- * RC-B-notset, RC-F and RC-F-sheet of
- * docs/design-record/2026-11-24-campaign-creator-replicate.html. A nested
+ * Campaign creator, part 4 frames at /frames/campaign-tree/{id}: the ids in
+ * CAMPAIGN_TREE_FRAME_IDS, from records 2026-11-24-campaign-creator-replicate
+ * and 2026-11-24-campaign-creator-tree-as-built. A nested
  * route under the shared /frames/ prefix, while app/(dev)/frames/[id]/page.tsx
  * sits in an open Cursor PR.
  */

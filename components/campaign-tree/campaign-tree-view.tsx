@@ -4,7 +4,7 @@ import { Copy, ExternalLink, Files, Pencil } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { OverflowMenu, type OverflowMenuItem } from "@/components/viz/overflow-menu";
-import type { TreeCampaignView, TreeStage, TreeView } from "@/lib/campaign-tree/tree";
+import { isTreeStage, type TreeCampaignView, type TreeStage, type TreeView } from "@/lib/campaign-tree/tree";
 import { FRAME_WORDS, TREE_WORDS } from "@/lib/campaign-tree/words";
 import { REPLICATE_WORDS } from "@/lib/replicate/words";
 
@@ -43,7 +43,7 @@ export function adsManagerCampaignHref(c: { adAccountId: string | null; metaCamp
 
 function CampaignRow({ c, menu }: { c: TreeCampaignView; menu?: OverflowMenuItem[] }) {
   return (
-    <li data-tree-campaign={c.metaCampaignId} className="py-2">
+    <li data-tree-campaign={c.metaCampaignId} data-no-draft={c.noDraft ? "" : undefined} className={`py-2 ${c.noDraft ? "opacity-60" : ""}`}>
       <div className="flex items-start gap-2">
         <p className="min-w-0 flex-1 break-words text-[13px]">
           <span className="font-semibold text-foreground">{c.name}</span>
@@ -53,6 +53,7 @@ function CampaignRow({ c, menu }: { c: TreeCampaignView; menu?: OverflowMenuItem
             </span>
           ) : null}
           <span className={c.status === "paused" ? "text-warning-foreground" : "text-muted-foreground"}> · {c.meta}</span>
+          {c.noDraft ? <span className="block text-[12px] text-muted-foreground">{c.noDraft}</span> : null}
         </p>
         {menu && menu.some((item) => !item.hidden) ? <OverflowMenu items={menu} /> : null}
       </div>
@@ -86,14 +87,27 @@ export function CampaignTreeView({
         <section key={s.stage} data-tree-stage={s.stage} className="rounded-md border border-border bg-card px-4 py-3">
           <header className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-border pb-2">
             <h3 className="font-heading text-base tracking-wide text-foreground">{s.label}</h3>
-            <div className="ml-auto flex flex-wrap gap-1.5">
-              <Button size="sm" variant="outline" disabled={!onAction || s.campaigns.length === 0} onClick={() => onAction?.(s.stage, "creatives")}>
-                {TREE_WORDS["tree.action.creatives"]}
-              </Button>
-              <Button size="sm" variant="outline" disabled={!onAction || s.campaigns.length === 0} onClick={() => onAction?.(s.stage, "audience")}>
-                {TREE_WORDS["tree.action.audience"]}
-              </Button>
-            </div>
+            {s.actions && isTreeStage(s.stage) ? (
+              <div className="ml-auto flex flex-wrap gap-1.5">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={!onAction || s.campaigns.length === 0}
+                  onClick={() => isTreeStage(s.stage) && onAction?.(s.stage, "creatives")}
+                >
+                  {TREE_WORDS["tree.action.creatives"]}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={!onAction || s.campaigns.length === 0}
+                  onClick={() => isTreeStage(s.stage) && onAction?.(s.stage, "audience")}
+                >
+                  {TREE_WORDS["tree.action.audience"]}
+                </Button>
+              </div>
+            ) : null}
+            {s.line ? <p className="w-full text-[12px] text-muted-foreground">{s.line}</p> : null}
           </header>
           {s.campaigns.length > 0 ? (
             <ul className="divide-y divide-border">

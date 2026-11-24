@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { loadCampaignTree, type GraphCampaign, type TreeDb, type TreeGraph } from "@/lib/campaign-tree/load";
 import { graphGetWithToken } from "@/lib/meta/client";
 import { adsetTargetingWritesEnabled } from "@/lib/meta/adset-targeting-write";
+import { treeAddWritesEnabled } from "@/lib/campaign-tree/switch";
 import { resolveServerMetaToken } from "@/lib/meta/server-token";
 import { createClient } from "@/lib/supabase/server";
 
@@ -10,7 +11,9 @@ import { createClient } from "@/lib/supabase/server";
  * GET /api/events/[id]/campaign-tree
  *
  * The event's campaign tree (R7, RC6): stages → campaigns → ad sets →
- * additions, plus the audience write gate the "Add audience to…" sheet needs.
+ * additions, plus the two write switches the stage sheets show: audience
+ * (OFFPIXEL_META_ADSET_TARGETING_WRITES_ENABLED) and creatives
+ * (OFFPIXEL_META_TREE_ADD_WRITES_ENABLED).
  * Session auth; owner RLS scopes the drafts, launched ad sets and additions.
  * Meta is read only: one batched GET per ≤ 50 campaigns, never a write.
  */
@@ -57,6 +60,7 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
       view: tree.view,
       metaRead: tree.metaRead,
       audienceWritesEnabled: adsetTargetingWritesEnabled(),
+      creativeWritesEnabled: treeAddWritesEnabled(),
     });
   } catch (err) {
     return NextResponse.json({ error: err instanceof Error ? err.message : "Failed to load" }, { status: 500 });

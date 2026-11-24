@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { treeDate } from "@/lib/campaign-tree/tree";
 import { frameWord, FRAME_WORDS } from "@/lib/campaign-tree/words";
 import type { ReplicateChange, ReplicatePageQuestion } from "@/lib/replicate/replicate";
-import { REPLICATE_WORDS } from "@/lib/replicate/words";
+import { REPLICATE_WORDS, fillWords } from "@/lib/replicate/words";
 
 /**
  * Replicate to event (R1; record 2026-11-24-campaign-creator-replicate, RC1 ·
@@ -31,10 +31,18 @@ function eventLine(e: ReplicatePickEvent): string {
   return parts.join(" · ");
 }
 
+/** RC11: search matches the code or the name. */
 export function matchesQuery(e: ReplicatePickEvent, query: string): boolean {
   const q = query.trim().toLowerCase();
   if (!q) return true;
-  return [e.name, e.code, e.venue].some((v) => (v ?? "").toLowerCase().includes(q));
+  return [e.name, e.code].some((v) => (v ?? "").toLowerCase().includes(q));
+}
+
+/** RC11's empty and no-match lines, or null when there's a list to show. */
+export function pickEmptyLine(input: { clientName: string | null; total: number; shown: number; query: string }): string | null {
+  if (input.total === 0) return fillWords(REPLICATE_WORDS["replicate.pick.empty"], { client: input.clientName ?? "" });
+  if (input.shown === 0) return fillWords(REPLICATE_WORDS["replicate.pick.no_match"], { query: input.query.trim() });
+  return null;
 }
 
 export function ReplicatePickPanel({
@@ -48,9 +56,12 @@ export function ReplicatePickPanel({
   onNext,
   busy = false,
   error = null,
+  loaded = true,
 }: {
   clientName: string | null;
   events: ReplicatePickEvent[];
+  /** False while the list loads: no empty line yet. */
+  loaded?: boolean;
   query: string;
   onQuery: (q: string) => void;
   picked: string | null;
@@ -61,6 +72,8 @@ export function ReplicatePickPanel({
   error?: string | null;
 }) {
   const shown = events.filter((e) => matchesQuery(e, query));
+  const empty = loaded ? pickEmptyLine({ clientName, total: events.length, shown: shown.length, query }) : null;
+  const pickedShown = shown.some((e) => e.id === picked);
   return (
     <div className="space-y-3" data-replicate-step="pick">
       <p className="text-sm font-medium text-foreground">{REPLICATE_WORDS["replicate.pick.question"]}</p>
@@ -80,7 +93,8 @@ export function ReplicatePickPanel({
           {frameWord("upcoming", { client: clientName })}
         </p>
       ) : null}
-      <ul className="divide-y divide-border rounded-md border border-border" role="listbox" aria-label={REPLICATE_WORDS["replicate.pick.question"]}>
+      {empty ? <p className="text-[13px] text-muted-foreground" data-pick-empty="">{empty}</p> : null}
+      <ul className={`divide-y divide-border rounded-md border border-border ${shown.length === 0 ? "hidden" : ""}`} role="listbox" aria-label={REPLICATE_WORDS["replicate.pick.question"]}>
         {shown.map((e) => {
           const on = picked === e.id;
           return (
@@ -107,7 +121,7 @@ export function ReplicatePickPanel({
         <Button variant="ghost" size="sm" onClick={onCancel}>
           {FRAME_WORDS.cancel}
         </Button>
-        <Button size="sm" onClick={onNext} disabled={!picked || busy}>
+        <Button size="sm" onClick={onNext} disabled={!picked || !pickedShown || busy}>
           {FRAME_WORDS.next}
         </Button>
       </div>

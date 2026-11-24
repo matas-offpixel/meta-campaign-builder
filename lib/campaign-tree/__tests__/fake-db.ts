@@ -52,6 +52,9 @@ export class FakeDb {
           order() {
             return query;
           },
+          async limit(n: number) {
+            return { data: rows().filter((r) => filters.every((f) => f(r))).slice(0, n).map((r) => project(r, cols)), error: null };
+          },
           async range(from: number, to: number) {
             const all = rows().filter((r) => filters.every((f) => f(r)));
             return { data: all.slice(from, to + 1).map((r) => project(r, cols)), error: null };

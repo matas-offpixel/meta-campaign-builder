@@ -36,6 +36,12 @@
  * `ad_create`, required: no ledger, no write), keyed on the tree run, and each
  * campaign that got ads gets one campaign_additions row. Each ticked campaign
  * must have a published draft on the event: the ledger is per draft.
+ * A tree run sits behind OFFPIXEL_META_TREE_ADD_WRITES_ENABLED (exactly
+ * "true"; off by default): off, the route refuses it with 403
+ * `code: "tree_writes_off"` before any read or Meta call. A request without
+ * `tree` (the bulk-attach page) doesn't read the switch. Tree refusals carry
+ * a `code` for the sheet to map to words (RC12): tree_writes_off,
+ * invalid_tree_run, no_draft, log_unavailable.
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -67,6 +73,7 @@ import type { AdCreativeDraft } from "@/lib/types";
 import { additionWho, logCampaignAddition, UUID, type AdditionsDb } from "@/lib/campaign-tree/additions";
 import { resolveLedgerDrafts, treeAdLedgerKey, treeCreativeLedgerKey, type TreeDb } from "@/lib/campaign-tree/load";
 import { isTreeStage, type TreeStage } from "@/lib/campaign-tree/tree";
+import { treeAddWritesEnabled } from "@/lib/campaign-tree/switch";
 import { withMetaWriteIdempotency, type MetaWriteContext } from "@/lib/meta/write-idempotency";
 
 export const maxDuration = 600;
@@ -105,6 +112,8 @@ export interface CampaignAttachResult {
   creativesFailed: { name: string; error: string }[];
   /** Meta ad IDs created for this campaign — used by queue launched_meta_ad_ids. */
   adIds: string[];
+  /** Tree runs: the ad sets that hold the run's ads (made now or on an earlier try). The sheet lists the rest as not added. */
+  adSetsAdded?: string[];
   /** Set when the entire campaign batch failed before any ad creation. */
   error?: string;
 }
@@ -176,14 +185,17 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // ── Campaign tree run: every ticked campaign's published draft keys the ledger ─
   let treeRun: { eventId: string; stage: TreeStage; runId: string; ledger: Map<string, MetaWriteContext> } | null = null;
   if (body.tree !== undefined) {
+    if (!treeAddWritesEnabled()) {
+      return NextResponse.json({ error: "Adding creatives from the campaign tree is switched off", code: "tree_writes_off" }, { status: 403 });
+    }
     const t = body.tree;
     if (!t || !UUID.test(String(t.eventId ?? "")) || !UUID.test(String(t.runId ?? "")) || !isTreeStage(t.stage)) {
-      return NextResponse.json({ error: "Invalid tree run" }, { status: 400 });
+      return NextResponse.json({ error: "Invalid tree run", code: "invalid_tree_run" }, { status: 400 });
     }
     const resolved = await resolveLedgerDrafts(supabase as unknown as TreeDb, t.eventId, Object.keys(campaignAdSets));
     if (!resolved.ok) {
       return NextResponse.json(
-        { error: `No published draft on this event for campaign ${resolved.missing.join(", ")}`, missing: resolved.missing },
+        { error: `No published draft on this event for campaign ${resolved.missing.join(", ")}`, code: "no_draft", missing: resolved.missing },
         { status: 400 },
       );
     }
@@ -191,7 +203,15 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     try {
       service = createServiceRoleClient();
     } catch (err) {
-      return NextResponse.json({ error: err instanceof Error ? err.message : "Write ledger is unavailable" }, { status: 503 });
+      return NextResponse.json({ error: err instanceof Error ? err.message : "Write ledger is unavailable", code: "log_unavailable" }, { status: 503 });
+    }
+    // RC12: a run that can't be logged doesn't start. Both the ledger and the additions log must answer a read first.
+    const [ledgerProbe, logProbe] = await Promise.all([
+      service.from("meta_write_idempotency").select("id").limit(1),
+      supabase.from("campaign_additions").select("id").limit(1),
+    ]);
+    if (ledgerProbe.error || logProbe.error) {
+      return NextResponse.json({ error: "This run couldn't be logged", code: "log_unavailable" }, { status: 503 });
     }
     treeRun = {
       eventId: t.eventId,
@@ -592,6 +612,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       if (!logged.ok) console.error(`[bulk-attach-ads] campaign_additions log failed for ${campaignId}: ${logged.error}`);
     }
 
+    if (treeRun) result.adSetsAdded = [...(treeAdSets.get(campaignId) ?? [])];
     totalAdsCreated += result.adsCreated;
     totalAdsFailed += result.adsFailed;
     results.push(result);

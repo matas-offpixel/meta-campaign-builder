@@ -92,9 +92,9 @@ export type ReplicateTargetsResult =
   | { ok: false; error: "not_signed_in" | "not_operator" | "draft_not_found" };
 
 /**
- * RC1's picker: the source client's events from today, soonest first, and
- * the source's own event wherever its date falls. Each with its name, code,
- * venue and show date.
+ * The picker (RC1, RC11): the source client's upcoming events only, soonest
+ * first, each with its name, code, venue and show date. The source's own
+ * event is listed only while it's upcoming; no other client's events.
  */
 export async function listReplicateTargets(draftId: string, today: string): Promise<ReplicateTargetsResult> {
   const supabase = await createClient();
@@ -129,7 +129,7 @@ export async function listReplicateTargets(draftId: string, today: string): Prom
       .range(0, 999),
   ]);
   const list: ReplicateTarget[] = (events ?? [])
-    .filter((e) => e.id === sourceEventId || (typeof e.event_date === "string" && e.event_date >= today))
+    .filter((e) => typeof e.event_date === "string" && e.event_date >= today)
     .map((e) => ({
       id: String(e.id),
       name: (e.name as string | null) ?? null,

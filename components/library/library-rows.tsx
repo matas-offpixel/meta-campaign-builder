@@ -41,7 +41,7 @@ import {
 import { AdSetAudiencePush } from "@/components/library/adset-audience-push";
 import { AdSetDestinationPush } from "@/components/library/adset-destination-push";
 import type { CampaignDraft, CampaignListItem, CampaignTemplate } from "@/lib/types";
-import { stageOfCampaign, type TreeStage } from "@/lib/campaign-tree/tree";
+import { isTreeStage, stageOfCampaign, type TreeStage } from "@/lib/campaign-tree/tree";
 import { TREE_WORDS } from "@/lib/campaign-tree/words";
 import { REPLICATE_WORDS } from "@/lib/replicate/words";
 
@@ -188,8 +188,10 @@ export function CampaignRow({
   // RC6: on a published campaign with an event, the stage actions replace
   // "Add to campaign" and "Add audience to ad sets" (a row with no event has
   // no tree to open, so it keeps them).
-  const staged = published && Boolean(c.eventId) && Boolean(onStageAction);
-  const stage = stageOfCampaign({ name: c.name, draftObjective: c.objective });
+  // An Unsorted campaign (RC14) takes no stage additions, so it keeps the old items too.
+  const group = stageOfCampaign({ name: c.name, draftObjective: c.objective });
+  const stage: TreeStage | null = isTreeStage(group) ? group : null;
+  const staged = published && Boolean(c.eventId) && Boolean(onStageAction) && stage !== null;
   const duplicateItem: OverflowMenuItem = {
     id: "duplicate",
     icon: <Copy />,
@@ -213,7 +215,7 @@ export function CampaignRow({
       icon: <Plus />,
       label: TREE_WORDS["tree.action.creatives"],
       hidden: !staged,
-      onSelect: () => onStageAction?.(c, stage, "creatives"),
+      onSelect: () => stage && onStageAction?.(c, stage, "creatives"),
     },
     {
       id: "add-to-campaign",
@@ -234,7 +236,7 @@ export function CampaignRow({
       icon: <Users />,
       label: TREE_WORDS["tree.action.audience"],
       hidden: !staged,
-      onSelect: () => onStageAction?.(c, stage, "audience"),
+      onSelect: () => stage && onStageAction?.(c, stage, "audience"),
     },
     {
       id: "audience",

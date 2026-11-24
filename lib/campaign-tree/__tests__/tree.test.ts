@@ -18,6 +18,9 @@ import {
   toggleCampaign,
   treeDate,
   treeStatus,
+  notAddedLines,
+  runErrorLine,
+  treeRunNotAdded,
   type TreeAdditionRow,
   type TreeCampaign,
 } from "../tree.ts";
@@ -93,25 +96,59 @@ const ADDITIONS: TreeAdditionRow[] = [
   },
 ];
 
-describe("stages", () => {
-  it("reads the stage from the campaign name first", () => {
+describe("stages (RC14)", () => {
+  it("reads only stage words in the name, after the [CODE]", () => {
     assert.equal(stageOfCampaign({ name: "[NX27-GLITTERBOX] SIGNUP" }), "signup");
-    assert.equal(stageOfCampaign({ name: "[NX27-GLITTERBOX] PURCHASE", draftObjective: "registration" }), "on_sale");
-    assert.equal(stageOfCampaign({ name: "[NX27-GLITTERBOX] ON SALE" }), "on_sale");
+    assert.equal(stageOfCampaign({ name: "[NX27-GLITTERBOX] SIGN UP" }), "signup");
+    assert.equal(stageOfCampaign({ name: "[NX27-GLITTERBOX] Signups" }), "signup");
+    assert.equal(stageOfCampaign({ name: "[NX27-GLITTERBOX] REGISTRATION" }), "signup");
     assert.equal(stageOfCampaign({ name: "[NX27-GLITTERBOX] PRESALE" }), "presale");
+    assert.equal(stageOfCampaign({ name: "[NX27-GLITTERBOX] PRE-SALE" }), "presale");
+    assert.equal(stageOfCampaign({ name: "[NX27-GLITTERBOX] ON SALE" }), "on_sale");
+    assert.equal(stageOfCampaign({ name: "[NX27-GLITTERBOX] ONSALE" }), "on_sale");
+    assert.equal(stageOfCampaign({ name: "[NX27-GLITTERBOX] GEN SALE" }), "on_sale");
+    assert.equal(stageOfCampaign({ name: "[NX27-GLITTERBOX] GENERAL SALE" }), "on_sale");
     assert.equal(stageOfCampaign({ name: "[NX27-GLITTERBOX] SHOW WEEK" }), "show_week");
+    assert.equal(stageOfCampaign({ name: "[NX27-GLITTERBOX] FINAL PUSH" }), "show_week");
+  });
+
+  it("[CODE] SIGNUP is Signup whatever its objective", () => {
+    assert.equal(stageOfCampaign({ name: "[NX27-GLITTERBOX] SIGNUP", draftObjective: "purchase", metaObjective: "OUTCOME_SALES" }), "signup");
+  });
+
+  it("PURCHASE, TRAFFIC, REACH, TICKETS and REG aren't stage words", () => {
+    for (const word of ["PURCHASE", "TRAFFIC", "REACH", "TICKETS", "TICKET", "REG"]) {
+      assert.equal(stageOfCampaign({ name: `[NX27-GLITTERBOX] ${word}` }), "unsorted", word);
+    }
   });
 
   it("never reads a stage out of the [CODE]", () => {
-    assert.equal(stageOfCampaign({ name: "[REG26-SIGNUP] Lineup", draftObjective: "purchase" }), "on_sale");
+    assert.equal(stageOfCampaign({ name: "[SIGNUP26-ONSALE] Lineup" }), "unsorted");
   });
 
-  it("falls back to the draft objective, then phase_at_launch, then Meta's objective, then On sale", () => {
+  it("then an objective that means one stage", () => {
     assert.equal(stageOfCampaign({ name: "Lineup", draftObjective: "registration" }), "signup");
+    assert.equal(stageOfCampaign({ name: "Lineup", draftObjective: "purchase" }), "on_sale");
     assert.equal(stageOfCampaign({ name: "Lineup", phaseAtLaunch: "presale" }), "signup");
+    assert.equal(stageOfCampaign({ name: "Lineup", phaseAtLaunch: "on_sale" }), "on_sale");
     assert.equal(stageOfCampaign({ name: "Lineup", metaObjective: "OUTCOME_LEADS" }), "signup");
-    assert.equal(stageOfCampaign({ name: "Lineup", metaObjective: "OUTCOME_TRAFFIC" }), "on_sale");
-    assert.equal(stageOfCampaign({ name: "Lineup" }), "on_sale");
+    assert.equal(stageOfCampaign({ name: "Lineup", metaObjective: "OUTCOME_SALES" }), "on_sale");
+  });
+
+  it("traffic, awareness, engagement and reach decide nothing: [NX27-GLITTERBOX] TRAFFIC is Unsorted", () => {
+    assert.equal(stageOfCampaign({ name: "[NX27-GLITTERBOX] TRAFFIC", draftObjective: "traffic", phaseAtLaunch: "on_sale", metaObjective: "OUTCOME_TRAFFIC" }), "unsorted");
+    assert.equal(stageOfCampaign({ name: "Lineup", draftObjective: "awareness", phaseAtLaunch: "on_sale" }), "unsorted");
+    assert.equal(stageOfCampaign({ name: "Lineup", draftObjective: "engagement" }), "unsorted");
+    assert.equal(stageOfCampaign({ name: "Lineup", metaObjective: "OUTCOME_AWARENESS", phaseAtLaunch: "on_sale" }), "unsorted");
+    assert.equal(stageOfCampaign({ name: "Lineup" }), "unsorted");
+  });
+
+  it("P26-BDAY: Lineup Push and Reach (to 12PM Thu) go under Unsorted", () => {
+    assert.equal(stageOfCampaign({ name: "[P26-BDAY] Lineup Push", draftObjective: "traffic", phaseAtLaunch: "on_sale", metaObjective: "OUTCOME_TRAFFIC" }), "unsorted");
+    assert.equal(stageOfCampaign({ name: "[P26-BDAY] Reach (to 12PM Thu)", draftObjective: "awareness", phaseAtLaunch: "on_sale", metaObjective: "OUTCOME_AWARENESS" }), "unsorted");
+    // With nothing but the names, too.
+    assert.equal(stageOfCampaign({ name: "[P26-BDAY] Lineup Push" }), "unsorted");
+    assert.equal(stageOfCampaign({ name: "[P26-BDAY] Reach (to 12PM Thu)" }), "unsorted");
   });
 
   it("maps Meta statuses", () => {
@@ -229,7 +266,7 @@ describe("the stage sheet (RC6)", () => {
     let selection = defaultSelection(onSale);
     selection = toggleCampaign(selection, REACH);
     assert.equal(selection[REACH.metaCampaignId]!.length, 1);
-    assert.equal(sheetCampaignLine(REACH, selection), "1 of 1 ad sets · paused");
+    assert.equal(sheetCampaignLine(REACH, selection), "1 of 1 ad set · paused");
     selection = toggleCampaign(selection, PURCHASE);
     assert.deepEqual(selection[PURCHASE.metaCampaignId], []);
     selection = toggleAdSet(selection, PURCHASE, PURCHASE.adSets[2]!.id);
@@ -242,5 +279,66 @@ describe("the stage sheet (RC6)", () => {
     const other: TreeCampaign = { ...TRAFFIC, metaCampaignId: "120000000009", adAccountId: "act_1" };
     const v = buildCampaignTree({ campaigns: [PURCHASE, other], additions: [] });
     assert.deepEqual(stageSheetCampaigns(v, "on_sale").map((c) => c.metaCampaignId), [PURCHASE.metaCampaignId]);
+  });
+});
+
+describe("RC9 one forms, RC10 no draft, RC14 Unsorted, RC12 outcomes", () => {
+  it("picks the one form by n everywhere", () => {
+    const one: TreeAdditionRow = { ...ADDITIONS[1]!, meta_adset_ids: ["a"], detail: { creatives: 1, who: "Matas" } };
+    assert.deepEqual([additionView(one).head, additionView(one).line], ["+ 1 ad added", "Thu 26 Nov · to 1 ad set · Matas"]);
+    const aud: TreeAdditionRow = { ...ADDITIONS[0]!, meta_adset_ids: ["a"] };
+    assert.equal(additionView(aud).line, "Fri 27 Nov · Techno page engagers → 1 ad set · Matas");
+    assert.equal(creativesSheetTitle(1, "on_sale"), "Add 1 creative to On sale");
+    const single: TreeCampaign = { ...TRAFFIC, adSets: adSets("9", 1) };
+    assert.equal(sheetCampaignLine(single, { [single.metaCampaignId]: [single.adSets[0]!.id] }), "1 of 1 ad set");
+    assert.equal(sheetButton({ [single.metaCampaignId]: [single.adSets[0]!.id] }), "Add to 1 ad set in 1 campaign");
+    assert.equal(sheetButton({ [PURCHASE.metaCampaignId]: PURCHASE.adSets.map((a) => a.id) }), "Add to 6 ad sets in 1 campaign");
+    assert.equal(sheetButton({ [PURCHASE.metaCampaignId]: [] }), "Nothing ticked");
+    assert.equal(sheetButton({}), "Nothing ticked");
+  });
+
+  it("a campaign with no draft on the event stays under its stage, with the line, and can't be ticked", () => {
+    const retarget: TreeCampaign = { ...TRAFFIC, metaCampaignId: "120000000005", name: "[NX27-GLITTERBOX] ON SALE · RETARGET", draftId: null };
+    const view = buildCampaignTree({ campaigns: [PURCHASE, retarget], additions: [] });
+    const row = view.stages.find((s) => s.stage === "on_sale")!.campaigns.find((c) => c.metaCampaignId === retarget.metaCampaignId)!;
+    assert.equal(row.noDraft, "No draft on this event, so additions can’t reach it.");
+    assert.equal(row.meta, "live · 2 ad sets");
+    assert.equal(view.stages.find((s) => s.stage === "on_sale")!.campaigns.find((c) => c.metaCampaignId === PURCHASE.metaCampaignId)!.noDraft, null);
+    const selection = defaultSelection(stageSheetCampaigns(view, "on_sale"));
+    assert.deepEqual(selection[retarget.metaCampaignId], []);
+    assert.deepEqual(toggleAdSet(selection, retarget, retarget.adSets[0]!.id), selection);
+    assert.equal(sheetButton(selection), "Add to 6 ad sets in 1 campaign");
+  });
+
+  it("Unsorted comes last, only with campaigns, with its line and no stage actions", () => {
+    const view = buildCampaignTree({
+      campaigns: [PURCHASE, { ...TRAFFIC, stage: "unsorted" }, { ...REACH, stage: "unsorted" }],
+      additions: [],
+    });
+    assert.deepEqual(view.stages.map((s) => [s.label, s.actions]), [["Signup", true], ["On sale", true], ["Unsorted", false]]);
+    assert.equal(view.stages[2]!.line, "The name and objective don’t say the stage, so these take no stage additions.");
+    assert.equal(buildCampaignTree({ campaigns: [PURCHASE], additions: [] }).stages.some((s) => s.stage === "unsorted"), false);
+  });
+
+  it("maps a run's outcome to rows, never codes", () => {
+    assert.deepEqual(
+      notAddedLines([
+        { name: "Retargeting · page", kind: "refused" },
+        { name: "Similar pages", kind: "failed" },
+      ]),
+      { heading: "Not added to 2 ad sets:", rows: ["Retargeting · page: refused, nothing changed on it", "Similar pages: didn’t go through. Try again."] },
+    );
+    assert.equal(notAddedLines([{ name: "Broad", kind: "failed" }])!.heading, "Not added to 1 ad set:");
+    assert.equal(notAddedLines([]), null);
+    assert.equal(runErrorLine({ added: 0 }), "Nothing was added. Try again.");
+    assert.equal(runErrorLine({ added: 0, logUnavailable: true }), "Nothing was added: this run couldn’t be logged, so it didn’t start.");
+    assert.equal(runErrorLine({ added: 1 }), "Stopped part way: added to 1 ad set, then stopped. Try again for the rest.");
+    assert.equal(runErrorLine({ added: 7 }), "Stopped part way: added to 7 ad sets, then stopped. Try again for the rest.");
+  });
+
+  it("a creatives run lists the ticked ad sets that hold none of its ads", () => {
+    const picked = { [PURCHASE.metaCampaignId]: PURCHASE.adSets.slice(0, 2).map((a) => a.id) };
+    const out = treeRunNotAdded(picked, [{ campaignId: PURCHASE.metaCampaignId, adSetsAdded: [PURCHASE.adSets[0]!.id] }], [PURCHASE]);
+    assert.deepEqual(out, { added: 1, notAdded: [{ name: PURCHASE.adSets[1]!.name, kind: "failed" }] });
   });
 });

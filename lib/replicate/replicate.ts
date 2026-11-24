@@ -179,7 +179,7 @@ export interface ReplicateResult {
   changesTitle: string;
   /** "Kept from the source" */
   keptTitle: string;
-  /** "Objective, {n} ad sets, budgets, placements, interests." */
+  /** "Objective, {n} ad sets, budgets, placements, interests, ad copy." (RC13; one form for 1 ad set) */
   kept: string;
   /** One boxed question per page the ads run from. */
   pages: ReplicatePageQuestion[];
@@ -786,7 +786,8 @@ export function replicateDraft(
     }),
     changesTitle: fillWords(word("replicate.summary.changes"), { code }),
     keptTitle: word("replicate.kept.title"),
-    kept: fillWords(word("replicate.kept.line"), { n: adSets }),
+    // RC13 (#1366): copy isn't rewritten until R8, so the kept line names the ad copy.
+    kept: fillWords(word(adSets === 1 ? "replicate.kept.line.copy.one" : "replicate.kept.line.copy"), { n: adSets }),
     pages,
     audiences: outcome,
   };

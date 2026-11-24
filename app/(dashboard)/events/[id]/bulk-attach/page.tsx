@@ -80,7 +80,11 @@ import {
   type TreeSelection,
   type TreeStage,
   type TreeView,
+  type NotAdded,
+  runErrorLine,
+  treeRunNotAdded,
 } from "@/lib/campaign-tree/tree";
+import { TREE_WORDS } from "@/lib/campaign-tree/words";
 
 const BULK_ATTACH_CAP = 8;
 
@@ -293,14 +297,20 @@ export default function BulkAttachPage({ params, searchParams }: PageProps) {
   const [sheetSelection, setSheetSelection] = useState<TreeSelection>({});
   const [sheetOpen, setSheetOpen] = useState(false);
   const [treeRunId] = useState(() => (typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : ""));
+  /** OFFPIXEL_META_TREE_ADD_WRITES_ENABLED, read through the tree route. Off until it says on. */
+  const [treeWritesOn, setTreeWritesOn] = useState(false);
+  const [stageRunning, setStageRunning] = useState(false);
+  const [stageError, setStageError] = useState<string | null>(null);
+  const [stageNotAdded, setStageNotAdded] = useState<NotAdded[]>([]);
 
   useEffect(() => {
     if (!stageMode) return;
     let cancelled = false;
     fetch(`/api/events/${encodeURIComponent(eventId)}/campaign-tree`)
       .then(async (res) => {
-        const json = (await res.json()) as { view?: TreeView; error?: string };
+        const json = (await res.json()) as { view?: TreeView; creativeWritesEnabled?: boolean };
         if (cancelled || !res.ok || !json.view) return;
+        setTreeWritesOn(json.creativeWritesEnabled === true);
         const campaigns = stageSheetCampaigns(json.view, stageMode);
         setTreeCampaigns(campaigns);
         setSheetSelection(defaultSelection(campaigns));
@@ -326,19 +336,55 @@ export default function BulkAttachPage({ params, searchParams }: PageProps) {
   }, [stageMode, eventId]);
 
   const openStageSheet = () => {
-    clearLaunchErrors();
+    setStageError(null);
+    setStageNotAdded([]);
     setSheetOpen(true);
   };
 
-  const confirmStageSheet = () => {
+  /**
+   * The stage sheet's run: a `tree` run on the bulk-attach route (ledgered,
+   * logged). Its outcome is shown in rows only (RC12): ad sets it didn't add
+   * to are listed and the sheet stays open; a refusal or a stop says how far
+   * it got. Retrying keeps the run id, so the ledger skips what's done.
+   */
+  const confirmStageSheet = async () => {
+    if (!stageMode || !treeWritesOn) return;
     const picked = selectedCampaignAdSets(sheetSelection);
     setCampaignAdSets(new Map(Object.entries(picked).map(([cid, ids]) => [cid, new Set(ids)])));
-    void handleLaunch(picked).then((ok) => {
-      if (ok) {
+    setStageRunning(true);
+    setStageError(null);
+    setStageNotAdded([]);
+    try {
+      const res = await fetch("/api/meta/bulk-attach-ads", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          adAccountId,
+          campaignAdSets: picked,
+          newCreatives: creatives,
+          tree: { eventId, stage: stageMode, runId: treeRunId },
+        }),
+      });
+      const data = (await res.json().catch(() => ({}))) as Partial<BulkAttachResult> & { code?: string };
+      if (!res.ok && res.status !== 207) {
+        setStageError(runErrorLine({ added: 0, logUnavailable: data.code === "log_unavailable" }));
+        return;
+      }
+      const result = data as BulkAttachResult;
+      const { added, notAdded } = treeRunNotAdded(picked, result.campaigns ?? [], treeCampaigns ?? []);
+      if (notAdded.length === 0 && !result.rateLimited) {
+        setLaunchResult(result);
         setSheetOpen(false);
         setStep(3);
+        return;
       }
-    });
+      setStageNotAdded(notAdded);
+      if (result.rateLimited) setStageError(runErrorLine({ added }));
+    } catch {
+      setStageError(runErrorLine({ added: 0 }));
+    } finally {
+      setStageRunning(false);
+    }
   };
 
   // ── Active template match pattern (from applied template, step 1) ─────────
@@ -689,29 +735,25 @@ export default function BulkAttachPage({ params, searchParams }: PageProps) {
   };
 
   // ── Launch ────────────────────────────────────────────────────────────────
-  /** `stagePicks`: the stage sheet's ticks (R7); the run is then a tree run, on the ledger and logged. Resolves true once Meta answered. */
-  const handleLaunch = async (stagePicks?: Record<string, string[]>): Promise<boolean> => {
+  const handleLaunch = async () => {
     setLaunching(true);
     clearLaunchErrors();
     const campaignAdSetsPayload: Record<string, string[]> = {};
-    if (stagePicks) Object.assign(campaignAdSetsPayload, stagePicks);
-    else
-      for (const [cid, adSetSet] of campaignAdSets.entries()) {
-        campaignAdSetsPayload[cid] = Array.from(adSetSet);
-      }
-    const tree = stagePicks && stageMode ? { eventId, stage: stageMode, runId: treeRunId } : undefined;
+    for (const [cid, adSetSet] of campaignAdSets.entries()) {
+      campaignAdSetsPayload[cid] = Array.from(adSetSet);
+    }
     try {
       const res = await fetch("/api/meta/bulk-attach-ads", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ adAccountId, campaignAdSets: campaignAdSetsPayload, newCreatives: creatives, ...(tree ? { tree } : {}) }),
+        body: JSON.stringify({ adAccountId, campaignAdSets: campaignAdSetsPayload, newCreatives: creatives }),
       });
       const data = await res.json();
       if (!res.ok && res.status !== 207) {
         const { message, details } = parseLaunchValidationResponse(data);
         setLaunchError(message);
         setLaunchValidationDetails(details);
-        return false;
+        return;
       }
       const result = data as BulkAttachResult;
       setLaunchResult(result);
@@ -721,10 +763,8 @@ export default function BulkAttachPage({ params, searchParams }: PageProps) {
         // relaunch indicator, not the Dynamic Creative guard.
         setShippedVariationsCount((prev) => prev + creatives.length);
       }
-      return true;
     } catch (err) {
       setLaunchError(err instanceof Error ? err.message : "Network error");
-      return false;
     } finally {
       setLaunching(false);
     }
@@ -1008,26 +1048,19 @@ export default function BulkAttachPage({ params, searchParams }: PageProps) {
         <>
           {/* ── Campaign tree stage sheet (R7, RC6) ──────────────────────── */}
           {stageMode && sheetOpen && treeCampaigns ? (
-            <Dialog open onClose={() => !launching && setSheetOpen(false)} panelClassName="max-w-xl">
+            <Dialog open onClose={() => !stageRunning && setSheetOpen(false)} panelClassName="max-w-xl">
               <div className="max-h-[88vh] overflow-y-auto">
                 <StageSheetPanel
                   title={creativesSheetTitle(creatives.length, stageMode)}
                   campaigns={treeCampaigns}
                   selection={sheetSelection}
                   onSelection={setSheetSelection}
-                  onCancel={() => !launching && setSheetOpen(false)}
-                  onConfirm={confirmStageSheet}
-                  busy={launching}
-                  error={launchError}
-                  after={
-                    launchValidationDetails.length > 0 ? (
-                      <ul className="mt-3 space-y-0.5 text-xs text-destructive">
-                        {launchValidationDetails.map((d) => (
-                          <li key={d}>{d}</li>
-                        ))}
-                      </ul>
-                    ) : null
-                  }
+                  onCancel={() => !stageRunning && setSheetOpen(false)}
+                  onConfirm={() => void confirmStageSheet()}
+                  busy={stageRunning}
+                  off={treeWritesOn ? null : TREE_WORDS["tree.sheet.off.creatives"]}
+                  error={stageError}
+                  notAdded={stageNotAdded}
                 />
               </div>
             </Dialog>
@@ -1276,7 +1309,7 @@ export default function BulkAttachPage({ params, searchParams }: PageProps) {
                     </p>
                   )}
                 <Button
-                  onClick={() => void handleLaunch()}
+                  onClick={handleLaunch}
                   disabled={
                     launching ||
                     !creativeLaunchReadiness.ready ||

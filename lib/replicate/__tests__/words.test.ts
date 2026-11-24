@@ -19,14 +19,14 @@ const ROWS = TSV.trimEnd()
   .map(([key, where, words]) => ({ key: key!, where: where!, words: words! }));
 
 describe("replicate words", () => {
-  it("the fixture is the record's list: 151 rows, unique keys", () => {
-    assert.equal(ROWS.length, 151);
-    assert.equal(new Set(ROWS.map((r) => r.key)).size, 151);
+  it("the fixture is the record's list: 187 rows, unique keys", () => {
+    assert.equal(ROWS.length, 187);
+    assert.equal(new Set(ROWS.map((r) => r.key)).size, 187);
   });
 
   it("every replicate.* and duplicate.* row is in words.ts, word for word", () => {
     const wanted = ROWS.filter((r) => /^(replicate|duplicate)\./.test(r.key));
-    assert.equal(wanted.length, 32);
+    assert.equal(wanted.length, 42);
     for (const r of wanted) {
       assert.equal((REPLICATE_WORDS as Record<string, string>)[r.key], r.words, r.key);
     }

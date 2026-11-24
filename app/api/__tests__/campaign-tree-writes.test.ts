@@ -29,11 +29,18 @@ const state = vi.hoisted(() => ({
   ads: [] as string[],
   targetingWrites: [] as string[],
   failAdSet: null as string | null,
+  ledgerTableBroken: false,
 }));
 
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/supabase/server", () => ({
-  createServiceRoleClient: () => ({ from: () => ({}) }),
+  createServiceRoleClient: () => ({
+    from: () => ({
+      select: () => ({
+        limit: async () => (state.ledgerTableBroken ? { data: null, error: { code: "42P01", message: "missing" } } : { data: [], error: null }),
+      }),
+    }),
+  }),
   createClient: async () => {
     const db = state.db;
     return Object.assign(db, {
@@ -126,7 +133,9 @@ beforeEach(() => {
   state.ads = [];
   state.targetingWrites = [];
   state.failAdSet = null;
+  state.ledgerTableBroken = false;
   delete process.env.OFFPIXEL_META_ADSET_TARGETING_WRITES_ENABLED;
+  process.env.OFFPIXEL_META_TREE_ADD_WRITES_ENABLED = "true";
 });
 
 describe("Add creatives to… (bulk-attach with a tree run)", () => {
@@ -145,6 +154,7 @@ describe("Add creatives to… (bulk-attach with a tree run)", () => {
     expect(new Set(state.ledgerCalls.filter((c) => c.payload && (c.payload as { campaign_id: string }).campaign_id === TRAFFIC).map((c) => c.draftId))).toEqual(
       new Set(["d0000000-0000-4000-8000-000000000003"]),
     );
+    expect(body.campaigns.map((c: { adSetsAdded: string[] }) => c.adSetsAdded)).toEqual([["23800100001", "23800100002"], ["23800200001"]]);
     const rows = state.db.tables.campaign_additions!;
     expect(rows).toHaveLength(2);
     expect(rows.map((r) => [r.meta_campaign_id, r.stage, r.kind, (r.meta_adset_ids as string[]).length, (r.detail as { creatives: number }).creatives, (r.detail as { who: string }).who])).toEqual([
@@ -173,6 +183,40 @@ describe("Add creatives to… (bulk-attach with a tree run)", () => {
     const res = await POST(attachBody({ ...selection, [ADHOC]: ["23800300001"] }));
     expect(res.status).toBe(400);
     expect((await res.json()).missing).toEqual([ADHOC]);
+    expect(state.creatives).toBe(0);
+    expect(state.ads).toHaveLength(0);
+  });
+
+  it("stays behind OFFPIXEL_META_TREE_ADD_WRITES_ENABLED: unset, or anything but \"true\", refuses before any Meta call", async () => {
+    const { POST } = await import("@/app/api/meta/bulk-attach-ads/route");
+    for (const value of [undefined, "1", "TRUE", "yes"]) {
+      if (value === undefined) delete process.env.OFFPIXEL_META_TREE_ADD_WRITES_ENABLED;
+      else process.env.OFFPIXEL_META_TREE_ADD_WRITES_ENABLED = value;
+      const res = await POST(attachBody(selection));
+      expect(res.status).toBe(403);
+      expect((await res.json()).code).toBe("tree_writes_off");
+    }
+    expect(state.creatives).toBe(0);
+    expect(state.ads).toHaveLength(0);
+    expect(state.ledgerCalls).toHaveLength(0);
+    expect(state.db.tables.campaign_additions).toHaveLength(0);
+  });
+
+  it("the bulk-attach page's own run doesn't read the switch", async () => {
+    delete process.env.OFFPIXEL_META_TREE_ADD_WRITES_ENABLED;
+    const { POST } = await import("@/app/api/meta/bulk-attach-ads/route");
+    const res = await POST(attachBody(selection, null));
+    expect(res.status).toBe(200);
+    expect((await res.json()).totalAdsCreated).toBe(9);
+    expect(state.ledgerCalls).toHaveLength(0);
+  });
+
+  it("a run that can't be logged doesn't start", async () => {
+    state.ledgerTableBroken = true;
+    const { POST } = await import("@/app/api/meta/bulk-attach-ads/route");
+    const res = await POST(attachBody(selection));
+    expect(res.status).toBe(503);
+    expect((await res.json()).code).toBe("log_unavailable");
     expect(state.creatives).toBe(0);
     expect(state.ads).toHaveLength(0);
   });

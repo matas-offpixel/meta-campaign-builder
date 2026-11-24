@@ -38,13 +38,13 @@ function recordText(): string {
 }
 
 describe("campaign tree words", () => {
-  it("the fixture is the final list (151 rows)", () => {
-    assert.equal(ROWS.length, 151);
+  it("the fixture is the final list (187 rows)", () => {
+    assert.equal(ROWS.length, 187);
   });
 
   it("every tree.* row is in words.ts or CC-1's words.ts, word for word", () => {
     const tree = ROWS.filter((r) => r.key.startsWith("tree."));
-    assert.equal(tree.length, 15);
+    assert.equal(tree.length, 41);
     for (const r of tree) {
       const here = (TREE_WORDS as Record<string, string>)[r.key] ?? (REPLICATE_WORDS as Record<string, string>)[r.key];
       assert.equal(here, r.words, r.key);
@@ -58,7 +58,7 @@ describe("campaign tree words", () => {
 
   it("every replicate.* and duplicate.* row the dialog uses is CC-1's, word for word", () => {
     const rows = ROWS.filter((r) => /^(replicate|duplicate)\./.test(r.key));
-    assert.equal(rows.length, 32);
+    assert.equal(rows.length, 42);
     for (const r of rows) assert.equal((REPLICATE_WORDS as Record<string, string>)[r.key], r.words, r.key);
   });
 

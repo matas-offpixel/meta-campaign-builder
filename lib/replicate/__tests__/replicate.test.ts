@@ -184,7 +184,7 @@ describe("replicateDraft: Glitterbox EBR27 → NX27 (RC-B)", () => {
       ],
     );
     assert.equal(result.keptTitle, "Kept from the source");
-    assert.equal(result.kept, "Objective, 18 ad sets, budgets, placements, interests.");
+    assert.equal(result.kept, "Objective, 18 ad sets, budgets, placements, interests, ad copy.");
     assert.deepEqual(
       result.pages.map((p) => [p.question, p.keep, p.change]),
       [["Ads run from Glitterbox Official: keep or change", "Keep Glitterbox Official", "Change"]],

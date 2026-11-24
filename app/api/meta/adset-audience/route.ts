@@ -118,6 +118,13 @@ export async function POST(request: Request) {
   if (addition && (action !== "add" || direction !== "include")) {
     return Response.json({ error: "The campaign tree only adds an included audience" }, { status: 400 });
   }
+  if (addition && commit) {
+    // RC12: a tree run that can't be logged doesn't start.
+    const probe = await supabase.from("campaign_additions").select("id").limit(1);
+    if (probe.error) {
+      return Response.json({ error: "This run couldn't be logged", code: "log_unavailable" }, { status: 503 });
+    }
+  }
   const draftJson = row.draft_json as { metaCampaignId?: unknown } | null;
   const campaignId =
     typeof draftJson?.metaCampaignId === "string" ? draftJson.metaCampaignId.trim() : "";
@@ -190,7 +197,7 @@ export async function POST(request: Request) {
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : "Write ledger is unavailable";
-    return Response.json({ error: message }, { status: 503 });
+    return Response.json({ error: message, code: "log_unavailable" }, { status: 503 });
   }
 
   const results = await applyAdSetAudienceChanges({

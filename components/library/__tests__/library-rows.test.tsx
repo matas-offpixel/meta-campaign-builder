@@ -216,6 +216,25 @@ describe("Replicate to event and the stage actions (RC1, RC6)", () => {
     expect(onReplicate).toHaveBeenCalledWith("camp-1");
   });
 
+  it("an Unsorted campaign (RC14) takes no stage actions and keeps the old items", async () => {
+    const user = userEvent.setup();
+    render(
+      <CampaignRow
+        campaign={{ ...campaign("published"), name: "[P26-BDAY] Lineup Push", objective: "traffic", eventId: "ev-1" }}
+        isLoading={false}
+        onOpen={() => undefined}
+        onAddToCampaign={() => undefined}
+        targetingWritesEnabled
+        onReplicate={() => undefined}
+        onStageAction={() => undefined}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: "More actions" }));
+    const labels = screen.getAllByRole("menuitem").map((item) => item.textContent?.replace(/\s+/g, " ").trim());
+    expect(labels).not.toContain("Add creatives to…");
+    expect(labels).toContain("Add to campaign");
+  });
+
   it("a published campaign with no event keeps Add to campaign and Add audience to ad sets", async () => {
     const user = userEvent.setup();
     render(<StagedRow eventId={null} />);

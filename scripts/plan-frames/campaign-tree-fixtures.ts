@@ -1,8 +1,10 @@
 /**
- * Campaign creator, part 4 frames (record docs/design-record/2026-11-24-campaign-creator-replicate.html):
- * RC-A (the ⋯ menu and the event picker), RC-B (what changed, what was kept),
- * RC-B-notset (a venue with nothing stored), RC-F (the campaign tree) and
- * RC-F-sheet (Add 3 creatives to On sale).
+ * Campaign creator, part 4 frames (records 2026-11-24-campaign-creator-replicate
+ * and 2026-11-24-campaign-creator-tree-as-built): RC-A (the ⋯ menu and the
+ * picker, RC-A2), RC-A-nomatch and RC-A-error (RC-A2's other two states),
+ * RC-B (RC-B2), RC-B-notset (a venue with nothing stored), RC-F (RC-F2),
+ * RC-F-sheet (Add 1 creative to On sale), RC-F-off (the switch off) and RC-G
+ * (Add audience to…, after a run with misses).
  *
  * Built by the rules, not typed: RC-B's rows come from CC-1's replicateDraft
  * on the Glitterbox Bristol → Newcastle case, RC-F from buildCampaignTree and
@@ -13,11 +15,21 @@
  */
 
 import { createDefaultCreative, createDefaultDraft } from "../../lib/campaign-defaults.ts";
-import { buildCampaignTree, defaultSelection, type TreeAdditionRow, type TreeCampaign, type TreeSelection, type TreeView } from "../../lib/campaign-tree/tree.ts";
+import {
+  buildCampaignTree,
+  defaultSelection,
+  stageOfCampaign,
+  stageSheetCampaigns,
+  type NotAdded,
+  type TreeAdditionRow,
+  type TreeCampaign,
+  type TreeSelection,
+  type TreeView,
+} from "../../lib/campaign-tree/tree.ts";
 import { replicateDraft, type AudienceRoleRow, type ReplicateEvent, type ReplicateVenue } from "../../lib/replicate/replicate.ts";
 import type { AdSetSuggestion, CampaignDraft } from "../../lib/types.ts";
 
-export const CAMPAIGN_TREE_FRAME_IDS = ["RC-A", "RC-B", "RC-B-notset", "RC-F", "RC-F-sheet"] as const;
+export const CAMPAIGN_TREE_FRAME_IDS = ["RC-A", "RC-A-nomatch", "RC-A-error", "RC-B", "RC-B-notset", "RC-F", "RC-F-sheet", "RC-F-off", "RC-G"] as const;
 export type CampaignTreeFrameId = (typeof CAMPAIGN_TREE_FRAME_IDS)[number];
 
 const NX_ACCOUNT = "act_606252931141334";
@@ -176,20 +188,28 @@ export const PICK_EVENTS = [
   { id: NX27_GLITTERBOX.id, name: "Glitterbox", code: "NX27-GLITTERBOX", venue: "NX Newcastle", eventDate: "2027-03-06", isSource: false },
 ];
 
-// ─── RC-F ────────────────────────────────────────────────────────────────
+// ─── RC-F2, RC-F-off, RC-G ───────────────────────────────────────────────
 
 function adSets(prefix: string, names: string[], status: "live" | "paused" = "live") {
   return names.map((name, i) => ({ id: `${prefix}${String(i + 1).padStart(3, "0")}`, name, status }));
 }
 
-const SIGNUP_ADSETS = adSets("23810", Array.from({ length: 18 }, (_, i) => `Signup ${i + 1}`));
+const SIGNUP_ADSETS = adSets("23810", ["Adv+ Broad", "Retargeting · page", "Similar pages", ...Array.from({ length: 15 }, (_, i) => `Signup ${i + 4}`)]);
 const PURCHASE_ADSETS = adSets("23820", ["Adv+ Broad", "Retargeting · signups", "Similar pages", "Techno page engagers", "House interests", "Video viewers 50%"]);
 
+/** Each campaign's group comes from stageOfCampaign (RC14), from its name and objective. */
+function campaign(input: Omit<TreeCampaign, "stage">, objective: string): TreeCampaign {
+  return { ...input, stage: stageOfCampaign({ name: input.name, draftObjective: objective }) };
+}
+
 export const TREE_CAMPAIGNS: TreeCampaign[] = [
-  { metaCampaignId: "120253000000001", name: "[NX27-GLITTERBOX] SIGNUP", stage: "signup", status: "live", adSets: SIGNUP_ADSETS, draftId: "draft-signup", adAccountId: NX_ACCOUNT },
-  { metaCampaignId: "120253000000002", name: "[NX27-GLITTERBOX] PURCHASE", stage: "on_sale", status: "live", adSets: PURCHASE_ADSETS, draftId: "draft-purchase", adAccountId: NX_ACCOUNT },
-  { metaCampaignId: "120253000000003", name: "[NX27-GLITTERBOX] TRAFFIC", stage: "on_sale", status: "live", adSets: adSets("23830", ["Broad", "Lookalike 1%"]), draftId: "draft-traffic", adAccountId: NX_ACCOUNT },
-  { metaCampaignId: "120253000000004", name: "[NX27-GLITTERBOX] REACH", stage: "on_sale", status: "paused", adSets: adSets("23840", ["Newcastle 25 km"], "paused"), draftId: "draft-reach", adAccountId: NX_ACCOUNT },
+  campaign({ metaCampaignId: "120253000000001", name: "[NX27-GLITTERBOX] SIGNUP", status: "live", adSets: SIGNUP_ADSETS, draftId: "draft-signup", adAccountId: NX_ACCOUNT }, "registration"),
+  campaign({ metaCampaignId: "120253000000002", name: "[NX27-GLITTERBOX] PURCHASE", status: "live", adSets: PURCHASE_ADSETS, draftId: "draft-purchase", adAccountId: NX_ACCOUNT }, "purchase"),
+  // RC10: no draft on this event made it.
+  campaign({ metaCampaignId: "120253000000005", name: "[NX27-GLITTERBOX] ON SALE · RETARGET", status: "live", adSets: adSets("23850", ["Signups 180 days", "Page views 30 days"]), draftId: null, adAccountId: NX_ACCOUNT }, ""),
+  // RC14: traffic and reach decide no stage.
+  campaign({ metaCampaignId: "120253000000003", name: "[NX27-GLITTERBOX] TRAFFIC", status: "live", adSets: adSets("23830", ["Broad", "Lookalike 1%"]), draftId: "draft-traffic", adAccountId: NX_ACCOUNT }, "traffic"),
+  campaign({ metaCampaignId: "120253000000004", name: "[NX27-GLITTERBOX] REACH", status: "paused", adSets: adSets("23840", ["Newcastle 25 km"], "paused"), draftId: "draft-reach", adAccountId: NX_ACCOUNT }, "awareness"),
 ];
 
 const ADDITIONS: TreeAdditionRow[] = [
@@ -208,7 +228,7 @@ const ADDITIONS: TreeAdditionRow[] = [
     meta_campaign_id: "120253000000001",
     stage: "signup",
     kind: "audience",
-    meta_adset_ids: SIGNUP_ADSETS.slice(0, 6).map((a) => a.id),
+    meta_adset_ids: SIGNUP_ADSETS.slice(0, 1).map((a) => a.id),
     detail: { audienceName: "Techno page engagers", who: "Matas" },
     onsale_refresh_line_id: "00000000-0000-4000-8000-000000000001",
     created_at: "2026-11-27T11:00:00Z",
@@ -219,7 +239,7 @@ const ADDITIONS: TreeAdditionRow[] = [
     stage: "on_sale",
     kind: "creative",
     meta_adset_ids: PURCHASE_ADSETS.map((a) => a.id),
-    detail: { creatives: 3, ads: 18, who: "Matas" },
+    detail: { creatives: 1, ads: 6, who: "Matas" },
     onsale_refresh_line_id: null,
     created_at: "2026-12-04T11:00:00Z",
   },
@@ -230,8 +250,22 @@ export function treeView(): TreeView {
 }
 
 export function onSaleSheet(): { campaigns: TreeCampaign[]; selection: TreeSelection } {
-  const campaigns = TREE_CAMPAIGNS.filter((c) => c.stage === "on_sale");
+  const campaigns = stageSheetCampaigns(treeView(), "on_sale");
   return { campaigns, selection: defaultSelection(campaigns) };
+}
+
+/** RC-G: Techno page engagers onto Signup, two ad sets not added. */
+export function signupAudienceSheet(): { campaigns: TreeCampaign[]; selection: TreeSelection; audiences: { id: string; name: string }[]; notAdded: NotAdded[] } {
+  const campaigns = stageSheetCampaigns(treeView(), "signup");
+  return {
+    campaigns,
+    selection: defaultSelection(campaigns),
+    audiences: [{ id: "6000000000001", name: "Techno page engagers" }],
+    notAdded: [
+      { name: "Retargeting · page", kind: "refused" },
+      { name: "Similar pages", kind: "failed" },
+    ],
+  };
 }
 
 /** RC-A's source row: the Bristol campaign the operator replicates. */

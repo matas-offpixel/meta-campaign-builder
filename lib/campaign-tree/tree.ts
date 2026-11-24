@@ -1,19 +1,22 @@
 /**
- * Campaign tree on the event (R7; record 2026-11-24-campaign-creator-replicate,
- * RC6, frame RC-F). Pure: no I/O, no clock unless one is passed.
+ * Campaign tree on the event (R7; records 2026-11-24-campaign-creator-replicate
+ * RC6 and 2026-11-24-campaign-creator-tree-as-built RC9–RC14, frame RC-F2).
+ * Pure: no I/O, no clock unless one is passed.
  *
  *   Event
  *   ├─ Signup         master campaign, then any other signup campaign
  *   │   └─ additions  oldest first
  *   ├─ Presale        only when it has campaigns
  *   ├─ On sale
- *   └─ Show week      only when it has campaigns
+ *   ├─ Show week      only when it has campaigns
+ *   └─ Unsorted       last, only when it has campaigns; no stage actions
  *
- * A campaign's stage comes from its name ("[CODE] SIGNUP", "[CODE] ON SALE"),
- * else the draft's objective, else its ad sets' phase_at_launch, else Meta's
- * objective, else On sale. The stage actions' sheet starts with every live
- * campaign and its live ad sets ticked, and every paused campaign unticked
- * (Matas, 24 Nov).
+ * RC14: a campaign's stage comes from stage words in its name, else from an
+ * objective that means one stage. Anything else is Unsorted: a guess under
+ * On sale is how a copy picks up the wrong stage. The sheet starts with every
+ * live campaign and its live ad sets ticked, and every paused campaign
+ * unticked (Matas, 24 Nov). A campaign with no draft on this event can't be
+ * ticked (RC10).
  */
 
 import { STAGE_LABEL, type WordFill } from "../replicate/words.ts";
@@ -21,32 +24,41 @@ import { adSetCount, frameWord, treeWord } from "./words.ts";
 
 // ─── Stages ──────────────────────────────────────────────────────────────
 
+/** The four stages a sheet can add to (campaign_additions.stage). */
 export const TREE_STAGES = ["signup", "presale", "on_sale", "show_week"] as const;
 export type TreeStage = (typeof TREE_STAGES)[number];
+
+/** The tree's groups: the four stages, then Unsorted (RC14). */
+export type TreeGroup = TreeStage | "unsorted";
+export const TREE_GROUPS: readonly TreeGroup[] = [...TREE_STAGES, "unsorted"];
 
 export function isTreeStage(value: unknown): value is TreeStage {
   return typeof value === "string" && (TREE_STAGES as readonly string[]).includes(value);
 }
 
-export function stageLabel(stage: TreeStage): string {
-  return STAGE_LABEL[stage];
+export function stageLabel(stage: TreeGroup): string {
+  return stage === "unsorted" ? treeWord("tree.stage.unsorted") : STAGE_LABEL[stage];
 }
 
-/** Signup and On sale always show; Presale and Show week when they have campaigns (RC6). */
-const ALWAYS_SHOWN: ReadonlySet<TreeStage> = new Set(["signup", "on_sale"]);
+/** Signup and On sale always show; Presale, Show week and Unsorted when they have campaigns (RC6, RC14). */
+const ALWAYS_SHOWN: ReadonlySet<TreeGroup> = new Set(["signup", "on_sale"]);
 
-const ON_SALE_OBJECTIVES = new Set(["purchase", "initiate_checkout", "traffic", "awareness", "engagement"]);
-const META_ON_SALE = new Set(["OUTCOME_TRAFFIC", "OUTCOME_AWARENESS", "OUTCOME_ENGAGEMENT", "LINK_CLICKS", "REACH", "BRAND_AWARENESS"]);
-
-/** The stage a campaign's name says, or null. Matched on words, in this order. */
+/**
+ * RC14: the stage words, as whole words after the [CODE]. PURCHASE, TRAFFIC,
+ * REACH, TICKET(S) and REG aren't stage words.
+ */
 export function stageFromName(name: string | null | undefined): TreeStage | null {
   const n = ` ${(name ?? "").toUpperCase().replace(/\[[^\]]*\]/g, " ").replace(/[^A-Z0-9]+/g, " ")} `;
-  if (/ SHOW ?WEEK | FINAL PUSH /.test(n)) return "show_week";
-  if (/ PRE ?SALE /.test(n)) return "presale";
-  if (/ SIGN ?UPS? | REGISTRATIONS? | REG /.test(n)) return "signup";
-  if (/ ON ?SALE | GEN(ERAL)? ?SALE | PURCHASE | TRAFFIC | REACH | TICKETS? /.test(n)) return "on_sale";
+  if (/ SHOW WEEK | FINAL PUSH /.test(n)) return "show_week";
+  if (/ PRESALE | PRE SALE /.test(n)) return "presale";
+  if (/ SIGNUPS? | SIGN UP | REGISTRATION /.test(n)) return "signup";
+  if (/ ON SALE | ONSALE | GEN SALE | GENERAL SALE /.test(n)) return "on_sale";
   return null;
 }
+
+/** Objectives that run in every stage, so decide nothing (RC14). */
+const ANY_STAGE_DRAFT = new Set(["traffic", "awareness", "engagement", "reach"]);
+const ANY_STAGE_META = new Set(["OUTCOME_TRAFFIC", "OUTCOME_AWARENESS", "OUTCOME_ENGAGEMENT", "LINK_CLICKS", "REACH", "BRAND_AWARENESS", "POST_ENGAGEMENT"]);
 
 export function stageOfCampaign(input: {
   name?: string | null;
@@ -56,20 +68,22 @@ export function stageOfCampaign(input: {
   phaseAtLaunch?: string | null;
   /** Meta's campaign objective. */
   metaObjective?: string | null;
-}): TreeStage {
+}): TreeGroup {
   const named = stageFromName(input.name);
   if (named) return named;
   const objective = (input.draftObjective ?? "").trim().toLowerCase();
-  if (objective === "registration") return "signup";
-  if (ON_SALE_OBJECTIVES.has(objective)) return "on_sale";
-  const phase = (input.phaseAtLaunch ?? "").trim().toLowerCase();
-  // phase_at_launch calls a Complete Registration ad set "presale" (lib/launched-ad-sets/snapshot.ts): that's the signup campaign.
-  if (phase === "presale" || phase === "registration") return "signup";
-  if (phase === "on_sale") return "on_sale";
   const meta = (input.metaObjective ?? "").trim().toUpperCase();
+  if (objective === "registration") return "signup";
+  if (objective === "purchase") return "on_sale";
+  const phase = (input.phaseAtLaunch ?? "").trim().toLowerCase();
+  // phase_at_launch calls a Complete Registration ad set "presale" (lib/launched-ad-sets/snapshot.ts): the signup campaign.
+  if (phase === "presale" || phase === "registration") return "signup";
+  // "on_sale" is also what a traffic, awareness or engagement ad set is stamped with,
+  // so it only counts when no objective says the campaign runs in any stage.
+  if (phase === "on_sale" && !ANY_STAGE_DRAFT.has(objective) && !ANY_STAGE_META.has(meta)) return "on_sale";
   if (meta === "OUTCOME_LEADS" || meta === "LEAD_GENERATION") return "signup";
-  if (META_ON_SALE.has(meta)) return "on_sale";
-  return "on_sale";
+  if (meta === "OUTCOME_SALES" || meta === "CONVERSIONS") return "on_sale";
+  return "unsorted";
 }
 
 // ─── Status ──────────────────────────────────────────────────────────────
@@ -97,7 +111,7 @@ export interface TreeAdSet {
 export interface TreeCampaign {
   metaCampaignId: string;
   name: string;
-  stage: TreeStage;
+  stage: TreeGroup;
   status: TreeStatus | null;
   adSets: TreeAdSet[];
   /** The published draft this campaign was launched from, when it's the operator's. Writes need it (the Meta write ledger is per draft). */
@@ -130,14 +144,20 @@ export interface TreeAdditionView {
 
 export interface TreeCampaignView extends TreeCampaign {
   master: boolean;
+  /** RC10: "No draft on this event, so additions can't reach it." when no draft on the event made it; else null. */
+  noDraft: string | null;
   /** "live · 18 ad sets" | "paused · 1 ad set" | "18 ad sets" when the status wasn't read. */
   meta: string;
   additions: TreeAdditionView[];
 }
 
 export interface TreeStageView {
-  stage: TreeStage;
+  stage: TreeGroup;
   label: string;
+  /** Unsorted's muted line (RC14); null for a stage. */
+  line: string | null;
+  /** False for Unsorted: it takes no stage additions. */
+  actions: boolean;
   campaigns: TreeCampaignView[];
 }
 
@@ -177,13 +197,15 @@ export function additionView(row: TreeAdditionRow, timeZone = LONDON): TreeAddit
   const fill: WordFill = who ? { date, n, who } : { date, n };
   let head: string;
   let line: string;
+  // RC9: a one form for every count, picked by n.
   if (row.kind === "audience") {
     head = treeWord("tree.add.audience");
     const audience = str(detail.audienceName) ?? str(detail.audienceId) ?? "";
-    line = withoutEmptyWho(treeWord("tree.add.audience_line", { ...fill, audience }));
+    line = withoutEmptyWho(treeWord(n === 1 ? "tree.add.audience_line.one" : "tree.add.audience_line", { ...fill, audience }));
   } else {
-    head = treeWord("tree.add.creatives", { n: num(detail.creatives) ?? num(detail.ads) ?? 0 });
-    line = withoutEmptyWho(treeWord("tree.add.line", fill));
+    const ads = num(detail.creatives) ?? num(detail.ads) ?? 0;
+    head = ads === 1 ? treeWord("tree.add.creatives.one") : treeWord("tree.add.creatives", { n: ads });
+    line = withoutEmptyWho(treeWord(n === 1 ? "tree.add.line.one" : "tree.add.line", fill));
   }
   return { id: row.id, head, line, refresh: row.onsale_refresh_line_id ? treeWord("tree.add.refresh") : null };
 }
@@ -230,18 +252,20 @@ export function buildCampaignTree(input: {
     input.eventCampaignIds ?? [],
   );
   const stages: TreeStageView[] = [];
-  for (const stage of TREE_STAGES) {
+  for (const stage of TREE_GROUPS) {
     const campaigns = input.campaigns
       .filter((c) => c.stage === stage)
       .sort((a, b) => (a.metaCampaignId === master ? -1 : b.metaCampaignId === master ? 1 : byWeight(a, b)))
       .map((c) => ({
         ...c,
         master: c.metaCampaignId === master,
+        noDraft: canWrite(c) ? null : treeWord("tree.campaign.no_draft"),
         meta: campaignMeta(c),
         additions: (additionsBy.get(c.metaCampaignId) ?? []).map((row) => additionView(row, input.timeZone)),
       }));
     if (campaigns.length === 0 && !ALWAYS_SHOWN.has(stage)) continue;
-    stages.push({ stage, label: stageLabel(stage), campaigns });
+    const unsorted = stage === "unsorted";
+    stages.push({ stage, label: stageLabel(stage), line: unsorted ? treeWord("tree.unsorted.line") : null, actions: !unsorted, campaigns });
   }
   return { stages };
 }
@@ -302,21 +326,51 @@ export function selectedCampaignAdSets(selection: TreeSelection): Record<string,
   return Object.fromEntries(Object.entries(selection).filter(([, ids]) => ids.length > 0));
 }
 
-/** "{n} of {m} ad sets" for a ticked campaign; "paused" for a paused one with none ticked. */
+/** "{n} of {m} ad sets" ("{n} of 1 ad set"); "paused" for a paused one with none ticked. */
 export function sheetCampaignLine(c: TreeCampaign, selection: TreeSelection): string {
   const n = (selection[c.metaCampaignId] ?? []).length;
-  const count = treeWord("tree.sheet.count", { n, m: c.adSets.length });
+  const count = c.adSets.length === 1 ? treeWord("tree.sheet.count.one", { n }) : treeWord("tree.sheet.count", { n, m: c.adSets.length });
   if (c.status === "paused") return n > 0 ? `${count} · ${treeWord("tree.sheet.paused")}` : treeWord("tree.sheet.paused");
   return count;
 }
 
+/** RC9: "Nothing ticked", "Add to 1 ad set in 1 campaign", "Add to {n} ad sets in 1 campaign", "Add to {n} ad sets in {m} campaigns". */
 export function sheetButton(selection: TreeSelection): string {
   const { adSets, campaigns } = selectionCounts(selection);
+  if (adSets === 0) return treeWord("tree.sheet.button.none");
+  if (adSets === 1) return treeWord("tree.sheet.button.one");
+  if (campaigns === 1) return treeWord("tree.sheet.button.campaign", { n: adSets });
   return treeWord("tree.sheet.button", { n: adSets, m: campaigns });
 }
 
 export function creativesSheetTitle(creatives: number, stage: TreeStage): string {
-  return treeWord("tree.sheet.title.creatives", { n: creatives, stage: stageLabel(stage) });
+  return creatives === 1
+    ? treeWord("tree.sheet.title.creatives.one", { stage: stageLabel(stage) })
+    : treeWord("tree.sheet.title.creatives", { n: creatives, stage: stageLabel(stage) });
+}
+
+// ─── A run's outcome, in words (RC12) ────────────────────────────────────
+
+/** An ad set a run didn't add to: "refused" (Meta or a guard said no, nothing changed) or "failed" (didn't go through). */
+export interface NotAdded {
+  name: string;
+  kind: "refused" | "failed";
+}
+
+/** "Not added to {n} ad sets:" and one row each. Ad sets that already had it count as added. */
+export function notAddedLines(rows: NotAdded[]): { heading: string; rows: string[] } | null {
+  if (rows.length === 0) return null;
+  return {
+    heading: rows.length === 1 ? treeWord("tree.result.heading.one") : treeWord("tree.result.heading", { n: rows.length }),
+    rows: rows.map((r) => treeWord(r.kind === "refused" ? "tree.result.refused" : "tree.result.failed", { "ad set": r.name })),
+  };
+}
+
+/** The sheet's error line: the run stopped. Never the server's message, a code or an HTTP status. */
+export function runErrorLine(input: { added: number; logUnavailable?: boolean }): string {
+  if (input.logUnavailable && input.added === 0) return treeWord("tree.error.log");
+  if (input.added === 0) return treeWord("tree.error.none");
+  return input.added === 1 ? treeWord("tree.error.partial.one") : treeWord("tree.error.partial", { n: input.added });
 }
 
 export function audienceSheetTitle(audience: string | null, stage: TreeStage): string {
@@ -339,4 +393,28 @@ export function stageSheetCampaigns(view: TreeView, stage: TreeStage): TreeCampa
 
 export function stageAccount(campaigns: TreeCampaign[]): string | null {
   return campaigns.find((c) => canWrite(c) && c.adAccountId)?.adAccountId ?? campaigns.find((c) => c.adAccountId)?.adAccountId ?? null;
+}
+
+/**
+ * A creatives run's outcome (bulk-attach with `tree`): each ticked ad set
+ * either holds the run's ads (`adSetsAdded`, made now or on an earlier try)
+ * or didn't go through.
+ */
+export function treeRunNotAdded(
+  picked: Record<string, string[]>,
+  results: Array<{ campaignId: string; adSetsAdded?: string[] }>,
+  campaigns: TreeCampaign[],
+): { added: number; notAdded: NotAdded[] } {
+  const names = new Map(campaigns.flatMap((c) => c.adSets.map((a) => [a.id, a.name] as const)));
+  const byCampaign = new Map(results.map((r) => [r.campaignId, new Set(r.adSetsAdded ?? [])]));
+  let added = 0;
+  const notAdded: NotAdded[] = [];
+  for (const [campaignId, ids] of Object.entries(picked)) {
+    const got = byCampaign.get(campaignId) ?? new Set<string>();
+    for (const id of ids) {
+      if (got.has(id)) added += 1;
+      else notAdded.push({ name: names.get(id) ?? id, kind: "failed" });
+    }
+  }
+  return { added, notAdded };
 }

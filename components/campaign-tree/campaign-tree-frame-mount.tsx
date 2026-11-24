@@ -6,20 +6,26 @@ import { CampaignTreeView, campaignMenuItems } from "@/components/campaign-tree/
 import { StageSheetPanel } from "@/components/campaign-tree/stage-sheet";
 import { ReplicatePickPanel, ReplicateShell, ReplicateSummaryPanel } from "@/components/replicate/replicate-panels";
 import { OverflowMenuItems } from "@/components/viz/overflow-menu";
+import { AudienceSheetPanel } from "@/components/campaign-tree/audience-stage-sheet";
 import { creativesSheetTitle } from "@/lib/campaign-tree/tree";
+import { TREE_WORDS } from "@/lib/campaign-tree/words";
+import { errorText } from "@/components/replicate/replicate-dialog";
 import { REPLICATE_WORDS } from "@/lib/replicate/words";
 import {
   PICK_EVENTS,
   onSaleSheet,
   replicateSummary,
+  signupAudienceSheet,
   sourceTreeView,
   treeView,
   type CampaignTreeFrameId,
 } from "@/scripts/plan-frames/campaign-tree-fixtures";
 
 /**
- * /frames/campaign-tree/{id}: RC-A, RC-B, RC-B-notset, RC-F and RC-F-sheet
- * of docs/design-record/2026-11-24-campaign-creator-replicate.html, from
+ * /frames/campaign-tree/{id}: RC-A (RC-A2 with the ⋯ menu), RC-A-nomatch,
+ * RC-A-error, RC-B (RC-B2), RC-B-notset, RC-F (RC-F2), RC-F-sheet, RC-F-off
+ * and RC-G of records 2026-11-24-campaign-creator-replicate and
+ * 2026-11-24-campaign-creator-tree-as-built, from
  * scripts/plan-frames/campaign-tree-fixtures.ts. The real panels, drawn in
  * place (the live ones sit in a dialog); the ⋯ menu is drawn open.
  */
@@ -35,9 +41,9 @@ function Frame({ id, children }: { id: CampaignTreeFrameId; children: React.Reac
   );
 }
 
-function PickFrame() {
+function PickFrame({ state = "list" }: { state?: "list" | "nomatch" | "error" }) {
   const [picked, setPicked] = useState<string | null>("event-nx27-glitterbox");
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(state === "nomatch" ? "ironworks" : "");
   const source = sourceTreeView();
   const signup = { ...source, stages: source.stages.filter((s) => s.stage === "signup") };
   const row = signup.stages[0]!.campaigns[0]!;
@@ -59,6 +65,7 @@ function PickFrame() {
           onPick={setPicked}
           onCancel={noop}
           onNext={noop}
+          error={state === "error" ? errorText("event_not_found") : null}
         />
       </ReplicateShell>
     </div>
@@ -83,16 +90,40 @@ function SummaryFrame({ target }: { target: "nx" | "brixton" }) {
   );
 }
 
-function SheetFrame() {
+function SheetFrame({ off = false }: { off?: boolean }) {
   const sheet = onSaleSheet();
   const [selection, setSelection] = useState(sheet.selection);
   return (
     <div className="mx-auto max-w-xl">
       <StageSheetPanel
-        title={creativesSheetTitle(3, "on_sale")}
+        title={creativesSheetTitle(1, "on_sale")}
         campaigns={sheet.campaigns}
         selection={selection}
         onSelection={setSelection}
+        onCancel={noop}
+        onConfirm={noop}
+        off={off ? TREE_WORDS["tree.sheet.off.creatives"] : null}
+      />
+    </div>
+  );
+}
+
+function AudienceFrame() {
+  const sheet = signupAudienceSheet();
+  const [selection, setSelection] = useState(sheet.selection);
+  const [audienceId, setAudienceId] = useState(sheet.audiences[0]!.id);
+  return (
+    <div className="mx-auto max-w-xl">
+      <AudienceSheetPanel
+        stage="signup"
+        campaigns={sheet.campaigns}
+        audiences={sheet.audiences}
+        audienceId={audienceId}
+        onAudience={setAudienceId}
+        selection={selection}
+        onSelection={setSelection}
+        writesEnabled
+        notAdded={sheet.notAdded}
         onCancel={noop}
         onConfirm={noop}
       />
@@ -104,10 +135,14 @@ export function CampaignTreeFrameMount({ id }: { id: CampaignTreeFrameId }) {
   return (
     <Frame id={id}>
       {id === "RC-A" ? <PickFrame /> : null}
+      {id === "RC-A-nomatch" ? <PickFrame state="nomatch" /> : null}
+      {id === "RC-A-error" ? <PickFrame state="error" /> : null}
       {id === "RC-B" ? <SummaryFrame target="nx" /> : null}
       {id === "RC-B-notset" ? <SummaryFrame target="brixton" /> : null}
       {id === "RC-F" ? <CampaignTreeView view={treeView()} onAction={noop} menuFor={(c) => campaignMenuItems(c, HANDLERS)} /> : null}
       {id === "RC-F-sheet" ? <SheetFrame /> : null}
+      {id === "RC-F-off" ? <SheetFrame off /> : null}
+      {id === "RC-G" ? <AudienceFrame /> : null}
     </Frame>
   );
 }

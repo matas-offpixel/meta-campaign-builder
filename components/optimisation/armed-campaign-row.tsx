@@ -587,8 +587,8 @@ function ArmedCampaignTable({
 /**
  * On an event (`eventId` set), the event's campaign tree (R7, RC6) sits above
  * the list. It's mounted here because the Campaigns tab's own file
- * (components/dashboard/events/event-detail.tsx) is in an open Cursor PR;
- * it moves to its own section once that merges.
+ * (components/dashboard/events/event-detail.tsx) is in open Cursor PR #1160 (RC15);
+ * TODO(#1160): it moves to its own section once that is merged or closed.
  */
 export function ArmedCampaignList({
   eventId,

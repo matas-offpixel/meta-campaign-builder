@@ -7,12 +7,15 @@ import { AudienceStageSheet } from "@/components/campaign-tree/audience-stage-sh
 import { CampaignTreeView, adsManagerCampaignHref, campaignMenuItems } from "@/components/campaign-tree/campaign-tree-view";
 import { ReplicateDialog } from "@/components/replicate/replicate-dialog";
 import { isTreeStage, stageAccount, stageSheetCampaigns, type TreeStage, type TreeView } from "@/lib/campaign-tree/tree";
+import { TREE_WORDS } from "@/lib/campaign-tree/words";
 import { duplicateCampaign } from "@/lib/db/drafts";
 import { createClient } from "@/lib/supabase/client";
 
 /**
  * The live campaign tree on the event's Campaigns tab (R7). Reads
- * GET /api/events/[id]/campaign-tree. "Add creatives to…" opens the
+ * GET /api/events/[id]/campaign-tree. Mounted inside Linked campaigns
+ * (RC15); TODO(#1160): it moves to its own section on the event page once
+ * #1160 (event-detail.tsx) is merged or closed. "Add creatives to…" opens the
  * bulk-attach flow for the stage (/events/[id]/bulk-attach?stage=…), which
  * ends in the stage sheet; "Add audience to…" opens the sheet here. A
  * campaign's ⋯ menu carries Replicate to event… (RC1) above Duplicate.
@@ -24,6 +27,7 @@ interface TreeResponse {
   view: TreeView;
   metaRead: boolean;
   audienceWritesEnabled: boolean;
+  creativeWritesEnabled: boolean;
   error?: string;
 }
 
@@ -74,7 +78,10 @@ export function CampaignTree({ eventId }: { eventId: string }) {
     [eventId, router],
   );
 
-  if (failed || !data || data.view.stages.every((s) => s.campaigns.length === 0)) return null;
+  if (failed) {
+    return <p className="mb-5 text-sm text-destructive" data-tree-error="">{TREE_WORDS["tree.error.load"]}</p>;
+  }
+  if (!data || data.view.stages.every((s) => s.campaigns.length === 0)) return null;
 
   const onAction = (stage: TreeStage, kind: "creatives" | "audience") => {
     if (kind === "audience") {
