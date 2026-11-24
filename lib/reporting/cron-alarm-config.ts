@@ -112,6 +112,10 @@ export const CRON_ALARMS: CronAlarmSpec[] = [
   { cronName: "optimisation-tick", intervalMinutes: 240, zeroRule: "never" },
   // 0 7,8 UTC, acting at 08:00 London: the creative tests' daily read (TF2, TF5–TF8). Most days it reads no running test.
   { cronName: "creative-tests-read", intervalMinutes: 1440, zeroRule: "never" },
+  // "0 7,8 * * *" UTC, acting on 08:00 London: signups into Meta customer
+  // lists (SU1, SU2). Most days it sends nothing (no enabled show is active,
+  // or nothing new), so only a missing or failed run alarms.
+  { cronName: "customer-list-sync", intervalMinutes: 1440, zeroRule: "never" },
 
   // 15 21,1,4 and 45 22 UTC: four runs a London night, each stopping at
   // the first rate limit or at 80 % X-App-Usage, whichever comes first. One
