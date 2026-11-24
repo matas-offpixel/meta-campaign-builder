@@ -305,6 +305,7 @@ test("list_drive_creatives: a folder with kind, aspect, size and whether each ca
     ["file-static-45", "static", "4:5", false],
   ]);
   assert.equal(out.data.path, "Videos");
+  assert.deepEqual(out.data.crumbs, [{ name: "Videos", folderId: "drv-videos" }]);
   assert.deepEqual(db.writes, [], "list writes nothing");
 });
 

@@ -83,7 +83,7 @@ export const listDriveCreativesTool: McpTool = {
   idempotent: true,
   description: [
     "One folder of an event's Drive tree, as the launcher's From Drive picker shows it: the path, the owner folders (artists, then the promoter), sub-folders with their ids, and each file with kind (video or static), aspect, size and whether it can be an ad (9:16 only, as the picker).",
-    "Without folder it opens at the current stage. Pass a folder id from an earlier answer to go deeper. Reads only; changes nothing.",
+    "Without folder it opens at the current stage. Pass a folder id from an earlier answer (folders, owners, crumbs or cycles) to go deeper or back up. Reads only; changes nothing.",
     'Example: list_drive_creatives({ event_code: "NX27-GLITTERBOX" }), then list_drive_creatives({ event_code: "NX27-GLITTERBOX", folder: "1AbC…" }).',
   ].join(" "),
   inputSchema: {
@@ -104,6 +104,8 @@ export const listDriveCreativesTool: McpTool = {
       data: {
         event: code,
         path: view.crumbs.map((c) => c.label).join(" / "),
+        /** The path's folders, top-down, with ids: list one to go up (e.g. from an empty stage). */
+        crumbs: view.crumbs.map((c) => ({ name: c.label, folderId: c.folderId })),
         folder: view.folder,
         owner: view.owner?.name ?? null,
         owners: view.owners.map((o) => ({ name: o.name, folderId: o.folderId })),
