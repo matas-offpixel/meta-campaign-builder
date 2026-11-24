@@ -8,7 +8,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { applyGates, type ArmMode } from "./apply-gates.ts";
+import { applyGates, retargetingGates, type ApplyGates, type ArmMode } from "./apply-gates.ts";
 import { acceptBlock, liveBlockedReason, type BlockCtx } from "./decide.ts";
 import { displayState, type LineState } from "./line-states.ts";
 import { spendToDate } from "./plan-guard.ts";
@@ -274,7 +274,7 @@ export async function loadArm(db: Db, eventId: string): Promise<ArmMode> {
 }
 
 /** Everything the panel needs (P2): the proposals, and the gates that decide whether anything can be clicked. */
-export async function loadPanel(db: Db, eventId: string, env: Record<string, string | undefined>): Promise<{ proposals: PanelProposal[]; apply: PanelApply; retargeting: RetargetingView | null; clientId: string | null }> {
+export async function loadPanel(db: Db, eventId: string, env: Record<string, string | undefined>): Promise<{ proposals: PanelProposal[]; apply: PanelApply; retargetingApply: PanelApply; retargeting: RetargetingView | null; clientId: string | null }> {
   const [event, arm] = await Promise.all([db.from("events").select("budget_marketing, event_date, client_id, event_code, presale_at, general_sale_at").eq("id", eventId).maybeSingle(), loadArm(db, eventId)]);
   if (event.error) throw new Error(`events: ${event.error.message}`);
   const row = event.data as { budget_marketing?: number | string | null; event_date?: string | null; client_id?: string | null; event_code?: string | null; presale_at?: string | null; general_sale_at?: string | null } | null;
@@ -296,7 +296,9 @@ export async function loadPanel(db: Db, eventId: string, env: Record<string, str
   // RT8: before the show's first on-sale date there is no read yet; the panel says when Retargeting starts.
   const onSaleDay = row ? retargetingOnSaleDay(row) : null;
   const retargeting = row?.event_code && !proposals.some((proposal) => proposal.runKind === "retargeting") && onSaleDay && onSaleDay > plan.today ? retargetingBeforeOnSale(row.event_code, onSaleDay) : null;
-  return { retargeting, clientId, proposals, apply: { mode: gates.mode, arm: gates.arm, globalEnabled: gates.globalEnabled, pauseWritesEnabled: gates.pauseWritesEnabled, adsetStatusWritesEnabled: gates.adsetStatusWritesEnabled, budgetWritesEnabled: gates.budgetWritesEnabled, audienceWritesEnabled: gates.audienceWritesEnabled, campaignCreateEnabled: gates.campaignCreateEnabled, lifetimeBudgetWritesEnabled: gates.lifetimeBudgetWritesEnabled, budgetSet } };
+  const panelApply = (g: ApplyGates): PanelApply => ({ mode: g.mode, arm: g.arm, globalEnabled: g.globalEnabled, pauseWritesEnabled: g.pauseWritesEnabled, adsetStatusWritesEnabled: g.adsetStatusWritesEnabled, budgetWritesEnabled: g.budgetWritesEnabled, audienceWritesEnabled: g.audienceWritesEnabled, campaignCreateEnabled: g.campaignCreateEnabled, lifetimeBudgetWritesEnabled: g.lifetimeBudgetWritesEnabled, budgetSet });
+  // RT16: the Retargeting panel is Live on every active show without arming the event.
+  return { retargeting, clientId, proposals, apply: panelApply(gates), retargetingApply: panelApply(retargetingGates(gates)) };
 }
 
 /** The canvas chip (R4): lines still To review on the event's latest proposals. */

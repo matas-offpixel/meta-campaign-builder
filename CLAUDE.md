@@ -795,6 +795,43 @@ REMOTION_LAMBDA_SERVE_URL=
 > panel shows one note. Lists uploaded with a role (Signups, Similar,
 > Buyers) and a show are `meta_custom_audiences` rows (`customer_list`,
 > `list_role`, migration 256).
+> PR B (`docs/design-record/2026-11-17-retargeting-campaign-2.html`, RT11,
+> RT13–RT16): each show's links come from CIRQLIN's
+> `GET /api/partner/page-links?crm_base_tag={events.mailchimp_tag}`
+> (`lib/cirqlin/page-links.ts`, the same partner bearer and base as the
+> signups read; cirqlin#653), re-read at every 08:00 read. Every
+> `landing_url` and ticket link is one "URL contains" rule, host to the end of
+> the path as returned (`lib/retargeting/links.ts`). A show with no tag keeps
+> RT2's two links (`ticket_url`, `signup_url`). A 404 `no_page` and any other
+> failure are their own not-proposed sentences. A failed read keeps a running
+> campaign's last rules. When the links change, the read rewrites the changed
+> audiences' rules (`lib/retargeting/rule-rewrite.ts`: `POST /{audience} {rule}`)
+> through the on-sale refresh Apply's token (the event owner's
+> `agencyMetaToken`, then their own `user_facebook_tokens` token; never a
+> client's) and its `graphPostWithToken`, on `meta_write_idempotency`
+> (`retargeting_audience_rule_update`, migration 257), only behind the apply
+> and audience-write gates and only for a campaign an accepted Create line
+> built. A per-link audience that's new or gone is reported as a rebuild,
+> never written. Checkout starters and registrations count on the links' rules only.
+> Every source is built at RT14's windows, each its own audience, named
+> "{code} · {source} · {n} days" (`lib/retargeting/audiences.ts`), with leave-outs
+> over every window. Bottom gains CompleteRegistration on the landing pages
+> (30, 90, 180 days). RT18 (`docs/design-record/2026-11-17-retargeting-campaign-3.html`): at its source's longest window
+> each link is its own audience ("{code} · Ticket-link visitors · {name} · 30
+> days", "{code} · Page visitors · {name} · 60 days"), so the row shows Meta's
+> size band per link once created ("By link: known after create" before). The
+> pixel's 28-day hosts (`GET /{pixel}/stats?aggregation=host`: every event,
+> then PageView, InitiateCheckout, CompleteRegistration; Meta gives origins
+> only, never paths) give "Pixel on {names}: yes · {names}: no" per
+> third-party ticket platform (named by host) and per own domain, never for
+> crqln.com or a landing host another show's pages use; RT15's
+> no-registrations line and RT13's empty Bottom. Create starts at today's share (`lib/retargeting/shares.ts`:
+> 10 %, 15 % payday or final month, 20 % final two weeks, 25 % final week; the
+> 10 / 15 / 20 % choice is gone). RT16: Retargeting lines take
+> `retargetingGates` (the deployment's apply gate with the arm Live), so the
+> panel is Live on every show without arming; the rest of the refresh keeps
+> R4's arm. Migration 257 lets a `retargeting_campaign` row in
+> `onsale_refresh_audiences` carry its audience key as `part`.
 
 > **`ENABLE_GOOGLE_ADS_DAILY_INSIGHTS`** must be exactly `"1"` to activate
 > `/api/cron/google-ads-daily-insights` (04:00 UTC). Unset = 200 with

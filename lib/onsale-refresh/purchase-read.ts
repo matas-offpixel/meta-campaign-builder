@@ -158,8 +158,17 @@ type StatsPage = { data?: { start_time?: string; data?: { value?: string; count?
  * the `after` cursor until a page is empty or has no next.
  */
 export async function fetchPurchaseHosts(graphGet: GraphGet, pixelId: string, now: Date, days: number): Promise<{ rows: HostDay[]; calls: number; error: string | null }> {
+  return fetchEventHosts(graphGet, pixelId, now, days, "Purchase");
+}
+
+/**
+ * A standard event by host and day; `event` null is every event (no filter).
+ * Retargeting RT13 reads every event, RT15 and the empty-Bottom check read
+ * PageView, InitiateCheckout and CompleteRegistration.
+ */
+export async function fetchEventHosts(graphGet: GraphGet, pixelId: string, now: Date, days: number, event: string | null): Promise<{ rows: HostDay[]; calls: number; error: string | null }> {
   const end = Math.floor(now.getTime() / 1000);
-  const params: Record<string, string> = { aggregation: "host", event: "Purchase", start_time: String(end - days * 86_400), end_time: String(end) };
+  const params: Record<string, string> = { aggregation: "host", ...(event ? { event } : {}), start_time: String(end - days * 86_400), end_time: String(end) };
   const totals = new Map<string, HostDay>();
   let calls = 0;
   let after: string | undefined;

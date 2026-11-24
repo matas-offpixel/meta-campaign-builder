@@ -40,9 +40,11 @@ export type MetaWriteOpKind =
   | "refresh_campaign_status_update"
   /** TF6: a creative test ad set's end_time moved out 4 days (lib/meta/adset-end-time-write.ts, migration 263). */
   | "adset_end_time_update"
+  /** Retargeting RT13: a running campaign's audience rule rewritten when the show's links change (migration 257). */
+  | "retargeting_audience_rule_update"
   /** SU1: a show's "{code} · Signups" customer list (lib/customer-lists/, migration 267). */
   | "customer_list_create"
-  /** SU1/SU2: one batch of up to 10,000 hashed signups added to or removed from a customer list (migration 267). */
+  /** SU1: one batch of up to 10,000 hashed signups added to, removed from or (key op "replace") replacing a customer list's users (migration 267). */
   | "customer_list_users";
 
 /**

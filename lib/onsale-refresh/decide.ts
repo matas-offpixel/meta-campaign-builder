@@ -23,7 +23,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import type { ApplyGates } from "./apply-gates.ts";
+import { retargetingGates, type ApplyGates } from "./apply-gates.ts";
 import { REJECT_REASONS, heldText, isRejectReason, type RejectReason } from "./line-states.ts";
 import { NO_BUDGET_TO_START, decideFunding, type Giver } from "./new-adset.ts";
 import { MOVE_NEEDS_BUDGET, SPEND_NEEDS_BUDGET, appliedMovesGbp, moveGuard, spendLineBlock, spendToDate } from "./plan-guard.ts";
@@ -150,14 +150,18 @@ export async function blockCtx(db: Db, line: Pick<LineRow, "id" | "kind" | "adds
 }
 
 export async function decideLine(args: { db: Db; eventId: string; userId: string; lineId: string; decision: Decision; gates: ApplyGates; budget: number | null; eventDate: string | null; now?: Date }): Promise<DecideResult> {
-  if (args.gates.mode !== "live") return { ok: false, status: 409, error: SHADOW_REFUSAL };
+  // RT16: a Retargeting line is Live whenever the deployment's apply gate is on; every other line needs the event armed.
+  if (!args.gates.globalEnabled && args.gates.mode !== "live") return { ok: false, status: 409, error: SHADOW_REFUSAL };
   const found = await args.db
     .from("onsale_refresh_lines")
-    .select("id, kind, title, state, supply, adds_spend, blocked_reason, evidence, write, proposal_id, onsale_refresh_proposals!inner(event_id, window_end)")
+    .select("id, kind, title, state, supply, adds_spend, blocked_reason, evidence, write, proposal_id, onsale_refresh_proposals!inner(event_id, window_end, run_kind)")
     .eq("id", args.lineId)
     .maybeSingle();
   if (found.error) return { ok: false, status: 500, error: found.error.message };
   const line = found.data as LineRow | null;
+  const runKind = (found.data as { onsale_refresh_proposals?: { run_kind?: string } | null } | null)?.onsale_refresh_proposals?.run_kind;
+  if (runKind === "retargeting") args = { ...args, gates: retargetingGates(args.gates) };
+  if (args.gates.mode !== "live") return { ok: false, status: 409, error: SHADOW_REFUSAL };
   if (!line || line.onsale_refresh_proposals?.event_id !== args.eventId) return { ok: false, status: 404, error: "No such line on this event." };
   if (line.supply) return { ok: false, status: 400, error: "A claim line is made in the Lab, not accepted here." };
   if (!["to_review", "accepted", "rejected"].includes(line.state)) return { ok: false, status: 409, error: "This line has already been applied or has expired." };
