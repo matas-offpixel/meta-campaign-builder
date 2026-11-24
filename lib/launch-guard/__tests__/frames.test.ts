@@ -62,3 +62,16 @@ describe("RC-C frames", () => {
     assert.equal(blockedLaunchLabel(result.blockers), null);
   });
 });
+
+describe("RC-C-venue (ops' rulings 3 and 4)", () => {
+  it("two warnings, no blocker, Launch on", () => {
+    const result = launchChecksFrame("RC-C-venue");
+    assert.deepEqual(result.checks.map((check) => [check.key, check.severity]), [
+      ["venue_not_set", "warning"],
+      ["link_not_event", "warning"],
+    ]);
+    assert.deepEqual(countLine(result), ["● 2 to check"]);
+    assert.equal(blockedLaunchLabel(result.blockers), null);
+    assert.equal(result.checks[1]!.findings.length, 1);
+  });
+});

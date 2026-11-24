@@ -62,7 +62,9 @@ export type LaunchCheckKey =
   | "other_show_reference"
   | "name_code_mismatch"
   | "artist_caption_not_approved"
-  | "link_not_event";
+  | "link_not_event"
+  /** Ops' ruling 4 (24 Nov): the event's venue has no account or pixel stored. A warning. */
+  | "venue_not_set";
 
 export type LaunchCheckSeverity = "blocker" | "warning";
 

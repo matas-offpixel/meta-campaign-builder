@@ -32,6 +32,6 @@ export const EVENT_CONFIG_SHOTS = [
   ...RETARGETING_SHOTS,
   // Creative test variant pairs (VP-A, VP-B, VP-C at 1280 and 393).
   ...VARIANT_PAIR_SHOTS,
-  // Launch checks on Review & launch (RC-C, RC-C-clean at 1280 and 393).
+  // Launch checks on Review & launch (RC-C, RC-C-clean, RC-C-venue at 1280 and 393).
   ...LAUNCH_CHECKS_SHOTS,
 ];

@@ -15,8 +15,11 @@ import type { AdSetSuggestion, CampaignDraft } from "../../lib/types.ts";
  *
  * - RC-C: the composite, every check on one NX27-GLITTERBOX draft.
  * - RC-C-clean: the clean copy.
+ * - RC-C-venue: ops' rulings 3 and 4 (24 Nov): a show at Electric Brixton,
+ *   which has no account or pixel stored (a warning, Launch stays on), and
+ *   one ad whose link isn't the event's page (the one-ad row).
  */
-export const LAUNCH_CHECKS_FRAME_IDS = ["RC-C", "RC-C-clean"] as const;
+export const LAUNCH_CHECKS_FRAME_IDS = ["RC-C", "RC-C-clean", "RC-C-venue"] as const;
 export type LaunchChecksFrameId = (typeof LAUNCH_CHECKS_FRAME_IDS)[number];
 
 function event(partial: Partial<GuardEvent> & Pick<GuardEvent, "id" | "code">): GuardEvent {
@@ -117,7 +120,40 @@ function draft(composite: boolean): CampaignDraft {
   };
 }
 
+/** An invented Brixton show: the venue is in the map with nothing stored (Task 5). */
+const BRIXTON_SHOW = event({
+  id: "frame-brixton-show",
+  code: "EBX27-FIXTURE",
+  name: "Fixture Night",
+  venueName: "Electric Brixton",
+  venueKey: "electric brixton",
+  signupUrl: "https://crqln.com/l/fixture-brixton",
+  cirqlinPageSlug: "fixture-brixton",
+});
+
+function brixtonDraft(): CampaignDraft {
+  const base = draft(false);
+  return {
+    ...base,
+    settings: {
+      ...base.settings,
+      eventId: BRIXTON_SHOW.id,
+      campaignCode: "EBX27-FIXTURE",
+      campaignName: "[EBX27-FIXTURE] SIGNUP",
+    },
+    creatives: base.creatives.slice(0, 6).map((creative, i) => ({
+      ...creative,
+      headline: "Fixture Night · Electric Brixton",
+      captions: [{ id: `cap-b-${i}`, text: "Fixture Night comes to Electric Brixton. Sign up for ticket access." }],
+      destinationUrl: i === 0 ? "https://skiddle.com/e/41877" : "https://crqln.com/l/fixture-brixton",
+    })),
+  };
+}
+
 export function launchChecksFrame(id: LaunchChecksFrameId): LaunchGuardResult {
+  if (id === "RC-C-venue") {
+    return checkLaunchReferences(brixtonDraft(), BRIXTON_SHOW, venueDefaultsFromMap(BRIXTON_SHOW), OTHERS);
+  }
   const composite = id === "RC-C";
   const result = checkLaunchReferences(draft(composite), NX27_GLITTERBOX, venueDefaultsFromMap(NX27_GLITTERBOX), OTHERS);
   if (!composite) return result;

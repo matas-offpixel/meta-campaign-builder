@@ -44,6 +44,7 @@ export function checkLaunchReferences(
   if (!event) return { checks: [], blockers: 0, warnings: 0, eventCode: null };
   const code = event.code ?? event.name ?? "";
   const checks: LaunchCheck[] = [
+    ...checkVenueNotSet(event, venueDefaults),
     ...checkPixel(draft, event, code, venueDefaults),
     ...checkAccount(draft, event, code, venueDefaults),
     ...checkOtherShows(draft, event, venueDefaults, otherEvents),
@@ -72,6 +73,21 @@ export function fill(template: string, values: Record<string, string | number>):
   );
 }
 
+/**
+ * A row of the word list by key, or null while the TSV doesn't have it yet.
+ * Ops' rulings of 24 Nov (#1359 amendment) add one-ad rows (`{key}.one`)
+ * and the venue-missing rows; their text comes only from the re-exported
+ * TSV, never from here.
+ */
+export function word(key: string): string | null {
+  return (W as Record<string, string>)[key] ?? null;
+}
+
+/** The one-ad row when n is 1 and the list has it, else the row itself. */
+export function byCount(key: keyof typeof W, n: number): string {
+  return (n === 1 ? word(`${key}.one`) : null) ?? W[key];
+}
+
 const last4 = (id: string) => id.slice(-4);
 
 /** Up to four names, then "… and {n} more". */
@@ -97,6 +113,37 @@ export function cleanLine(code: string | null): string {
 /** "Launch · {n} to fix" while a blocker is left, else null (the button keeps its own label). */
 export function blockedLaunchLabel(blockers: number): string | null {
   return blockers > 0 ? fill(W["launch.button.blocked"], { n: blockers }) : null;
+}
+
+// ── 0. venue not set (warning) ─────────────────────────────────────────
+
+/** The venue-missing rows (ops' ruling 4). The key names follow the re-exported TSV. */
+export const VENUE_NOT_SET_KEY = "venue_not_set";
+
+/**
+ * The event's venue has no ad account or no pixel stored (and the event sets
+ * none of its own), so the pixel or account check can't run on it. A
+ * warning, never a blocker, until every venue is seeded (ops' ruling 4).
+ */
+function checkVenueNotSet(event: GuardEvent, venue: VenueDefaults): LaunchCheck[] {
+  const account = venue.eventVenue?.adAccountId ?? venue.override.adAccountId;
+  const pixel = venue.eventVenue?.pixelId ?? venue.override.pixelId;
+  if (account && pixel) return [];
+  const name = venue.eventVenue?.name ?? event.venueName ?? event.code ?? "";
+  return [
+    {
+      key: "venue_not_set",
+      severity: "warning",
+      label: word(`${VENUE_NOT_SET_KEY}.key`) ?? "",
+      sentence: fill(word(VENUE_NOT_SET_KEY) ?? "", { venue: name }),
+      evidence: fill(word(`${VENUE_NOT_SET_KEY}.evidence`) ?? "", { venue: name }),
+      fixes: [],
+      findings: [
+        ...(account ? [] : [{ field: "ad_account" as const, adName: null, value: "" }]),
+        ...(pixel ? [] : [{ field: "pixel" as const, adName: null, value: "" }]),
+      ],
+    },
+  ];
 }
 
 // ── 1. pixel ───────────────────────────────────────────────────────────
@@ -382,7 +429,10 @@ export function renderArtistCaptionCheck(input: {
     key: "artist_caption_not_approved",
     severity: "blocker",
     label: W["artist_caption_not_approved.key"],
-    sentence: fill(W["artist_caption_not_approved"], { artist: input.artist, n: input.adNames.length }),
+    sentence: fill(byCount("artist_caption_not_approved", input.adNames.length), {
+      artist: input.artist,
+      n: input.adNames.length,
+    }),
     evidence: fill(W["artist_caption_not_approved.evidence"], { "caption labels": input.captionLabels }),
     fixes: [{ action: "open_captions", label: W["artist_caption_not_approved.fix"] }],
     findings: input.adNames.map((adName) => ({ field: "primary_text" as const, adName, value: input.captionLabels })),
@@ -430,7 +480,7 @@ function checkLink(draft: CampaignDraft, event: GuardEvent): LaunchCheck[] {
       key: "link_not_event" as const,
       severity: "warning" as const,
       label: W["link_not_event.key"],
-      sentence: fill(W["link_not_event"], {
+      sentence: fill(byCount("link_not_event", hits.length), {
         url: displayLink(url),
         n: hits.length,
         "signup url": displayLink(page),

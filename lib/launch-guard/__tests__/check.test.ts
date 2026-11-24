@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
 import {
@@ -9,6 +10,7 @@ import {
   countLine,
   keepLink,
   listNames,
+  renderArtistCaptionCheck,
 } from "../check.ts";
 import { textHasTerm } from "../references.ts";
 import type { GuardEvent } from "../types.ts";
@@ -236,7 +238,8 @@ describe("checkLaunchReferences", () => {
     draft.settings.eventId = "p26";
     draft.settings.campaignName = "[P26-BDAY] SIGNUP";
     const result = run(draft, other, []);
-    assert.deepEqual(result.checks.map((check) => check.key), ["account_not_venue"]);
+    // No venue values: the pixel can't be checked, so the venue warning shows too (ruling 4).
+    assert.deepEqual(result.checks.map((check) => check.key), ["account_not_venue", "venue_not_set"]);
     assert.equal(result.checks[0]!.sentence, "Account …1334 isn’t the one set for P26-BDAY (…9790).");
   });
 });
@@ -274,5 +277,104 @@ describe("audience names", () => {
     draft.creatives[0]!.name = "Glitterbox static";
     const target = { ...NX27_GLITTERBOX, artists: [] };
     assert.deepEqual(run(draft, target, [EBR27_GLITTERBOX]).checks, []);
+  });
+});
+
+/**
+ * Ops' rulings 3 and 4 (24 Nov, #1359 amendment). The expected words are the
+ * fixture TSV's rows, never typed here.
+ */
+function tsvWord(key: string): string {
+  const text = readFileSync(new URL("./fixtures/words-rc-2026-11-24.tsv", import.meta.url), "utf8");
+  const row = text.split("\n").map((line) => line.split("\t")).find((cols) => cols[0] === key);
+  assert.ok(row, `the word list has no ${key} row`);
+  return row![2]!;
+}
+
+describe("one ad reads in the singular (ruling 3)", () => {
+  it("link_not_event: one ad uses link_not_event.one, more use the plural row", () => {
+    const draft = glitterboxNxDraft();
+    draft.creatives[0]!.destinationUrl = "https://skiddle.com/e/41877";
+    const one = run(draft, NX27_GLITTERBOX).checks[0]!;
+    assert.equal(
+      one.sentence,
+      tsvWord("link_not_event.one")
+        .replace("{url}", "skiddle.com/e/41877")
+        .replace("{n}", "1")
+        .replace("{signup url}", "glitterbox-newcastle.com"),
+    );
+    draft.creatives[1]!.destinationUrl = "https://skiddle.com/e/41877";
+    const two = run(draft, NX27_GLITTERBOX).checks[0]!;
+    assert.equal(
+      two.sentence,
+      "Link isn’t this event’s page: skiddle.com/e/41877 in 2 ads. The event’s page is glitterbox-newcastle.com.",
+    );
+  });
+
+  it("artist_caption_not_approved: one ad uses its .one row", () => {
+    const check = renderArtistCaptionCheck({ artist: "Glitterbox", adNames: ["Static 1"], captionLabels: "Artist · teaser 1" });
+    assert.equal(
+      check.sentence,
+      tsvWord("artist_caption_not_approved.one").replace("{artist}", "Glitterbox").replace("{n}", "1"),
+    );
+    const four = renderArtistCaptionCheck({ artist: "Glitterbox", adNames: ["a", "b", "c", "d"], captionLabels: "x" });
+    assert.equal(four.sentence, "Artist-voice caption with no OK from Glitterbox’s team: 4 ads.");
+  });
+
+  it("other_show_reference: one ad uses its .one row (already in the list)", () => {
+    const draft = glitterboxNxDraft();
+    draft.creatives[0]!.destinationUrl = "https://www.paulvandyk-newcastle.com";
+    const check = run(draft, NX27_GLITTERBOX).checks.find((c) => c.key === "other_show_reference")!;
+    assert.equal(check.sentence, "Still points to Paul van Dyk: paulvandyk-newcastle.com in 1 ad.");
+  });
+});
+
+describe("a venue with no account or pixel stored (ruling 4)", () => {
+  const brixton = electricEvent({
+    id: "brixton-show",
+    code: "EBX27-TEST",
+    name: "Test Night",
+    venueName: "Electric Brixton",
+    venueKey: "electric brixton",
+    signupUrl: "https://crqln.com/l/test-brixton",
+  });
+
+  function brixtonDraft() {
+    const draft = glitterboxNxDraft();
+    draft.settings.eventId = brixton.id;
+    draft.settings.campaignName = "[EBX27-TEST] SIGNUP";
+    draft.creatives = draft.creatives.map((c) => ({
+      ...c,
+      destinationUrl: "https://crqln.com/l/test-brixton",
+      headline: "Test Night",
+      captions: [{ id: `${c.id}-c`, text: "Test Night. Sign up." }],
+    }));
+    return draft;
+  }
+
+  it("gives the warning and no blocker, and never holds Launch", () => {
+    const result = run(brixtonDraft(), brixton, []);
+    assert.deepEqual(result.checks.map((c) => [c.key, c.severity]), [["venue_not_set", "warning"]]);
+    assert.equal(result.blockers, 0);
+    assert.equal(blockedLaunchLabel(result.blockers), null);
+    assert.equal(result.checks[0]!.sentence, tsvWord("venue_not_set").replace("{venue}", "Electric Brixton"));
+    assert.equal(result.checks[0]!.label, tsvWord("venue_not_set.key"));
+  });
+
+  it("is a warning beside the other warnings, after every blocker", () => {
+    const draft = brixtonDraft();
+    draft.settings.campaignName = "[NX27-GLITTERBOX] SIGNUP";
+    draft.creatives[0]!.destinationUrl = "https://skiddle.com/e/1";
+    const result = run(draft, brixton, []);
+    assert.deepEqual(
+      result.checks.map((c) => c.key),
+      ["name_code_mismatch", "venue_not_set", "link_not_event"],
+    );
+    assert.equal(result.blockers, 1);
+  });
+
+  it("a seeded venue doesn't give it", () => {
+    assert.ok(!run(glitterboxNxDraft(), NX27_GLITTERBOX).checks.some((c) => c.key === "venue_not_set"));
+    assert.ok(!run(daveDraft(), ES27_DAVEPEARCE).checks.some((c) => c.key === "venue_not_set"));
   });
 });

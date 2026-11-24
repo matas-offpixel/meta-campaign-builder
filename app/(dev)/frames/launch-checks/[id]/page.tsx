@@ -4,7 +4,7 @@ import { LaunchChecksFrameMount } from "@/components/launch-guard/launch-checks-
 import { LAUNCH_CHECKS_FRAME_IDS, type LaunchChecksFrameId } from "@/scripts/plan-frames/launch-checks-fixtures";
 
 /**
- * Review & launch's launch checks (RC-C, RC-C-clean) of
+ * Review & launch's launch checks (RC-C, RC-C-clean, RC-C-venue) of
  * docs/design-record/2026-11-24-campaign-creator-replicate.html at
  * /frames/launch-checks/{id}. A nested route under the shared /frames/
  * prefix, like event-config and retargeting. Fixture only: nothing fetches.
