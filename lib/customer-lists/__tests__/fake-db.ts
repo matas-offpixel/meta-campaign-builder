@@ -5,6 +5,8 @@
  * Every write is recorded in `writes` so a test can scan it for hashes.
  */
 
+import type { Db } from "../sync.ts";
+
 type Row = Record<string, unknown>;
 type Filter = { col: string; op: "eq" | "in" | "is"; value: unknown };
 
@@ -13,7 +15,8 @@ export type FakeDb = {
   writes: { table: string; op: string; payload: unknown }[];
   /** Make the next writes to a table fail with this error. */
   failWrites: Record<string, { code?: string; message: string } | undefined>;
-  from(table: string): Query;
+  /** Typed as Supabase's builder so a FakeDb passes where the sync takes a Db. */
+  from(table: string): ReturnType<Db["from"]>;
 };
 
 class Query implements PromiseLike<{ data: unknown; error: unknown }> {
@@ -158,7 +161,7 @@ export function fakeDb(tables: Record<string, Row[]> = {}): FakeDb {
     writes: [],
     failWrites: {},
     from(table: string) {
-      return new Query(db, table);
+      return new Query(db, table) as unknown as ReturnType<Db["from"]>;
     },
   };
   return db;

@@ -35,8 +35,9 @@ import { cirqlinHashedReader } from "../lib/customer-lists/cirqlin-hashed.ts";
 import { enableRowPayload, planEnable, type EnablePlan } from "../lib/customer-lists/enable.ts";
 import { liveCustomerListGraph, readOnlyGraph } from "../lib/customer-lists/graph-live.ts";
 import { customerListWritesEnabled, normaliseAccount, syncState } from "../lib/customer-lists/rules.ts";
-import { EVENT_COLS, runCustomerListSync, workForRows, type EventRow, type SyncResult, type SyncRow } from "../lib/customer-lists/sync.ts";
+import { EVENT_COLS, runCustomerListSync, workForRows, type Db, type EventRow, type SyncResult, type SyncRow } from "../lib/customer-lists/sync.ts";
 import { venueAccountOf } from "../lib/customer-lists/venue.ts";
+import type { ReplicateDb } from "../lib/replicate/load.ts";
 
 type Args = { events: string[]; mode: "dry" | "enable" | "run"; template: string | null; highValue: string | null | undefined; audience: string | null; at: string | null; json: string | null };
 
@@ -72,7 +73,10 @@ const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const token = process.env.META_ACCESS_TOKEN;
 if (!url || !key) throw new Error("NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required");
 if (!token) throw new Error("META_ACCESS_TOKEN is required (Meta GETs)");
-const db = createClient(url, key, { auth: { persistSession: false } });
+const supabase = createClient(url, key, { auth: { persistSession: false } });
+// Cast once: checking the client structurally against Db / ReplicateDb at each call is too deep for tsc.
+const db = supabase as unknown as Db;
+const venueDb = supabase as unknown as ReplicateDb;
 const live = liveCustomerListGraph(token);
 const base = args.mode === "run" ? live : readOnlyGraph(live);
 // One listing per account per run: the show list and the high-value list are both found by name in it.
@@ -121,7 +125,7 @@ const out: { plan: EnablePlan; result: SyncResult | null; asOf: string; stateNow
 
 for (const code of args.events) {
   const event = await loadEvent(code);
-  const venueAccount = await venueAccountOf(db, event);
+  const venueAccount = await venueAccountOf(venueDb, event);
   const { rows: existing, tableMissing } = await existingRows(event.id);
   const plan = await planEnable({
     db,
@@ -158,7 +162,7 @@ for (const code of args.events) {
     if (!enabled.length) throw new Error(`${code}: no enabled rows (run --enable first)`);
     rows = enabled;
   }
-  const work = await workForRows(db, rows, (e) => venueAccountOf(db, e), [code]);
+  const work = await workForRows(db, rows, (e) => venueAccountOf(venueDb, e), [code]);
   const result = await runCustomerListSync(
     { db, graph, readHashed, env: process.env, now: args.mode === "run" ? new Date() : asOf, mode: args.mode === "run" ? "write" : "dry", log: () => {} },
     work,

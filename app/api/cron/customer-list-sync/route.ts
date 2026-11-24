@@ -3,8 +3,9 @@ import { NextResponse, type NextRequest } from "next/server";
 import { cirqlinHashedReader } from "@/lib/customer-lists/cirqlin-hashed";
 import { liveCustomerListGraph } from "@/lib/customer-lists/graph-live";
 import { customerListWritesEnabled, isEightLondon } from "@/lib/customer-lists/rules";
-import { loadEnabledRows, runCustomerListSync, workForRows } from "@/lib/customer-lists/sync";
+import { loadEnabledRows, runCustomerListSync, workForRows, type Db } from "@/lib/customer-lists/sync";
 import { venueAccountOf } from "@/lib/customer-lists/venue";
+import type { ReplicateDb } from "@/lib/replicate/load";
 import { withCronRunLog } from "@/lib/reporting/with-cron-run-log";
 import { createServiceRoleClient } from "@/lib/supabase/server";
 
@@ -59,10 +60,14 @@ async function handleGET(req: NextRequest) {
   }
   const eventCodes = req.nextUrl.searchParams.getAll("event").map((code) => code.trim()).filter(Boolean);
   try {
-    const rows = await loadEnabledRows(supabase);
-    const work = await workForRows(supabase, rows, (e) => venueAccountOf(supabase, e), eventCodes.length ? eventCodes : undefined);
+    // Cast the typed client once: checking it structurally against Db and
+    // ReplicateDb at each call is "excessively deep" for tsc (next build).
+    const db = supabase as unknown as Db;
+    const venueDb = supabase as unknown as ReplicateDb;
+    const rows = await loadEnabledRows(db);
+    const work = await workForRows(db, rows, (e) => venueAccountOf(venueDb, e), eventCodes.length ? eventCodes : undefined);
     const result = await runCustomerListSync(
-      { db: supabase, graph: liveCustomerListGraph(token), readHashed: cirqlinHashedReader(), env: process.env, now, mode: "write" },
+      { db, graph: liveCustomerListGraph(token), readHashed: cirqlinHashedReader(), env: process.env, now, mode: "write" },
       work,
     );
     return NextResponse.json(result, { status: result.ok ? 200 : 207 });
