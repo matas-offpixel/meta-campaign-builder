@@ -359,7 +359,8 @@ function showEvent(event: EventRow): ShowEvent {
   };
 }
 
-function loadPublishedPromoterPages(db: Db): Promise<DraftPageRow[]> {
+/** Published drafts' Facebook pages per client: promoter pages, with clients.default_page_ids (copy voice). */
+export function loadPublishedPromoterPages(db: Db): Promise<DraftPageRow[]> {
   return loadAllPaged<DraftPageRow>(db, "campaign_drafts", "id, client_id, meta_page_id:draft_json->settings->>metaPageId", ["id"], (q) => q.eq("status", "published"));
 }
 

@@ -22,6 +22,7 @@ import {
 import type { BusinessManager, ScanResult } from "@/lib/bm/types";
 import { chunk } from "@/lib/bm/chunk";
 import { derivePageAccessState } from "@/lib/bm/page-tasks";
+import { isMetaRateLimitError } from "@/lib/bm/scan-run";
 
 /**
  * Checkpoint boundary for the detected_new event-logging phase: after every
@@ -93,19 +94,30 @@ function toUpsertInput(
 export async function scanBusinessManager(
   supabase: AnySupabaseClient,
   bm: BusinessManager,
-  opts: { actorUserId?: string | null } = {},
+  opts: {
+    actorUserId?: string | null;
+    /** Already-decrypted token for this BM (the cron decrypts once per BM). */
+    token?: string;
+    /**
+     * `/me/accounts` for this token, read once per cron run. When absent the
+     * scan reads it itself ("Sync now" path).
+     */
+    accessiblePages?: MetaAccessiblePage[];
+  } = {},
 ): Promise<ScanResult> {
   const bizId = bm.business_id;
   const actorUserId = opts.actorUserId ?? bm.added_by_user_id ?? null;
 
-  let token: string | null;
-  try {
-    token = await getBusinessManagerToken(supabase, bm.id);
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : "decrypt_failed";
-    console.error(`[bm-page-scan] biz=${bizId} token decrypt failed: ${msg}`);
-    await updateBusinessManagerScanState(supabase, bizId, { lastError: msg });
-    return failedScan(bizId, msg);
+  let token: string | null = opts.token ?? null;
+  if (!token) {
+    try {
+      token = await getBusinessManagerToken(supabase, bm.id);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "decrypt_failed";
+      console.error(`[bm-page-scan] biz=${bizId} token decrypt failed: ${msg}`);
+      await updateBusinessManagerScanState(supabase, bizId, { lastError: msg });
+      return failedScan(bizId, msg);
+    }
   }
   if (!token) {
     const msg = "no_token_stored";
@@ -121,10 +133,24 @@ export async function scanBusinessManager(
     [owned, clientPages, accessiblePages] = await Promise.all([
       listOwnedPages(bizId, token),
       listClientPages(bizId, token),
-      listUserAccessiblePages(token),
+      opts.accessiblePages ?? listUserAccessiblePages(token),
     ]);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
+    if (isMetaRateLimitError(err)) {
+      // One `rate_limited` row, not a `sync_error`: Meta refused the call, the
+      // BM itself is fine. last_scanned_at is NOT stamped, so the next run's
+      // rotation puts this BM first (see lib/bm/scan-run.ts).
+      console.error(`[bm-page-scan] biz=${bizId} rate limited: ${msg}`);
+      await logAccessEvent(supabase, {
+        businessId: bizId,
+        pageId: "-",
+        userId: actorUserId,
+        action: "rate_limited",
+        detail: { message: msg, phase: "pages", code: (err as MetaApiError).code ?? null },
+      });
+      return { ...failedScan(bizId, "rate_limited"), rateLimited: true };
+    }
     if (isTokenExpiredMetaError(err)) {
       console.error(`[bm-page-scan] biz=${bizId} token expired (subcode 190): ${msg}`);
       await markBusinessManagerTokenExpired(supabase, bizId, msg);

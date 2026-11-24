@@ -11,16 +11,24 @@
  *     signup list, a lineup page with no role (Mira Vale, so 3 of 4 pages)
  *     and no buyers list. Before Apply every pool reads "Known after create"
  *     (RT3, revised 17 Nov).
- * RA: XMPL-WHSE's running campaign, read Tue 17 Nov (PR B): current daily
- *     spend £240.00 (£1,680.00 over 10–16 Nov), so £24.00 a day is 10 %,
- *     on £12.00 / £6.00 / £6.00. The 7 days: Bottom £82.40 ÷ 16 = £5.15 at
- *     frequency 4.3, Mid Bottom £41.60 ÷ 5 = £8.32 at 2.2, Mid £41.90 ÷ 2 =
- *     £20.95 at 1.6; £165.90 ÷ 23 = £7.21. Bottom is cheapest but held
- *     (frequency 4.3); Mid gives half its £5.99 a day, £2.99, to Mid Bottom
- *     (room £10.80). Final month from Thu 19 Nov; payday from Thu 26 Nov.
+ *     -2.html (PR B): its links come from CIRQLIN (Skiddle shown first,
+ *     Fatsoma, DICE; xmpl-roof.com), every source at RT14's windows,
+ *     registrations in Bottom, and today's share with no choice (RT11).
+ *     The pixel is on Skiddle only, so Fatsoma and DICE read "no".
+ * RA: XMPL-WHSE's running campaign, read Tue 17 Nov. PR B's lines (-2.html):
+ *     RT14's windows, the per-link sizes (Skiddle 2,100–2,500 · RA
+ *     1,000–1,200 · Fixr below 1,000; xmpl-whse.com 7,000–8,200) and the
+ *     pixel lines (Skiddle and RA yes, Fixr no; xmpl-whse.com yes). PR C's
+ *     figures: current daily spend £240.00 (£1,680.00 over 10–16 Nov), so
+ *     £24.00 a day is 10 %, on £12.00 / £6.00 / £6.00. The 7 days: Bottom
+ *     £82.40 ÷ 16 = £5.15 at frequency 4.3, Mid Bottom £41.60 ÷ 5 = £8.32 at
+ *     2.2, Mid £41.90 ÷ 2 = £20.95 at 1.6; £165.90 ÷ 23 = £7.21. Bottom is
+ *     cheapest but held (frequency 4.3); Mid gives half its £5.99 a day,
+ *     £2.99, to Mid Bottom (room £10.80). Final month from Thu 19 Nov;
+ *     payday from Thu 26 Nov.
  * RD: RA's show (XMPL-WHSE) on the on-sale panel: its Registrations
  *     lookalike standing default, and the one note in place of the
- *     per-campaign Retargeting default (RT9). Under it, the eight
+ *     per-campaign Retargeting default (RT9). Under it, the ten
  *     not-proposed states, one per show.
  *
  * Show names are the record's XMPL shows and Mira Vale; the figures are
@@ -31,6 +39,9 @@ import type { PanelLine, PanelProposal } from "@/lib/onsale-refresh/read";
 
 import { ONSALE_PHASE } from "../../lib/onsale-refresh/phase-config.ts";
 import type { PurchaseRead } from "../../lib/onsale-refresh/purchases.ts";
+import type { PartnerPageLinks } from "../../lib/cirqlin/page-links.ts";
+import { linkKey } from "../../lib/retargeting/audiences.ts";
+import { linksFromPages, type PixelHosts } from "../../lib/retargeting/links.ts";
 import { planRetargeting, retargetingBeforeOnSale, type RetargetingInput, type RetargetingView } from "../../lib/retargeting/plan.ts";
 import { runsInOwnCampaign } from "../../lib/retargeting/words.ts";
 import { OR6_PROPOSALS } from "./refresh-fixtures.ts";
@@ -65,6 +76,25 @@ function read(overrides: Partial<PurchaseRead> = {}): PurchaseRead {
   };
 }
 
+/** RB's page on CIRQLIN: xmpl-roof.com, with Skiddle shown first, then Fatsoma and DICE. */
+const ROOF_PAGES: PartnerPageLinks[] = [
+  {
+    page_id: "pg-roof",
+    slug: "xmpl-roof",
+    crm_base_tag: "XMPL-ROOF",
+    title: "XMPL Rooftop",
+    landing_url: "https://xmpl-roof.com/",
+    ticket_links: [
+      { platform: "skiddle", url: "https://www.skiddle.com/whats-on/London/XMPL-Rooftop/1234567/", label: "Tickets", shop_name: null, shown_first: true },
+      { platform: "fatsoma", url: "https://www.fatsoma.com/e/abc123/xmpl-rooftop", label: "Tickets", shop_name: null, shown_first: false },
+      { platform: "dice", url: "https://dice.fm/event/xyz-xmpl-rooftop", label: "Tickets", shop_name: null, shown_first: false },
+    ],
+  },
+];
+
+/** The pixel's hosts in 28 days (GET /{pixel}/stats?aggregation=host): any event on Skiddle and the show's own domain, checkouts on Skiddle, registrations on its own page. */
+const ROOF_HOSTS: PixelHosts = { any: ["www.skiddle.com", "xmpl-roof.com"], pageView: ["www.skiddle.com", "xmpl-roof.com"], checkout: ["www.skiddle.com"], registration: ["xmpl-roof.com"] };
+
 function input(overrides: Partial<RetargetingInput>): RetargetingInput {
   return {
     eventId: "xmpl-roof",
@@ -77,8 +107,8 @@ function input(overrides: Partial<RetargetingInput>): RetargetingInput {
     minDailyMinor: 100,
     sources: {
       pixelId: "1067726194205285",
-      ticketUrl: "skiddle.com/whats-on/xmpl-roof",
-      pageUrl: "xmpl-roof.example/tickets",
+      // RT13: CIRQLIN's page for the show (cirqlin#653's shape), Skiddle shown first.
+      links: linksFromPages(ROOF_PAGES),
       videos: [{ contextId: "", videoIds: ["pending"] }],
       pages: [
         { id: "p1", name: "XMPL Promotions", igId: "ig1", kind: "promoter", hasRole: true },
@@ -98,12 +128,39 @@ function input(overrides: Partial<RetargetingInput>): RetargetingInput {
     geoFromAdsetId: "120000000000000002",
     where: { draftId: "00000000-0000-4000-8000-000000000001", adAccountId: "act_1", campaignIds: ["120000000000000001"] },
     today: TODAY,
+    linksRead: "ok",
+    pixelHosts: ROOF_HOSTS,
     ...overrides,
   };
 }
 
-/** RA: the running panel with a hold and a move, read Tue 17 Nov. */
+/** RA's page on CIRQLIN: xmpl-whse.com with Skiddle shown first, RA and Fixr. */
+const WHSE_PAGES: PartnerPageLinks[] = [
+  {
+    page_id: "pg-whse",
+    slug: "xmpl-whse",
+    crm_base_tag: "XMPL-WHSE",
+    title: "XMPL Warehouse",
+    landing_url: "https://xmpl-whse.com",
+    ticket_links: [
+      { platform: "skiddle", url: "https://www.skiddle.com/whats-on/London/XMPL-Warehouse/7654321/", label: "Tickets", shop_name: null, shown_first: true },
+      { platform: "ra", url: "https://ra.co/events/7654321", label: "Tickets", shop_name: null, shown_first: false },
+      { platform: "fixr", url: "https://fixr.co/event/xmpl-warehouse-7654321", label: "Tickets", shop_name: null, shown_first: false },
+    ],
+  },
+];
+
+/** RA: the running panel with PR B's lines, a hold and a move, read Tue 17 Nov. */
 export function raPlan() {
+  const links = linksFromPages(WHSE_PAGES);
+  const size = (rule: string, lower: number, upper: number) => [rule, { lower, upper }] as const;
+  const [skiddle, ra, fixr, whse] = links.map((link) => link.rule);
+  const linkSizes = Object.fromEntries([
+    [`bottom:ticket:30:${linkKey(skiddle!)}`, size(skiddle!, 2100, 2500)[1]],
+    [`bottom:ticket:30:${linkKey(ra!)}`, size(ra!, 1000, 1200)[1]],
+    [`bottom:ticket:30:${linkKey(fixr!)}`, size(fixr!, 400, 800)[1]],
+    [`mid_bottom:page:60:${linkKey(whse!)}`, size(whse!, 7000, 8200)[1]],
+  ]);
   return planRetargeting(
     input({
       eventId: "xmpl-whse",
@@ -111,10 +168,11 @@ export function raPlan() {
       eventDate: "2026-12-19",
       onSaleDay: "2026-11-06",
       last7SpendGbp: 1680,
+      pixelHosts: { any: ["www.skiddle.com", "ra.co", "xmpl-whse.com"], pageView: ["www.skiddle.com", "ra.co", "xmpl-whse.com"], checkout: ["www.skiddle.com"], registration: ["xmpl-whse.com"] },
+      linkSizes,
       sources: {
         pixelId: "1067726194205285",
-        ticketUrl: "skiddle.com/whats-on/xmpl-whse",
-        pageUrl: "xmpl-whse.example/tickets",
+        links,
         videos: [{ contextId: "", videoIds: ["pending"] }],
         pages: [
           { id: "p1", name: "XMPL Promotions", igId: "ig1", kind: "promoter", hasRole: true },
@@ -134,6 +192,7 @@ export function raPlan() {
         since: "2026-11-10",
         totalMinor: 2400,
         share: 10,
+        status: "ACTIVE",
         live: {
           status: "ACTIVE",
           tiers: {
@@ -168,6 +227,11 @@ export function raBudgetLines(plan = raPlan()): PanelLine[] {
       writeKind: line.write.kind,
     },
   ];
+}
+
+/** RA's view, as frame RA draws it. */
+export function raView(): RetargetingView {
+  return raPlan().view;
 }
 
 /** RB: the Create line with all three missing states, before Apply. */
@@ -241,5 +305,8 @@ export function rdStates(): RetargetingView[] {
     planRetargeting(input({ eventCode: "XMPL-OWN", read: read({ state: "nothing_reaches", domain: "xmpl-roof.com", domainKind: "own", platform: null, platformShare: null, onDomain: { d14: 0, d28: 0, history: 0 }, pixelWide: { d14: 40, d28: 90, history: 90, topHost: "skiddle.com" } }) })).view,
     planRetargeting(input({ eventCode: "XMPL-NONE", read: read({ state: "platform_no_purchases", platformShare: { purchases: 0, pixelPurchases: 0, share: null, elsewhereHost: null, elsewherePurchases: 0 } }) })).view,
     planRetargeting(input({ eventCode: "XMPL-NOURL", read: read({ state: "no_url", platform: null, platformShare: null, domainKind: "no_url" }) })).view,
+    // -2.html RT13: CIRQLIN's page isn't published (404 no_page), and the links read failed.
+    planRetargeting(input({ eventCode: "XMPL-PEND", linksRead: "no_page" })).view,
+    planRetargeting(input({ eventCode: "XMPL-LINK", linksRead: "failed" })).view,
   ];
 }

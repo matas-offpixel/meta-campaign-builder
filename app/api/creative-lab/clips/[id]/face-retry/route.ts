@@ -2,7 +2,9 @@
  * POST /api/creative-lab/clips/[id]/face-retry
  *
  * Clears stored face samples so the render tick detects this crop again.
- * A failed check leaves the render queued; this is not the failed-render retry.
+ * The render tick fails a queued render whose clip's check failed, and that
+ * failed row's own retry (retryRender) clears the samples too. This route is
+ * for a clip still waiting on its check.
  */
 
 import { NextResponse, type NextRequest } from "next/server";
@@ -19,7 +21,7 @@ export async function POST(_req: NextRequest, ctx: { params: Promise<{ id: strin
   if (!user) return NextResponse.json({ error: "Sign in again, then try it again." }, { status: 401 });
   try {
     const cleared = await clearFaceSamples(createServiceRoleClient(), id, user.id);
-    if (!cleared) return NextResponse.json({ error: "This clip isn't yours." }, { status: 404 });
+    if (cleared === "missing") return NextResponse.json({ error: "This clip isn't yours." }, { status: 404 });
     return NextResponse.json({ ok: true });
   } catch (err) {
     console.error("[creative-lab] face retry", id, err);

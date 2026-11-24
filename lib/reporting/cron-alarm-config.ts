@@ -14,7 +14,12 @@ export interface CronAlarmSpec {
    * Which zero counts as implausible. `never` means this cron legitimately
    * writes nothing most runs, so only a missing report is worth an alarm.
    */
-  zeroRule: "never" | "rollup_meta" | "tickets" | "tier_channel";
+  zeroRule: "never" | "rollup_meta" | "tickets" | "tier_channel" | "night_all_zero";
+  /**
+   * `night_all_zero` only: runs scheduled per London night. A zero alarms
+   * once this many runs of the night have all done 0, or the night is over.
+   */
+  runsPerNight?: number;
 }
 
 /** A cron is "missing" after this many times its own interval. */
@@ -62,7 +67,7 @@ export const TIER_CHANNEL_WINDOW_DAYS = 7;
  * morning.
  *
  * Deliberately NOT alarmed: `d2c-*` (idle), `mailchimp-backfill-tick`,
- * `bm-page-scan`, `show-week-burst`, `match-attribution` (0 by design
+ * `show-week-burst`, `match-attribution` (0 by design
  * until attribution inputs exist), and anything on the Vercel v2 duplicate
  * project. A cron that is supposed to write nothing must never be wired to
  * an alarm that fires when it writes nothing.
@@ -93,6 +98,10 @@ export const CRON_ALARMS: CronAlarmSpec[] = [
 
   { cronName: "ad-daily-insights", intervalMinutes: 1440, zeroRule: "never" },
   { cronName: "learning-refresh", intervalMinutes: 1440, zeroRule: "never" },
+  // 15 4 UTC: the observed tests' verdicts (RP1). Most nights it reads few or no test ad sets.
+  { cronName: "learning-findings", intervalMinutes: 1440, zeroRule: "never" },
+  // 0 10 UTC Mondays: the weekly digest. Off until ENABLE_LEARNING_DIGEST; a week between runs.
+  { cronName: "learning-digest", intervalMinutes: 10080, zeroRule: "never" },
   { cronName: "benchmark-alerts", intervalMinutes: 1440, zeroRule: "never" },
   { cronName: "snapshot-tier-channel-sales-daily", intervalMinutes: 1440, zeroRule: "tier_channel" },
 
@@ -101,6 +110,22 @@ export const CRON_ALARMS: CronAlarmSpec[] = [
   { cronName: CIRQLIN_LEG_NAME, intervalMinutes: 1440, zeroRule: "never" },
 
   { cronName: "optimisation-tick", intervalMinutes: 240, zeroRule: "never" },
+  // 0 7,8 UTC, acting at 08:00 London: the creative tests' daily read (TF2, TF5–TF8). Most days it reads no running test.
+  { cronName: "creative-tests-read", intervalMinutes: 1440, zeroRule: "never" },
+  // "0 7,8 * * *" UTC, acting on 08:00 London: signups into Meta customer
+  // lists (SU1, SU2). Most days it sends nothing (no enabled show is active,
+  // or nothing new), so only a missing or failed run alarms.
+  { cronName: "customer-list-sync", intervalMinutes: 1440, zeroRule: "never" },
+
+  // 15 21,1,4 and 45 22 UTC: four runs a London night, each stopping at
+  // the first rate limit or at 80 % X-App-Usage, whichever comes first. One
+  // row per run (rows_written = BMs scanned OK, rows_considered = BMs not
+  // under an archived client). A failed run alarms at once; a zero
+  // (rate-limited, usage-stopped or not) only when every run that night did
+  // 0. A usage stop always finishes the BM in progress, so it is a zero only
+  // when that BM failed. intervalMinutes is 1440 on purpose, not the longest
+  // real gap (17 h): "not reporting" stays at 48 h without a run.
+  { cronName: "bm-page-scan", intervalMinutes: 1440, zeroRule: "night_all_zero", runsPerNight: 4 },
   { cronName: "budget-pacing-check", intervalMinutes: 60, zeroRule: "never" },
 
   // The watcher watches itself: if the evaluator stops running, nothing

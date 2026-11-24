@@ -138,7 +138,7 @@ export function compareWithLeader(leaderCost: number, rival: VariantRead): "chea
   return rival.cost < leaderCost ? "cheaper" : "worse";
 }
 
-export function readTest(input: { firstDeliveryAt: string | null; readAt: string; variants: VariantFigures[]; result: ResultEvent }): FastCallRead {
+export function readTest(input: { firstDeliveryAt: string | null; readAt: string; variants: VariantFigures[]; result: ResultEvent; /** The read that ends the test: day 4, or day 8 / 12 once TF6 extends it. */ lastReadHours?: number; /** TF9: the daily read says whether this is the test's last read (the morning after its end day), overriding the hours. */ final?: boolean }): FastCallRead {
   const { rows, total } = shareRows(input.variants);
   const hours = hoursSince(input.firstDeliveryAt, input.readAt);
   const base = { hours, spendTotal: total, variants: rows, leaderId: null, winnerId: null, cheaperId: null, ends: false };
@@ -151,7 +151,7 @@ export function readTest(input: { firstDeliveryAt: string | null; readAt: string
   const leader = sortByShare(inTest)[0]!;
   const leaderShare = leader.share ?? 0;
   const withLeader = { ...base, leaderId: leader.id };
-  const pastDay4 = hours >= TF2.lastReadHours;
+  const pastDay4 = input.final ?? hours >= (input.lastReadHours ?? TF2.lastReadHours);
   const noWinner = (fallback: Pick<FastCallRead, "state" | "text" | "winnerId" | "cheaperId" | "ends">): FastCallRead =>
     pastDay4 ? { ...withLeader, state: "no_clear_winner", text: NO_CLEAR_WINNER, ends: true } : { ...withLeader, ...fallback };
   const running = { state: "running" as const, text: runningText(hours, pct(leaderShare), leader.label), winnerId: null, cheaperId: null, ends: false };

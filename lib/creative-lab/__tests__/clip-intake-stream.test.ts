@@ -12,6 +12,8 @@ import { readdir, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
+import { setFlagsFromString } from "node:v8";
+import { runInNewContext } from "node:vm";
 
 import { remoteOriginal, type FetchRange } from "../../creatives/remote-file.ts";
 import { writeStreamToFile } from "../../creatives/stream-file.ts";
@@ -25,15 +27,42 @@ const CHUNK = 1024 * 1024;
 const USER = "op";
 const EVENT = "P26-BDAY";
 
-/** Array-buffer memory above where the test started (Buffers live there). */
+/**
+ * Live array-buffer memory above where the test started (Buffers live there).
+ *
+ * `process.memoryUsage().arrayBuffers` also counts chunks that are already
+ * garbage but not yet collected. How many of those pile up depends on when V8
+ * gets round to a collection, which depends on CPU load, so on a busy CI runner
+ * the same streaming code read 20–70 MB against a 64 MB ceiling and failed on
+ * #1315, #1297, #1321 and #1320 with changes that never touched the import.
+ * Measured with garbage collected first, the same runs hold 0–8 MB.
+ *
+ * So the meter collects garbage before it reads, and reads on every
+ * SAMPLE_EVERY-th sample (and once more before the peak is read): a collection
+ * on every 1 MiB chunk made the file 10× slower. Holding the file, or any
+ * growing part of it, still shows at the next collected sample, because live
+ * memory only grows; the ceilings below are unchanged.
+ */
+setFlagsFromString("--expose-gc");
+const collectGarbage = runInNewContext("gc") as () => void;
+const SAMPLE_EVERY = 16;
+
 function memoryMeter() {
+  collectGarbage();
   const base = process.memoryUsage().arrayBuffers;
   let peak = 0;
+  let calls = 0;
+  const read = () => {
+    collectGarbage();
+    peak = Math.max(peak, process.memoryUsage().arrayBuffers - base);
+  };
   return {
     sample() {
-      peak = Math.max(peak, process.memoryUsage().arrayBuffers - base);
+      calls += 1;
+      if (calls % SAMPLE_EVERY === 0) read();
     },
     get peak() {
+      read();
       return peak;
     },
   };

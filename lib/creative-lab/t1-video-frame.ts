@@ -33,9 +33,11 @@ export const FORMAT_SIZE: Record<VideoFormat, Size> = { "9:16": { width: 1080, h
  * The source window shown in a format: the largest window of the format's
  * aspect inside the source (no pillarbox, no extension, no upscaling of the
  * window beyond the source; O42), its vertical centre at cropFocusY (0–1) and
- * horizontal centre at cropFocusX, clamped inside the source.
+ * horizontal centre at cropFocusX, clamped inside the source. `cropWidth`
+ * (O120, source px) narrows the window so a head near a side can be centred;
+ * the caller keeps it at 675 px or wider (O63).
  */
-export function footageWindow(source: Size, format: VideoFormat, cropFocusY = 0.5, cropFocusX = 0.5): Rect {
+export function footageWindow(source: Size, format: VideoFormat, cropFocusY = 0.5, cropFocusX = 0.5, cropWidth?: number | null): Rect {
   const out = FORMAT_SIZE[format];
   const aspect = out.width / out.height;
   let w = source.width;
@@ -43,6 +45,10 @@ export function footageWindow(source: Size, format: VideoFormat, cropFocusY = 0.
   if (h > source.height) {
     h = source.height;
     w = h * aspect;
+  }
+  if (cropWidth != null && cropWidth > 0 && cropWidth < w) {
+    w = cropWidth;
+    h = w / aspect;
   }
   const left = Math.min(source.width - w, Math.max(0, cropFocusX * source.width - w / 2));
   const top = Math.min(source.height - h, Math.max(0, cropFocusY * source.height - h / 2));

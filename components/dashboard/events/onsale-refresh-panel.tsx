@@ -845,15 +845,15 @@ export function OnSaleRefreshPanelView({ eventId, proposals: given, showWeek = f
 /** The live panel: fetches the event's proposals and gates through the session route, and wires P2's clicks. Mounted by G2's on-sale predicate. */
 export function OnSaleRefreshPanel({ eventId, eventDate }: { eventId: string; eventDate: string | null }) {
   const showWeek = isShowWeek(eventDate, todayLondon(new Date()));
-  const [panel, setPanel] = useState<{ proposals: PanelProposal[]; apply: PanelApply | null; retargeting: RetargetingView | null; clientId: string | null } | null>(null);
+  const [panel, setPanel] = useState<{ proposals: PanelProposal[]; apply: PanelApply | null; retargetingApply: PanelApply | null; retargeting: RetargetingView | null; clientId: string | null } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const load = useCallback(async () => {
     const res = await fetch(`/api/events/${eventId}/onsale-refresh`, { cache: "no-store" });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const body = (await res.json()) as { proposals: PanelProposal[]; apply?: PanelApply; retargeting?: RetargetingView | null; clientId?: string | null };
-    setPanel({ proposals: body.proposals ?? [], apply: body.apply ?? null, retargeting: body.retargeting ?? null, clientId: body.clientId ?? null });
+    const body = (await res.json()) as { proposals: PanelProposal[]; apply?: PanelApply; retargetingApply?: PanelApply; retargeting?: RetargetingView | null; clientId?: string | null };
+    setPanel({ proposals: body.proposals ?? [], apply: body.apply ?? null, retargetingApply: body.retargetingApply ?? body.apply ?? null, retargeting: body.retargeting ?? null, clientId: body.clientId ?? null });
   }, [eventId]);
   useEffect(() => {
     let cancelled = false;
@@ -911,9 +911,9 @@ export function OnSaleRefreshPanel({ eventId, eventDate }: { eventId: string; ev
         const proposal = panel.proposals.find((row) => row.runKind === "retargeting");
         const line = proposal?.lines.find((row) => row.kind === "retargeting_campaign") ?? null;
         const view = line?.retargeting ?? proposal?.notes.retargetingView ?? panel.retargeting;
-        // RT5: the daily read's Move or Cut on a running campaign.
+        // RT5: the daily read's Move or Cut on a running campaign. RT16: Live on every active show without arming the event.
         const budgetLines = proposal?.lines.filter((row) => row.kind === "move_budget") ?? [];
-        return view ? <RetargetingPanelView key={line?.id ?? view.state} view={view} line={line} budgetLines={budgetLines} clientId={panel.clientId} eventId={eventId} apply={panel.apply ?? undefined} actions={actions} /> : null;
+        return view ? <RetargetingPanelView key={line?.id ?? view.state} view={view} line={line} budgetLines={budgetLines} clientId={panel.clientId} eventId={eventId} apply={panel.retargetingApply ?? undefined} actions={actions} /> : null;
       })()}
       {/* CT9: the Test plan panel sits under the Refresh panel. It draws nothing for an event with no plan. */}
       <TestPlanPanel eventId={eventId} />

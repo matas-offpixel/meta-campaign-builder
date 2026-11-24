@@ -182,6 +182,39 @@ async function loadFirstSeen(db: Db): Promise<Map<string, string>> {
   return firstSeen;
 }
 
+/**
+ * The last 48 h of runs for each cron on the `night_all_zero` rule, newest
+ * first — enough to hold one London night of runs. A few rows per cron.
+ */
+async function loadNightRuns(db: Db, now: Date): Promise<Map<string, CronRunFact[]>> {
+  const out = new Map<string, CronRunFact[]>();
+  const since = new Date(now.getTime() - 48 * 60 * 60 * 1000).toISOString();
+  await Promise.all(
+    CRON_ALARMS.filter((s) => s.zeroRule === "night_all_zero").map(async (spec) => {
+      const { data, error } = await db
+        .from("cron_runs")
+        .select("cron_name, started_at, ok, rows_written, rows_considered, detail")
+        .eq("cron_name", spec.cronName)
+        .gte("started_at", since)
+        .order("started_at", { ascending: false })
+        .limit(50);
+      if (error) throw new Error(`cron_runs night read failed: ${error.message}`);
+      out.set(
+        spec.cronName,
+        ((data ?? []) as Record<string, unknown>[]).map((row) => ({
+          cronName: spec.cronName,
+          startedAt: String(row.started_at),
+          ok: Boolean(row.ok),
+          rowsWritten: Number(row.rows_written ?? 0),
+          rowsConsidered: Number(row.rows_considered ?? 0),
+          detail: (row.detail ?? {}) as Record<string, unknown>,
+        })),
+      );
+    }),
+  );
+  return out;
+}
+
 /** Which watched crons the grace period is still covering, for the detail. */
 function gracedCrons(evidence: AlarmEvidence, now: Date): string[] {
   return CRON_ALARMS.filter((spec) =>
@@ -216,17 +249,24 @@ export async function runCronAlarmEvaluator(
   let error: string | null = null;
 
   try {
-    const [latestRunByCron, loaded, firstSeenByCron] = await Promise.all([
+    const [latestRunByCron, loaded, firstSeenByCron, recentRunsByCron] = await Promise.all([
       loadLatestRuns(db, now),
       loadEvidence(db, now),
       loadFirstSeen(db),
+      loadNightRuns(db, now),
     ]);
     evidence = loaded;
     cronsSeen = latestRunByCron.size;
     // Null on the watcher's very first run: it records its own row after
     // this, so there is nothing yet to measure a grace period from.
     const evaluatorFirstRunAt = firstSeenByCron.get(CRON_ALARM_EVALUATOR_NAME) ?? null;
-    const full: AlarmEvidence = { ...loaded, latestRunByCron, firstSeenByCron, evaluatorFirstRunAt };
+    const full: AlarmEvidence = {
+      ...loaded,
+      latestRunByCron,
+      firstSeenByCron,
+      evaluatorFirstRunAt,
+      recentRunsByCron,
+    };
     inGrace = gracedCrons(full, now);
     conditions = evaluateCronAlarms(full, now);
 

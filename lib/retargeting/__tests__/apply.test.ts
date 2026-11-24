@@ -13,7 +13,7 @@ import { memoryDb } from "../../onsale-refresh/__tests__/memory-db.ts";
 import { writeGateOpen } from "../../onsale-refresh/line-states.ts";
 import { purchaseCampaignInput } from "../../onsale-refresh/purchase-campaign.ts";
 import { applyRetargetingCampaign, locationOf, RT_AUDIENCES_OFF, RT_CREATE_OFF, TIER_ATTRIBUTION, type RetargetingMeta } from "../apply.ts";
-import { groupVideosByPage, tierAudienceName } from "../audiences.ts";
+import { groupVideosByPage, linkKey, tierAudienceName } from "../audiences.ts";
 import { listRowPayload } from "../list-row.ts";
 import { planRetargeting } from "../plan.ts";
 
@@ -87,8 +87,10 @@ function buildLine() {
     minDailyMinor: 100,
     sources: {
       pixelId: "px",
-      ticketUrl: "skiddle.com/e/1",
-      pageUrl: "roof.example/show",
+      links: [
+        { kind: "ticket", rule: "www.skiddle.com/e/1", host: "www.skiddle.com", name: "Skiddle", platform: "skiddle" },
+        { kind: "landing", rule: "roof.example/show", host: "roof.example", name: "roof.example/show", platform: null },
+      ],
       videos: [{ contextId: "", videoIds: ["pending"] }],
       pages: [{ id: "p1", name: "XMPL Promotions", igId: "ig1", kind: "promoter", hasRole: true }],
       lists: [{ metaAudienceId: "buyers1", name: "Buyers", role: "buyers", uploadedAt: "2026-11-16T10:00:00Z" }],
@@ -179,18 +181,26 @@ describe("RT1 / HR3: the steps, in order", () => {
       assert.deepEqual(set.targeting.publisher_platforms, ["facebook", "instagram"]);
       assert.deepEqual(set.targeting.instagram_positions, ["stream", "story", "reels"]);
     }
-    // Each tier leaves out the hotter tiers' audiences and the buyers list.
+    // RT14: every source at its windows, each its own audience; each tier leaves out every window of the hotter tiers and the buyers list.
     const ids = (set: { targeting: Record<string, unknown> }, key: string) => ((set.targeting[key] ?? []) as { id: string }[]).map((row) => row.id);
-    assert.deepEqual(ids(sets[0]!, "custom_audiences"), ["aud-bottom:ticket:30", "aud-bottom:checkout:30"]);
+    assert.deepEqual(ids(sets[0]!, "custom_audiences"), ["aud-bottom:ticket:7", "aud-bottom:ticket:14", `aud-bottom:ticket:30:${linkKey("www.skiddle.com/e/1")}`, "aud-bottom:checkout:7", "aud-bottom:checkout:14", "aud-bottom:checkout:30", "aud-bottom:registrations:30", "aud-bottom:registrations:90", "aud-bottom:registrations:180"]);
     assert.deepEqual(ids(sets[0]!, "excluded_custom_audiences"), ["buyers1"]);
-    assert.deepEqual(ids(sets[1]!, "excluded_custom_audiences"), ["aud-bottom:ticket:30", "aud-bottom:checkout:30", "buyers1"]);
-    assert.deepEqual(ids(sets[2]!, "custom_audiences"), ["aud-mid:video:page1:1", "aud-mid:fb:1", "aud-mid:ig:1"]);
-    assert.deepEqual(ids(sets[2]!, "excluded_custom_audiences"), ["aud-mid_bottom:page:60", "aud-mid_bottom:checkout:60", "aud-bottom:ticket:30", "aud-bottom:checkout:30", "buyers1"]);
+    assert.deepEqual(ids(sets[1]!, "custom_audiences"), ["aud-mid_bottom:page:14", "aud-mid_bottom:page:30", `aud-mid_bottom:page:60:${linkKey("roof.example/show")}`, "aud-mid_bottom:checkout:60"]);
+    assert.deepEqual(ids(sets[1]!, "excluded_custom_audiences"), ["aud-bottom:ticket:7", "aud-bottom:ticket:14", `aud-bottom:ticket:30:${linkKey("www.skiddle.com/e/1")}`, "aud-bottom:checkout:7", "aud-bottom:checkout:14", "aud-bottom:checkout:30", "aud-bottom:registrations:30", "aud-bottom:registrations:90", "aud-bottom:registrations:180", "buyers1"]);
+    assert.deepEqual(ids(sets[2]!, "custom_audiences"), ["aud-mid:video:page1:1:90", "aud-mid:video:page1:1:180", "aud-mid:video:page1:1:365", "aud-mid:fb:1:30", "aud-mid:fb:1:90", "aud-mid:fb:1:180", "aud-mid:ig:1:30", "aud-mid:ig:1:90", "aud-mid:ig:1:180"]);
+    assert.deepEqual(ids(sets[2]!, "excluded_custom_audiences"), ["aud-mid_bottom:page:14", "aud-mid_bottom:page:30", `aud-mid_bottom:page:60:${linkKey("roof.example/show")}`, "aud-mid_bottom:checkout:60", "aud-bottom:ticket:7", "aud-bottom:ticket:14", `aud-bottom:ticket:30:${linkKey("www.skiddle.com/e/1")}`, "aud-bottom:checkout:7", "aud-bottom:checkout:14", "aud-bottom:checkout:30", "aud-bottom:registrations:30", "aud-bottom:registrations:90", "aud-bottom:registrations:180", "buyers1"]);
     // Mid's videos are every video of the show's on-sale campaigns, listed at Apply.
     assert.deepEqual(fake.calls.find(([name]) => name === "listShowVideos")!.slice(1), ["act_1", ["main1", "main2"]]);
-    assert.equal(made.length, 7);
+    assert.equal(made.length, 22);
+    // RT14's Ads Manager names, "{code} · {source} · {n} days", the video set naming its page.
+    assert.ok(made.includes("bottom:ticket:7|XMPL-ROOF · Ticket-link visitors · 7 days"));
+    assert.ok(made.includes("bottom:registrations:180|XMPL-ROOF · Registrations · 180 days"));
+    // RT18: each link its own audience at its source's longest window.
+    assert.ok(made.includes(`bottom:ticket:30:${linkKey("www.skiddle.com/e/1")}|XMPL-ROOF · Ticket-link visitors · Skiddle · 30 days`));
+    assert.ok(made.includes(`mid_bottom:page:60:${linkKey("roof.example/show")}|XMPL-ROOF · Page visitors · roof.example/show · 60 days`));
+    assert.ok(made.includes("mid:video:page1:1:90|XMPL-ROOF · Video viewers 75 % · page1 · 90 days"));
     // Each audience stored on the event; a launched_ad_sets row per tier with its budget and the main draft.
-    assert.equal(mem.tables.onsale_refresh_audiences!.length, 7);
+    assert.equal(mem.tables.onsale_refresh_audiences!.length, 22);
     assert.deepEqual(mem.tables.launched_ad_sets!.map((row) => [row.meta_campaign_id, row.initial_daily_budget_pence, row.draft_id, row.event_id, row.objective]), [
       ["camp1", 290, "d1", "e1", "purchase"],
       ["camp1", 145, "d1", "e1", "purchase"],
@@ -212,14 +222,14 @@ describe("RT1 / HR3: the steps, in order", () => {
     const line = buildLine();
     const first = await applyRetargetingCampaign(deps(fake.meta), line, ctx);
     assert.equal(first.state, "failed");
-    assert.equal(first.reason, "Meta said no. Created paused: the campaign, 7 audiences and 3 ad sets.");
+    assert.equal(first.reason, "Meta said no. Created paused: the campaign, 22 audiences and 3 ad sets.");
     assert.equal(fake.calls.some(([name]) => name === "setAdSetActive"), false);
     fail = false;
     const retry = await applyRetargetingCampaign(deps(fake.meta), { ...line, applied_result: first.result }, ctx);
     assert.equal(retry.state, "applied");
     assert.equal(fake.calls.filter(([name]) => name === "createCampaign").length, 1);
     assert.equal(fake.calls.filter(([name]) => name === "createAdSet").length, 3);
-    assert.equal(made.length, 7);
+    assert.equal(made.length, 22);
     assert.equal(mem.tables.launched_ad_sets!.length, 3);
   });
 

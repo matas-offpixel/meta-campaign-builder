@@ -6,8 +6,9 @@ import { raBudgetLines, raPlan, rbLine, rbView, rdStates, RD_PROPOSALS } from "@
 import { RetargetingPanelView } from "./retargeting-panel";
 
 /**
- * RA (a running campaign's tiers, with a hold and a move), RB (a new
- * show's Create line with all three missing states) and RD (the
+ * RA (a running campaign's rows: PR B's links and pixel lines, PR C's
+ * figures, a hold and a move), RB (a new show's Create line with all three
+ * missing states) and RD (the
  * on-sale panel's one Retargeting note, then the not-proposed states) from
  * fixtures, at the width the runner opens. Read-only and in Shadow, as the
  * record draws them. data-frame-ready carries the shot's frame

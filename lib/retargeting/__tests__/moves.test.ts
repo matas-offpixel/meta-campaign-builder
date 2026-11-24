@@ -13,6 +13,7 @@ import { applyAccepted, type AdSetNow, type ApplyDeps, type RefreshMeta } from "
 import { memoryDb } from "../../onsale-refresh/__tests__/memory-db.ts";
 import type { PurchaseRead } from "../../onsale-refresh/purchases.ts";
 import { deliveryBand, readRunning, tierOf } from "../delivery.ts";
+import { linksFallback } from "../links.ts";
 import { costOf, planBudget, roomMinor, type TierFigures } from "../moves.ts";
 import { planRetargeting, type LiveRead, type RetargetingInput } from "../plan.ts";
 import { liveRead } from "../runner.ts";
@@ -221,7 +222,7 @@ function running(overrides: Partial<RetargetingInput> = {}, live: LiveRead = LIV
     read: PLATFORM,
     last7SpendGbp: 1680,
     minDailyMinor: 100,
-    sources: { pixelId: "1067726194205285", ticketUrl: "skiddle.com/x", pageUrl: null, videos: [], pages: [{ id: "p1", name: "XMPL", igId: null, kind: "promoter", hasRole: true }], lists: [] },
+    sources: { pixelId: "1067726194205285", links: linksFallback({ ticket_url: "https://skiddle.com/x" }), videos: [], pages: [{ id: "p1", name: "XMPL", igId: null, kind: "promoter", hasRole: true }], lists: [] },
     existing: { campaignId: "c1", since: "2026-11-10", totalMinor: 2400, share: 10, live },
     legacy: [],
     budgetGbp: 4000,

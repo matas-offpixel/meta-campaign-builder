@@ -22,8 +22,12 @@ const STATES = {
  */
 const NOW = "2026-11-13T12:00:00.000Z";
 
-function faceCard(failed: boolean): CreativeLabCardData {
-  const note = failed ? FACE_CHECK_FAILED : FACE_CHECKING;
+/**
+ * CLP6 checking, CLP7 a failed check with the render still queued (as on
+ * main before #1303), CLP8 the same render once the tick has failed it.
+ */
+function faceCard(failed: boolean, renderFailed = false): CreativeLabCardData {
+  const note = renderFailed ? null : failed ? FACE_CHECK_FAILED : FACE_CHECKING;
   return {
     eventId: "frame-event",
     clientId: null,
@@ -73,8 +77,8 @@ function faceCard(failed: boolean): CreativeLabCardData {
       clipId: "enzo-1",
       captionId: "cap",
       label: "Enzo #1 × lineup",
-      status: "queued",
-      error: null,
+      status: renderFailed ? "failed" : "queued",
+      error: renderFailed ? FACE_CHECK_FAILED : null,
       renderMs: null,
       updatedAt: NOW,
       previewUrl: null,
@@ -84,7 +88,7 @@ function faceCard(failed: boolean): CreativeLabCardData {
       playing: false,
       roundOpen: true,
       placementNote: note,
-      faceFailed: failed,
+      faceFailed: failed && !renderFailed,
     }],
     assets: [],
     clientEvents: [],
@@ -109,8 +113,8 @@ function faceCard(failed: boolean): CreativeLabCardData {
   } as CreativeLabCardData;
 }
 
-function FaceStateFrame({ id, failed }: { id: string; failed: boolean }) {
-  const card = faceCard(failed);
+function FaceStateFrame({ id, failed, renderFailed = false }: { id: string; failed: boolean; renderFailed?: boolean }) {
+  const card = faceCard(failed, renderFailed);
   const quiet = async () => ({ ok: true, json: {} });
   return (
     <div data-frame-ready={id} className="space-y-4 bg-background p-3 text-foreground sm:p-4">
@@ -122,6 +126,7 @@ function FaceStateFrame({ id, failed }: { id: string; failed: boolean }) {
 
 export function PlacementFrameMount({ id }: { id: string }) {
   if (id === "CLP6" || id === "CLP7") return <FaceStateFrame id={id} failed={id === "CLP7"} />;
+  if (id === "CLP8") return <FaceStateFrame id={id} failed renderFailed />;
   const state = STATES[id as keyof typeof STATES];
   if (!state) return null;
   const refused = id === "CLP5";

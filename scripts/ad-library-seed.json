@@ -1,0 +1,12 @@
+{
+  "note": "E9 watchlist seed (ad_library_pages, migration 265). Page ids resolved read-only on 23 Nov 2026 for the Ad Library probe (PR #1354): Broadwick Live and Labyrinth from page_id on their own GB ads in the Meta Ads connector; Fever (UK, @FeverUpUK), DICE (@dicefm), Nike (@nike; no Nike UK page in the Ad Library typeahead) and Dj David Morales (@djdavidmorales) from the Ad Library UI's advertiser typeahead, country GB. Dj David Morales is derived from Broadwick Live (Broadwick runs 'David Morales | Sat 20 Feb'). Matas checks the list and sets confirmed to true before --seed --apply.",
+  "confirmed": false,
+  "pages": [
+    { "page_id": "314321628698217", "name": "Broadwick Live", "kind": "promoter", "derived_from_page_id": null, "active": true },
+    { "page_id": "351513758542317", "name": "Labyrinth", "kind": "promoter", "derived_from_page_id": null, "active": true },
+    { "page_id": "385660324877550", "name": "Fever (UK)", "kind": "ticketing", "derived_from_page_id": null, "active": true },
+    { "page_id": "258747834283158", "name": "DICE", "kind": "ticketing", "derived_from_page_id": null, "active": true },
+    { "page_id": "15087023444", "name": "Nike", "kind": "brand", "derived_from_page_id": null, "active": true },
+    { "page_id": "443532440172", "name": "Dj David Morales", "kind": "artist", "derived_from_page_id": "314321628698217", "active": true }
+  ]
+}

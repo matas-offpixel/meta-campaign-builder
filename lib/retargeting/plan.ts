@@ -25,14 +25,27 @@
 
 import type { PurchaseRead } from "../onsale-refresh/purchases.ts";
 import { campaignFloor, shortCampaign } from "../onsale-refresh/purchase-campaign.ts";
-import { midBuildable, pagesWithoutRole, tierSpecs, usablePages, type SourceSet } from "./audiences.ts";
+import { midBuildable, pagesWithoutRole, perLinkAudiences, tierSpecs, usablePages, type SourceSet } from "./audiences.ts";
 import { isOff } from "./delivery.ts";
+import { firedOn, landingLinks, landingShared, pixelOnOwnDomains, pixelOnPlatforms, ticketLinks, type PixelHosts } from "./links.ts";
 import { costOf, planBudget, type BudgetLine, type BudgetNote, type TierFigures } from "./moves.ts";
+import { shareOn, STRETCH_LABEL } from "./shares.ts";
 import { nextSteps, stepHeightsSet } from "./steps.ts";
 import { currentDailyMinor, daysToShow, fundHold, isShare, RT4, startingBudget, type Funding, type Share, type Starting } from "./budget.ts";
 import {
   audiencesNarrow,
   audiencesShort,
+  BOTTOM_NOT_BUILT,
+  BY_LINK_BEFORE_CREATE,
+  sizeBand,
+  sizesLine,
+  pixelLine,
+  TICKET_SITE_COUNTS,
+  LINKS_NO_PAGE,
+  LINKS_NOT_READ,
+  noRegistrations,
+  noSignupList,
+  retargetingOff,
   buyersListAge,
   CREATE_WRITE,
   createLine,
@@ -42,14 +55,12 @@ import {
   leavesOut,
   legacyAdSets,
   nextStepLine,
-  retargetingOff,
   MID_NOT_BUILT,
   NO_FIGURE,
   NO_PIXEL,
   NO_PIXEL_PURCHASES,
   NO_PAGE_OR_TICKET,
   nothingReaches,
-  NO_SIGNUP_LIST,
   NO_SPEND,
   NO_BUYERS_LIST,
   NOT_READ,
@@ -69,7 +80,7 @@ import {
   type Tier,
 } from "./words.ts";
 
-export type RetargetingState = "before_onsale" | "no_pixel" | "sells_elsewhere" | "nothing_reaches" | "no_purchases" | "no_url" | "not_read" | "no_signal" | "no_spend" | "proposed" | "running";
+export type RetargetingState = "before_onsale" | "no_pixel" | "sells_elsewhere" | "nothing_reaches" | "no_purchases" | "no_url" | "not_read" | "links_no_page" | "links_failed" | "no_signal" | "no_spend" | "proposed" | "running";
 
 /** An RT8 action opens the client page's customer-audience wizard with this role and this show chosen. */
 /** `muted`: drawn in the muted colour, not brick (a buyers list under 7 days old, design 17 Nov). */
@@ -92,6 +103,8 @@ export type TierRow = {
   purchases: number | null;
   /** 7-day spend, pence, once it runs: spend with no purchase reads "No purchase yet". */
   spendMinor?: number | null;
+  /** RT13 / ops (17 Nov): the tier's links and whether the pixel is on each ticket site, in ink-3. */
+  links: { wide: string[]; narrow: string[] };
   missing: MissingLine[];
 };
 
@@ -107,6 +120,8 @@ export type ShareOption = {
   hold: string;
   /** Accept is held at this share (over the cap, nothing to move from). */
   blocked: string | null;
+  /** RT11: the stretch that sets today's share ("final month"); null normally. */
+  stretch?: string | null;
 };
 
 export type CreateCard = {
@@ -177,8 +192,16 @@ export type RetargetingInput = {
   /** The ad account's min_daily_budget, minor units; null when not read. */
   minDailyMinor: number | null;
   sources: SourceSet;
-  /** The show's `{code} · Retargeting` campaign, whatever its status; null when it has none. */
-  existing: { campaignId: string | null; since: string | null; totalMinor: number | null; share: number | null; tiers?: Partial<Record<Tier, number>>; live?: LiveRead | null } | null;
+  /** The show's `{code} · Retargeting` campaign, whatever its status (Meta's effective_status when read); null when it has none. */
+  existing: { campaignId: string | null; since: string | null; totalMinor: number | null; share: number | null; tiers?: Partial<Record<Tier, number>>; status?: string | null; live?: LiveRead | null } | null;
+  /** RT13: how the show's links were read — CIRQLIN's pages, RT2's two links (no tag), or the two failures. */
+  linksRead?: "ok" | "no_tag" | "no_page" | "failed";
+  /** The pixel's hosts in 28 days, per event (aggregation=host); null when not read. */
+  pixelHosts?: PixelHosts;
+  /** RT18: landing hosts other shows' pages use (no pixel line for them). */
+  otherLandingHosts?: string[];
+  /** RT18: a running campaign's per-link audience sizes by key (Meta's approximate count); null = not read. */
+  linkSizes?: Record<string, { lower: number; upper: number } | null>;
   /** Delivering ad sets with "retarget" in their name, per campaign of the show (not this one). */
   legacy: { campaign: string; adSets: number }[];
   budgetGbp: number | null;
@@ -261,10 +284,28 @@ function daysBetween(from: string, to: string): number {
   return Math.round((Date.parse(`${to}T12:00:00Z`) - Date.parse(`${from}T12:00:00Z`)) / 86_400_000);
 }
 
-/** RT2 / RT8: the tier rows for these budgets, with their missing lines. */
-export function tierRows(input: Pick<RetargetingInput, "sources"> & { today?: string }, budgets: Record<Tier, number>): { rows: TierRow[]; notes: MissingLine[] } {
+/**
+ * RT13 / RT15: what Bottom has. Visits, checkouts and registrations are
+ * known from the pixel's hosts (28 days); a shared landing host (crqln.com)
+ * can't say whose registrations they are, so it counts as "might".
+ */
+export function bottomSignals(sources: SourceSet, hosts: PixelHosts | undefined, others: ReadonlySet<string> = new Set()): { visits: boolean | null; checkouts: boolean | null; registrations: boolean | null; signups: boolean; empty: boolean } {
+  const tickets = ticketLinks(sources.links);
+  const landing = landingLinks(sources.links);
+  const signups = sources.lists.some((list) => list.role === "signups");
+  if (!hosts) return { visits: null, checkouts: null, registrations: null, signups, empty: false };
+  const visits = tickets.some((link) => firedOn(hosts.pageView, link.host));
+  const checkouts = tickets.some((link) => firedOn(hosts.checkout, link.host));
+  const registrations = landing.some((link) => landingShared(link.host, others) || firedOn(hosts.registration, link.host));
+  return { visits, checkouts, registrations, signups, empty: !visits && !checkouts && !registrations && !signups };
+}
+
+/** RT2 / RT8 / RT13–RT15: the tier rows for these budgets, with their links and missing lines. */
+export function tierRows(input: Pick<RetargetingInput, "sources" | "pixelHosts" | "otherLandingHosts" | "linkSizes"> & { today?: string; created?: boolean }, budgets: Record<Tier, number>): { rows: TierRow[]; notes: MissingLine[] } {
   const sources = input.sources;
-  const specs = tierSpecs(sources);
+  const others = new Set(input.otherLandingHosts ?? []);
+  const signals = bottomSignals(sources, input.pixelHosts, others);
+  const specs = tierSpecs(sources, { bottom: !signals.empty });
   const buyers = sources.lists.some((list) => list.role === "buyers");
   const signupLists = sources.lists.filter((list) => list.role === "signups").length;
   const similarLists = sources.lists.filter((list) => list.role === "similar").length;
@@ -272,18 +313,62 @@ export function tierRows(input: Pick<RetargetingInput, "sources"> & { today?: st
   const allPages = new Set(sources.pages.map((page) => page.id)).size;
   const noRole = pagesWithoutRole(sources.pages).filter((page) => page.kind === "lineup" || page.kind === "promoter" || page.kind === "event" || page.kind === "venue");
   const hasVideo = sources.videos.some((group) => group.videoIds.length > 0);
+  const tickets = ticketLinks(sources.links);
+  const landing = landingLinks(sources.links);
+  const hasTickets = Boolean(sources.pixelId) && tickets.length > 0;
+  const hasLanding = Boolean(sources.pixelId) && landing.length > 0;
+  const platforms = pixelOnPlatforms(sources.links, input.pixelHosts ?? null);
+  const ownDomains = pixelOnOwnDomains(sources.links, input.pixelHosts ?? null, others);
+  // RT18: each link's audience size once created, else "By link: known after create".
+  const sizes = (tier: Tier) => {
+    if (!input.created) return BY_LINK_BEFORE_CREATE;
+    const perLink = perLinkAudiences(specs.find((row) => row.tier === tier));
+    return sizesLine(perLink.map((row) => {
+      const size = input.linkSizes?.[row.key];
+      return { name: row.name, band: size ? sizeBand(size.lower, size.upper) : null };
+    }));
+  };
   const rows: TierRow[] = [];
   for (const tier of TIERS) {
     const spec = specs.find((row) => row.tier === tier);
     const missing: MissingLine[] = [];
-    if (tier === "bottom" && !signupLists) missing.push({ text: NO_SIGNUP_LIST, narrow: NO_SIGNUP_LIST, actions: [{ label: UPLOAD_SIGNUP_LIST, role: "signups" }] });
+    const links: TierRow["links"] = { wide: [], narrow: [] };
+    if (tier === "bottom") {
+      if (signals.empty) missing.push({ text: BOTTOM_NOT_BUILT, narrow: BOTTOM_NOT_BUILT, actions: [{ label: UPLOAD_SIGNUP_LIST, role: "signups" }] });
+      else {
+        if (hasTickets) {
+          links.wide.push(sizes("bottom"));
+          if (platforms?.length) {
+            links.wide.push(pixelLine(platforms));
+            if (platforms.some((row) => !row.on)) links.wide.push(TICKET_SITE_COUNTS);
+          }
+        }
+        // RT15: registrations reach the pixel from no landing page in 28 days (own hosts only; a shared host can't say).
+        if (hasLanding && signals.registrations === false) {
+          const text = noRegistrations(landing.map((link) => link.name));
+          missing.push({ text, narrow: text, actions: [] });
+        }
+        if (!signupLists) {
+          const has = [...(hasTickets ? ["ticket-link visitors", "checkout starters"] : []), ...(hasLanding ? ["registrations"] : [])];
+          const text = noSignupList(has);
+          missing.push({ text, narrow: text, actions: [{ label: UPLOAD_SIGNUP_LIST, role: "signups" }] });
+        }
+      }
+    }
+    if (tier === "mid_bottom" && hasLanding) {
+      links.wide.push(sizes("mid_bottom"));
+      // A pixel line only for a show's own domain, never a shared host.
+      if (ownDomains?.length) links.wide.push(pixelLine(ownDomains));
+    }
+    // RT18: on a phone, the same lines.
+    links.narrow = [...links.wide];
     if (tier === "mid" && noRole.length) {
       const names = noRole.map((page) => page.name);
       missing.push({ text: pagesNoRole(names), narrow: pagesNoRoleNarrow(names), actions: [] });
     }
     if (tier === "mid" && !midBuildable(sources)) missing.push({ text: MID_NOT_BUILT, narrow: MID_NOT_BUILT, actions: [] });
-    if (!spec && tier !== "mid") continue;
-    const audiences = spec ? audiencesShort(tier, { signupLists, similarLists, pagesUsed: pages.length, pagesTotal: allPages, hasVideo }) : [];
+    if (!spec && !(tier === "mid" || (tier === "bottom" && signals.empty))) continue;
+    const audiences = spec ? audiencesShort(tier, { signupLists, similarLists, pagesUsed: pages.length, pagesTotal: allPages, hasVideo, hasTickets, hasLanding }) : [];
     rows.push({
       tier,
       label: TIER_LABEL[tier],
@@ -295,6 +380,7 @@ export function tierRows(input: Pick<RetargetingInput, "sources"> & { today?: st
       budgetMinor: budgets[tier],
       cost: null,
       purchases: null,
+      links,
       missing,
     });
   }
@@ -365,6 +451,9 @@ export function planRetargeting(input: RetargetingInput): RetargetingPlan {
   // Still silent in the record (a shared domain, no domain of its own, no ticket link stored): not proposed, and the refresh's default stands.
   if (path !== "own_domain" && path !== "platform") return none("no_signal", null, false);
   if (!input.eventDate) return none("no_signal", null, false);
+  // RT13: the show's links come from CIRQLIN; without them nothing can be built.
+  if (input.linksRead === "no_page") return none("links_no_page", LINKS_NO_PAGE, true);
+  if (input.linksRead === "failed") return none("links_failed", LINKS_NOT_READ, true);
   const daily = currentDailyMinor(input.last7SpendGbp);
   if (!(daily > 0)) return none("no_spend", NO_SPEND, true);
 
@@ -372,9 +461,13 @@ export function planRetargeting(input: RetargetingInput): RetargetingPlan {
   const days = Math.max(0, daysToShow(input.runDay, input.eventDate));
   const mainShort = input.main ? shortCampaign(input.main.campaignKey) : null;
   const floor = input.main ? campaignFloor(input.main.spentToDate, input.main.last7Daily).floor : 0;
+  // RT11: Create starts at today's share; the 10 / 15 / 20 % choice is withdrawn.
+  const today = shareOn(input.runDay, input.eventDate);
+  const stretch = today.stretch ? STRETCH_LABEL[today.stretch] : null;
+  const bottomBuildable = !bottomSignals(input.sources, input.pixelHosts, new Set(input.otherLandingHosts ?? [])).empty;
   const options: ShareOption[] = [];
-  for (const share of RT4.shares) {
-    const start = startingBudget({ currentDailyMinor: daily, share, minDailyMinor: input.minDailyMinor, midBuildable: buildable }) as Starting;
+  for (const share of [today.share as Share]) {
+    const start = startingBudget({ currentDailyMinor: daily, share, minDailyMinor: input.minDailyMinor, midBuildable: buildable, bottomBuildable }) as Starting;
     const holdMinor = start.totalMinor * days;
     const funding = fundHold({ holdMinor, budgetGbp: input.budgetGbp, spendToDateGbp: input.spendToDateGbp, committedGbp: input.committedGbp, main: input.main ? { lifetimeGbp: input.main.lifetimeGbp, spentToDate: input.main.spentToDate, floorGbp: floor } : null });
     const blocked = funding.fits ? null : funding.why === "over_cap" ? overCap(holdMinor, funding.capGbp ?? 0, funding.capOf, mainShort) : noMoney(mainShort);
@@ -386,15 +479,16 @@ export function planRetargeting(input: RetargetingInput): RetargetingPlan {
       atFloor: start.atFloor,
       holdMinor,
       funding,
-      line: createLine({ totalMinor: start.totalMinor, pct: share, tiers: start.tiers, atFloor: start.atFloor, floorMinor: start.floorMinor }),
+      line: createLine({ totalMinor: start.totalMinor, pct: share, tiers: start.tiers, atFloor: start.atFloor, floorMinor: start.floorMinor, stretch }),
       split: createSplit({ tiers: start.tiers, atFloor: start.atFloor, floorMinor: start.floorMinor }),
       hold: holdLine(holdMinor, days, from),
       blocked,
+      stretch,
     });
   }
-  const defaultShare: Share = RT4.defaultShare;
+  const defaultShare: Share = today.share as Share;
   const chosen = options.find((option) => option.share === defaultShare)!;
-  const { rows, notes } = tierRows({ sources: input.sources, today: input.today ?? input.runDay }, chosen.tiers);
+  const { rows, notes } = tierRows({ sources: input.sources, pixelHosts: input.pixelHosts, otherLandingHosts: input.otherLandingHosts, today: input.today ?? input.runDay }, chosen.tiers);
   const legacy = input.legacy.filter((row) => row.adSets > 0).map((row) => legacyAdSets(row.adSets, shortCampaign(row.campaign)));
   const create: CreateCard = { title, defaultShare, options, legacy, writeText: CREATE_WRITE, days };
   const signal = { wide: signalLine(path, { pixelName: read.pixelName, domain: read.domain }), narrow: signalNarrow(path, { pixelName: read.pixelName, domain: read.domain }) };
@@ -428,14 +522,13 @@ export function retargetingBeforeOnSale(code: string, onSaleDay: string): Retarg
   return { code, title: retargetingCampaignName(code), state: "before_onsale", notProposed: startsOnSale(onSaleDay), create: null, signal: null, tiers: [], notes: [], running: null };
 }
 
-/** The share Accept takes: one the card offered and that fits; null = the card's default. */
+/** The share Accept takes: RT11 offers one (today's); null = that one. */
 export function pickedShare(view: RetargetingView | null | undefined, value: unknown): { ok: true; share: Share | null } | { ok: false; error: string } {
   if (value == null) return { ok: true, share: null };
-  if (!isShare(value)) return { ok: false, error: "Pick 10 %, 15 % or 20 %." };
-  const option = view?.create?.options.find((row) => row.share === value);
-  if (!option) return { ok: false, error: "Pick 10 %, 15 % or 20 %." };
+  const option = isShare(value) ? view?.create?.options.find((row) => row.share === value) : undefined;
+  if (!option) return { ok: false, error: "The Create line's share is today's; there's no other to pick." };
   if (option.blocked) return { ok: false, error: option.blocked };
-  return { ok: true, share: value };
+  return { ok: true, share: option.share };
 }
 
 export { NO_FIGURE };
@@ -452,7 +545,7 @@ function planRunning(input: RetargetingInput, base: Pick<RetargetingView, "code"
   const live = existing.live ?? null;
   const budgetOf = (tier: Tier) => live?.tiers[tier]?.dailyMinor ?? existing.tiers?.[tier] ?? 0;
   const tiers = { bottom: budgetOf("bottom"), mid_bottom: budgetOf("mid_bottom"), mid: budgetOf("mid") } as Record<Tier, number>;
-  const { rows, notes } = tierRows({ sources: input.sources, today: input.today ?? input.runDay }, tiers);
+  const { rows, notes } = tierRows({ sources: input.sources, pixelHosts: input.pixelHosts, otherLandingHosts: input.otherLandingHosts, linkSizes: input.linkSizes, created: true, today: input.today ?? input.runDay }, tiers);
   for (const row of rows) {
     const figures = live?.tiers[row.tier];
     if (!figures) continue;
@@ -469,7 +562,8 @@ function planRunning(input: RetargetingInput, base: Pick<RetargetingView, "code"
   // RT3: "{pct} % of current daily spend", as it reads today; the stored share when there's no spend to measure.
   const daily = currentDailyMinor(input.last7SpendGbp);
   const share = totalMinor != null && daily > 0 ? Math.round((totalMinor / daily) * 100) : (existing.share ?? RT4.defaultShare);
-  const off = live && isOff(live.status) ? retargetingOff(input.eventCode) : null;
+  // RT9: Meta's effective_status, from the running read or the campaign status read.
+  const off = isOff(live?.status ?? existing.status ?? null) ? retargetingOff(input.eventCode) : null;
   const figures: TierFigures[] = live
     ? TIERS.flatMap((tier) => {
         const row = live.tiers[tier];

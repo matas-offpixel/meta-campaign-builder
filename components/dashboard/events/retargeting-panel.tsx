@@ -7,14 +7,15 @@ import { Button } from "@/components/ui/button";
 import { REJECT_REASONS, appliesNow, panelText, rejectReasonsFor, stateText, type RejectReason } from "@/lib/onsale-refresh/line-states";
 import type { PanelApply, PanelLine } from "@/lib/onsale-refresh/read";
 import type { BudgetNote } from "@/lib/retargeting/moves";
-import type { MissingLine, RetargetingView, RunningView, ShareOption, TierRow } from "@/lib/retargeting/plan";
-import { BUDGET_KIND_LABEL, budgetHeader, endsLine, LAST_7_DAYS, NO_FIGURE, NO_PURCHASE_YET, pence, POOL_BEFORE_CREATE, POOL_BEFORE_CREATE_NARROW, runningLine, spentText, tierBudget } from "@/lib/retargeting/words";
+import type { MissingLine, RetargetingView, RunningView, TierRow } from "@/lib/retargeting/plan";
+import { BUDGET_KIND_LABEL, budgetHeader, createHead, endsLine, LAST_7_DAYS, NO_FIGURE, NO_PURCHASE_YET, pence, POOL_BEFORE_CREATE, POOL_BEFORE_CREATE_NARROW, runningLine, spentText, tierBudget } from "@/lib/retargeting/words";
 
 /**
  * The Retargeting panel (docs/design-record/2026-11-17-retargeting-campaign.html,
- * RT1, RT3, RT4, RT5, RT8, RT9, RT10; frames RA, RB and RD). One per show, under the
- * on-sale refresh panel: headed "{code} · Retargeting", the Create line
- * with its 10 · 15 · 20 % choice (or the sentence that replaces it), and
+ * RT1, RT3, RT4, RT5, RT8, RT9, RT10; -2.html RT11, RT13–RT16; frames RA, RB and RD).
+ * One per show, under the on-sale refresh panel: headed "{code} ·
+ * Retargeting", the Create line at today's share (RT11; the 10 · 15 · 20 %
+ * choice is withdrawn), or the sentence that replaces it, and
  * one row per tier, hottest first. At 1280 the tiers are a table; at 393
  * (RT10) each tier is a card. Once it runs (RT3, RT5) the rows carry the
  * daily read's figures and a total row, and under them the read's Move or
@@ -93,6 +94,11 @@ function TierTable({ rows, budgets, clientId, eventId, created, total }: { rows:
               {row.audiences.map((line) => (
                 <p key={line}>{k(line)}</p>
               ))}
+              {row.links?.wide.map((line) => (
+                <p key={line} className="text-muted-foreground" data-links>
+                  {k(line)}
+                </p>
+              ))}
               {row.missing.map((line) => (
                 <Missing key={line.text} line={line} clientId={clientId} eventId={eventId} />
               ))}
@@ -144,6 +150,11 @@ function TierCards({ rows, budgets, clientId, eventId, created }: { rows: TierRo
               <p className="mt-0.5 text-muted-foreground">{k(row.leavesOut ? `${pool} · leaves out ${row.leavesOut}` : pool)}</p>
             )}
             {row.audiencesNarrow ? <p className="mt-0.5 text-muted-foreground">{k(row.audiencesNarrow)}</p> : null}
+            {row.links?.narrow.map((line) => (
+              <p key={line} className="mt-0.5 text-muted-foreground" data-links>
+                {k(line)}
+              </p>
+            ))}
             {row.missing.map((line) => (
               <Missing key={line.text} line={line} clientId={clientId} eventId={eventId} narrow />
             ))}
@@ -239,27 +250,7 @@ function HoldCard({ hold, shadow, actions }: { hold: BudgetNote; shadow: boolean
   return <BudgetCard label={hold.label} title={hold.title} detail={hold.detail} narrow={hold.narrow} writeText={null} shadow={shadow} actions={actions} titleWideOnly />;
 }
 
-function ShareChoice({ options, picked, onPick, disabled }: { options: ShareOption[]; picked: number; onPick: (share: number) => void; disabled: boolean }) {
-  return (
-    <span className="inline-flex gap-0.5 align-baseline" role="radiogroup" aria-label="Share of current daily spend">
-      {options.map((option) => (
-        <button
-          key={option.share}
-          type="button"
-          role="radio"
-          aria-checked={option.share === picked}
-          disabled={disabled}
-          onClick={() => onPick(option.share)}
-          className={`rounded border px-1 font-mono text-[11px] ${option.share === picked ? "border-foreground bg-foreground text-background" : "border-border text-foreground"} disabled:cursor-default`}
-        >
-          {option.share} %
-        </button>
-      ))}
-    </span>
-  );
-}
-
-function CreateCard({ view, line, shadow, apply, actions, share, setShare }: { view: RetargetingView; line: PanelLine | null; shadow: boolean; apply?: PanelApply; actions: RetargetingActions; share: number; setShare: (share: number) => void }) {
+function CreateCard({ view, line, shadow, apply, actions, share }: { view: RetargetingView; line: PanelLine | null; shadow: boolean; apply?: PanelApply; actions: RetargetingActions; share: number }) {
   const [picking, setPicking] = useState(false);
   const create = view.create!;
   const option = create.options.find((row) => row.share === share) ?? create.options[0]!;
@@ -268,7 +259,6 @@ function CreateCard({ view, line, shadow, apply, actions, share, setShare }: { v
   const blocked = line?.blockedReason ?? option.blocked;
   const busy = Boolean(actions.busy);
   const shadowTitle = shadow ? "Shadow: nothing here can be applied yet" : undefined;
-  const lineText = option.line.replace(`${budgetHeader(option.totalMinor, share)} · `, "");
   return (
     <div className="mt-2 rounded border border-border/70 p-3" data-create data-line-state={state}>
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
@@ -277,11 +267,9 @@ function CreateCard({ view, line, shadow, apply, actions, share, setShare }: { v
             <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Create</span>
             <span className="text-sm font-medium">{create.title}</span>
           </p>
-          <p className="mt-0.5 text-xs">
-            {k(`${pence(option.totalMinor, { minor: true })} a day · `)}
-            <ShareChoice options={create.options} picked={share} onPick={setShare} disabled={shadow || state === "applied" || state === "applying"} />
-            <span className="hidden sm:inline">{k(` of current daily spend · ${lineText}`)}</span>
-          </p>
+          {/* RT11: today's share, no choice. */}
+          <p className="mt-0.5 hidden text-xs sm:block">{k(option.line)}</p>
+          <p className="mt-0.5 text-xs sm:hidden">{k(createHead(option.totalMinor, option.share, option.stretch ?? null))}</p>
           <p className="mt-0.5 text-xs sm:hidden">{k(option.split)}</p>
           <p className="mt-0.5 text-xs text-muted-foreground">{k(option.hold)}</p>
           {create.legacy.map((text) => (
@@ -362,7 +350,8 @@ export function RetargetingPanelView({ view, line = null, budgetLines = [], clie
   // RT3: before Apply the tiers' audiences don't exist, so the pool is "Known after create".
   const created = view.state === "running";
   const create = view.create;
-  const [share, setShare] = useState<number>(line?.share ?? create?.defaultShare ?? 10);
+  // RT11: one share, today's.
+  const share = line?.share ?? create?.defaultShare ?? 10;
   const shadow = apply ? apply.mode === "shadow" : (mode ?? "shadow") === "shadow";
   const option = create?.options.find((row) => row.share === share) ?? null;
   const budgets = (row: TierRow) => (option ? option.tiers[row.tier] : row.budgetMinor);
@@ -389,13 +378,19 @@ export function RetargetingPanelView({ view, line = null, budgetLines = [], clie
         <span className="shrink-0 rounded-full border border-border px-2 py-0.5 text-xs">{shadow ? "Shadow" : "Live"}</span>
       </div>
 
+      {view.running?.off ? (
+        <p className="mt-2 text-xs text-destructive" data-retargeting-off>
+          {k(view.running.off)}
+        </p>
+      ) : null}
+
       {view.notProposed ? (
         <p className="mt-2 text-xs text-muted-foreground" data-not-proposed={view.state}>
           {k(view.notProposed)}
         </p>
       ) : null}
 
-      {create ? <CreateCard view={view} line={line} shadow={shadow} apply={apply} actions={actions} share={share} setShare={setShare} /> : null}
+      {create ? <CreateCard view={view} line={line} shadow={shadow} apply={apply} actions={actions} share={share} /> : null}
 
       {view.tiers.length ? (
         <>

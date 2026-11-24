@@ -35,6 +35,7 @@ import {
   stripStats,
   textBoxRect,
   textOverlay,
+  type CardFrameFormat,
   type CropPlan,
   type Edge,
   type Extension,
@@ -46,6 +47,7 @@ import {
   type Size,
   type StripStats,
 } from "./artist-card.ts";
+import { renderFormatCard, type FormatCardResult } from "./artist-card-format.ts";
 import { applyBacking, backingLayer } from "./red-backing.ts";
 import { RED_BACKING, backingRect, chooseBacking, type BackingBox } from "./t1-video.ts";
 
@@ -363,8 +365,11 @@ export type ClaimCardResult = {
   /** O20's figures for each extended edge (strip tests before fill, seam after), so a draft can print them with their limits. */
   extension: ExtensionFigures[];
   master: Buffer | null;
+  /** Null when the card isn't placed or that format was skipped (formats says why). */
   crop45: Buffer | null;
   square: Buffer | null;
+  /** The 4:5 and the 1:1 (O117–O119), each placed on its own. */
+  formats: Partial<Record<CardFrameFormat, FormatCardResult>>;
   watermark: string | null;
 };
 
@@ -373,7 +378,7 @@ export async function renderClaimCard(input: ClaimCardInput): Promise<ClaimCardR
   const frame = MASTER;
   const rules: ClaimCardRule[] = [];
   const approvalLines: string[] = [];
-  const base0: Omit<ClaimCardResult, "pass" | "placed"> = { held: null, rules, plan: null, claim: null, contrast: { textBox: 0, claimBox: null, redLine: null }, redLineWhite: false, redBacking: null, approvalLines, extensionLabel: "", extension: [], master: null, crop45: null, square: null, watermark: input.watermark };
+  const base0: Omit<ClaimCardResult, "pass" | "placed"> = { held: null, rules, plan: null, claim: null, contrast: { textBox: 0, claimBox: null, redLine: null }, redLineWhite: false, redBacking: null, approvalLines, extensionLabel: "", extension: [], master: null, crop45: null, square: null, formats: {}, watermark: input.watermark };
 
   // The claim face first: a missing or trial face holds the card (O24).
   let claimFace: FontEntry | null = null;
@@ -603,28 +608,29 @@ export async function renderClaimCard(input: ClaimCardInput): Promise<ClaimCardR
     backing ? sharp(Buffer.from(backingLayer(size.width, size.height, moveBox(backing.box, t), backing.opacity)), { raw: { width: size.width, height: size.height, channels: 4 } }).png().toBuffer() : null;
   const backingMaster = await backingAt(frame, { k: 1, dx: 0, dy: 0 });
   const master = await sharp(shown).composite([...(backingMaster ? [{ input: backingMaster, left: 0, top: 0 }] : []), { input: overlay, left: 0, top: 0 }, ...(wmMaster ? [{ input: wmMaster, left: 0, top: 0 }] : [])]).png().toBuffer();
-  const crop45 = await sharp(master).extract({ left: 0, top: RECT_45.top, width: frame.width, height: RECT_45.bottom - RECT_45.top }).png().toBuffer();
-
-  // 1:1 (O1): the 4:5 at 0.8×, photo extended at the sides; the bands and the type carried the same way.
-  const k = 0.8;
-  const side = 1080;
-  const dx = (side - frame.width * k) / 2;
-  const kPhoto = Math.max(k, side / scaled.width, side / scaled.height);
-  const small = await canvasAt(kPhoto);
-  const anchor = { x: frame.width / 2, y: plan.eyes * frame.height };
-  const sLeft = clamp(Math.round((plan.left + anchor.x) * kPhoto - (dx + anchor.x * k)), 0, small.width - side);
-  const sTop = clamp(Math.round((plan.top + anchor.y) * kPhoto - (anchor.y - RECT_45.top) * k), 0, small.height - side);
-  const squareBase = await sharp(small.png).extract({ left: sLeft, top: sTop, width: side, height: side }).png().toBuffer();
-  const squareBands = bandLayer ? await sharp(bandLayer).extract({ left: 0, top: RECT_45.top, width: frame.width, height: RECT_45.bottom - RECT_45.top }).resize(side, side, { fit: "fill" }).png().toBuffer() : null;
-  const squareOverlay = await textOverlay(pieces, placements, { width: side, height: side }, { k, dx, dy: -RECT_45.top * k }, KIT_SHADOW);
-  const squareRects = placements.map((p) => ({ left: p.left * k + dx, top: (p.top - RECT_45.top) * k, width: p.width * k, height: p.height * k }));
-  const wmSquare = input.watermark && wm ? await watermarkLayer(input.watermark, { width: side, height: side }, wm.path, wm.family, { avoid: squareRects }) : null;
-  const backingSquare = await backingAt({ width: side, height: side }, { k, dx, dy: -RECT_45.top * k });
-  const square = await sharp(squareBase)
-    .composite([...(squareBands ? [{ input: squareBands, left: 0, top: 0 }] : []), ...(backingSquare ? [{ input: backingSquare, left: 0, top: 0 }] : []), { input: squareOverlay, left: 0, top: 0 }, ...(wmSquare ? [{ input: wmSquare, left: 0, top: 0 }] : [])])
-    .png()
-    .toBuffer();
-
   const placed = plan.headTop >= f.headTopMin - 1e-3 && plan.eyes >= f.eyesMin - 1e-3 && plan.eyes <= f.eyesMax + 1e-3 && plan.chin <= f.chinMax + 1e-3;
-  return { ...base0, pass: rules.every((r) => r.pass), placed, master: placed ? master : null, crop45: placed ? crop45 : null, square: placed ? square : null };
+
+  // 4:5 and 1:1 (O117–O119): each placed on its own from the same photo, pieces, claim and backing.
+  const formats: Partial<Record<CardFrameFormat, FormatCardResult>> = {};
+  if (placed) {
+    for (const format of ["4:5", "1:1"] as const) {
+      formats[format] = await renderFormatCard({
+        rotated,
+        photo,
+        face,
+        format,
+        masterScale: plan.scale,
+        mask: input.mask,
+        lockup: input.lockup,
+        name: input.name,
+        info: input.info,
+        claim: claimPlan ? { plan: claimPlan, pieces: claimPieces, backing } : null,
+        bands: !!input.bands,
+        shadow: KIT_SHADOW,
+        backingLayer: async (size, box, opacity) => sharp(Buffer.from(backingLayer(size.width, size.height, box, opacity)), { raw: { width: size.width, height: size.height, channels: 4 } }).png().toBuffer(),
+        watermark: input.watermark && wm ? async (size, avoid) => watermarkLayer(input.watermark!, size, wm.path, wm.family, { avoid }) : undefined,
+      });
+    }
+  }
+  return { ...base0, pass: rules.every((r) => r.pass), placed, master: placed ? master : null, crop45: formats["4:5"]?.png ?? null, square: formats["1:1"]?.png ?? null, formats };
 }

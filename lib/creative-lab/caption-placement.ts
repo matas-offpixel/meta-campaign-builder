@@ -7,7 +7,8 @@
 import { captionCharEm, CAPTION_BAND_BOX, VIDEO_BAND } from "./video-band.ts";
 import { profile } from "../../src/remotion/caption-style/profile.ts";
 import type { Rect } from "./artist-card.ts";
-import { judgeFaceOverTime, type FaceSample } from "./t1-face.ts";
+import { T1V_FACE, judgeFaceOverTime, type FaceSample } from "./t1-face.ts";
+import type { SamplingScheme } from "./face-sampling.ts";
 
 export const PLACEMENT_HOME = profile.verticalCenterPctOfSourceHeight * 1920;
 export const PLACEMENT_STEP = 0.02 * 1920;
@@ -23,26 +24,129 @@ export const PLACE_REFUSAL = {
 export const QUOTE_TOO_LONG = "This quote is too long — drop a sentence from the start or end.";
 export const OLD_QUOTE_STYLE = "Old quote style — render again";
 export const FACE_CHECKING = "Checking the clip for faces…";
+/**
+ * Also the error on a render whose clip's face check failed: the render tick
+ * fails the render with it instead of leaving it queued, so its round
+ * settles. On the failed row "try again" is the retry link (surface.ts
+ * RETRY_SENTENCES); the retry clears the stored failure and queues the
+ * render, and the next tick checks the clip again.
+ */
 export const FACE_CHECK_FAILED = "Couldn't check this clip for faces — try again.";
+/**
+ * The round cell's note once its render has failed on the face check. The
+ * failed row's "try again" is then the one action (it clears the failure and
+ * queues the render), so the cell has no Retry and no "try again".
+ */
+export const FACE_CHECK_FAILED_CELL = "Couldn't check this clip for faces.";
+
+/**
+ * The face note under a round matrix cell. `retry` is the clip-level Retry,
+ * which only clears the stored failure: it is offered while the render waits,
+ * and dropped once the render itself has failed on the check (CLP8).
+ */
+export function roundCellFaceNote(args: {
+  faceCheck: "ready" | "failed" | "checking" | null | undefined;
+  faceLine?: string | null;
+  storedNote?: string | null;
+  render?: { status: string; error: string | null } | null;
+}): { text: string; failed: boolean; retry: boolean } | null {
+  if (!args.faceCheck) return args.storedNote ? { text: args.storedNote, failed: false, retry: false } : null;
+  if (args.faceCheck === "failed") {
+    const renderFailed = args.render?.status === "failed" && args.render.error === FACE_CHECK_FAILED;
+    return renderFailed ? { text: FACE_CHECK_FAILED_CELL, failed: true, retry: false } : { text: FACE_CHECK_FAILED, failed: true, retry: true };
+  }
+  if (args.faceCheck !== "ready") return { text: FACE_CHECKING, failed: false, retry: false };
+  return args.faceLine ? { text: args.faceLine, failed: false, retry: false } : null;
+}
 
 export type StoredFaceRect = { left: number; top: number; width: number; height: number };
 
 /** One detection for a clip's crop and window. `t` is seconds from the window start. */
 export type StoredFaceSamples = {
   detector: string;
-  fps: 5;
+  /** Samples a second: 5 before 17 Nov 2026, FACE_SAMPLE_FPS since. */
+  fps: number;
   cropFocusX: number;
   cropFocusY: number;
   inS: number | null;
   outS: number | null;
   samples?: { t: number; faces: StoredFaceRect[] }[];
   error?: string;
+  /**
+   * A face check in progress (the lock): when it started, when the lock lapses, and the tries since it last
+   * made progress. `parked` means no tick is running it: a slice saved `progress` and the next tick resumes it.
+   * The lock holds while parked, so one check at a time still holds between slices.
+   */
+  running?: { since: string; until: string; attempt: number; parked?: boolean; progress?: FaceCheckProgress };
 };
+
+/**
+ * A face check part done (face-check-slice.ts). Never ready samples: placement reads only `samples` above,
+ * and a row with `running` reads as checking.
+ */
+export type FaceCheckProgress = {
+  /** Source frames to check, ffmpeg's n after the seek: the seeded plan, then any a gap fill adds. */
+  frames: number[];
+  /** How many of `frames` the plan had (the rest are gap fill). */
+  planned: number;
+  /** How many of `frames`, in order, are checked. */
+  done: number;
+  /** The frames checked so far, `t` in seconds from the window start, faces in output pixels. */
+  samples: { t: number; faces: StoredFaceRect[] }[];
+  /** Set once a gap fill ran: the window's real first and last frame times from the scan. */
+  scan?: { startS: number; endS: number };
+  /** Detector calls so far, and the seconds spent extracting, scanning and detecting, over every slice. */
+  checked: number;
+  slices: number;
+  extractS: number;
+  scanS: number;
+  detectS: number;
+};
+
+export const FACE_DETECTOR = "ssd_mobilenet_v1";
+/**
+ * When the face check samples a clip (face-sampling.ts). Gaps drawn from
+ * 0.3–0.4 s, seeded per clip: about 2.86 a second. No gap is over 0.4 s, so
+ * any face 5 fps would fail on a run (3 samples in a row, a 0.4 s span) is
+ * seen, and the jitter breaks the lock a fixed grid has on anything that
+ * repeats (a 2 fps grid and a 120 BPM head-bob: #1311 review). On the
+ * review's tracks against 50 fps truth: 0 worse than 5 fps on either rule
+ * (face-sample-rate.test.ts). 5 fps took ~150 frames, past Vercel's 800 s.
+ */
+export const FACE_SAMPLING: SamplingScheme = { kind: "jitter", minGap: 0.3, maxGap: 0.4 };
+/** The scheme's mean rate, stored as StoredFaceSamples.fps (below 5, so placement uses coverInterval). */
+export const FACE_SAMPLE_FPS = Math.round((2 / (0.3 + 0.4)) * 100) / 100;
+
+/** Each ffmpeg run in a tick's slice of the check stops by this, well inside the function's 800 s. */
+export const FACE_CHECK_BUDGET_MS = 600_000;
+/**
+ * A tick starts no frame, extract or scan past this into its slice: it saves the progress, keeps the lock and
+ * returns, and the next tick resumes from there. On the cpu backend Vercel measured ~15 s a frame (17 Nov 2026);
+ * on wasm (face-detect.ts) a 30 s window fits one slice, and this stays as the fallback.
+ */
+export const FACE_CHECK_SLICE_MS = 450_000;
+/**
+ * Seconds a frame, to size a slice's first extract before any frame on this clip is timed (Vercel, 17 Nov 2026):
+ * the cpu backend (the fallback when wasm doesn't start, face-detect.ts) and wasm (0.47–0.80 s, rounded up).
+ */
+export const FACE_DETECT_ESTIMATE_S = 15;
+export const FACE_DETECT_ESTIMATE_WASM_S = 1;
+
+/** A lock outlives the function (800 s), so a check still running is never started again. */
+export const FACE_CHECK_LOCK_MS = 15 * 60 * 1000;
+/** After this many tries in a row that made no progress (killed, or a slice that checked nothing), the clip is failed and not tried again. */
+export const FACE_CHECK_MAX_ATTEMPTS = 2;
+export const FACE_CHECK_TIMED_OUT = "The face check didn't finish in time";
+
+/** A lock that hasn't lapsed: a check is (or may still be) running on this clip, or is parked between slices. */
+export function faceCheckLocked(stored: StoredFaceSamples | null, now: Date): boolean {
+  return Boolean(stored?.running && Date.parse(stored.running.until) > now.getTime());
+}
 
 export function readFaceSamples(value: unknown): StoredFaceSamples | null {
   if (!value || typeof value !== "object") return null;
   const row = value as StoredFaceSamples;
-  if (row.fps !== 5 || typeof row.detector !== "string") return null;
+  if (typeof row.fps !== "number" || !(row.fps > 0 && row.fps <= 5) || typeof row.detector !== "string") return null;
   if (typeof row.cropFocusX !== "number" || typeof row.cropFocusY !== "number") return null;
   return row;
 }
@@ -78,6 +182,9 @@ export function faceSampleState(
     && sameTime(stored.inS, clip.inS)
     && sameTime(stored.outS, clip.outS);
   if (!same) return "checking";
+  // A check in progress, parked between slices, or one whose lock lapsed: still checking (the tick decides
+  // whether to resume or try again). Partial progress is never ready.
+  if (stored.running) return "checking";
   if (stored.error && isDetectorLoadError(stored.error)) return "checking";
   if (stored.error || !stored.samples?.length) return "failed";
   return "ready";
@@ -91,6 +198,8 @@ export function placeFromStoredSamples(args: {
   windowIn: number;
   windowOut: number;
   samples: readonly { t: number; faces: StoredFaceRect[] }[];
+  /** The samples' rate (StoredFaceSamples.fps); runs are judged in seconds from it. */
+  fps?: number;
 }): PlaceHit | PlaceMiss {
   const faces: FaceSample[] = args.samples.map((sample) => ({ tS: sample.t, faces: sample.faces }));
   return searchPlacement({
@@ -103,7 +212,9 @@ export function placeFromStoredSamples(args: {
       const slice = faces
         .filter((sample) => sample.tS >= origin - 1e-6)
         .map((sample) => ({ tS: sample.tS - origin, faces: sample.faces }));
-      const verdict = judgeFaceOverTime(slice, { always: boxes, claim: null }, { frameWidth: 1080 });
+      // Below 5 fps each hit counts its full interval each side (t1-face.ts), so a sparser sample never passes a run 5 fps fails.
+      const fps = args.fps ?? T1V_FACE.fps;
+      const verdict = judgeFaceOverTime(slice, { always: boxes, claim: null }, { frameWidth: 1080, fps, coverInterval: fps < T1V_FACE.fps });
       return { ok: verdict.ok, topShare: verdict.topShare, longestRunS: verdict.longestRunS };
     },
   });

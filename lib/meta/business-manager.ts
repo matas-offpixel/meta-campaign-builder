@@ -147,6 +147,32 @@ export async function getMetaUserId(token: string): Promise<string> {
 }
 
 /**
+ * GET /me?fields=business_users.limit(100){id,business{id}} — the token owner's
+ * business-scoped user id in every BM they belong to, as bizId → id.
+ *
+ * One call for the whole cron run, instead of the same `/me` read once per BM
+ * inside `resolveBusinessScopedUserId`. The explicit `.limit(100)` matters: a
+ * nested edge returns a short first page by default, and the operator is in
+ * 71 BMs. A BM missing from the map still resolves per BM through
+ * `resolveBusinessScopedUserId`, so a short map costs calls, never
+ * correctness. Every id found here is also put in that function's cache.
+ */
+export async function listBusinessScopedUserIds(token: string): Promise<Map<string, string>> {
+  const res = await graphGetWithToken<{
+    business_users?: { data?: MeBusinessUserAssociation[] };
+  }>("/me", { fields: "business_users.limit(100){id,business{id}}" }, token);
+  const out = new Map<string, string>();
+  for (const row of res.business_users?.data ?? []) {
+    const bizId = row.business?.id;
+    if (bizId && row.id) {
+      out.set(bizId, row.id);
+      businessScopedUserIdCache.set(bizId, row.id);
+    }
+  }
+  return out;
+}
+
+/**
  * In-memory cache: bizId → resolved business-scoped user id. Safe keyed only
  * by bizId (not by token/user) because this app acts exclusively as Matas's
  * personal OAuth token — there is only ever one identity to resolve per BM.
