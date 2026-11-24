@@ -20,6 +20,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.92.0",
+    "@aws-sdk/client-lambda": "3.986.0",
     "@remotion/bundler": "4.0.471",
     "@remotion/lambda": "4.0.471",
     "@remotion/renderer": "4.0.471",
@@ -47,6 +48,12 @@
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
+    "@aws-sdk/client-cloudwatch": "3.986.0",
+    "@aws-sdk/client-cloudwatch-logs": "3.986.0",
+    "@aws-sdk/client-ecr": "3.986.0",
+    "@aws-sdk/client-iam": "3.986.0",
+    "@aws-sdk/client-sns": "3.986.0",
+    "@aws-sdk/client-sts": "3.986.0",
     "@playwright/test": "1.63.0",
     "@tailwindcss/postcss": "^4",
     "@testing-library/react": "^16.3.0",
