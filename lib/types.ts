@@ -1360,6 +1360,16 @@ export interface CampaignSettings {
    * Advantage+ Placements (unchanged pre-existing behavior — see task #117).
    */
   placementConfig?: PlacementConfig;
+
+  /**
+   * Pre-launch check state (`lib/launch-guard`, record RC3). `keptLinks`
+   * is "Keep this link" (ruling b): the link warning stays clear for a
+   * link while the ad's link equals the stored url. Stored in draft_json
+   * only, no column.
+   */
+  launchGuard?: {
+    keptLinks?: Array<{ url: string; keptBy: string; keptAt: string }>;
+  };
 }
 
 /**

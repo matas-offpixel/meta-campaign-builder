@@ -185,6 +185,7 @@ import { buildAttachAllAdSetsMap } from "@/lib/meta/attach-all-adsets";
 import { stampPublishedCreatives } from "@/lib/meta/persist-launch-creatives";
 import { isObjectiveIncompatibilityError } from "@/lib/meta/error-classify";
 import { findAdSetLocationProblems } from "@/lib/meta/location-targeting";
+import { runLaunchGuard } from "@/lib/launch-guard/load";
 import {
   bindLaunchAdSetRecorder,
   type RecordCreatedAdSet,
@@ -620,6 +621,36 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
     payload: Parameters<typeof createMetaAd>[1],
     token?: string,
   ) => runMetaWrite("ad_create", payload, () => createMetaAd(accountId, payload, token));
+
+  // ── Pre-launch check (lib/launch-guard, record RC3) ───────────────────────
+  // Account, pixel, other shows' references and the name code against the
+  // draft's event. A blocker refuses the launch before any Graph call, for
+  // the wizard and the plan fan-out alike. A failed read is logged and does
+  // not hold the launch: the same check runs on Review first.
+  try {
+    const guard = await runLaunchGuard(supabase, draft);
+    if (guard.blockers > 0) {
+      console.error(
+        `[launch-campaign] ✗ launch checks: ${guard.checks
+          .filter((check) => check.severity === "blocker")
+          .map((check) => check.key)
+          .join(", ")}`,
+      );
+      return launchJson(
+        {
+          error: guard.checks
+            .filter((check) => check.severity === "blocker")
+            .map((check) => check.sentence)
+            .join("\n"),
+          source: "preflight",
+          launchGuard: guard,
+        },
+        { status: 400 },
+      );
+    }
+  } catch (err) {
+    console.error("[launch-campaign] launch checks could not run:", err);
+  }
 
   // ── Fetch user's Facebook OAuth token ─────────────────────────────────────
   // We select provider_token + updated_at.  expires_at is fetched separately

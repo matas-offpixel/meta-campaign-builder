@@ -29,6 +29,9 @@ import { saveDraftToStorage } from "@/lib/autosave";
 import { applyTemplate } from "@/lib/templates";
 import { loadTemplatesFromDb, saveTemplateToDb, deleteTemplateFromDb } from "@/lib/db/templates";
 import { useLaunchCampaign } from "@/lib/hooks/useLaunchCampaign";
+import { useLaunchGuard } from "@/lib/hooks/useLaunchGuard";
+import { applyLaunchCheckFix, blockedLaunchLabel } from "@/lib/launch-guard/check";
+import type { LaunchCheck, LaunchCheckFix } from "@/lib/launch-guard/types";
 import { useBucCooldown } from "@/lib/hooks/useBucCooldown";
 import { getCachedUserPages } from "@/lib/hooks/useMeta";
 import { FacebookConnectionBanner } from "@/components/facebook-connection-banner";
@@ -231,6 +234,7 @@ export function WizardShell({ draftId, linkedPlan = null }: WizardShellProps) {
 
   const handleLaunch = async () => {
     if (launchCooldown.blocked) return;
+    if ((launchGuard.result?.blockers ?? 0) > 0) return;
     const review = validateStep(7, draft);
     if (!review.valid) {
       alert(`Cannot launch:\n${review.errors.join("\n")}`);
@@ -378,6 +382,22 @@ export function WizardShell({ draftId, linkedPlan = null }: WizardShellProps) {
       planLaunchStatus: linkedPlan.metaLaunchStatus,
       draftStatus: draft.status,
     });
+
+  // Launch checks (record RC3), on Review only, before a launch.
+  const launchGuard = useLaunchGuard(draft, step === 7 && !launchSummary);
+  const launchGuardBlockedLabel = blockedLaunchLabel(launchGuard.result?.blockers ?? 0);
+  const handleLaunchGuardFix = (_check: LaunchCheck, fix: LaunchCheckFix) => {
+    if (fix.action === "show_ads") {
+      changeStep(fix.field === "audience_name" ? 3 : 4);
+      return;
+    }
+    updateDraft((current) =>
+      applyLaunchCheckFix(current, fix, {
+        keptBy: launchGuard.viewer ?? userId ?? "operator",
+        now: new Date(),
+      }),
+    );
+  };
 
   // ─── Loading gate ────────────────────────────────────────────────────────────
   if (!hydrated) {
@@ -579,6 +599,8 @@ export function WizardShell({ draftId, linkedPlan = null }: WizardShellProps) {
             onUpdateSettings={canvasOwnsLaunch ? undefined : updateSettings}
             onRetryFailedAds={canvasOwnsLaunch ? undefined : handleLaunch}
             onRetryLaunch={canvasOwnsLaunch ? undefined : handleLaunch}
+            launchGuard={launchGuard.result}
+            onLaunchGuardFix={canvasOwnsLaunch ? undefined : handleLaunchGuardFix}
           />
         )}
       </main>
@@ -591,6 +613,7 @@ export function WizardShell({ draftId, linkedPlan = null }: WizardShellProps) {
         saveStatus={saveStatus}
         launching={launching}
         launchCooldownLabel={launchCooldown.label}
+        launchBlockedLabel={launchGuardBlockedLabel}
         showLaunch={!canvasOwnsLaunch}
         planHref={canvasOwnsLaunch && linkedPlan ? mmlPlanHref(linkedPlan.id) : null}
         onBack={handleBack}
