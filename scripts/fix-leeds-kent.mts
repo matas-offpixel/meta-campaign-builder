@@ -18,7 +18,8 @@
  *   POST /{adset_id} { targeting }, read back and confirm. Stops at the first
  *   Meta error. Then the drafts, each UPDATE guarded on the updated_at read.
  *
- * --skip-ended  An ad set whose end_time has passed can't take a targeting
+ * --skip-ended  An ad set whose end_time (read live this run) has passed, or
+ *   whose effective_status is COMPLETED, can't take a targeting
  *   write (Meta 100/3858750 "Ad set has ended"). Without this flag such an ad
  *   set is refused in the plan, so --apply sends nothing. With it, ended ad
  *   sets are listed as skipped and left as they are (no end-date change).
@@ -323,7 +324,10 @@ async function readCampaign(c: (typeof CAMPAIGNS)[number]): Promise<{ plans: Pla
     else if (others.length) refuse = `diff touches ${others.join(", ")}`;
     else if (["ARCHIVED", "DELETED"].includes(String(r.effective_status))) refuse = `${String(r.effective_status)}`;
     const endTime = typeof r.end_time === "string" ? r.end_time : null;
-    const ended = endTime !== null && Date.parse(endTime) <= NOW;
+    // Decided per run from this read: end_time passed, or Meta already calls it completed.
+    const ended =
+      (endTime !== null && Date.parse(endTime) <= NOW) ||
+      ["COMPLETED", "ADSET_COMPLETED"].includes(String(r.effective_status));
     if (!refuse && ended && !skipEnded) refuse = `ended ${endTime} (Meta refuses targeting writes; --skip-ended leaves it)`;
     else if (idSet(raw, "custom_audiences") !== idSet(after, "custom_audiences")) refuse = "custom audiences would change";
     else if (idSet(raw, "excluded_custom_audiences") !== idSet(after, "excluded_custom_audiences")) refuse = "exclusions would change";
@@ -526,6 +530,13 @@ for (const p of all) {
     `| ${p.campaignId} | ${p.adSetId} | ${p.name} | ${p.status}/${p.effectiveStatus} | ${cityLabel(p.before)} | ${cityLabel(p.after)} | ${custom} | ${p.others.length ? p.others.join(", ") : "nothing"} | ${p.overlap} | ${p.endTime ?? "none"} | ${p.refuse ? `NO: ${p.refuse}` : p.ended ? "skip (ended)" : "yes"} |`,
   );
 }
+console.log("\n## Ended: left on Leeds, Kent\n");
+console.log("| campaign | ad set | name | status | end_time | cities kept |");
+console.log("|---|---|---|---|---|---|");
+for (const p of all.filter((x) => x.ended)) {
+  console.log(`| ${p.campaignId} | ${p.adSetId} | ${p.name} | ${p.status}/${p.effectiveStatus} | ${p.endTime ?? "none"} | ${cityLabel(p.before)} |`);
+}
+if (!all.some((x) => x.ended)) console.log("| — | none | | | | |");
 const dropped = [...new Set(all.flatMap((p) => p.dropped))];
 console.log(`\nRead-only keys dropped before the write: ${dropped.join(", ") || "none"}. Audience lists sent as {id} only.`);
 
