@@ -469,11 +469,16 @@ describe("page_other_client", () => {
     return draft;
   }
 
-  function ownership(draft: ReturnType<typeof dodDraft>, artistRows: Array<{ meta_page_id: string | null; instagram_handle: string | null }> = []) {
+  function ownership(
+    draft: ReturnType<typeof dodDraft>,
+    artistRows: Array<{ meta_page_id: string | null; instagram_handle: string | null }> = [],
+    planLinked = false,
+  ) {
+    const ids = draftIdentities(draft, { planLinked });
     return identityOwnershipFrom({
       event: { ...NX26_DOD, clientId: ELECTRIC },
-      pageIds: [...draftIdentities(draft).pages.keys()],
-      igIds: [...draftIdentities(draft).instagram.keys()],
+      pageIds: [...ids.pages.keys()],
+      igIds: [...ids.instagram.keys()],
       clients,
       bmPages,
       bmIgs,
@@ -482,32 +487,82 @@ describe("page_other_client", () => {
     });
   }
 
-  function runDod(draft = dodDraft(), artists: Parameters<typeof ownership>[1] = []) {
+  function runDod(draft = dodDraft(), artists: Parameters<typeof ownership>[1] = [], planLinked = false) {
     const event = { ...NX26_DOD, clientId: ELECTRIC };
-    return checkLaunchReferences(draft, event, venueDefaultsFromMap(event), [], ownership(draft, artists));
+    const live = {
+      campaignId: "120251748789350755",
+      readAt: "2026-11-24T15:02:00.000Z",
+      page: { id: "259905047197071", name: "NX LOVES", count: 18, otherClient: false },
+      instagram: { id: "17841460869627228", name: "nxloves", count: 18, otherClient: false },
+      draftNames: {},
+    };
+    // The live read exists only for a published draft (RC8).
+    const read = draft.status === "published" ? live : null;
+    return checkLaunchReferences(draft, event, venueDefaultsFromMap(event), [], ownership(draft, artists, planLinked), read, {
+      planLinked,
+    });
   }
 
-  it("NX26-DOD: LWE's page and Puzzle's Instagram are two blockers; Electric's own ones aren't", () => {
-    const result = runDod();
+  it("ruling B, 20909b86 standalone: its ads run on NX LOVES + @nxloves, so neither check fires", () => {
+    const draft = dodDraft();
+    draft.status = "published";
+    draft.metaCampaignId = "120251748789350755";
+    // Settings still say Ironworks London + @puzzleofficialuk; no ad carries them.
+    assert.deepEqual(runDod(draft).checks, []);
+  });
+
+  it("an ad that itself runs from another client's page fires", () => {
+    const draft = dodDraft();
+    draft.creatives[0]!.identity = { pageId: "1157874844068425", instagramAccountId: "17841460869627228" };
+    const result = runDod(draft);
     assert.deepEqual(
-      result.checks.map((c) => [c.label, c.sentence, c.evidence, c.fixes.map((f) => f.label)]),
+      result.checks.map((c) => [c.label, c.sentence, c.evidence]),
       [
         [
           tsvWord("page_other_client.key"),
           "Ads run from Ironworks London, which is IRONWORKS’s page. NX26-DOD is Electric Brixton’s show.",
-          "Ads: all 2",
-          [tsvWord("page_other_client.fix")],
+          "1 ads: Teaser - Motion  No Text",
+        ],
+      ],
+    );
+    assert.equal(blockedLaunchLabel(result.blockers), "Launch · 1 to fix");
+  });
+
+  it("an ad with no page of its own takes the settings', and fires on it", () => {
+    const draft = dodDraft();
+    draft.creatives = draft.creatives.map((c) => ({ ...c, identity: { pageId: "", instagramAccountId: "" } }));
+    const result = runDod(draft);
+    assert.deepEqual(result.checks.map((c) => [c.label, c.evidence]), [
+      ["Page", "Ads: all 2"],
+      ["Instagram", "Ads: all 2"],
+    ]);
+    assert.deepEqual(result.checks.map((c) => c.fixes.at(-1)), [
+      { action: "change_identity", label: "Change the page", field: "page", where: "settings" },
+      { action: "change_identity", label: "Change the Instagram account", field: "instagram", where: "settings" },
+    ]);
+  });
+
+  it("a draft linked to an MML plan: its settings page and Instagram are judged too, with the same words", () => {
+    const result = runDod(dodDraft(), [], true);
+    assert.deepEqual(
+      result.checks.map((c) => [c.label, c.sentence, c.evidence, c.fixes.at(-1)!.label]),
+      [
+        [
+          "Page",
+          "Ads run from Ironworks London, which is IRONWORKS’s page. NX26-DOD is Electric Brixton’s show.",
+          // No ad carries it: the evidence counts the ads that do, so there's none to show.
+          "",
+          "Change the page",
         ],
         [
-          tsvWord("page_other_client.instagram.key"),
+          "Instagram",
           "Ads run on Instagram as @puzzleofficialuk, Puzzle’s account. NX26-DOD is Electric Brixton’s show.",
-          "Ads: all 2",
-          [tsvWord("page_other_client.instagram.fix")],
+          "",
+          "Change the Instagram account",
         ],
       ],
     );
     assert.equal(result.blockers, 2);
-    assert.equal(blockedLaunchLabel(result.blockers), "Launch · 2 to fix");
   });
 
   it("only some ads on another client's page: the evidence names them", () => {
@@ -526,10 +581,14 @@ describe("page_other_client", () => {
   });
 
   it("a page or Instagram stored as an artist's never fires", () => {
-    const result = runDod(dodDraft(), [
-      { meta_page_id: "1157874844068425", instagram_handle: null },
-      { meta_page_id: null, instagram_handle: "@PuzzleOfficialUK" },
-    ]);
+    const result = runDod(
+      dodDraft(),
+      [
+        { meta_page_id: "1157874844068425", instagram_handle: null },
+        { meta_page_id: null, instagram_handle: "@PuzzleOfficialUK" },
+      ],
+      true,
+    );
     assert.deepEqual(result.checks, []);
   });
 
@@ -603,7 +662,7 @@ describe("page_other_client: ops' sources", () => {
       igIds: [...ids.instagram.keys()],
       clients,
       bmPages: [{ id: "b1", business_id: "1927009767586803", page_id: "259905047197071", page_name: "NX LOVES", is_owned_by_bm: true }],
-      bmIgs: [{ id: "b2", business_id: "1927009767586803", ig_asset_id: "102392272513389", ig_user_id: "17841400834660844", ig_username: "dj_dod", is_owned_by_bm: false }],
+      bmIgs: [{ id: "b2", business_id: "1927009767586803", ig_asset_id: "114480535065424", ig_user_id: "17841460869627228", ig_username: "nxloves", is_owned_by_bm: true }],
       bms: [],
       artistRows: [],
       // Production, 24 Nov: IRONWORKS has 27 drafts on Ironworks London, Puzzle 16 on its Instagram;
@@ -624,24 +683,24 @@ describe("page_other_client: ops' sources", () => {
     assert.match(result.checks[0]!.sentence, /^Ads run from 1157874844068425, which is IRONWORKS’s page\./);
   });
 
-  it("NX LOVES + dj_dod: nothing fires", () => {
-    assert.deepEqual(check(draftOn("259905047197071", "17841400834660844")).checks, []);
+  it("NX LOVES + @nxloves: nothing fires", () => {
+    assert.deepEqual(check(draftOn("259905047197071", "17841460869627228")).checks, []);
   });
 
   it("this client's own drafts never make a page its own", () => {
-    const only = check(draftOn("1157874844068425", "17841400834660844"), {
+    const only = check(draftOn("1157874844068425", "17841460869627228"), {
       draftClaims: [{ client_id: ELECTRIC, page_id: "1157874844068425", ig_id: null }],
     });
     assert.deepEqual(only.checks, []);
   });
 
   it("a venue's page belongs to the clients whose events are at it", () => {
-    const result = check(draftOn("555", "17841400834660844"), {
+    const result = check(draftOn("555", "17841460869627228"), {
       draftClaims: [],
       venueClaims: [{ page_id: "555", client_id: "lwe" }],
     });
     assert.deepEqual(result.checks.map((c) => c.label), ["Page"]);
-    const shared = check(draftOn("555", "17841400834660844"), {
+    const shared = check(draftOn("555", "17841460869627228"), {
       draftClaims: [],
       venueClaims: [{ page_id: "555", client_id: "lwe" }, { page_id: "555", client_id: ELECTRIC }],
     });

@@ -47,6 +47,7 @@ export function checkLaunchReferences(
   otherEvents: readonly GuardEvent[],
   ownership: IdentityOwnership | null = null,
   live: LiveIdentity | null = null,
+  options: IdentityOptions = {},
 ): LaunchGuardResult {
   if (!event) return { checks: [], blockers: 0, warnings: 0, eventCode: null };
   const code = event.code ?? event.name ?? "";
@@ -57,7 +58,7 @@ export function checkLaunchReferences(
       check.findings.filter((hit) => hit.field === "link").map((hit) => linkKey(hit.source ?? hit.value)),
     ).filter(Boolean) as string[],
   );
-  const pageChecks = checkPageOwner(draft, event, code, ownership, live);
+  const pageChecks = checkPageOwner(draft, event, code, ownership, live, options);
   // RC8a: one field, one line. A field page_other_client fires on gets no live-ads warning.
   const firedFields = new Set(
     pageChecks.flatMap((check) => check.findings.map((hit) => hit.field)).filter((f) => f === "page" || f === "instagram"),
@@ -499,60 +500,82 @@ export function renderArtistCaptionCheck(input: {
 // ── 6. page and Instagram ──────────────────────────────────────────────
 
 interface IdentityUse {
-  /** Set on the draft's settings, so every ad carries it. */
-  all: boolean;
+  /** The ads that would run from it (each ad's own identity, else the settings'). */
   adNames: string[];
+  /** How many ads carry it (names can repeat). */
+  ads: number;
+  /** How many of those take it from the settings, having none of their own. */
+  fromSettings: number;
+  /** The settings field itself is judged: a draft linked to an MML plan (ruling B). */
+  settings: boolean;
 }
 
 /**
- * Which page and Instagram the page checks read (open with ops, 24 Nov).
- * "settings_and_ads" (as ruled): the settings' page and Instagram count for
- * every ad, and each ad's own identity counts for that ad.
- * "ads": each ad's own identity, which is what the launch sends; the
- * settings' fields count only when no ad carries one. On the 40 recent
- * Electric drafts every page_other_client hit came from the settings
- * fields (24 Nov).
+ * What the page checks judge (ops ruling B, 24 Nov; record #1362, "What's
+ * judged"): each ad's own page and Instagram, which is what launch sends
+ * to Meta, and the settings' page and Instagram only for an ad that has
+ * none of its own. For a draft linked to an MML plan the settings fields
+ * are judged as well, because new intake ads take them from the settings
+ * (lib/plan/creative-intake-server.ts). "settings_and_ads" (the first
+ * ruling) judged the settings fields on every draft; on the 40 recent
+ * Electric drafts every hit it found was a settings field no ad carried.
  */
-export const IDENTITY_SOURCE: "settings_and_ads" | "ads" = "settings_and_ads";
+export const IDENTITY_SOURCE: "settings_and_ads" | "ads" = "ads";
+
+export interface IdentityOptions {
+  /** The draft is linked to an MML plan (`campaign_plan_meta_launch.draft_id`). */
+  planLinked?: boolean;
+}
+
+const igOf = (identity: { instagramActorId?: string; instagramAccountId?: string } | undefined) =>
+  (identity?.instagramActorId || identity?.instagramAccountId || "").trim();
 
 /**
- * Every Facebook page and Instagram account the draft would run from (see
- * IDENTITY_SOURCE): the settings' page and Instagram (every ad) and each
- * creative's own identity.
+ * Every Facebook page and Instagram account the draft would run from, with
+ * the ads that carry each (see IDENTITY_SOURCE).
  */
-export function draftIdentities(draft: CampaignDraft): {
+export function draftIdentities(
+  draft: CampaignDraft,
+  options: IdentityOptions = {},
+): {
   pages: Map<string, IdentityUse>;
   instagram: Map<string, IdentityUse>;
 } {
   const pages = new Map<string, IdentityUse>();
   const instagram = new Map<string, IdentityUse>();
-  const note = (map: Map<string, IdentityUse>, id: string | null | undefined, adName: string | null) => {
-    const key = (id ?? "").trim();
-    if (!key) return;
-    const row = map.get(key) ?? { all: false, adNames: [] };
-    if (adName == null) row.all = true;
-    else if (!row.adNames.includes(adName)) row.adNames.push(adName);
-    map.set(key, row);
+  const row = (map: Map<string, IdentityUse>, id: string) => {
+    const hit = map.get(id) ?? { adNames: [], ads: 0, fromSettings: 0, settings: false };
+    map.set(id, hit);
+    return hit;
   };
-  const creatives = draft.creatives ?? [];
-  const adsHave = (pick: (c: (typeof creatives)[number]) => string | undefined) => creatives.some((c) => Boolean(pick(c)?.trim()));
-  const settingsCount = (adsCarryIt: boolean) => IDENTITY_SOURCE === "settings_and_ads" || !adsCarryIt;
-  if (settingsCount(adsHave((c) => c.identity?.pageId))) note(pages, draft.settings.metaPageId, null);
-  if (settingsCount(adsHave((c) => c.identity?.instagramActorId || c.identity?.instagramAccountId))) {
-    note(instagram, draft.settings.metaIGAccountId, null);
-  }
-  for (const creative of creatives) {
+  const note = (map: Map<string, IdentityUse>, own: string, fallback: string, adName: string) => {
+    const id = own || fallback;
+    if (!id) return;
+    const hit = row(map, id);
+    hit.ads += 1;
+    if (!own) hit.fromSettings += 1;
+    if (!hit.adNames.includes(adName)) hit.adNames.push(adName);
+  };
+  const settingsPage = draft.settings.metaPageId?.trim() ?? "";
+  const settingsIg = draft.settings.metaIGAccountId?.trim() ?? "";
+  for (const creative of draft.creatives ?? []) {
     const adName = creative.name || "Untitled ad";
-    note(pages, creative.identity?.pageId, adName);
-    note(instagram, creative.identity?.instagramActorId || creative.identity?.instagramAccountId, adName);
+    note(pages, creative.identity?.pageId?.trim() ?? "", settingsPage, adName);
+    note(instagram, igOf(creative.identity), settingsIg, adName);
+  }
+  if (options.planLinked || IDENTITY_SOURCE === "settings_and_ads") {
+    if (settingsPage) row(pages, settingsPage).settings = true;
+    if (settingsIg) row(instagram, settingsIg).settings = true;
   }
   return { pages, instagram };
 }
 
+/** "Ads: all {n}", "{n} ads: {names}", counting the ads that carry it; empty when only the settings hold it. */
 function identityEvidence(use: IdentityUse, adCount: number): string {
   const [allForm, someForm] = W["page_other_client.evidence"].split(" | ");
-  if (use.all || use.adNames.length >= adCount) return fill(allForm!, { n: adCount });
-  return fill(someForm!, { n: use.adNames.length, "up to 4 ad names": listNames(use.adNames) });
+  if (use.ads === 0) return "";
+  if (use.ads >= adCount) return fill(allForm!, { n: adCount });
+  return fill(someForm!, { n: use.ads, "up to 4 ad names": listNames(use.adNames) });
 }
 
 /**
@@ -567,9 +590,10 @@ function checkPageOwner(
   code: string,
   ownership: IdentityOwnership | null,
   live: LiveIdentity | null,
+  options: IdentityOptions,
 ): LaunchCheck[] {
   if (!ownership) return [];
-  const { pages, instagram } = draftIdentities(draft);
+  const { pages, instagram } = draftIdentities(draft, options);
   const adCount = (draft.creatives ?? []).length;
   const client = ownership.clientName ?? "";
   const out: LaunchCheck[] = [];
@@ -588,7 +612,7 @@ function checkPageOwner(
       const liveName = liveField ? liveField.name ?? liveField.id : null;
       const baseEvidence = identityEvidence(use, adCount);
       const evidence =
-        liveField && liveName && !liveField.otherClient && (use.all || use.adNames.length >= adCount)
+        liveField && liveName && !liveField.otherClient && adCount > 0 && use.ads >= adCount
           ? kind === "page"
             ? fill(W["page_other_client.evidence.live"], { n: adCount, "live page": liveName })
             : fill(W["page_other_client.instagram.evidence.live"], { n: adCount, "live handle": liveName })
@@ -597,7 +621,7 @@ function checkPageOwner(
         action: "change_identity",
         label: kind === "page" ? W["page_other_client.fix"] : W["page_other_client.instagram.fix"],
         field: kind,
-        where: use.all ? "settings" : "creatives",
+        where: use.ads === 0 || use.fromSettings === use.ads ? "settings" : "creatives",
       };
       const liveFix: LaunchCheckFix | null = answer
         ? {
@@ -623,9 +647,10 @@ function checkPageOwner(
         sentence,
         evidence,
         fixes: liveFix ? [liveFix, changeFix] : [changeFix],
-        findings: use.all
-          ? [{ field: kind, adName: null, value: id }]
-          : use.adNames.map((adName) => ({ field: kind, adName, value: id })),
+        findings:
+          use.ads === 0
+            ? [{ field: kind, adName: null, value: id }]
+            : use.adNames.map((adName) => ({ field: kind, adName, value: id })),
       });
     }
   }
@@ -637,18 +662,16 @@ function checkPageOwner(
 
 /** The page and Instagram the draft would relaunch from: its settings, else its first ad's. */
 export function draftRunsFrom(draft: CampaignDraft): { page: string | null; instagram: string | null } {
-  const first = (draft.creatives ?? [])[0]?.identity;
-  if (IDENTITY_SOURCE === "ads") {
-    return {
-      page: first?.pageId?.trim() || draft.settings.metaPageId?.trim() || null,
-      instagram:
-        first?.instagramActorId?.trim() || first?.instagramAccountId?.trim() || draft.settings.metaIGAccountId?.trim() || null,
-    };
-  }
+  // Ruling B: the page most of the draft's ads would run from (their own, else the settings').
+  const { pages, instagram } = draftIdentities(draft);
+  const top = (map: Map<string, IdentityUse>) => {
+    let best: [string, number] | null = null;
+    for (const [id, use] of map) if (use.ads > 0 && (!best || use.ads > best[1])) best = [id, use.ads];
+    return best?.[0] ?? null;
+  };
   return {
-    page: draft.settings.metaPageId?.trim() || first?.pageId?.trim() || null,
-    instagram:
-      draft.settings.metaIGAccountId?.trim() || first?.instagramActorId?.trim() || first?.instagramAccountId?.trim() || null,
+    page: top(pages) ?? (draft.settings.metaPageId?.trim() || null),
+    instagram: top(instagram) ?? (draft.settings.metaIGAccountId?.trim() || null),
   };
 }
 

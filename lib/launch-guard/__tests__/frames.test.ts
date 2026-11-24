@@ -114,7 +114,7 @@ describe("#1362 frames (RC8, RC8a)", () => {
       result.checks.map((check) => [check.label, check.evidence, check.fixes.map((fix) => fix.label)]),
       [
         ["Page", "Ads: all 9 · the live ads run from NX LOVES", ["Use the live ads’ page: NX LOVES", "Change the page"]],
-        ["Instagram", "Ads: all 9 · the live ads run as @dj_dod", ["Use the live ads’ Instagram: @dj_dod", "Change the Instagram account"]],
+        ["Instagram", "Ads: all 9 · the live ads run as @nxloves", ["Use the live ads’ Instagram: @nxloves", "Change the Instagram account"]],
       ],
     );
   });

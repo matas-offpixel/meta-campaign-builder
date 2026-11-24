@@ -10,8 +10,9 @@ import { creative, electricEvent, glitterboxNxDraft } from "./fixtures.ts";
 
 /**
  * RC8 / RC8a (#1362). The NX26-DOD On sale draft (20909b86): settings on
- * Ironworks London + @puzzleofficialuk; ops' read of the live ads: NX LOVES
- * + @dj_dod. Ownership rows are production's (24 Nov).
+ * Ironworks London + @puzzleofficialuk on its ads (RC-H's case); the live
+ * ads as the Graph read them on 24 Nov: NX LOVES + @nxloves (record #1362).
+ * Ownership rows are production's (24 Nov).
  */
 const ELECTRIC = "f9045034-2788-4b1d-94d1-1a5ab7fa5ac8";
 const EVENT: GuardEvent = electricEvent({
@@ -25,7 +26,7 @@ const EVENT: GuardEvent = electricEvent({
   clientId: ELECTRIC,
 });
 const PAGES = { ironworks: "1157874844068425", nxLoves: "259905047197071", nxNewcastle: "900000000000001" };
-const IGS = { puzzle: "17841456620568454", djDod: "17841400834660844", nxNewcastle: "17840000000000001" };
+const IGS = { puzzle: "17841456620568454", nxloves: "17841460869627228", nxNewcastle: "17840000000000001" };
 const READ_AT = "2026-11-24T15:02:00.000Z";
 
 function published(page: string, ig: string) {
@@ -70,7 +71,7 @@ function live(patch: Partial<LiveIdentity> = {}): LiveIdentity {
     campaignId: "120251748789350755",
     readAt: READ_AT,
     page: { id: PAGES.nxLoves, name: "NX LOVES", count: 9, otherClient: false },
-    instagram: { id: IGS.djDod, name: "dj_dod", count: 9, otherClient: false },
+    instagram: { id: IGS.nxloves, name: "nxloves", count: 9, otherClient: false },
     draftNames: { [PAGES.nxNewcastle]: "NX Newcastle", [IGS.nxNewcastle]: "nxnewcastle", [PAGES.ironworks]: "Ironworks London", [IGS.puzzle]: "puzzleofficialuk" },
     ...patch,
   };
@@ -89,22 +90,22 @@ describe("RC8a: NX26-DOD (RC-H)", () => {
         [
           "page_other_client",
           "Instagram",
-          "Ads: all 9 · the live ads run as @dj_dod",
-          ["Use the live ads’ Instagram: @dj_dod", "Change the Instagram account"],
+          "Ads: all 9 · the live ads run as @nxloves",
+          ["Use the live ads’ Instagram: @nxloves", "Change the Instagram account"],
         ],
       ],
     );
-    assert.deepEqual(result.checks[1]!.fixes[0]!.names, ["@dj_dod"]);
+    assert.deepEqual(result.checks[1]!.fixes[0]!.names, ["@nxloves"]);
   });
 
-  it("one click on each sets NX LOVES and @dj_dod, after which nothing is left", () => {
+  it("one click on each sets NX LOVES and @nxloves, after which nothing is left", () => {
     let draft = published(PAGES.ironworks, IGS.puzzle);
     for (const check of run(draft, live()).checks) {
       draft = applyLaunchCheckFix(draft, check.fixes[0]!, { keptBy: "Matas", now: new Date(READ_AT) });
     }
     assert.equal(draft.settings.metaPageId, PAGES.nxLoves);
-    assert.equal(draft.settings.metaIGAccountId, IGS.djDod);
-    assert.ok(draft.creatives.every((c) => c.identity.pageId === PAGES.nxLoves && c.identity.instagramAccountId === IGS.djDod));
+    assert.equal(draft.settings.metaIGAccountId, IGS.nxloves);
+    assert.ok(draft.creatives.every((c) => c.identity.pageId === PAGES.nxLoves && c.identity.instagramAccountId === IGS.nxloves));
     assert.deepEqual(run(draft, live()).checks, []);
   });
 
@@ -114,7 +115,7 @@ describe("RC8a: NX26-DOD (RC-H)", () => {
     assert.equal(page.evidence, "Ads: all 9");
     assert.deepEqual(page.fixes.map((f) => f.label), ["Change the page"]);
     // Fields are judged on their own: the Instagram still gets its live answer.
-    assert.equal(result.checks.find((c) => c.label === "Instagram")!.fixes[0]!.label, "Use the live ads’ Instagram: @dj_dod");
+    assert.equal(result.checks.find((c) => c.label === "Instagram")!.fixes[0]!.label, "Use the live ads’ Instagram: @nxloves");
   });
 });
 
@@ -134,9 +135,9 @@ describe("RC8: identity_not_live (RC-I)", () => {
         ],
         [
           "Live ads",
-          "This draft runs on Instagram as @nxnewcastle; the live ads run as @dj_dod. Relaunching uses the draft’s.",
+          "This draft runs on Instagram as @nxnewcastle; the live ads run as @nxloves. Relaunching uses the draft’s.",
           "Read from the live ads at Tue 24 Nov, 15:02: 9 ads",
-          ["Use the live ads’ Instagram: @dj_dod", "Keep @nxnewcastle"],
+          ["Use the live ads’ Instagram: @nxloves", "Keep @nxnewcastle"],
         ],
       ],
     );
@@ -152,7 +153,11 @@ describe("RC8: identity_not_live (RC-I)", () => {
       "Page kept by Matas, Tue 24 Nov, 15:06: NX Newcastle",
       "Instagram kept by Matas, Tue 24 Nov, 15:06: @nxnewcastle",
     ]);
-    const changed = { ...draft, settings: { ...draft.settings, metaPageId: "900000000000002" } };
+    // Ruling B: the ads' own page is what's judged, so the change is on the ads.
+    const changed = {
+      ...draft,
+      creatives: draft.creatives.map((c) => ({ ...c, identity: { ...c.identity, pageId: "900000000000002" } })),
+    };
     assert.deepEqual(run(changed, live()).checks.map((c) => c.findings[0]!.field), ["page"]);
     assert.deepEqual(keptIdentityLines(changed), ["Instagram kept by Matas, Tue 24 Nov, 15:06: @nxnewcastle"]);
   });
@@ -171,12 +176,12 @@ describe("RC8: identity_not_live (RC-I)", () => {
 
 describe("the read", () => {
   const ADS = [
-    ...Array.from({ length: 7 }, () => ({ creative: { object_story_spec: { page_id: PAGES.nxLoves, instagram_user_id: IGS.djDod } } })),
+    ...Array.from({ length: 7 }, () => ({ creative: { object_story_spec: { page_id: PAGES.nxLoves, instagram_user_id: IGS.nxloves } } })),
     ...Array.from({ length: 2 }, () => ({ creative: { object_story_spec: { page_id: "other", instagram_user_id: "other-ig" } } })),
   ];
 
   it("mixed live ads: the page most of them use, counted", () => {
-    assert.deepEqual(majorityIdentity(ADS), { page: { id: PAGES.nxLoves, count: 7 }, instagram: { id: IGS.djDod, count: 7 } });
+    assert.deepEqual(majorityIdentity(ADS), { page: { id: PAGES.nxLoves, count: 7 }, instagram: { id: IGS.nxloves, count: 7 } });
   });
 
   it("reads the ads, the names and the owners; GETs only", async () => {
@@ -186,7 +191,7 @@ describe("the read", () => {
       if (path.endsWith("/ads")) return { data: ADS } as T;
       return {
         [PAGES.nxLoves]: { name: "NX LOVES " },
-        [IGS.djDod]: { username: "dj_dod", name: "DOD" },
+        [IGS.nxloves]: { username: "nxloves", name: "DOD" },
         [PAGES.ironworks]: { name: "Ironworks London" },
         [IGS.puzzle]: { username: "puzzleofficialuk" },
       } as T;
@@ -197,7 +202,7 @@ describe("the read", () => {
       campaignId: "120251748789350755",
       readAt: READ_AT,
       page: { id: PAGES.nxLoves, name: "NX LOVES", count: 7, otherClient: false },
-      instagram: { id: IGS.djDod, name: "dj_dod", count: 7, otherClient: false },
+      instagram: { id: IGS.nxloves, name: "nxloves", count: 7, otherClient: false },
       draftNames: { [PAGES.ironworks]: "Ironworks London", [IGS.puzzle]: "puzzleofficialuk" },
     });
   });

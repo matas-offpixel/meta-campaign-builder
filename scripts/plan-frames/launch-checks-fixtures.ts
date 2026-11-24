@@ -34,8 +34,9 @@ import type { AdSetSuggestion, CampaignDraft } from "../../lib/types.ts";
  *   link (the muted line under the list).
  *
  * #1362 (RC8, RC8a), the live ads' page, read at 15:02 on Tue 24 Nov:
- * - RC-H: NX26-DOD On sale, published, 9 live ads on NX LOVES + @dj_dod
- *   (ops' read): the two page_other_client blockers with the live answer.
+ * - RC-H: NX26-DOD On sale, published, its 9 ads on Ironworks London +
+ *   @puzzleofficialuk, the live ads on NX LOVES + @nxloves (the Graph read of
+ *   24 Nov, record #1362): the two page_other_client blockers with the live answer.
  * - RC-I: the draft on NX Newcastle + @nxnewcastle (invented, as the
  *   record has it): two identity_not_live warnings, Launch on.
  * - RC-I-kept: the same after Keep on both (15:06): the two kept lines.
@@ -230,7 +231,7 @@ const LIVE_DOD: LiveIdentity = {
   campaignId: "120251748789350755",
   readAt: "2026-11-24T15:02:00.000Z",
   page: { id: "259905047197071", name: "NX LOVES", count: 9, otherClient: false },
-  instagram: { id: "17841400834660844", name: "dj_dod", count: 9, otherClient: false },
+  instagram: { id: "17841460869627228", name: "nxloves", count: 9, otherClient: false },
   draftNames: {
     "1157874844068425": "Ironworks London",
     "17841456620568454": "puzzleofficialuk",

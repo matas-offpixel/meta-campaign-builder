@@ -1,6 +1,6 @@
 import type { CampaignDraft } from "../types.ts";
 
-import { checkLaunchReferences, draftIdentities } from "./check.ts";
+import { checkLaunchReferences, draftIdentities, type IdentityOptions } from "./check.ts";
 import type {
   GuardEvent,
   IdentityOwner,
@@ -322,8 +322,9 @@ export async function loadDraftIdentityOwnership(
   db: unknown,
   draft: CampaignDraft,
   event: GuardEvent,
+  options: IdentityOptions = {},
 ): Promise<IdentityOwnership | null> {
-  const { pages, instagram } = draftIdentities(draft);
+  const { pages, instagram } = draftIdentities(draft, options);
   return loadIdentityOwnership(db, { event, pageIds: [...pages.keys()], igIds: [...instagram.keys()], excludeDraftId: draft.id });
 }
 
@@ -400,6 +401,18 @@ export function identityOwnershipFrom(input: {
   return { clientName: own ? nameOf(own) : null, owners };
 }
 
+/** Whether an MML plan owns this Meta draft (`campaign_plan_meta_launch.draft_id`, as loadPlanForMetaDraft reads it). */
+export async function isPlanLinked(db: unknown, draftId: string | null | undefined): Promise<boolean> {
+  if (!draftId) return false;
+  const { data, error } = await (db as Db)
+    .from("campaign_plan_meta_launch")
+    .select("plan_id")
+    .eq("draft_id", draftId)
+    .maybeSingle();
+  if (error) throw new Error(`launch-guard: plan link: ${error.message ?? "read failed"}`);
+  return Boolean((data as { plan_id?: string } | null)?.plan_id);
+}
+
 /** Loads and runs the check for a draft. A draft with no event has nothing to check. */
 export async function runLaunchGuard(
   db: unknown,
@@ -410,6 +423,7 @@ export async function runLaunchGuard(
   if (!eventId) return { checks: [], blockers: 0, warnings: 0, eventCode: null };
   const context = await loadLaunchGuardContext(db, eventId);
   if (!context) return { checks: [], blockers: 0, warnings: 0, eventCode: null };
-  const ownership = await loadDraftIdentityOwnership(db, draft, context.event);
-  return checkLaunchReferences(draft, context.event, context.venueDefaults, context.otherEvents, ownership, live);
+  const options = { planLinked: await isPlanLinked(db, draft.id) };
+  const ownership = await loadDraftIdentityOwnership(db, draft, context.event, options);
+  return checkLaunchReferences(draft, context.event, context.venueDefaults, context.otherEvents, ownership, live, options);
 }
