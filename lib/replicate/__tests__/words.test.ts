@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
-import { REPLICATE_FRAME_FORMATS, REPLICATE_WORDS, fillWords } from "../words.ts";
+import { REPLICATE_WORDS, fillWords } from "../words.ts";
 
 const TSV = readFileSync(new URL("./fixtures/words-rc-2026-11-24.tsv", import.meta.url), "utf8");
 const ROWS = TSV.trimEnd()
@@ -19,14 +19,14 @@ const ROWS = TSV.trimEnd()
   .map(([key, where, words]) => ({ key: key!, where: where!, words: words! }));
 
 describe("replicate words", () => {
-  it("the fixture is the record's list: 113 rows, unique keys", () => {
-    assert.equal(ROWS.length, 113);
-    assert.equal(new Set(ROWS.map((r) => r.key)).size, 113);
+  it("the fixture is the record's list: 136 rows, unique keys", () => {
+    assert.equal(ROWS.length, 136);
+    assert.equal(new Set(ROWS.map((r) => r.key)).size, 136);
   });
 
   it("every replicate.* and duplicate.* row is in words.ts, word for word", () => {
     const wanted = ROWS.filter((r) => /^(replicate|duplicate)\./.test(r.key));
-    assert.equal(wanted.length, 26);
+    assert.equal(wanted.length, 32);
     for (const r of wanted) {
       assert.equal((REPLICATE_WORDS as Record<string, string>)[r.key], r.words, r.key);
     }
@@ -39,14 +39,11 @@ describe("replicate words", () => {
     }
   });
 
-  it("the frame-only value formats are the RC-B frame's text", () => {
-    // RC-B (1280 and 393): "NX27-GLITTERBOX · NX Newcastle", "Starts Thu 26 Nov · ends at On sale".
-    const F = REPLICATE_FRAME_FORMATS;
-    assert.equal(fillWords(F["replicate.value.event"], { code: "NX27-GLITTERBOX", venue: "NX Newcastle" }), "NX27-GLITTERBOX · NX Newcastle");
-    assert.equal(
-      [fillWords(F["replicate.value.dates.start"], { date: "Thu 26 Nov" }), fillWords(F["replicate.value.dates.end_stage"], { stage: "On sale" })].join(F["replicate.value.join"]),
-      "Starts Thu 26 Nov · ends at On sale",
-    );
+  it("the Event and Dates rows fill to RC-B's frame text", () => {
+    const W = REPLICATE_WORDS;
+    assert.equal(fillWords(W["replicate.change.event"], { code: "NX27-GLITTERBOX", venue: "NX Newcastle" }), "NX27-GLITTERBOX · NX Newcastle");
+    assert.equal(fillWords(W["replicate.change.dates"], { date: "Thu 26 Nov", stage: "On sale" }), "Starts Thu 26 Nov · ends at On sale");
+    assert.equal(fillWords(W["replicate.change.dates.day"], { date: ["Thu 26 Nov", "Sat 6 Mar"] }), "Starts Thu 26 Nov · ends Sat 6 Mar");
   });
 
   it("fills braces and leaves an unknown one alone", () => {

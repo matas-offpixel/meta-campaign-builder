@@ -5,6 +5,7 @@ import { createDefaultCreative, createDefaultDraft } from "../../campaign-defaul
 import type { AdSetSuggestion, CampaignDraft } from "../../types.ts";
 import {
   accountDisplay,
+  datesValue,
   displayUrl,
   rebaseLink,
   replicateDraft,
@@ -193,12 +194,17 @@ describe("replicateDraft: Glitterbox EBR27 → NX27 (RC-B)", () => {
   it("carries each row's word key and fill-ins", () => {
     const { result } = replicateGlitterbox();
     const byField = Object.fromEntries(result.changes.map((c) => [c.field, c]));
+    assert.equal(byField.event!.key, "replicate.change.event");
+    assert.deepEqual(byField.event!.fill, { code: "NX27-GLITTERBOX", venue: "NX Newcastle" });
+    assert.equal(byField.name!.key, null);
     assert.equal(byField.account!.key, "replicate.change.account");
-    assert.deepEqual(byField.account!.fill, { "account name": "NX Promoter (NX Newcastle)" });
+    assert.deepEqual(byField.account!.fill, { "Meta account name": "NX Promoter", venue: "NX Newcastle" });
     assert.equal(byField.pixel!.key, "replicate.change.pixel");
     assert.deepEqual(byField.pixel!.fill, { "last 4": "2763" });
     assert.equal(byField.link!.key, "replicate.change.link");
     assert.deepEqual(byField.link!.fill, { url: "crqln.com/l/glitterbox-newcastle", n: 54 });
+    assert.equal(byField.dates!.key, "replicate.change.dates");
+    assert.deepEqual(byField.dates!.fill, { date: "Thu 26 Nov", stage: "On sale" });
     assert.equal(byField.audiences!.key, "replicate.change.audiences");
     assert.deepEqual(byField.audiences!.fill, { n: 9, account: "NX Promoter (NX Newcastle)", m: 3 });
     assert.ok(result.changes.every((c) => c.tone === "change"));
@@ -389,10 +395,74 @@ describe("replicateDraft: a venue with no values", () => {
   });
 });
 
+describe("replicateDraft: the Dates row, one word per end", () => {
+  it("an end at a stage's moment names the stage (replicate.change.dates)", () => {
+    const { result } = replicateGlitterbox();
+    const dates = result.changes.find((c) => c.field === "dates")!;
+    assert.equal(dates.key, "replicate.change.dates");
+    assert.equal(dates.value, "Starts Thu 26 Nov · ends at On sale");
+  });
+
+  it("a source ending at presale ends at the target's presale, named Presale", () => {
+    const event: ReplicateEvent = { ...NX27_GLITTERBOX, presale_at: "2026-11-30T10:00:00Z" };
+    const source = glitterboxSignup([]);
+    source.budgetSchedule = { ...source.budgetSchedule, endDatePhase: "presale" };
+    const result = replicateDraft(source, { event, venue: NX_VENUE }, { sourceEvent: EBR27_GLITTERBOX, now: NOW, id: "x" });
+    assert.equal(result.changes.find((c) => c.field === "dates")!.value, "Starts Thu 26 Nov · ends at Presale");
+  });
+
+  it("an end at 23:59 on the show day names the day (replicate.change.dates.day)", () => {
+    const event: ReplicateEvent = { ...NX27_GLITTERBOX, general_sale_at: "2026-11-20T12:00:00Z" };
+    const result = replicateDraft(glitterboxSignup([]), { event, venue: NX_VENUE }, { sourceEvent: EBR27_GLITTERBOX, now: NOW, id: "x" });
+    const dates = result.changes.find((c) => c.field === "dates")!;
+    assert.equal(result.draft.budgetSchedule.endDate, "2027-03-06T23:59");
+    assert.equal(dates.key, "replicate.change.dates.day");
+    assert.deepEqual(dates.fill, { date: ["Thu 26 Nov", "Sat 6 Mar"] });
+    assert.equal(dates.text, "Starts Thu 26 Nov · ends Sat 6 Mar (was Mon 23 Nov)");
+  });
+
+  it("an end at another time names the day and time (replicate.change.dates.time)", () => {
+    const dates = datesValue({ start: "2026-11-26T09:00", end: "2026-12-01T18:00", phase: null, timezone: "Europe/London" });
+    assert.equal(dates.key, "replicate.change.dates.time");
+    assert.equal(dates.value, "Starts Thu 26 Nov · ends Tue 1 Dec, 18:00");
+  });
+
+  it("no end says so (replicate.change.dates.open)", () => {
+    const event: ReplicateEvent = { ...NX27_GLITTERBOX, event_date: "2026-11-25", general_sale_at: "2026-11-20T12:00:00Z" };
+    const result = replicateDraft(glitterboxSignup([]), { event, venue: NX_VENUE }, { sourceEvent: EBR27_GLITTERBOX, now: NOW, id: "x" });
+    const dates = result.changes.find((c) => c.field === "dates")!;
+    assert.equal(result.draft.budgetSchedule.endDate, "");
+    assert.equal(dates.key, "replicate.change.dates.open");
+    assert.equal(dates.value, "Starts Thu 26 Nov · no end date");
+  });
+});
+
+describe("replicateDraft: one ad", () => {
+  it("reads '· 1 ad' (replicate.change.link.one)", () => {
+    const source = glitterboxSignup([]);
+    source.adSetSuggestions = source.adSetSuggestions.slice(0, 1);
+    source.creatives = source.creatives.slice(0, 1);
+    source.creativeAssignments = { [source.adSetSuggestions[0]!.id]: [source.creatives[0]!.id] };
+    const result = replicateDraft(source, { event: NX27_GLITTERBOX, venue: NX_VENUE }, { sourceEvent: EBR27_GLITTERBOX, now: NOW, id: "x" });
+    const link = result.changes.find((c) => c.field === "link")!;
+    assert.equal(link.key, "replicate.change.link.one");
+    assert.equal(link.value, "Link: crqln.com/l/glitterbox-newcastle · 1 ad");
+  });
+});
+
 describe("accountDisplay (ruling 1)", () => {
   it("names the account by Meta's name, then the venue in brackets", () => {
     assert.equal(accountDisplay("NX Promoter", "NX Newcastle"), "NX Promoter (NX Newcastle)");
     assert.equal(accountDisplay("act_606252931141334", null), "act_606252931141334");
+  });
+
+  it("keeps Meta's capitals: ELECTRIC STUDIOS SHEFFIELD", () => {
+    const source = glitterboxSignup([]);
+    const result = replicateDraft(source, { event: { ...NX27_GLITTERBOX, venue_name: "Electric Studios", meta_ad_account_id: null }, venue: SHEFFIELD_VENUE }, { sourceEvent: EBR27_GLITTERBOX, sourceVenue: BRISTOL_VENUE, accountNames: ACCOUNT_NAMES, now: NOW, id: "x" });
+    assert.equal(
+      result.changes.find((c) => c.field === "account")!.text,
+      "Account: ELECTRIC STUDIOS SHEFFIELD (Electric Studios) (was Electric Bristol Live (Electric Bristol))",
+    );
   });
 
   it("falls back to the id when Meta's name isn't known, keeping the venue", () => {

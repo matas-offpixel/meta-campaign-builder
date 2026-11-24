@@ -21,9 +21,15 @@ export const REPLICATE_WORDS = {
   "replicate.summary.changes": "Changes to match {code}",
   "replicate.change.labels": "Event · Name · Account · Pixel · Link · Dates · Copy · Audiences",
   "replicate.change.was": "(was {old})",
-  "replicate.change.account": "Account: {account name}",
+  "replicate.change.account": "Account: {Meta account name} ({venue})",
+  "replicate.change.event": "{code} · {venue}",
+  "replicate.change.dates": "Starts {date} · ends at {stage}",
+  "replicate.change.dates.day": "Starts {date} · ends {date}",
+  "replicate.change.dates.time": "Starts {date} · ends {date, time}",
+  "replicate.change.dates.open": "Starts {date} · no end date",
   "replicate.change.pixel": "Pixel …{last 4}",
   "replicate.change.link": "Link: {url} · {n} ads",
+  "replicate.change.link.one": "Link: {url} · 1 ad",
   "replicate.change.copy": "Rewritten from the {venue|artist} templates for {artist} at {venue}",
   "replicate.change.audiences": "{n} found in {account} · {m} will be created",
   "replicate.change.not_set": "{Field}: not set for {venue}, check",
@@ -41,35 +47,27 @@ export const REPLICATE_WORDS = {
 
 export type ReplicateWordKey = keyof typeof REPLICATE_WORDS;
 
-/**
- * Value formats RC-B's frames show that the word list has no row for:
- * the Event row's "{code} · {venue}" and the Dates row's
- * "Starts {date} · ends at {stage}". Taken from the frame text exactly;
- * reported to design as a gap in the word list (CC-1, 24 Nov). The
- * event-day end ("ends {date}") isn't in any frame.
- */
-export const REPLICATE_FRAME_FORMATS = {
-  "replicate.value.event": "{code} · {venue}",
-  "replicate.value.dates.start": "Starts {date}",
-  "replicate.value.dates.end_stage": "ends at {stage}",
-  "replicate.value.dates.end_date": "ends {date}",
-  "replicate.value.join": " · ",
-} as const;
-
-export type ReplicateFrameKey = keyof typeof REPLICATE_FRAME_FORMATS;
-
 export function word(key: ReplicateWordKey): string {
   return REPLICATE_WORDS[key];
 }
 
-/** Replace each `{name}` with its value. A fill-in with no value stays as written. */
-export function fillWords(
-  template: string,
-  values: Record<string, string | number>,
-): string {
-  return template.replace(/\{([^{}]+)\}/g, (whole, name: string) =>
-    Object.prototype.hasOwnProperty.call(values, name) ? String(values[name]) : whole,
-  );
+export type WordFill = Record<string, string | number | readonly (string | number)[]>;
+
+/**
+ * Replace each `{name}` with its value. A fill-in with no value stays as
+ * written. A list fills a name that appears more than once in order:
+ * "Starts {date} · ends {date}" takes `{ date: [start, end] }`.
+ */
+export function fillWords(template: string, values: WordFill): string {
+  const seen = new Map<string, number>();
+  return template.replace(/\{([^{}]+)\}/g, (whole, name: string) => {
+    if (!Object.prototype.hasOwnProperty.call(values, name)) return whole;
+    const value = values[name]!;
+    if (typeof value === "string" || typeof value === "number") return String(value);
+    const i = seen.get(name) ?? 0;
+    seen.set(name, i + 1);
+    return i < value.length ? String(value[i]) : whole;
+  });
 }
 
 /** One label from a "A · B · C" row, by its position. */

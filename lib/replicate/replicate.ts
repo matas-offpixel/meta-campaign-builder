@@ -27,15 +27,15 @@
 import { applyEventToCampaignSettings } from "../campaign-event.ts";
 import { normalizeAdAccountId } from "../meta/ad-account.ts";
 import type { CampaignDraft, CustomAudienceGroup, PageAudienceGroup } from "../types.ts";
-import { applyEventEndToDraft, DEFAULT_SCHEDULE_TIMEZONE } from "../wizard/event-end-date.ts";
+import { applyEventEndToDraft, DEFAULT_SCHEDULE_TIMEZONE, type EndDatePhase } from "../wizard/event-end-date.ts";
 import { zoneParts, zonedLocalToUtc } from "../time.ts";
 import {
   CHANGE_LABEL,
-  REPLICATE_FRAME_FORMATS,
   STAGE_LABEL,
   fillWords,
   word,
   type ReplicateWordKey,
+  type WordFill,
 } from "./words.ts";
 
 // ─── Inputs ──────────────────────────────────────────────────────────────
@@ -119,10 +119,10 @@ export interface ReplicateChange {
   field: ReplicateField;
   /** RC2's row label (replicate.change.labels). */
   label: string;
-  /** The word the value is rendered from; null for a frame-only value format. */
+  /** The word the value is rendered from; null when the value is the draft's own (the Name row). */
   key: ReplicateWordKey | null;
-  /** The fill-ins of `key`. */
-  fill: Record<string, string | number>;
+  /** The fill-ins of `key`. A list fills a name that `key` uses more than once, in order. */
+  fill: WordFill;
   /** "change" is a re-derived value; "not_set" is amber: the venue has no value. */
   tone: "change" | "not_set";
   /** The new value as shown. */
@@ -208,8 +208,11 @@ function pixel(value: string | null | undefined): string | null {
  */
 export function accountDisplay(name: string, venue: string | null | undefined): string {
   const at = clean(venue);
-  return at ? `${name} (${at})` : name;
+  return at ? fillWords(ACCOUNT_NAMED, { "Meta account name": name, venue: at }) : name;
 }
+
+/** replicate.change.account after its label: "{Meta account name} ({venue})". */
+const ACCOUNT_NAMED = word("replicate.change.account").slice(word("replicate.change.account").indexOf("{"));
 
 export function lastFour(id: string): string {
   return id.slice(-4);
@@ -313,6 +316,37 @@ function formatDay(local: string, timezone: string): string {
   })
     .format(instant)
     .replace(",", "");
+}
+
+/** The record's form for a moment: "Tue 24 Nov, 16:40". */
+function formatMoment(local: string, timezone: string): string {
+  const time = local.slice(11, 16);
+  return time ? `${formatDay(local, timezone)}, ${time}` : formatDay(local, timezone);
+}
+
+/**
+ * RC2's Dates row. An end at a stage's moment (presale, general sale) names
+ * the stage: "Starts Thu 26 Nov · ends at On sale". An end at 23:59 names the
+ * day: "… · ends Sat 6 Mar". Any other end names the day and time:
+ * "… · ends Tue 1 Dec, 18:00". No end: "… · no end date".
+ */
+export function datesValue(input: {
+  start: string;
+  end: string;
+  phase: EndDatePhase | null;
+  timezone: string;
+}): { key: ReplicateWordKey; fill: WordFill; value: string } {
+  const start = input.start ? formatDay(input.start, input.timezone) : "";
+  const stage =
+    input.phase === "presale" ? STAGE_LABEL.presale : input.phase === "general_sale" ? STAGE_LABEL.on_sale : null;
+  const [key, fill]: [ReplicateWordKey, WordFill] = !input.end
+    ? ["replicate.change.dates.open", { date: start }]
+    : stage
+      ? ["replicate.change.dates", { date: start, stage }]
+      : input.end.slice(11, 16) === "23:59"
+        ? ["replicate.change.dates.day", { date: [start, formatDay(input.end, input.timezone)] }]
+        : ["replicate.change.dates.time", { date: start, "date, time": formatMoment(input.end, input.timezone) }];
+  return { key, fill, value: fillWords(word(key), fill) };
 }
 
 function mostCommon(values: string[]): string | null {
@@ -483,10 +517,10 @@ export function replicateDraft(
       row({
         field: "event",
         label: CHANGE_LABEL.event,
-        key: null,
+        key: "replicate.change.event",
         fill,
         tone: "change",
-        value: fillWords(REPLICATE_FRAME_FORMATS["replicate.value.event"], fill),
+        value: fillWords(word("replicate.change.event"), fill),
         was: wasText(sourceCode),
         from: source.settings.eventId ?? null,
         to: event.id,
@@ -521,7 +555,8 @@ export function replicateDraft(
   if (!toAccount) {
     changes.push(notSet("account", CHANGE_LABEL.account, place, fromAccount));
   } else if (toAccount !== fromAccount) {
-    const fill = { "account name": accountName(toAccount, targetPlace) };
+    const name = accountNames[toAccount] ?? toAccount;
+    const fill = { "Meta account name": name, venue: targetPlace };
     changes.push(
       row({
         field: "account",
@@ -529,7 +564,8 @@ export function replicateDraft(
         key: "replicate.change.account",
         fill,
         tone: "change",
-        value: fillWords(word("replicate.change.account"), fill),
+        // With no venue name the brackets go: "Account: NX Promoter".
+        value: fillWords(targetPlace ? word("replicate.change.account") : word("replicate.change.account").replace(" ({venue})", ""), fill),
         was: wasText(accountName(fromAccount, sourcePlace)),
         from: fromAccount,
         to: toAccount,
@@ -596,14 +632,15 @@ export function replicateDraft(
     changes.push(notSet("link", CHANGE_LABEL.link, code || place, mostCommon(sourceLinks)));
   } else if (changedAds > 0) {
     const fill = { url: displayUrl(signupUrl), n: changedAds };
+    const key = changedAds === 1 ? "replicate.change.link.one" : "replicate.change.link";
     changes.push(
       row({
         field: "link",
         label: CHANGE_LABEL.link,
-        key: "replicate.change.link",
+        key,
         fill,
         tone: "change",
-        value: fillWords(word("replicate.change.link"), fill),
+        value: fillWords(word(key), fill),
         was: wasText(mostCommon(sourceLinks)),
         from: mostCommon(sourceLinks),
         to: signupUrl,
@@ -633,30 +670,20 @@ export function replicateDraft(
   const fromStart = clean(source.budgetSchedule.startDate);
   const toStart = clean(dated.startDate);
   if (toStart !== fromStart || clean(dated.endDate) !== clean(source.budgetSchedule.endDate)) {
-    const F = REPLICATE_FRAME_FORMATS;
-    const parts = [fillWords(F["replicate.value.dates.start"], { date: toStart ? formatDay(toStart, timezone) : "" })];
-    const end = clean(dated.endDate);
-    if (end) {
-      const stage =
-        dated.endDatePhase === "presale"
-          ? STAGE_LABEL.presale
-          : dated.endDatePhase === "general_sale"
-            ? STAGE_LABEL.on_sale
-            : null;
-      parts.push(
-        stage
-          ? fillWords(F["replicate.value.dates.end_stage"], { stage })
-          : fillWords(F["replicate.value.dates.end_date"], { date: formatDay(end, timezone) }),
-      );
-    }
+    const { key, fill, value } = datesValue({
+      start: toStart,
+      end: clean(dated.endDate),
+      phase: dated.endDatePhase ?? null,
+      timezone,
+    });
     changes.push(
       row({
         field: "dates",
         label: CHANGE_LABEL.dates,
-        key: null,
-        fill: {},
+        key,
+        fill,
         tone: "change",
-        value: parts.join(F["replicate.value.join"]),
+        value,
         was: fromStart ? wasText(formatDay(fromStart, timezone)) : null,
         from: fromStart || null,
         to: toStart || null,
