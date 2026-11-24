@@ -12,6 +12,11 @@
  *        running words and TF4's share sums, which replace TT3's.
  *   TF-C: TF-A on the share link.
  *
+ * Issue 6 (2026-11-18-creative-testing-6.html, TF7): TF-A and TF-C carry the
+ * show's benchmark, Matas's example £3.00 per checkout; Track two's £1.65 is
+ * under it, so the winner stands. TF-B and TT-D have no benchmark in their reads
+ * (TF5's no-benchmark case), so they read as before.
+ *
  * Show and track names from the records only; the figures are the records'
  * invented ones.
  */
@@ -47,7 +52,7 @@ const variant = (testId: string, id: string, position: number, label: string, st
 // TF-A ------------------------------------------------------------------------
 
 const TFA_TESTS: TestInput[] = [
-  test("a1", 1, { state: "called", daily_budget_minor: 1000, budget_pct: 6.25, first_delivery_at: START, winner_variant_id: "a1-two" }),
+  test("a1", 1, { state: "called", daily_budget_minor: 1000, budget_pct: 6.25, first_delivery_at: START, winner_variant_id: "a1-two", adset_name: "P26-BDAY · Tests · Video · 17 Nov" }),
   test("a2", 2, { kind: "statics", state: "making" }),
   test("a3", 3, { kind: "together", state: "waiting" }),
 ];
@@ -61,6 +66,7 @@ const TFA_READS: ReadInput[] = [
   {
     test_id: "a1",
     read_at: at(48),
+    benchmark_cost: 3,
     variants: [
       { variantId: "a1-two", spend: 13.2, results: 8 },
       { variantId: "a1-one", spend: 4.2, results: 2 },
@@ -72,7 +78,7 @@ const TFA_READS: ReadInput[] = [
 
 // TF-B ------------------------------------------------------------------------
 
-const TFB_TESTS: TestInput[] = [test("b1", 1, { kind: "statics", format: "statics", state: "no_clear_winner", result_event: "complete_registration", daily_budget_minor: 100, budget_pct: 15.38, at_minimum: true, first_delivery_at: START })];
+const TFB_TESTS: TestInput[] = [test("b1", 1, { kind: "statics", format: "statics", state: "no_clear_winner", result_event: "complete_registration", daily_budget_minor: 100, budget_pct: 15.38, at_minimum: true, first_delivery_at: START, adset_name: "NX26-LOCKLEAD · Tests · Statics · 17 Nov" })];
 const TFB_VARIANTS: VariantInput[] = [variant("b1", "b1-a", 1, "Static A"), variant("b1", "b1-b", 2, "Static B"), variant("b1", "b1-c", 3, "Static C")];
 const TFB_READS: ReadInput[] = [
   {

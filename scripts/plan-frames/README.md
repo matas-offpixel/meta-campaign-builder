@@ -356,3 +356,30 @@ clicks or under £10; under 1,000 impressions for a rate) and the ±5 % level
 band are build choices the record leaves open; both are one-line constants
 in `lib/insights-rail/model.ts`.
 
+
+## AF series
+
+The Lab's artist framing (`docs/design-record/2026-11-17-overlay-templates-17.html`,
+O117–O121), at `/frames/lab-framing/{id}`, each frame at its format's own
+size: AF-A 4:5 1080 × 1350, AF-B 1:1 1080 × 1080, AF-C 9:16 1080 × 1920,
+before and after. The repository is public, so there is no press photo and
+no kit in it: the photo is a drawn figure (`lib/creative-lab/framing-fixture.ts`)
+with the face proportions of the measured Luke Dean card, and every piece of
+type is TikTok Sans standing in for the kit, resized to a fixed ink box so
+the layout is the same on macOS and Linux (the claim face is indexed under
+the kit face's name, so `renderClaimCard` runs unchanged). The claim is a
+shortened roll-call, "EARLY BIRD SOLD OUT / SELLING FAST": TikTok Sans is
+too wide for P26-BDAY's full one. The before frames are the code's own: the
+9:16's rows 285–1635 (AF-A) and O1's old 0.8× re-sit (AF-B, `legacySquare`).
+AF-C is one frame at 2 s of a drawn clip shot from behind, its head box the
+drawn head's; Feed's centre 4:5 (0.148–0.852 H) is the dashed rectangle.
+The figures under each frame (outside the shot) are the composer's.
+
+| Id | What to check by hand |
+|---|---|
+| AF-A-before | The 9:16's centre 4:5: lockup, name and the three info lines above the head; eyes about 0.69 H; claim from 0.84 H at the chin |
+| AF-A-after | Eyes 0.500 W, 0.430 H; head 0.297, chin 0.556 H; lockup and name above the head, info from 0.62 H, claim on 1274 px from 0.836 H; top band gone at 0.30 H, bottom band from 0.62 H |
+| AF-B-before | The 4:5 at 0.8× in the square, the photo wider at the sides |
+| AF-B-after | Eyes 0.500 W, 0.445 H; head 0.312, chin 0.571 H; claim on 1004 px |
+| AF-C-before | Window 1080 px, head at 0.41 W; the claim on its 1238 baseline (0.568–0.645 H) over the head |
+| AF-C-after | "Framed on the artist: crop moved 97 px left"; window 886 px (1.22×), head 0.50 W; the claim moved up under the date (from 0.382 H; the date ends 0.355 H) |

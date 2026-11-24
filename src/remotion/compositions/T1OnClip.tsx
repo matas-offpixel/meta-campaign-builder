@@ -10,6 +10,8 @@ export type T1OnClipProps = {
   /** O41: where the footage sits under the fixed type, per format (0–1). */
   cropFocusY: number;
   cropFocusX?: number;
+  /** O120: the window's width in source px when it narrows to centre the artist's head (≥ 675, O63); unset is the full 9:16. */
+  cropWidth?: number | null;
   inS?: number;
   fps: number;
   durationInSeconds: number;
@@ -34,7 +36,7 @@ export function T1OnClip(props: T1OnClipProps) {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
   const out = FORMAT_SIZE[props.format];
-  const win = footageWindow({ width: props.sourceWidth, height: props.sourceHeight }, props.format, props.cropFocusY, props.cropFocusX ?? 0.5);
+  const win = footageWindow({ width: props.sourceWidth, height: props.sourceHeight }, props.format, props.cropFocusY, props.cropFocusX ?? 0.5, props.cropWidth);
   const scale = out.width / win.width;
   const opacity = claimOpacity(frame / fps);
   return (

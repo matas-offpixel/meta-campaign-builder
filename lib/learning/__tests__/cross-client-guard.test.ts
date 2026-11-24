@@ -3,7 +3,7 @@
  * client-status guard: follow @/ and relative imports from the share,
  * landing, client-admin and webhook trees, and fail if a reachable file
  * imports the cross-client module or names copy_performance,
- * copy_features or ad_copy.
+ * copy_features, learning_findings (migration 264) or ad_copy.
  * Every other importer of that module has to call requireOperator(.
  */
 
@@ -75,6 +75,8 @@ function namesCopyLibrary(src: string): boolean {
     /learning\/cross-client/.test(src) ||
     /\bcopy_performance\b/.test(src) ||
     /\bcopy_features\b/.test(src) ||
+    /\blearning_findings\b/.test(src) ||
+    /learning\/findings\//.test(src) ||
     /(["'`])ad_copy\1/.test(src) ||
     /components\/insights-rail\//.test(src) ||
     /lib\/insights-rail\//.test(src) ||
@@ -127,6 +129,46 @@ describe("cross-client copy guard", () => {
     for (const [file, src] of reachable()) {
       assert.doesNotMatch(src, /railData|railClusterRows|railTikTokRows/, file);
     }
+  });
+
+  it("learning_findings is named only by the findings module, its cron and the digest (RP1–RP4, E4, E5, E8; migration 264)", () => {
+    // Operator-only (OP10). PR2's reader joins this list and calls requireOperator(.
+    const allowed = [
+      "app/api/cron/learning-digest/route.ts", // E8: the Monday digest to ads_ops (operator Slack), off by default
+      "app/api/cron/learning-findings/route.ts",
+      "lib/learning/findings/digest.ts",
+      "lib/learning/findings/load-observed-tests.ts",
+      "lib/learning/findings/load-pairs-curves.ts",
+      "lib/learning/findings/load-rollup.ts",
+      "lib/learning/findings/observed-tests.ts",
+    ];
+    const users = sourceFiles().filter((file) => {
+      if (file.includes("__tests__")) return false;
+      let src: string;
+      try {
+        src = readFileSync(file, "utf8");
+      } catch {
+        return false;
+      }
+      return /\blearning_findings\b|learning\/findings\//.test(src);
+    });
+    assert.deepEqual(users.sort(), allowed);
+  });
+
+  it("ad_library_pages and ad_library_ads are named only by the E9 store module (migration 265)", () => {
+    // Operator-only (OP10): watched pages' Ad Library ads, written by scripts/ad-library-ingest.mts. A reader joins this list and calls requireOperator(.
+    const allowed = ["lib/ad-library/db.ts"];
+    const users = sourceFiles().filter((file) => {
+      if (file.includes("__tests__")) return false;
+      let src: string;
+      try {
+        src = readFileSync(file, "utf8");
+      } catch {
+        return false;
+      }
+      return /\bad_library_(pages|ads)\b|ad-library\/db/.test(src);
+    });
+    assert.deepEqual(users.sort(), allowed);
   });
 
   it("the audience-builder and TikTok contexts are declared under the operator layout only (issue 2 guard)", () => {

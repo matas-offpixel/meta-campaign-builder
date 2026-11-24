@@ -199,9 +199,15 @@ ENABLE_BUDGET_PACING_ALERTS=
 ENABLE_AD_DAILY_INSIGHTS=
 ENABLE_AD_COPY_CAPTURE=
 ENABLE_LEARNING_REFRESH=
+ENABLE_LEARNING_FINDINGS=
+ENABLE_LEARNING_DIGEST=
 ENABLE_GOOGLE_ADS_DAILY_INSIGHTS=
 ENABLE_ONSALE_REFRESH=
 ENABLE_RETARGETING_READ=
+ENABLE_CREATIVE_TESTS_READ=
+CREATIVE_TESTS_READ_WRITES_ENABLED=
+CREATIVE_TESTS_CREATE_ENABLED=
+OFFPIXEL_META_ADSET_STATUS_WRITES_ENABLED=
 REMOTION_AWS_ACCESS_KEY_ID=
 REMOTION_AWS_SECRET_ACCESS_KEY=
 REMOTION_AWS_REGION=
@@ -565,6 +571,48 @@ REMOTION_LAMBDA_SERVE_URL=
 > are excluded. Readers: `lib/learning/read.ts`. Check before enabling:
 > `scripts/learning-refresh.mts --dry-run`.
 >
+> **`ENABLE_LEARNING_FINDINGS`** must be exactly `"1"` to activate
+> `/api/cron/learning-findings` (04:15 UTC, its own cron, not a
+> `LEARNING_JOBS` job): every ad set in a show test campaign gets TF2 + TF5
+> on TF9's days 4 / 8 / 12, whether or not the app made it, as one
+> operator-only `test_verdict` row in `learning_findings` (migration 264),
+> skipping ad sets with a `creative_tests` row and archived clients
+> (`lib/learning/findings/`, RP1). DB-only, never a Meta write; check with
+> `scripts/learning-findings.mts --dry-run [--date YYYY-MM-DD] [--event CODE]`.
+> Observed tests never read "Extended" / "Stopped" (design C1 / S4, 23 Nov): a
+> `test_verdict`'s `verdict` is `one_variant`, `no_result_event`, `next_read`,
+> `day8_no_call`, `ended_no_call`, `day4_no_call` or a TF2 state (`running`,
+> `first_read_pending`, `meta_favours`, `ready_to_call`, `no_clear_winner`,
+> `not_enough_variants`), never `extended` / `stopped`; this supersedes the key
+> list in migration 264's column comment, and rows stored as `extended` read on
+> into day 8 and are overwritten on the same key.
+> The same run then writes `show_week` (each show's last complete Mon–Sun week
+> against the one before, costs from `showBenchmark`, best/worst 3 ads ≥ £12, the
+> biggest mover), `axis_rollup` (pairs by axis × stage × voice, curves by
+> teaser → phase, test verdicts by test kind, at client / vertical / all, shrunk
+> with `shrink.ts`, capped by shows) and `copy_rule` (`copy_features` as stored:
+> promoter vs artist disagreeing, proven ≤ 0.85, ≥ 1.25 from ≥ 2 shows).
+>
+> **`ENABLE_LEARNING_DIGEST`** must be exactly `"1"` to activate
+> `/api/cron/learning-digest` (`0 10 * * 1` UTC, 10:00 London in winter, 11:00 in
+> summer): one `ads_ops` message through `notify()` (so also
+> `ENABLE_SLACK_NOTIFICATIONS` and `SLACK_WEBHOOK_ADS_OPS`, business hours on),
+> deduped `learning_digest:{iso_week}`, built from `learning_findings` in E8's
+> order (3 strongest cross-client rollups at ok or above, one line per show,
+> tests called, recommendations waiting). Off by default; `?dry=1` and the
+> findings dry run print it without posting.
+> The same run writes `variant_pair` rows: two ads of one ad set whose names
+> differ on one axis (date, text, CTA, format, [AB-A]/[AB-B]), compared only on
+> ≥ 3 overlapping delivery days in one `phaseOf()` phase with each arm ≥ £10,
+> else "not compared" in the dry run (RP2). And `phase_curve` rows: a show's cost
+> per stage result per phase (teaser → announced → presale → general sale, from
+> `events.announcement_at` / `presale_at` / `general_sale_at` through `phaseOf()`:
+> a mid-day boundary counts from the next London day for pairs and is left out of
+> curves, days after the latest known boundary take its phase, days before the
+> earliest with no `announcement_at` are unknown, and a show with no boundary is
+> `no_phase_data`) with each phase's ratio to the teaser, null with no teaser
+> (RP3, `lib/learning/findings/phase.ts`).
+>
 > Genre pools run in shadow (`docs/design-record/2026-11-16-genre-key.html`,
 > GK1–GK8; `lib/learning/genre/`). `events.genre_family` (migration 253) is one
 > family per show from a fixed list, or null for "Not set". The operator sets
@@ -778,6 +826,26 @@ REMOTION_LAMBDA_SERVE_URL=
 > `scripts/backfill-google-ads-insights.mts` (dry-run fetches and writes
 > nothing, `--apply` writes, `--since`/`--until`, `--show-locations CODE`).
 
+> **`ENABLE_CREATIVE_TESTS_READ`** must be exactly `"1"` to activate
+> `/api/cron/creative-tests-read` (`0 7,8 * * *` UTC; it acts on the run that is
+> 08:00 London). Unset = 200 with `skippedReason: "killswitch"`. It writes one
+> `creative_test_reads` row a London day for every running test in a
+> `{code} · Tests` ad set. Under TF9 (`docs/design-record/2026-11-18-creative-testing-7.html`)
+> the end day's read decides: on day 4 (then 8 and 12) TF6 calls, extends the
+> ad set's `end_time` by 4 days that morning, or stops it by pausing it at that
+> read. No write without a benchmark, none after 23:00 London, none before the
+> 02:30 UTC ad-daily-insights restate has run that day; a missed end day falls
+> to the next morning's read. Writes need **`CREATIVE_TESTS_READ_WRITES_ENABLED`**
+> and **`CREATIVE_TESTS_CREATE_ENABLED`** both exactly `"true"` (the second also
+> gates Approve, `POST /api/creative-lab/tests/[id]/approve`, 503 otherwise); a
+> pause also needs **`OFFPIXEL_META_ADSET_STATUS_WRITES_ENABLED`** = `"true"`.
+> With writes off the read row still lands with `pending: "writes off"` and the
+> panel shows the decision. It only ever pauses, never resumes, and writes only
+> to the test's own ad set (its `launched_ad_sets` row is `source_type =
+> "creative_test"`), never a main campaign or the copy test. Each write is keyed
+> in the Meta write ledger (`adset_end_time_update`, migration 263). Logic:
+> `lib/creative-tests/read-job.ts`, `lib/meta/adset-end-time-write.ts`.
+
 > **D2C orchestration env vars** (brief→campaign automation, PR #647):
 > - `D2C_TOKEN_KEY` — pgcrypto symmetric key used to encrypt/decrypt D2C
 >   provider credentials (`get_d2c_credentials` / `set_d2c_credentials`, migration
@@ -811,7 +879,7 @@ REMOTION_LAMBDA_SERVE_URL=
 
 Schema: `supabase/schema.sql`. Tables: `campaign_drafts`, `campaign_templates` (both with RLS per user).
 
-**Latest migration:** `200_creative_lab_m3.sql` (caption styles widened, `primary_text`, `declared_names`, `size_variant`, `creative_lab_style_settings`, round target columns, `round_ads.launch_state` / `render_id`, `renders.attempt`, `creative_lab_event_facts.headliners`; `clips.event_id` is the show the clip was filmed at). Unapplied — Matas applies. Before it: `199_creative_lab_video_safe_rect.sql` (`creative_lab_renders.kind` `video`|`static`, default `video`; comment on `creative_lab_clips.crop_focus_y` is now the vertical centre of the 4:5 safe rectangle inside the 9:16 frame). Before it: `198_creative_lab_crop_focus.sql` (`creative_lab_clips.crop_focus_y`). Unapplied — Matas applies. Before that: `197_creative_lab.sql` (Creative Lab M1: `creative_lab_artists`, `creative_lab_event_facts`, `creative_lab_clips`, `creative_lab_captions`, `creative_lab_rounds`, `creative_lab_round_ads`, `creative_lab_round_ad_launches`, `creative_lab_renders`; owner-only RLS via `user_id`; widens the `creative_tags` dimension/source CHECKs and the `creative_tag_assignments` source CHECK for `caption_style` / `creative_lab`; applied). Before that: `194`–`196` (MML copy, cron runs, client season reports), then `193_mml_creative_intake.sql` (`campaign_plan_intake_assets`, `campaign_plan_creative_groups`, `campaign_plan_creative_group_members`; owner-only RLS, cascade from `campaign_plans`). Before that: `192_google_ads_campaign_insights.sql` (`google_ads_daily_snapshots`, `google_ads_search_terms_snapshots`, `google_ads_location_snapshots`, the `google_ads_insights_runs` run log, and `google_ads_accounts.enabled_conversion_actions`; owner-only read RLS, service-role writes). Unapplied — Matas applies. Before it: `191_google_video_responsive_ads.sql` (`google_video_plans.business_name`, `google_video_ads.extra_copy` for copy slots 2..5; applied to prod). Before that: `190_google_video_plans.sql` (YouTube video plans: `google_video_plans` / `campaigns` / `ad_groups` / `placements` / `ads`, owner-only RLS, no push columns; applied to prod 2026-10-08). Before that: `188`/`189` (Google Search plan budgets, CPC caps, ad-group negatives, canvas total budget), then `187_ad_daily_insights_objective.sql` (`campaign_objective`, `optimization_goal`, `promoted_event` on `ad_daily_insights`). Before it: `186_tag_performance.sql` (learning loop B: `tag_performance` + `interest_clusters.live_evidence`), then `185_ad_daily_insights.sql` (per-ad per-day Meta insights) with `184_launched_ads.sql` (one row per Meta ad the app creates, written by `lib/launched-ads/`). Unapplied — Matas applies. Join an ad to client/event with `resolveAdContext` (`lib/learning/ad-facts.ts`). Earlier: `179_meta_write_idempotency_adset_targeting.sql` (`adset_targeting_update` on the Meta write ledger). Prior numbered note: `168_campaign_plan_benchmarks_v.sql` (166 predictions, 167 `events.venue_key`, 168 benchmark view). 168 windows: signup/click/lpv/lead before general sale; purchase on or after; ticket through last ticket day; view whole run (`meta_reach` ÷ 1000). TikTok click → `tiktok_clicks` only.
+**Latest migration:** `266_campaign_creator_replicate.sql` (R1/R2/R6/R7 of the campaign creator update, record `2026-11-24-campaign-creator-replicate`: `venues.client_id` / `meta_ad_account_id` / `meta_pixel_id`, `events.meta_pixel_id` (event override), `audience_templates` + `audience_template_items` (unique nulls-not-distinct per role), `campaign_additions` (the R7 log); owner RLS + 251's client-member guard. Venue values come only from `scripts/seed-venue-meta-defaults.mts`. `lib/replicate/replicate.ts` `replicateDraft` re-derives event, code, name, account (event, then venue), pixel (event, then venue), links, dates and audiences by role from the target; `lib/actions/replicate-to-event.ts` saves the draft, never launches). Unapplied — Matas applies. Before it: `265_ad_library.sql`; then `264_learning_findings.sql` (`learning_findings`, the learnings engine's store: kinds `test_verdict` · `variant_pair` · `phase_curve` · `axis_rollup` · `show_week` · `copy_rule`, unique nulls-not-distinct on (kind, scope, scope_id, stage, week_start, subject), `source`, `read_day`; service role only like 213, the app reader gates on `OPERATOR_USER_IDS`). Unapplied — Matas applies. Before it: `263_creative_tests_read_ledger.sql` (Meta write-ledger op `adset_end_time_update` for the creative-tests read job; applied 18 Nov). Before that: `261_creative_tests_variant_pair_kind.sql` (`creative_tests.kind` `pair`, the `stopped` state, `extensions` / `extension_evidence`, `creative_test_reads.benchmark_cost` / `benchmark_spend` / `benchmark_results`; applied 18 Nov). Earlier note: `200_creative_lab_m3.sql` (caption styles widened, `primary_text`, `declared_names`, `size_variant`, `creative_lab_style_settings`, round target columns, `round_ads.launch_state` / `render_id`, `renders.attempt`, `creative_lab_event_facts.headliners`; `clips.event_id` is the show the clip was filmed at). Unapplied — Matas applies. Before it: `199_creative_lab_video_safe_rect.sql` (`creative_lab_renders.kind` `video`|`static`, default `video`; comment on `creative_lab_clips.crop_focus_y` is now the vertical centre of the 4:5 safe rectangle inside the 9:16 frame). Before it: `198_creative_lab_crop_focus.sql` (`creative_lab_clips.crop_focus_y`). Unapplied — Matas applies. Before that: `197_creative_lab.sql` (Creative Lab M1: `creative_lab_artists`, `creative_lab_event_facts`, `creative_lab_clips`, `creative_lab_captions`, `creative_lab_rounds`, `creative_lab_round_ads`, `creative_lab_round_ad_launches`, `creative_lab_renders`; owner-only RLS via `user_id`; widens the `creative_tags` dimension/source CHECKs and the `creative_tag_assignments` source CHECK for `caption_style` / `creative_lab`; applied). Before that: `194`–`196` (MML copy, cron runs, client season reports), then `193_mml_creative_intake.sql` (`campaign_plan_intake_assets`, `campaign_plan_creative_groups`, `campaign_plan_creative_group_members`; owner-only RLS, cascade from `campaign_plans`). Before that: `192_google_ads_campaign_insights.sql` (`google_ads_daily_snapshots`, `google_ads_search_terms_snapshots`, `google_ads_location_snapshots`, the `google_ads_insights_runs` run log, and `google_ads_accounts.enabled_conversion_actions`; owner-only read RLS, service-role writes). Unapplied — Matas applies. Before it: `191_google_video_responsive_ads.sql` (`google_video_plans.business_name`, `google_video_ads.extra_copy` for copy slots 2..5; applied to prod). Before that: `190_google_video_plans.sql` (YouTube video plans: `google_video_plans` / `campaigns` / `ad_groups` / `placements` / `ads`, owner-only RLS, no push columns; applied to prod 2026-10-08). Before that: `188`/`189` (Google Search plan budgets, CPC caps, ad-group negatives, canvas total budget), then `187_ad_daily_insights_objective.sql` (`campaign_objective`, `optimization_goal`, `promoted_event` on `ad_daily_insights`). Before it: `186_tag_performance.sql` (learning loop B: `tag_performance` + `interest_clusters.live_evidence`), then `185_ad_daily_insights.sql` (per-ad per-day Meta insights) with `184_launched_ads.sql` (one row per Meta ad the app creates, written by `lib/launched-ads/`). Unapplied — Matas applies. Join an ad to client/event with `resolveAdContext` (`lib/learning/ad-facts.ts`). Earlier: `179_meta_write_idempotency_adset_targeting.sql` (`adset_targeting_update` on the Meta write ledger). Prior numbered note: `168_campaign_plan_benchmarks_v.sql` (166 predictions, 167 `events.venue_key`, 168 benchmark view). 168 windows: signup/click/lpv/lead before general sale; purchase on or after; ticket through last ticket day; view whole run (`meta_reach` ÷ 1000). TikTok click → `tiktok_clicks` only.
 
 - Optimisation automation live flag (task #120 PR B, August 2026):
   `campaign_drafts.optimisation_automation_live` (migration 154) — default
@@ -947,9 +1015,37 @@ Notable recently-added tables / columns (dashboard-era, April 2026):
 - `/api/cron/learning-refresh` (03:30 UTC) — learning loop B. Stored
   learnings with n and confidence (see `ENABLE_LEARNING_REFRESH` above).
   Zero Meta calls.
+- `/api/cron/learning-findings` (04:15 UTC) — observed tests' verdicts into
+  `learning_findings` (see `ENABLE_LEARNING_FINDINGS` above). Zero Meta calls.
+- `/api/cron/learning-digest` (Mondays 10:00 UTC) — the weekly learnings digest
+  to `ads_ops` (see `ENABLE_LEARNING_DIGEST` above). Off by default.
 - `/api/cron/google-ads-daily-insights` (04:00 UTC) — Google Ads campaign,
   search-term and location facts per day (see
   `ENABLE_GOOGLE_ADS_DAILY_INSIGHTS` above). Zero Google Ads mutates.
+- `/api/cron/bm-page-scan` (`15 21,1,4 * * *` and `45 22 * * *` UTC: four runs a
+  London night, each an hour clear of scan-enhancement-flags 00:45, ad-daily-insights
+  02:30 and optimisation-tick 00:00 / 04:00; 23:15 was turned down because
+  optimisation-tick skips its tick above 70 % app usage and 00:00 would still hold
+  that run's calls) — re-reads every connected Business Manager's pages, ad
+  accounts, pixels and IG accounts. Detection only, never grants. BMs whose client
+  is archived are skipped; a BM with no `client_id` is scanned. BMs go
+  least-recently-scanned first, so each run picks up where the last stopped. The
+  run stops starting BMs at whichever comes first: an X-App-Usage field
+  (`call_count`, `total_time`, `total_cputime`) read after any Graph call at 80 %
+  (`BM_SCAN_USAGE_STOP_PCT`; the BM in progress finishes, the rest are skipped
+  `app_usage_80`), the first Meta rate-limit error (`rate_limited`), or 650 s
+  (`time_budget`). `stopped_by` says which. `/me/accounts` and the
+  business-scoped user ids are read once per token per run. Its `cron_runs` detail
+  carries `meta_calls` (every Graph attempt, retries included, counted per run by
+  `lib/meta/call-meter.ts`), the X-App-Usage readings `app_usage_last` /
+  `app_usage_at_limit` (`{call_count, total_time, total_cputime}` or null), and
+  `stopped_at_usage`, `usage_at_stop` and `bms_skipped_usage`. Alarmed in
+  `CRON_ALARMS` with `night_all_zero` (`runsPerNight: 4`): a failed run at once; a
+  zero only when every run that London night did 0 (a usage stop with a BM done
+  is not a zero); 48 h without a run. `lib/bm/scan-run.ts`, `lib/bm/cron-scan.ts`.
+- `/api/cron/creative-tests-read` (`0 7,8 * * *` UTC, acts at 08:00 London) —
+  the creative tests' daily read; TF9's end-day call extends or pauses the test
+  ad set (see `ENABLE_CREATIVE_TESTS_READ` above). Off until its switches are set.
 - `/api/cron/retargeting-read` (08:00 London, `"0 7,8 * * *"`) — the Retargeting
   campaign's daily read (see `ENABLE_RETARGETING_READ` above). Zero Meta writes.
 - `/api/cron/onsale-refresh` (Mondays 06:00 UTC) — the on-sale refresh,

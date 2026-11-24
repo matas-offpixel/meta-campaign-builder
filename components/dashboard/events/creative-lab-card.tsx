@@ -7,6 +7,7 @@ import { LabCaptions } from "@/components/dashboard/events/creative-lab/captions
 import { LabClips } from "@/components/dashboard/events/creative-lab/clips";
 import { LabLineup } from "@/components/dashboard/events/creative-lab/lineup";
 import { LabRound } from "@/components/dashboard/events/creative-lab/round";
+import { LabSnippet } from "@/components/dashboard/events/creative-lab/snippet";
 import { LabStrip } from "@/components/dashboard/events/creative-lab/strip";
 import type { CreativeLabCardData } from "@/lib/db/creative-lab";
 import { ownerFootageGap } from "@/lib/creative-lab/footage-owner";
@@ -70,6 +71,8 @@ export function CreativeLabCard({ lab, quoteMode = false, driveFolderId = null, 
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // CT10: the Snippet tab sits beside the writer, on the event page's owner layout (the legacy card, and its frames, are unchanged).
+  const [tab, setTab] = useState<"captions" | "snippet">("captions");
 
   async function run(body: Record<string, unknown>) {
     setBusy(true);
@@ -120,7 +123,27 @@ export function CreativeLabCard({ lab, quoteMode = false, driveFolderId = null, 
         {headlinerNote ? <p className="text-muted-foreground">{headlinerNote}</p> : null}
         <LabLineup eventId={lab.eventId} rows={lab.lineupRows} artists={lab.artists} adAccountId={lab.adAccountId} busy={busy} onSave={(body) => run(body)} />
         <LabClips lab={lab} busy={busy} driveFolderId={driveFolderId} layout={presentation === "owner" ? "owner" : "status"} onSave={(body) => run(body)} onError={setError} />
-        <LabCaptions lab={lab} busy={busy} quoteMode={quoteMode} ownerAngles={presentation === "owner"} onSave={(body) => run(body)} />
+        {presentation === "owner" ? (
+          <div className="flex gap-2" role="tablist" aria-label="Writer">
+            {(["captions", "snippet"] as const).map((key) => (
+              <button
+                key={key}
+                type="button"
+                role="tab"
+                aria-selected={tab === key}
+                onClick={() => setTab(key)}
+                className={`rounded-full border px-3 py-1 text-xs ${tab === key ? "border-foreground bg-foreground text-background" : "border-border-strong"}`}
+              >
+                {key === "captions" ? "Captions" : "Snippet"}
+              </button>
+            ))}
+          </div>
+        ) : null}
+        {tab === "captions" || presentation !== "owner" ? (
+          <LabCaptions lab={lab} busy={busy} quoteMode={quoteMode} ownerAngles={presentation === "owner"} onSave={(body) => run(body)} />
+        ) : (
+          <LabSnippet eventId={lab.eventId} />
+        )}
         <LabRound lab={lab} busy={busy} onSave={(body) => run(body)} onLaunch={launchRound} />
       </div>
     </details>

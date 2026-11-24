@@ -36,6 +36,27 @@ export interface AlarmEvidence {
   evaluatorFirstRunAt?: string | null;
   /** First `cron_runs` row per cron, for the per-cron half of the grace. */
   firstSeenByCron?: Map<string, string>;
+  /**
+   * Recent runs (last ~48 h) for crons on the `night_all_zero` rule, newest
+   * first. Without it the rule sees only the latest run.
+   */
+  recentRunsByCron?: Map<string, CronRunFact[]>;
+}
+
+/**
+ * The London night a run belongs to, as `YYYY-MM-DD` of the evening it
+ * starts: the London date of the run's time minus 12 h. So 21:15, 01:15 and
+ * 04:15 UTC (GMT) — or 22:15, 02:15 and 05:15 BST — are one night, and
+ * noon London starts the next.
+ */
+export function londonNightKey(iso: string): string {
+  const t = new Date(iso).getTime() - 12 * 60 * 60 * 1000;
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/London",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date(t));
 }
 
 /** The three counts, without the run maps — what goes in the detail jsonb. */
@@ -79,7 +100,7 @@ export function evaluateCronAlarms(
     // expected; 0 of 0 candidates is a quiet day and must stay silent, or
     // the alarm trains people to ignore it.
     if (run.rowsWritten > 0) continue;
-    const reason = implausibleZeroReason(spec.zeroRule, evidence);
+    const reason = implausibleZeroReason(spec, evidence, run, now);
     if (reason) {
       out.push({ kind: "implausible_zero", cronName: spec.cronName, rule: spec.zeroRule, reason });
     }
@@ -111,10 +132,32 @@ function laterOf(a: string | null, b: string | null): string | null {
 }
 
 function implausibleZeroReason(
-  rule: CronAlarmSpec["zeroRule"],
+  spec: CronAlarmSpec,
   evidence: AlarmEvidence,
+  run: CronRunFact,
+  now: Date,
 ): string | null {
-  switch (rule) {
+  switch (spec.zeroRule) {
+    // Several runs a night, each allowed to stop early on a rate limit. A
+    // hard failure (ok = false: the route threw or returned an error) alarms
+    // at once. A zero — rate-limited or not — alarms only when every run of
+    // that London night did 0 of N > 0, and only once the night's runs are
+    // all in or the night is over. 0 of 0 is a quiet night.
+    case "night_all_zero": {
+      if (!run.ok) return "the latest run failed";
+      const night = londonNightKey(run.startedAt);
+      const recent = evidence.recentRunsByCron?.get(spec.cronName) ?? [];
+      const byStart = new Map<string, CronRunFact>([[run.startedAt, run]]);
+      for (const r of recent) if (londonNightKey(r.startedAt) === night) byStart.set(r.startedAt, r);
+      const runs = [...byStart.values()];
+      if (runs.some((r) => r.rowsWritten > 0)) return null;
+      if (!runs.some((r) => r.rowsConsidered > 0)) return null;
+      const expected = spec.runsPerNight ?? 1;
+      const nightOver = londonNightKey(now.toISOString()) !== night;
+      if (runs.length < expected && !nightOver) return null;
+      const considered = Math.max(...runs.map((r) => r.rowsConsidered));
+      return `0 of ${considered} done in all ${runs.length} run(s) on the night of ${night}`;
+    }
     case "rollup_meta":
       return evidence.eventsWithRecentMetaSpend > 0
         ? `${evidence.eventsWithRecentMetaSpend} event(s) had claimed-campaign spend in the lookback window`

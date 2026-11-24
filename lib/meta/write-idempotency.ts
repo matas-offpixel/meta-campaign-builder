@@ -38,6 +38,8 @@ export type MetaWriteOpKind =
   | "refresh_campaign_lifetime_budget_update"
   /** P4 step 6: the Purchase campaign set active (migration 243). */
   | "refresh_campaign_status_update"
+  /** TF6: a creative test ad set's end_time moved out 4 days (lib/meta/adset-end-time-write.ts, migration 263). */
+  | "adset_end_time_update"
   /** Retargeting RT13: a running campaign's audience rule rewritten when the show's links change (migration 257). */
   | "retargeting_audience_rule_update";
 

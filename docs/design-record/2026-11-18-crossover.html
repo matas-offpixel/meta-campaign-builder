@@ -1,0 +1,395 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Crossover — 18 Nov 2026</title>
+<style>
+:root{
+  --sand:#F0C9A8; --card:#e8d4c0; --edit:#f6ebe0; --paper:#fff8f0; --ink:#1e1810; --ink-2:#4a3d30; --ink-3:#6f6052;
+  --border:rgba(30,24,16,.10); --border-strong:rgba(30,24,16,.18); --muted:rgba(30,24,16,.06);
+  --olive:#4f5a1f; --ochre:#8a560c; --brick:#8f3424;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--sand);color:var(--ink);font:14px/1.5 var(--sans);font-feature-settings:"calt" 0}
+.wrap{max-width:1360px;margin:0 auto;padding:40px 24px 120px}
+h1{font-size:24px;font-weight:600;margin:0 0 6px}
+h2{font-size:20px;font-weight:600;margin:56px 0 8px}
+h3{font-size:13px;font-weight:600;margin:20px 0 6px}
+p{margin:0 0 10px;max-width:86ch}
+.lead{font-size:13px;color:var(--ink-2)}
+.k{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+code{font:12px var(--mono);background:var(--muted);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+figure{margin:0;min-width:0;max-width:100%}
+figcaption{font:700 9px/1.5 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+table.t{border-collapse:collapse;width:100%;font-size:12.5px;margin:10px 0 22px;background:var(--card);border-radius:8px;overflow:hidden;table-layout:fixed}
+table.t th,table.t td{text-align:left;vertical-align:top;padding:8px 12px;border-bottom:1px solid var(--border);overflow-wrap:anywhere}
+table.t th{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.t td:first-child{font-weight:600;width:190px}
+table.t ul{margin:4px 0 0 16px;padding:0}table.t li{margin:0 0 4px}
+.open{background:#f3e3c8;border:1px dashed var(--ochre);border-radius:8px;padding:10px 14px;font-size:12.5px;margin:10px 0 16px}
+.notes{font-size:12.5px;color:var(--ink-2)}.notes li{margin:0 0 6px;max-width:96ch}
+.frame{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start;margin:12px 0 24px}
+.vp{background:var(--paper);border:1px solid var(--border-strong);border-radius:8px;overflow:hidden;max-width:100%;padding:16px;font-size:13px}
+.vp.wide{width:760px}.vp.w393{width:393px}
+.ph{font:700 9px/1.4 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+.h{font-weight:600;font-size:14px;margin:0 0 4px}
+.sub{font-size:12px;color:var(--ink-2);margin:0 0 10px}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 10px}
+.chip{border:1px solid var(--border-strong);border-radius:999px;padding:3px 10px;font-size:12px;background:#fff}
+.chip.on{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.mono{font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase}
+.row{display:grid;grid-template-columns:22px 26px 1fr auto;gap:8px;align-items:center;padding:7px 0;border-top:1px solid var(--border)}
+.row .n{color:var(--ink-3);font:12px var(--mono)}
+.box{width:16px;height:16px;border:1.5px solid var(--ink);border-radius:3px;display:inline-block}
+.box.on{background:var(--ink)}
+.box.off{border-color:var(--ink-3);opacity:.45}
+.fs{font-size:11.5px;color:var(--ink-2)}
+.fs.warn{color:var(--brick)}
+.ok{color:var(--olive)}
+.btn{display:inline-block;border:1px solid var(--ink);border-radius:4px;padding:5px 10px;font:700 10px var(--mono);letter-spacing:.1em;text-transform:uppercase;background:var(--ink);color:var(--paper)}
+.btn.ghost{background:transparent;color:var(--ink)}
+.btn.dis{opacity:.4}
+.wave{position:relative;height:64px;background:repeating-linear-gradient(90deg,var(--ink-3) 0 2px,transparent 2px 5px);border-radius:4px;margin:26px 0 4px;opacity:.9}
+.wave .win{position:absolute;top:-4px;bottom:-4px;border:2px solid var(--ink);background:rgba(232,212,192,.55);border-radius:4px}
+.wave .drop{position:absolute;top:-10px;bottom:-10px;width:2px;background:var(--brick)}
+.wave .drop span{position:absolute;top:-16px;left:-20px;font:700 9px var(--mono);letter-spacing:.1em;color:var(--brick);white-space:nowrap}
+.tl{display:flex;justify-content:space-between;font:11px var(--mono);color:var(--ink-3)}
+.pv{width:150px;height:267px;background:#222;border-radius:6px;position:relative;flex:none;display:flex;align-items:center;justify-content:center;color:#fff;font:700 9px var(--mono);letter-spacing:.12em}
+.pv .play{position:absolute;bottom:10px;left:10px;width:28px;height:28px;border-radius:50%;background:#fff}
+.split{display:flex;gap:16px;align-items:flex-start}
+table.v{border-collapse:collapse;width:100%;font-size:12px;margin:6px 0}
+table.v th{font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);text-align:left;padding:4px 6px;border-bottom:1px solid var(--border-strong)}
+table.v td{padding:6px;border-bottom:1px solid var(--border)}
+table.v td.r,table.v th.r{text-align:right}
+.st{display:inline-block;border:1px solid var(--border-strong);border-radius:10px;padding:2px 8px;font:700 9px/1.5 var(--mono);letter-spacing:.1em;text-transform:uppercase}
+.st.run{border-style:dashed}
+.st.win{background:var(--olive);color:#fff;border-color:var(--olive)}
+.test{border:1px solid var(--border);border-radius:6px;padding:10px 12px;margin:8px 0;background:#fff}
+.test.dim{opacity:.55}
+.line{background:var(--card);border-radius:6px;padding:8px 10px;margin:6px 0;font-size:12px}
+.inv{text-decoration:underline dotted var(--brick);text-decoration-thickness:1.5px;text-underline-offset:3px}
+table.t table.t td:first-child{width:auto;font-weight:400}
+@media (max-width:560px){table.t th[style]{width:100px!important}table.t td:first-child{width:100px}}
+.st.fail{border-color:var(--brick);color:var(--brick)}
+.line .acts{float:right;font:700 9px var(--mono);letter-spacing:.1em;text-transform:uppercase}
+.line.wait{opacity:.6}
+.line.failed{border:1px solid var(--brick);background:#f6e3dc}
+.tick{display:inline-block;width:11px;height:11px;border:1.5px solid var(--ink);border-radius:2px;margin-right:6px;vertical-align:-1px}
+.tick.on{background:var(--ink)}
+.bar{display:inline-block;height:8px;background:var(--ink-3);border-radius:2px;vertical-align:middle;margin-right:6px}
+.sbar{position:relative;display:inline-block;width:100px;height:8px;background:var(--muted);border-radius:2px;vertical-align:middle;margin-right:8px}
+.sbar i{position:absolute;left:0;top:0;bottom:0;background:var(--ink-3);border-radius:2px}
+.sbar i.lead{background:var(--olive)}
+.sbar b{position:absolute;left:60px;top:-3px;bottom:-3px;width:1px;background:var(--ink)}
+.sbar s{position:absolute;left:10px;top:-3px;bottom:-3px;width:1px;background:var(--ink-3);opacity:.6}
+.tile{background:var(--card);border-radius:8px;padding:10px 12px}
+.tile .n{font:600 22px/1.1 var(--sans);font-variant-numeric:tabular-nums}
+.tile .s{font-size:11.5px;color:var(--ink-2);margin-top:2px}
+.tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.w393 .tiles{grid-template-columns:1fr 1fr}
+.kick{font:700 9px/1.4 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3)}
+.chan{display:grid;grid-template-columns:20px 1fr auto;gap:8px;align-items:center;padding:5px 0;border-top:1px solid var(--border);font-size:12px}
+.brick{color:var(--brick)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<p class="k">Off/Pixel · design record · crossover · 18 November 2026</p>
+<h1>Crossover: the shows a show shares fans with</h1>
+<p class="lead">CIRQLIN is adding a partner read that returns counts only. For each show, it gives the show's neighbours: the client's other shows whose signup lists overlap with this one, each with its shared count and both shares. It also gives the show's share of signups that are new to the client, and how many consented fans of its neighbours aren't on its list yet, per channel. This record rules where those counts show up in the app and what they say: the on-sale refresh, the Retargeting campaign, the dashboard's show view and D2C. It also names a learning layer, which has no UI.</p>
+<p class="lead">A real read, for Ewan McVicar at NX Newcastle: 18.4 % of Locklead's list also signed up for Ewan, as did 14.7 % of Robbie Doherty's, 6.6 % of D.O.D's and 2.4 % of Folamour's. 67 % of Ewan's list is new to Electric.</p>
+<ul class="notes">
+<li><b>Builds on:</b> R2 (the on-sale refresh's audience lines), RT2, RT12 and RT14 (Retargeting's lists, buyers gate and windows), PA1–PA7, SO1 and JR1–JR5 (the Signups &amp; communities panel), WB1 and PB1 (the WhatsApp rate words), GK1–GK8 (the genre key), and the D2C rules: drafts only, the 3-of-3 gate and per-send approval. All of them stand.</li>
+<li><b>Frames:</b> XO-A to XO-D, each at 1280 and 393, on a fixture show, XMPL-EWAN.</li>
+<li><b>Invented:</b> every threshold, every new word, and the fixture's list sizes, counts and costs are <span class="inv">invented</span>. The four shares and the 67 % are the real read.</li>
+</ul>
+
+<h2>Rulings</h2>
+<table class="t">
+<tr><th style="width:190px">#</th><th>Ruling</th></tr>
+<tr><td>XO1 · What crossover is</td><td>
+<ul>
+<li><b>Within one client only.</b> A show's neighbours are that client's other shows with a CIRQLIN event page, past or upcoming. Umbrella events (PT3) and crowd pages aren't shows here. Overlap between two clients is never computed, read or shown. Consent is given to the client named on the form, so the client's own lists are the only ones that can meet.</li>
+<li><b>Counts only.</b> The app reads counts and shares and stores nothing about a person. Every audience that needs people is built inside CIRQLIN or inside the client's own provider (XO6), never in the app.</li>
+<li><b>Floors.</b>
+<ul>
+<li>Overlap is read only between two lists that each have 100 counted signups or more (PA7's count, spam removed).</li>
+<li>A shared count under 10 is never shown or used.</li>
+<li>A neighbour is a show where at least 5 % of its own list also signed up for this one (share_of_that), with at least 50 shared.</li>
+</ul></li>
+<li><b>The words for a share</b> always name whose list it's a share of: "18.4 % of Locklead's list also signed up for Ewan McVicar". A bare "18.4 % overlap" is never shown, because the two directions differ (574 shared is 18.4 % of Locklead's 3,120 but 26.8 % of Ewan's 2,140).</li>
+<li><b>Freshness.</b> Read once a day at the refresh's 06:00 UTC run (C7). Every surface uses that read, and the dashboard tile names its day.</li>
+<li><b>Closest first.</b> Neighbours are always listed by share_of_that, highest first.</li>
+</ul></td></tr>
+<tr><td>XO2 · Thresholds</td><td>
+<table class="v">
+<tr><th>Use</th><th>Who qualifies</th><th class="r">Most</th></tr>
+<tr><td>Neighbour (all uses)</td><td>share_of_that ≥ 5 % and ≥ 50 shared</td><td class="r">—</td></tr>
+<tr><td>Lookalike seed (XO3)</td><td>share_of_that ≥ 10 % and the neighbour's list ≥ 1,000</td><td class="r">2 a proposal</td></tr>
+<tr><td>Similar lists in Mid Bottom (XO4)</td><td>every neighbour</td><td class="r">4</td></tr>
+<tr><td>Cross-promo's matching shows (XO6)</td><td>share_of_that ≥ 10 %</td><td class="r">3</td></tr>
+<tr><td>Taste neighbour (XO7)</td><td>share_of_that ≥ 10 %</td><td class="r">—</td></tr>
+<tr><td>Genre flag (XO7)</td><td>share_of_that ≥ 15 % and different genre keys</td><td class="r">—</td></tr>
+</table>
+For Ewan: Locklead and Robbie Doherty are seeds and matching shows; D.O.D is a neighbour only, so it's a Similar list but not a seed; Folamour isn't a neighbour.</td></tr>
+<tr><td>XO3 · On-sale refresh: a lookalike seed</td><td>
+<ul>
+<li><b>The line.</b> R2's audience lines gain a LOOKALIKE line for each seed neighbour, up to 2 a proposal, closest first. It isn't proposed when the show already has a lookalike from that neighbour.
+<ul>
+<li>Title: "Lookalike from {neighbour}'s signups"</li>
+<li>Why: "{share} % of {neighbour}'s list also signed up for {show} ({shared} of {list})."</li>
+<li>Writes: "Uploads {neighbour}'s signup list to Meta · a 1 % lookalike in {country} · into {ad set}". {ad set} is the main campaign's prospecting ad set, chosen as R2 places audiences. The venue's country is the lookalike's country.</li>
+</ul>
+Accept writes through the existing audience-write gate. The list's people go from CIRQLIN to Meta as hashed email and phone only, and never through the app's database.</li>
+<li><b>The gate (as RT12).</b> Signup lists go to Meta only for a client whose "Signup lists in Meta audiences" setting is on. It's a per-client switch on the client page, off for every client. Matas turns it on only once the client confirms their privacy notice covers using signups for advertising, recorded in RT12's four fields. One confirmation may cover both switches when the notice names both.</li>
+<li><b>Gate off: the alternative.</b> The line seeds from the neighbour's page instead, with no list uploaded:
+<ul>
+<li>Title: "Lookalike from people who signed up on {neighbour}'s page"</li>
+<li>Why: as above, plus "{client}'s signup lists can't go to Meta until their privacy notice is confirmed for advertising."</li>
+<li>Writes: "Registrations on {neighbour}'s page · 180 days · a 1 % lookalike in {country} · into {ad set}". These are the pixel's CompleteRegistration on that page's landing_url (RT13's URL rule).</li>
+</ul>
+If that page has under 1,000 registrations in 180 days, it isn't proposed, and the alternative tries the neighbour's own Facebook or Instagram page engagers (180 days) when the client has a role on it. With neither, no line.</li>
+</ul></td></tr>
+<tr><td>XO4 · Retargeting: Similar lists by crossover</td><td>
+<ul>
+<li><b>Mid Bottom's Similar lists</b> (RT2) are proposed from crossover: every neighbour's signup list, closest first, up to 4. Hand-uploaded lists with the Similar role keep their place after them.</li>
+<li><b>The row</b> gains one line: "Similar lists, closest first: {neighbour} {share} % · …". Under it, once: "Each % is how much of that show's list also signed up for this one." Mid Bottom already leaves out Bottom, which holds this show's signups (RT2), so these lists reach the neighbours' fans who haven't signed up for this show.</li>
+<li><b>On Create</b> (RB), they're part of Mid Bottom. On a running campaign, a neighbour that newly qualifies is offered once a week on the 08:00 read: "Add {neighbour}'s signups to Mid Bottom · {share} % of their list also signed up for this show". It's an audience write, so it has Accept and Reject, and it isn't a Move or Cut (RT5's one-a-day limit doesn't count it).</li>
+<li><b>Gate off:</b> the same order, as registrations on each neighbour's page (180 days): "Similar, closest first: registrations on {neighbour}'s page {share} % · …". A brick RT8 line under the tier says: "{client}'s signup lists can't go to Meta until their privacy notice is confirmed for advertising, so Mid Bottom uses registrations on these shows' pages."</li>
+</ul></td></tr>
+<tr><td>XO5 · Dashboard: new to the client</td><td>
+<ul>
+<li><b>The tile.</b> The show view's Signups &amp; communities panel (SO1) gains "New to {client}", with the share to the whole percent and the subline "{new} of {signups} signups · since launch". Under the panel's tiles, one explainer: "New to {client}: signed up for this show without having signed up for another {client} show's page before."</li>
+<li><b>Where.</b> Internal and the share link. It's the client's own data about their own fans. At 393 it takes a full-width row under the funnel's tiles, which stay two by two (JR5).</li>
+<li><b>States.</b>
+<ul>
+<li>Under 100 signups: "—" and "Too few signups to say".</li>
+<li>The client's first show with a CIRQLIN page: "First {client} show on CIRQLIN", and no figure.</li>
+<li>Since launch only, as JR2, so it's left out on other periods.</li>
+<li>Venue and client views add nothing in this record.</li>
+</ul></li>
+<li><b>{client}</b> is the client's name as the dashboard header shows it ("Electric").</li>
+</ul></td></tr>
+<tr><td>XO6 · D2C: a cross-promo before the presale</td><td>
+<ul>
+<li><b>The card.</b> The D2C tab shows one CROSS-PROMO card from the announce until its send time.
+<ul>
+<li>It's offered when the matching shows' fans who said yes to {client}'s marketing and aren't on this show's list number 100 or more. Anyone reachable on at least one channel counts once.</li>
+<li>Title: "{n} fans of {A} and {B} said yes to {client}'s marketing and aren't on {show}'s list". With three shows: "{A}, {B} and {C}".</li>
+<li>One row per channel, each with a tick, its count and its cost:
+<ul>
+<li>"Email · {n} · no send cost"</li>
+<li>"WhatsApp · {n} · {n} × £{rate} = £{cost}" (with no rate: "Rate not set", PB1)</li>
+<li>"SMS · {n} · {n} × £{rate} = £{cost}"</li>
+</ul>
+Email is ticked by default; the paid channels start unticked.</li>
+<li>The send: "Sign-up nudge · {Ddd d Mon}, 17:00 · SIGN UP HERE → {show}'s page". The default time is 17:00 London two days before the presale, so new signups get in for it. The time can be edited.</li>
+<li>Action "Create send". Under it: "Creates drafts only. Nothing goes out until it's approved."</li>
+</ul></li>
+<li><b>Create send</b> asks CIRQLIN to build the audience inside the client's own provider: the matching shows' consented fans, less this show's list. Then it makes one draft per ticked channel through the existing pipeline. That's a Mailchimp campaign saved as status=save, and a Bird broadcast draft with no audience attached. A WhatsApp template is submitted the day before, as always. The 3-of-3 gate and per-send approval apply. Nothing is ever sent automatically.</li>
+<li><b>The copy</b> is the announce-to-non-signups kind: it never assumes the fan signed up for this show, and its single CTA is SIGN UP HERE. Language follows the venue (Spain → Spanish), body and button alike. The scarcity rule stands: no claims the counts don't support.</li>
+<li><b>Rest.</b> A matching show whose fans had a cross-promo from {client} in the last 14 days is left out of the count and the audience, so a fan gets at most one every 14 days. This is tracked by show, not by person.</li>
+<li><b>Sender limit.</b> When the WhatsApp count is over the sender's 24-hour limit, the row adds " · over {sender}'s {limit} a day, so it goes in two parts".</li>
+</ul></td></tr>
+<tr><td>XO7 · The learning loop</td><td>
+<ul>
+<li><b>Taste neighbours</b> are a pooling layer between a client's own results and its genre (GK5). When a show is short of its own evidence, the refresh's learned defaults read its taste neighbours' results first, then the genre's, then everyone's. Taste neighbours are the shows that pass XO2's ≥ 10 %. There's no new UI. Where a line says where its evidence came from, it reads "From {n} shows that share fans with this one".</li>
+<li><b>The genre flag.</b> When two shows pass ≥ 15 % but carry different genre keys (GK1), the learning-refresh report gets an operator line, internal only, with nothing auto-changed: "{A} and {B} share {share} % of {A}'s fans but are filed as {genre A} and {genre B}. Check the genre."</li>
+</ul></td></tr>
+<tr><td>XO8 · What it never does</td><td>
+<ul>
+<li>It never compares clients, shows a person, or names a fan.</li>
+<li>It never uploads a list without the client's switch, and never sends anything on its own.</li>
+<li>It never says "overlap" without naming whose list the share is of.</li>
+</ul></td></tr>
+</table>
+
+<h2>XO-A · On-sale refresh: lookalike lines</h2>
+<div class="frame">
+<figure><figcaption>XO-A · 1280 · two seed lines, Electric's switch on</figcaption>
+<div class="vp wide">
+<div class="h">XMPL-EWAN · Tickets · audiences</div>
+<div class="line"><span class="kick">Lookalike</span> &nbsp;<b>Lookalike from Locklead's signups</b><span class="acts">Accept · Reject</span><br>18.4 % of Locklead's list also signed up for Ewan McVicar (574 of 3,120).<br><span class="fs">Uploads Locklead's signup list to Meta · a 1 % lookalike in the UK · into Prospecting</span></div>
+<div class="line"><span class="kick">Lookalike</span> &nbsp;<b>Lookalike from Robbie Doherty's signups</b><span class="acts">Accept · Reject</span><br>14.7 % of Robbie Doherty's list also signed up for Ewan McVicar (276 of 1,880).<br><span class="fs">Uploads Robbie Doherty's signup list to Meta · a 1 % lookalike in the UK · into Prospecting</span></div>
+</div></figure>
+<figure><figcaption>XO-A · 393 · switch off: the page alternative</figcaption>
+<div class="vp w393">
+<div class="h">XMPL-EWAN · Tickets</div>
+<div class="line"><span class="kick">Lookalike</span><br><b>Lookalike from people who signed up on Locklead's page</b><br>18.4 % of Locklead's list also signed up for Ewan McVicar (574 of 3,120).<br><span class="brick" style="font-size:11.5px">Electric's signup lists can't go to Meta until their privacy notice is confirmed for advertising.</span><br><span class="fs">Registrations on Locklead's page · 180 days · a 1 % lookalike in the UK · into Prospecting</span>
+<div style="margin-top:6px"><span class="btn ghost">Accept</span> <span class="btn ghost">Reject</span></div></div>
+</div></figure>
+</div>
+
+<h2>XO-B · Retargeting: Mid Bottom's Similar lists</h2>
+<div class="frame">
+<figure><figcaption>XO-B · 1280 · Create, before Apply, switch on</figcaption>
+<div class="vp wide">
+<table class="v">
+<tr><th>Tier</th><th>Audiences</th><th>Pool</th><th class="r">Budget</th></tr>
+<tr><td>Mid Bottom</td><td>Page visitors · 14, 30 and 60 days<br>Checkout starters · 60 days<br>Similar lists, closest first: <span style="white-space:nowrap">Locklead 18.4 %</span> · <span style="white-space:nowrap">Robbie Doherty 14.7 %</span> · <span style="white-space:nowrap">D.O.D 6.6 %</span><br><span class="fs">Each % is how much of that show's list also signed up for this one.</span></td><td>Known after create</td><td class="r">£1.45 a day</td></tr>
+</table>
+</div></figure>
+<figure><figcaption>XO-B · 393 · running, a new neighbour offered</figcaption>
+<div class="vp w393">
+<div class="line"><b>Mid Bottom</b> <span class="acts">£6.00 a day</span><br>Page visitors · 14, 30 and 60 days · checkout starters · 60 days<br>Similar lists, closest first: <span style="white-space:nowrap">Locklead 18.4 %</span> · <span style="white-space:nowrap">Robbie Doherty 14.7 %</span><br><span class="fs">Each % is how much of that show's list also signed up for this one.</span></div>
+<div class="line"><span class="kick">Audience</span><br>Add D.O.D's signups to Mid Bottom · 6.6 % of their list also signed up for this show<div style="margin-top:6px"><span class="btn ghost">Accept</span> <span class="btn ghost">Reject</span></div></div>
+</div></figure>
+</div>
+
+<h2>XO-C · Dashboard: new to Electric</h2>
+<div class="frame">
+<figure><figcaption>XO-C · 1280 · show view, Signups &amp; communities</figcaption>
+<div class="vp wide">
+<div class="h">Signups &amp; communities</div>
+<div class="tiles">
+<div class="tile">
+<div class="kick">Marketing opt-in</div>
+<div class="n">2,140</div>
+<div class="s">offered: email · SMS · WhatsApp</div></div>
+<div class="tile">
+<div class="kick">Reachable on WhatsApp</div>
+<div class="n">1,520</div>
+<div class="s">said yes and left a phone</div></div>
+<div class="tile">
+<div class="kick">Community</div>
+<div class="n">610</div>
+<div class="s">610 joined from signups</div></div>
+<div class="tile">
+<div class="kick">New to Electric</div>
+<div class="n">67 %</div>
+<div class="s">1,434 of 2,140 signups · since launch</div></div>
+</div>
+<p class="fs" style="margin-top:8px">New to Electric: signed up for this show without having signed up for another Electric show's page before.</p>
+</div></figure>
+<figure><figcaption>XO-C · 393 · the same, its own row</figcaption>
+<div class="vp w393">
+<div class="h">Signups &amp; communities</div>
+<div class="tiles">
+<div class="tile">
+<div class="kick">Marketing opt-in</div>
+<div class="n">2,140</div></div>
+<div class="tile">
+<div class="kick">Reachable on WhatsApp</div>
+<div class="n">1,520</div></div>
+<div class="tile">
+<div class="kick">Community</div>
+<div class="n">610</div></div>
+<div class="tile">
+<div class="kick">Opt-in → community</div>
+<div class="n">40.1 %</div></div>
+</div>
+<div class="tile" style="margin-top:8px">
+<div class="kick">New to Electric</div>
+<div class="n">67 %</div>
+<div class="s">1,434 of 2,140 signups · since launch</div></div>
+<p class="fs" style="margin-top:8px">New to Electric: signed up for this show without having signed up for another Electric show's page before.</p>
+</div></figure>
+</div>
+<p class="fs">The 1280 row shows four of the panel's tiles for room; the build keeps every existing tile and adds this one at the end of the row.</p>
+
+<h2>XO-D · D2C: the cross-promo card</h2>
+<div class="frame">
+<figure><figcaption>XO-D · 1280 · D2C tab, before the presale</figcaption>
+<div class="vp wide">
+<div class="kick">Cross-promo</div>
+<div class="h" style="margin-top:4px">3,840 fans of Locklead and Robbie Doherty said yes to Electric's marketing and aren't on Ewan McVicar's list</div>
+<div class="chan"><span class="tick on"></span><span>Email · 3,610</span><span class="fs">no send cost</span></div>
+<div class="chan"><span class="tick"></span><span>WhatsApp · 1,860</span><span class="fs">1,860 × £0.04 = £74.40</span></div>
+<div class="chan"><span class="tick"></span><span>SMS · 1,940</span><span class="fs">1,940 × £0.035 = £67.90</span></div>
+<p class="fs" style="margin:8px 0">Sign-up nudge · Tue 24 Nov, 17:00 · SIGN UP HERE → Ewan McVicar's page</p>
+<span class="btn">Create send</span> <span class="fs">&nbsp;Creates drafts only. Nothing goes out until it's approved.</span>
+</div></figure>
+<figure><figcaption>XO-D · 393 · the same</figcaption>
+<div class="vp w393">
+<div class="kick">Cross-promo</div>
+<div class="h" style="margin-top:4px">3,840 fans of Locklead and Robbie Doherty said yes to Electric's marketing and aren't on Ewan McVicar's list</div>
+<div class="chan"><span class="tick on"></span><span>Email · 3,610</span><span class="fs">no send cost</span></div>
+<div class="chan"><span class="tick"></span><span>WhatsApp · 1,860</span><span class="fs">£74.40</span></div>
+<div class="chan"><span class="tick"></span><span>SMS · 1,940</span><span class="fs">£67.90</span></div>
+<p class="fs" style="margin:8px 0">Sign-up nudge · Tue 24 Nov, 17:00 · SIGN UP HERE</p>
+<span class="btn">Create send</span>
+<p class="fs" style="margin-top:6px">Creates drafts only. Nothing goes out until it's approved.</p>
+</div></figure>
+</div>
+<p class="fs">At 393 the cost rows show the total only, and the link target drops from the send line.</p>
+
+<h2>Expected figures</h2>
+<table class="t">
+<tr><th style="width:190px">Neighbour</th><th>List</th><th>Shared</th><th>share_of_that</th><th>share_of_this</th><th>Uses</th></tr>
+<tr><td>Locklead</td><td>3,120</td><td>574</td><td>18.4 %</td><td>26.8 %</td><td>seed · Similar · cross-promo · taste · flag check</td></tr>
+<tr><td>Robbie Doherty</td><td>1,880</td><td>276</td><td>14.7 %</td><td>12.9 %</td><td>seed · Similar · cross-promo · taste</td></tr>
+<tr><td>D.O.D</td><td>2,410</td><td>159</td><td>6.6 %</td><td>7.4 %</td><td>Similar only</td></tr>
+<tr><td>Folamour</td><td>1,250</td><td>30</td><td>2.4 %</td><td>1.4 %</td><td>none (not a neighbour)</td></tr>
+</table>
+<ul class="notes">
+<li>Ewan McVicar: 2,140 counted signups, 1,434 new to Electric = 67.0 %, shown as 67 %.</li>
+<li>Cross-promo: 3,840 reachable on at least one channel. WhatsApp at £0.04: 1,860 × £0.04 = £74.40. SMS at £0.035: 1,940 × £0.035 = £67.90. The presale is Thu 26 Nov, so the default send is Tue 24 Nov, 17:00.</li>
+<li>Only Locklead passes the genre flag's 15 %. It's flagged only if its genre key differs from Ewan's.</li>
+</ul>
+
+<h2>Acceptance</h2>
+<ul class="notes">
+<li><b>Same client only:</b> a test feeds the read a show of another client and asserts it never appears anywhere.</li>
+<li><b>Floors:</b> lists under 100, shared counts under 10, and neighbours under 5 % or 50 shared are absent everywhere.</li>
+<li><b>Words:</b> every share names whose list it's a share of, and the strings are exact.</li>
+<li><b>Gate:</b> with the switch off, no line uploads a list. The page alternative or nothing is offered, and the brick line shows on Mid Bottom.</li>
+<li><b>No people in the app:</b> no table gains a person-level column. Create send hands CIRQLIN the show ids, the channels and the time, and receives draft ids.</li>
+<li><b>Drafts only:</b> Create send makes status=save campaigns and audience-less broadcasts, and a test asserts nothing is scheduled or activated.</li>
+<li><b>The 14-day rest</b> leaves a recently cross-promoted show out of both the count and the audience.</li>
+<li><b>No banned words.</b></li>
+<li><b>Frames:</b> XO-A to XO-D at 1280 and 393 with the figures above.</li>
+</ul>
+
+<h2>Hand-back</h2>
+<table class="t">
+<tr><th style="width:190px">Piece</th><th>Build</th></tr>
+<tr><td>HX1 · The read</td><td>A client for CIRQLIN's crossover read, cached by the 06:00 UTC run. XO1's floors and XO2's thresholds are named constants. It is same-client only by construction: the read is asked per client.</td></tr>
+<tr><td>HX2 · The switch</td><td>"Signup lists in Meta audiences" on the client page, off by default, with RT12's four confirmation fields. It is shared with RT12's confirmation when the notice names both.</td></tr>
+<tr><td>HX3 · Refresh lines</td><td>XO3's LOOKALIKE line and its page alternative, through the audience-write gate.</td></tr>
+<tr><td>HX4 · Retargeting</td><td>XO4's ordering, the row line and explainer, the weekly add line, and the gate-off brick line.</td></tr>
+<tr><td>HX5 · Dashboard</td><td>XO5's tile, explainer and states, on internal and share link.</td></tr>
+<tr><td>HX6 · D2C</td><td>XO6's card, costs and default time. Create send runs through CIRQLIN's audience build and the existing draft pipeline. Also the 14-day rest and the sender-limit line. <b>Needs CIRQLIN:</b> the provider-side audience build.</td></tr>
+<tr><td>HX7 · Learning</td><td>The taste-neighbour layer in the learned defaults, and the genre-flag line on the learning-refresh report.</td></tr>
+</table>
+
+<h2>Invented here</h2>
+<ul class="notes">
+<li><b>Thresholds:</b>
+<ul>
+<li>the list floor of 100, the shared floor of 10, and the neighbour bar of 5 % with 50 shared;</li>
+<li>the seed and matching bars (10 %, a 1,000 list), and the flag bar (15 %);</li>
+<li>the caps: 2 seeds a proposal, 4 Similar lists, 3 matching shows.</li>
+</ul></li>
+<li><b>The lookalike's terms:</b> 1 %, in the venue's country, and 180 days for the page alternative with its 1,000 floor.</li>
+<li><b>The cross-promo's terms:</b> the 100-fan bar, the default send at 17:00 two days before the presale, email ticked by default, and the 14-day rest.</li>
+<li><b>Names:</b> "Signup lists in Meta audiences" and taste neighbours as a learning layer.</li>
+<li><b>New words:</b>
+<ul>
+<li>"LOOKALIKE"</li>
+<li>"Lookalike from {neighbour}'s signups"</li>
+<li>"Lookalike from people who signed up on {neighbour}'s page"</li>
+<li>"{share} % of {neighbour}'s list also signed up for {show} ({shared} of {list})."</li>
+<li>"Uploads {neighbour}'s signup list to Meta · a 1 % lookalike in {country} · into {ad set}"</li>
+<li>"Registrations on {neighbour}'s page · 180 days · a 1 % lookalike in {country} · into {ad set}"</li>
+<li>"{client}'s signup lists can't go to Meta until their privacy notice is confirmed for advertising."</li>
+<li>"Similar lists, closest first: …"</li>
+<li>"Each % is how much of that show's list also signed up for this one."</li>
+<li>"Add {neighbour}'s signups to Mid Bottom · {share} % of their list also signed up for this show"</li>
+<li>Mid Bottom's gate-off line</li>
+<li>"New to {client}", its subline, its explainer, "Too few signups to say" and "First {client} show on CIRQLIN"</li>
+<li>"CROSS-PROMO", the card's title, its channel rows and "no send cost"</li>
+<li>"Sign-up nudge · {Ddd d Mon}, 17:00 · SIGN UP HERE → {show}'s page"</li>
+<li>"Create send" and "Creates drafts only. Nothing goes out until it's approved."</li>
+<li>the sender-limit tail</li>
+<li>"From {n} shows that share fans with this one"</li>
+<li>the genre-flag line</li>
+</ul></li>
+</ul>
+
+</div>
+</body>
+</html>

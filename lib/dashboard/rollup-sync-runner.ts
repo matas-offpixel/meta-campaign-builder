@@ -34,6 +34,11 @@ import {
   upsertTikTokRollups,
 } from "@/lib/db/event-daily-rollups";
 import { isEngagementOwnerForCode } from "@/lib/db/event-code-primary-sibling";
+import { loadArchivedClientIds } from "@/lib/db/client-status";
+import {
+  ARCHIVED_CLIENT_REASON,
+  runUnlinkedTicketsRollupLeg,
+} from "@/lib/dashboard/unlinked-tickets-rollup-leg";
 import { eachInclusiveYmd } from "@/lib/dashboard/rollup-date-range";
 import { fetchDailyOrdersForEvent } from "@/lib/ticketing/eventbrite/orders";
 import { getProvider } from "@/lib/ticketing/registry";
@@ -1265,10 +1270,32 @@ export async function runRollupSyncForEvent(
     diagnostics.eventbriteLinksCount = links.length;
     diagnostics.eventbriteEventIds = links.map((l) => l.external_event_id);
     if (links.length === 0) {
-      eventbriteResult.reason = "not_linked";
-      eventbriteResult.error =
-        "No ticketing link — pick the Eventbrite event in the panel above first.";
-      console.warn(`[rollup-sync] eventbrite skip: ${eventbriteResult.reason}`);
+      // No link: build tickets from the snapshots the event already has
+      // (Internal Counts PDFs, manual entries, xlsx imports) with the same
+      // builder and upsert the linked path uses below. `not_linked` stays a
+      // skip only when there are no snapshots either.
+      const unlinked = await runUnlinkedTicketsRollupLeg(
+        { userId, eventId, clientId: clientId ?? null },
+        {
+          listSnapshots: (id) => listAllSnapshotsForEvent(supabase, id),
+          isClientArchived: async (id) =>
+            (await loadArchivedClientIds(supabase)).has(id),
+          upsertRollups: (args) => upsertEventbriteRollups(supabase, args),
+        },
+      );
+      diagnostics.eventbriteRowsAttempted = unlinked.rowsAttempted;
+      eventbriteResult.ok = unlinked.ok;
+      if (unlinked.reason) eventbriteResult.reason = unlinked.reason;
+      if (unlinked.error) eventbriteResult.error = unlinked.error;
+      if (unlinked.ok) {
+        eventbriteResult.rowsWritten = unlinked.rowsWritten ?? 0;
+        eventbriteResult.skipped_noop = unlinked.skipped_noop ?? 0;
+        console.log(
+          `[rollup-sync] tickets from collapsed-snapshots (unlinked) rows=${unlinked.rowsAttempted} snapshot_rows=${unlinked.snapshotRows} rows_written=${unlinked.rowsWritten ?? 0} skipped_noop=${unlinked.skipped_noop ?? 0}`,
+        );
+      } else {
+        console.warn(`[rollup-sync] eventbrite skip: ${eventbriteResult.reason}`);
+      }
     } else {
       console.log(
         `[rollup-sync] eventbrite links=${links.length} external_ids=${JSON.stringify(
@@ -1579,7 +1606,9 @@ export async function runRollupSyncForEvent(
   const metaExpectedSkip =
     metaResult.reason === "no_event_code" ||
     metaResult.reason === "no_ad_account";
-  const eventbriteExpectedSkip = eventbriteResult.reason === "not_linked";
+  const eventbriteExpectedSkip =
+    eventbriteResult.reason === "not_linked" ||
+    eventbriteResult.reason === ARCHIVED_CLIENT_REASON;
   const metaOkOrExpectedSkip = metaResult.ok || metaExpectedSkip;
   const eventbriteOkOrExpectedSkip =
     eventbriteResult.ok || eventbriteExpectedSkip;

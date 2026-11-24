@@ -25,7 +25,7 @@ import { renderTripleFitClip, type TripleFitHooks } from "./triple-fit-render.ts
 import { probeMp4Url, type Probe } from "./mp4-probe.ts";
 import { clipWindow } from "./surface.ts";
 import { renderAssetId } from "./render-proxy.ts";
-import { FACE_CHECKING, QUOTE_TOO_LONG, faceSampleState, placeFromStoredSamples, readFaceSamples } from "./caption-placement.ts";
+import { FACE_CHECK_FAILED, FACE_CHECKING, QUOTE_TOO_LONG, faceSampleState, placeFromStoredSamples, readFaceSamples } from "./caption-placement.ts";
 
 /** The clip has no samples for this crop yet. The row stays queued. */
 export class SamplesPending extends Error {
@@ -278,7 +278,10 @@ export async function renderCaptionOnClip(
     const storedIn = clip.in_s == null ? null : Number(clip.in_s);
     const storedOut = clip.out_s == null ? null : Number(clip.out_s);
     const stored = readFaceSamples(clip.face_samples);
-    if (faceSampleState(stored, { cropFocusX, cropFocusY, inS: storedIn, outS: storedOut }) !== "ready" || !stored?.samples) {
+    const faceState = faceSampleState(stored, { cropFocusX, cropFocusY, inS: storedIn, outS: storedOut });
+    // A stored failure stays failed until it is cleared: waiting on it never ends.
+    if (faceState === "failed") throw new Error(FACE_CHECK_FAILED);
+    if (faceState !== "ready" || !stored?.samples) {
       throw new SamplesPending();
     }
     const place = placeFromStoredSamples({
@@ -288,6 +291,7 @@ export async function renderCaptionOnClip(
       windowIn: inS,
       windowOut: outS,
       samples: stored.samples,
+      fps: stored.fps,
     });
     if (!place.ok) throw new Error(place.line);
     props.placementCenterY = place.centre;
