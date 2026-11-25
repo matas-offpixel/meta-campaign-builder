@@ -96,11 +96,10 @@ function adSetPayload(objective: CampaignObjective) {
 }
 
 const SHARED_TARGETING = {
+  age_min: 18,
+  age_max: 65,
+  targeting_automation: { advantage_audience: 1 },
   geo_locations: { countries: ["GB"] },
-  targeting_automation: {
-    advantage_audience: 1,
-    individual_setting: { age_min: 18, age_max: 65 },
-  },
 };
 
 const PINNED_CAMPAIGNS = {

@@ -117,16 +117,24 @@ export interface MetaCustomAudience {
 
 export interface MetaTargeting {
   /**
-   * Strict minimum age — only sent when Advantage+ is OFF.
-   * When Advantage+ is ON, age is passed as a suggestion via
-   * targeting_automation.individual_setting instead.
+   * Minimum age. Advantage+ OFF: the draft's strict floor. Advantage+ ON:
+   * the age control, the draft's minimum capped at
+   * {@link ADVANTAGE_AUDIENCE_AGE_MIN_CONTROL_MAX}.
    */
   age_min?: number;
   /**
-   * Strict maximum age — only sent when Advantage+ is OFF.
-   * Meta rejects values < 65 on Advantage+ ad sets.
+   * Maximum age. Advantage+ OFF: the draft's strict ceiling. Advantage+ ON:
+   * always 65 ({@link ADVANTAGE_AUDIENCE_AGE_MAX}); a narrower draft range
+   * goes as the age suggestion in `age_range`.
    */
   age_max?: number;
+  /**
+   * Advantage+ Audience age suggestion, `[min, max]`. Sent with
+   * `targeting_automation.individual_setting.age = 1`. Meta, "Age as a
+   * suggestion": developers.facebook.com/documentation/ads-commerce/
+   * marketing-api/audiences/reference/advanced-targeting (v23.0+).
+   */
+  age_range?: [number, number];
   genders?: number[]; // 1 = male, 2 = female; omit for all
   geo_locations: MetaGeoLocations;
   excluded_geo_locations?: MetaGeoLocations;
@@ -136,13 +144,14 @@ export interface MetaTargeting {
   targeting_automation?: {
     advantage_audience: 0 | 1;
     /**
-     * Age / gender *suggestions* for Advantage+ audience (advantage_audience: 1).
-     * Meta uses these as guidance but can expand beyond them.
-     * Do NOT combine with strict top-level age_min/age_max when this is set.
+     * Which settings Advantage+ may treat as suggestions. `age: 1` makes
+     * the top-level `age_range` a suggestion (Meta's Advanced targeting
+     * page, "Age as a suggestion"). The keys are flags, never ages: the old
+     * `{ age_min, age_max }` here is not a shape Meta documents, and every
+     * Advantage+ ad set that sent it was refused with subcode 1870196.
      */
     individual_setting?: {
-      age_min?: number;
-      age_max?: number;
+      age?: 0 | 1;
     };
   };
   /**
@@ -317,6 +326,45 @@ function toUnixTs(dateStr: string, timezone: string): number {
 
 // ─── Targeting builder ────────────────────────────────────────────────────────
 
+/** With Advantage+ Audience on, Meta takes age_max 65 and no other ceiling. */
+export const ADVANTAGE_AUDIENCE_AGE_MAX = 65;
+/** With Advantage+ Audience on, the age_min control may be at most 25. */
+export const ADVANTAGE_AUDIENCE_AGE_MIN_CONTROL_MAX = 25;
+
+/**
+ * The age part of an Advantage+ Audience ad set's targeting.
+ *
+ * With `advantage_audience: 1`, Meta allows only `age_min` as a control
+ * (≤ 25) and `age_max` must be 65. A draft range narrower than that goes as
+ * the age suggestion: top-level `age_range: [min, max]` plus
+ * `targeting_automation.individual_setting.age = 1` (Meta, Advanced
+ * targeting, "Age as a suggestion"; its example sends `age_min` 18 with
+ * `age_range` [25, 35], and its read-back stores `age_max` 65). A draft
+ * at the full range (control ≤ draft min, max 65) sends no suggestion.
+ *
+ * 18–45 → `{ age_min: 18, age_max: 65, age_range: [18, 45],
+ * targeting_automation: { advantage_audience: 1, individual_setting: { age: 1 } } }`.
+ */
+export function advantageAudienceAgeTargeting(
+  ageMin: number,
+  ageMax: number,
+): Pick<MetaTargeting, "age_min" | "age_max" | "age_range" | "targeting_automation"> {
+  const control = Math.min(ageMin, ADVANTAGE_AUDIENCE_AGE_MIN_CONTROL_MAX);
+  const narrower = ageMin > control || ageMax < ADVANTAGE_AUDIENCE_AGE_MAX;
+  return narrower
+    ? {
+        age_min: control,
+        age_max: ADVANTAGE_AUDIENCE_AGE_MAX,
+        age_range: [ageMin, ageMax],
+        targeting_automation: { advantage_audience: 1, individual_setting: { age: 1 } },
+      }
+    : {
+        age_min: control,
+        age_max: ADVANTAGE_AUDIENCE_AGE_MAX,
+        targeting_automation: { advantage_audience: 1 },
+      };
+}
+
 /**
  * Build the Meta targeting spec for a single ad set suggestion.
  *
@@ -357,12 +405,11 @@ export function buildMetaTargeting(
   // age_min / age_max at targeting root = hard limits Meta enforces.
   // advantage_audience: 0 must be explicit (Meta rejects omission).
   //
-  // ── Advantage+ ON: suggested age ─────────────────────────────────────────
-  // Do NOT send top-level age_min / age_max — Meta rejects values < 65 on
-  // Advantage+ ad sets ("strict age_max below 65 not allowed").
-  // Instead, pass the user's chosen range as individual_setting inside
-  // targeting_automation; Meta treats these as audience *suggestions* and
-  // may expand beyond them.
+  // ── Advantage+ ON: age control + age suggestion ──────────────────────────
+  // See advantageAudienceAgeTargeting: age_min is the control (≤ 25),
+  // age_max is 65, and a narrower draft range goes as the age suggestion
+  // (age_range + individual_setting.age = 1). Custom audiences stay
+  // suggestions; nothing here makes them hard targeting.
   // Resolve geo — precedence is documented on resolveAdSetGeoLocations. The
   // GB default below is only for legacy rows that never had a location; a
   // multi-city row the operator emptied must fail here, not launch UK-wide.
@@ -387,14 +434,8 @@ export function buildMetaTargeting(
 
   const targeting: MetaTargeting = advantagePlusActive
     ? {
+        ...advantageAudienceAgeTargeting(adSet.ageMin, adSet.ageMax),
         geo_locations: geoLocations,
-        targeting_automation: {
-          advantage_audience: 1,
-          individual_setting: {
-            age_min: adSet.ageMin,
-            age_max: adSet.ageMax,
-          },
-        },
       }
     : {
         age_min: adSet.ageMin,
