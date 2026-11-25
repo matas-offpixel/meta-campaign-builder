@@ -140,16 +140,16 @@ describe("Create's gate (mocked write path)", () => {
     assert.equal(m.calls.inserted.length + m.calls.batches.length, 0);
   });
 
-  it("writes on: the rows, then one batch through the write path; counts are items", async () => {
+  it("writes on: the rows, then one batch through the write path; counts are Meta audiences", async () => {
     const m = mocks();
-    assert.deepEqual(await runTemplateCreate({ writesEnabled: true, confirmed: true, plan, ...m }), { ok: true, created: 4, failed: 0 });
+    assert.deepEqual(await runTemplateCreate({ writesEnabled: true, confirmed: true, plan, ...m }), { ok: true, created: 6, failed: 0 });
     assert.equal(m.calls.inserted[0]!.length, 6);
     assert.deepEqual(m.calls.batches, [["draft-0", "draft-1", "draft-2", "draft-3", "draft-4", "draft-5"]]);
   });
 
-  it("an item with any row not made is failed, for Try again", async () => {
-    // Row 3 is Folamour's Instagram half: Folamour fails, the rest are made.
-    assert.deepEqual(await runTemplateCreate({ writesEnabled: true, confirmed: true, plan, ...mocks([3]) }), { ok: true, created: 3, failed: 1 });
+  it("each audience not made is counted, for Try again", async () => {
+    // Row 3 is Folamour's Instagram audience.
+    assert.deepEqual(await runTemplateCreate({ writesEnabled: true, confirmed: true, plan, ...mocks([3]) }), { ok: true, created: 5, failed: 1 });
   });
 
   it("nothing to create: no call", async () => {

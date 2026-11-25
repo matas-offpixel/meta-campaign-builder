@@ -8,7 +8,9 @@
  *    shape), deduped against what the group already holds.
  *  - The template's interests join one interest group of the same name.
  *  - Anything not made yet (Will be created, held in another account, a
- *    show's list the sync hasn't made) is left out and counted.
+ *    show's list the sync hasn't made, video viewers without videos) is left
+ *    out. The "{n}" and "{m}" the tab says are the footer's counts
+ *    (view.ts templateCounts), in Meta audiences.
  *
  * Adding twice changes nothing the second time. The draft's other groups are
  * never touched.
@@ -26,10 +28,6 @@ export function templateGroupId(templateName: string): string {
 
 export interface AddResult {
   audiences: AudienceSettings;
-  /** Items added: the template's Reused items ({n}). */
-  added: number;
-  /** Items not made yet, left out ({m}). */
-  leftOut: number;
 }
 
 export function addTemplateToDraft(audiences: AudienceSettings, templateName: string, resolved: ResolvedTemplate): AddResult {
@@ -79,9 +77,5 @@ export function addTemplateToDraft(audiences: AudienceSettings, templateName: st
     }
   }
 
-  return {
-    audiences: { ...audiences, customAudienceGroups: customGroups, interestGroups },
-    added: reused.length,
-    leftOut: resolved.items.length - reused.length,
-  };
+  return { audiences: { ...audiences, customAudienceGroups: customGroups, interestGroups } };
 }

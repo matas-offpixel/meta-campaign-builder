@@ -17,10 +17,6 @@ const nx = resolveTemplate([...HOUSE_DISCO.items, ...RC_E_PENDING], RC_E_DATA.ac
 describe("addTemplateToDraft", () => {
   const res = addTemplateToDraft(EMPTY, "House & disco", nx);
 
-  it("adds the Reused items and counts the rest as left out", () => {
-    assert.equal(res.added, 9);
-    assert.equal(res.leftOut, 2);
-  });
 
   it("one custom group of Meta ids named after the template, and one interest group", () => {
     const g = res.audiences.customAudienceGroups.find((x) => x.id === templateGroupId("House & disco"))!;
@@ -46,8 +42,7 @@ describe("addTemplateToDraft", () => {
     const sheffield = resolveTemplate(SU_C_HELD_TEMPLATE.items, SU_C_HELD_DATA.accountId, SU_C_HELD_DATA.known, SU_C_HELD_DATA.pixelId);
     const s = addTemplateToDraft(EMPTY, "House & disco", sheffield);
     assert.equal(s.audiences.customAudienceGroups.length, 0, "nothing made in Sheffield but interests");
-    assert.equal(s.added, 3);
-    assert.equal(s.leftOut, 9);
+    assert.equal(s.audiences.interestGroups.length, 1);
   });
 
   it("adding twice changes nothing, and other groups are left as they are", () => {

@@ -58,14 +58,15 @@ describe("buildTemplateView (RC-E)", () => {
     ]);
   });
 
-  it("the footer counts every interest, names the item waiting for videos, and says the one create waits", () => {
-    assert.equal(view.reused, 9);
-    assert.equal(view.toCreate, 1, "Ewan McVicar's page, one item");
+  it("the footer counts Meta audiences: the interests row is 1, a page on both platforms 2", () => {
+    assert.equal(view.reused, 9, "lists 2, pools 2, Folamour 2, Robbie Doherty 2, interests 1");
+    assert.equal(view.toCreate, 2, "Ewan McVicar: Facebook + Instagram");
     assert.equal(view.needVideos, 1);
-    assert.equal(view.footer, "9 reused · 1 will be created in NX Promoter · 1 needs videos picked. Creating audiences is switched off, so this one waits.");
+    assert.equal(view.leftOut, 3);
+    assert.equal(view.footer, "9 reused · 2 will be created in NX Promoter · 1 needs videos picked. Creating audiences is switched off, so these 2 wait.");
     assert.equal(
       buildTemplateView(HOUSE_DISCO, RC_E_KNOWN, { ...ctx, writesEnabled: true }, RC_E_PENDING).footer,
-      "9 reused · 1 will be created in NX Promoter · 1 needs videos picked",
+      "9 reused · 2 will be created in NX Promoter · 1 needs videos picked",
     );
   });
 
@@ -126,7 +127,7 @@ describe("buildTemplateView (RC-E)", () => {
       assert.equal(v.held, 1);
       assert.equal(v.toCreate, 0);
       assert.equal(v.metaCreates, 0);
-      assert.equal(v.footer, "0 reused · 0 will be created in NX Promoter");
+      assert.equal(v.footer, "0 reused · 1 held in Electric Bristol Live");
     });
 
     it("reads Reused once it's shared to the target", () => {
@@ -200,11 +201,11 @@ describe("SU2: shows' Signups lists in the tab (SU-C, SU-C-held)", () => {
       ],
     );
     assert.equal(v.held, 3);
-    assert.equal(v.toCreate, 4, "two pools, two pages");
-    assert.equal(v.createCount, 4);
-    assert.equal(v.addCount, 3);
-    assert.equal(v.leftOut, 9);
-    assert.equal(v.footer, "3 reused · 4 will be created in Electric Studios Sheffield · 1 needs videos picked. Creating audiences is switched off, so these 4 wait.");
+    assert.equal(v.reused, 1, "the interests row");
+    assert.equal(v.toCreate, 6, "two pools, two pages on both platforms");
+    assert.equal(v.createCount, 6);
+    assert.equal(v.addCount, 1);
+    assert.equal(v.footer, "1 reused · 6 will be created in Electric Studios Sheffield · 3 held in NX Promoter · 1 needs videos picked. Creating audiences is switched off, so these 6 wait.");
   });
 });
 
@@ -221,8 +222,8 @@ describe("SU2: shows' Signups lists in the tab (SU-C, SU-C-held)", () => {
       assert.equal(r.statusLabel, "Needs videos");
       assert.deepEqual(r.note, { text: "Meta needs this show’s videos, so Create leaves this out until they’re picked.", tone: "ochre" });
       assert.deepEqual(r.videos, { action: "pick", threshold: 50, days: 30 });
-      assert.equal(before.footer, "9 reused · 1 will be created in NX Promoter · 1 needs videos picked. Creating audiences is switched off, so this one waits.");
-      assert.equal(before.createCount, 1);
+      assert.equal(before.footer, "9 reused · 2 will be created in NX Promoter · 1 needs videos picked. Creating audiences is switched off, so these 2 wait.");
+      assert.equal(before.createCount, 2);
     });
 
     it("after: Will be created, n videos picked from the code, Change videos, and Create counts it", () => {
@@ -232,8 +233,8 @@ describe("SU2: shows' Signups lists in the tab (SU-C, SU-C-held)", () => {
       assert.deepEqual(r.note, { text: "3 videos picked from NX26-LOCKLEAD", tone: "muted" });
       assert.equal(r.videos?.action, "change");
       assert.equal(after.needVideos, 0);
-      assert.equal(after.footer, "9 reused · 2 will be created in NX Promoter. Creating audiences is switched off, so these 2 wait.");
-      assert.equal(after.createCount, 2);
+      assert.equal(after.footer, "9 reused · 3 will be created in NX Promoter. Creating audiences is switched off, so these 3 wait.");
+      assert.equal(after.createCount, 3);
     });
 
     it("a pick for another event, or with no page id, is never used", () => {
@@ -250,7 +251,7 @@ describe("SU2: shows' Signups lists in the tab (SU-C, SU-C-held)", () => {
     });
   });
 
-  describe("the footer and Create count the same items (one function)", () => {
+  describe("the footer and Create count the same Meta audiences (one function)", () => {
     const sheffield = { ...ctx, accountId: SU_C_HELD_DATA.accountId, accountName: SU_C_HELD_DATA.accountName, pixelId: SU_C_HELD_DATA.pixelId, pixelName: SU_C_HELD_DATA.pixelName };
     const picked = (it: TemplateItem) => pickFor(RC_E_PICKS, "House & disco", it, RC_E_EVENT);
     const cases: Array<[string, ReturnType<typeof buildTemplateView>]> = [
@@ -271,4 +272,34 @@ describe("SU2: shows' Signups lists in the tab (SU-C, SU-C-held)", () => {
       assert.equal(cases[5]![1].createCount - cases[4]![1].createCount, 1);
     });
   });
+
+  describe("templateCounts: one unit, Meta audiences", () => {
+    const sheffield = { ...ctx, accountId: SU_C_HELD_DATA.accountId, accountName: SU_C_HELD_DATA.accountName, pixelId: SU_C_HELD_DATA.pixelId, pixelName: SU_C_HELD_DATA.pixelName };
+    it("Ewan McVicar on Facebook + Instagram is 2; one platform is 1", () => {
+      const ewanOnly = { ...HOUSE_DISCO, items: [] };
+      assert.equal(buildTemplateView(ewanOnly, RC_E_KNOWN, ctx, RC_E_PENDING).toCreate, 2);
+      // His Facebook audience in this account: only Instagram is left.
+      const fbHere: KnownAudience = { source: "row", metaAudienceId: "9100000000000077", accountId: ctx.accountId, subtype: "page_engagement_fb", pageId: "1000000000000003", retentionDays: 365 };
+      const v = buildTemplateView(ewanOnly, [...RC_E_KNOWN, fbHere], ctx, RC_E_PENDING);
+      assert.equal(v.toCreate, 1);
+      assert.equal(v.reused, 1);
+    });
+    it("the interests row is 1, never one per interest", () => {
+      const interests = { ...HOUSE_DISCO, items: HOUSE_DISCO.items.filter((i) => i.kind === "interest") };
+      assert.equal(interests.items.length, 3);
+      assert.equal(buildTemplateView(interests, [], ctx).reused, 1);
+    });
+    it("a template with only video viewers: m is 0, so Create hides", () => {
+      const v = buildTemplateView({ ...HOUSE_DISCO, items: HOUSE_DISCO.items.filter((i) => i.listRole === "video_viewers") }, [], ctx);
+      assert.equal(v.toCreate, 0);
+      assert.equal(v.createCount, 0);
+      assert.equal(v.needVideos, 1);
+      assert.equal(v.footer, "0 reused · 1 needs videos picked");
+    });
+    it("the held fixture reads 1 reused, 6 to create, 3 held, 1 needing videos", () => {
+      const v = buildTemplateView(SU_C_HELD_TEMPLATE, SU_C_HELD_DATA.known, { ...sheffield, accountLabel: (id) => SU_C_HELD_DATA.accountNames[id] ?? null });
+      assert.deepEqual([v.reused, v.toCreate, v.held, v.needVideos], [1, 6, 3, 1]);
+    });
+  });
 });
+

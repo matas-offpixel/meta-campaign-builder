@@ -13,6 +13,7 @@
 
 import type { TemplateVideoPick } from "../types.ts";
 import type { TemplateItem } from "./resolve.ts";
+import { pickerPresetLine } from "./words.ts";
 
 export type { TemplateVideoPick };
 
@@ -56,4 +57,29 @@ export function withPick(picks: readonly TemplateVideoPick[] | undefined, next: 
   const same = (p: TemplateVideoPick) =>
     p.template === next.template && p.threshold === next.threshold && p.retentionDays === next.retentionDays && p.eventId === next.eventId && p.code === next.code;
   return [...(picks ?? []).filter((p) => !same(p)), next];
+}
+
+/**
+ * How the picker opens from an item (record #1373): its header line is
+ * templates.picker.preset with the item's template, threshold and days, the
+ * threshold is set, and nothing is ticked unless this draft already picked
+ * for the item on this event ("Change videos").
+ */
+export function pickerStart(
+  template: string,
+  threshold: number,
+  days: number,
+  picks: readonly TemplateVideoPick[] | undefined,
+  event: PickEvent,
+): { header: string; threshold: number; videoIds: string[]; contextId?: string; campaignIds?: string[] } {
+  const mine = (picks ?? []).find(
+    (p) => p.template === template && p.threshold === threshold && p.retentionDays === days && p.eventId === event.eventId && p.code === event.code,
+  );
+  return {
+    header: pickerPresetLine(template, threshold, days),
+    threshold,
+    videoIds: mine ? [...mine.videoIds] : [],
+    ...(mine?.contextId ? { contextId: mine.contextId } : {}),
+    ...(mine?.campaignIds?.length ? { campaignIds: [...mine.campaignIds] } : {}),
+  };
 }

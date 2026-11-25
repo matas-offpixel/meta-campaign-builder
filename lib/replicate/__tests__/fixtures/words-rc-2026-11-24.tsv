@@ -251,3 +251,5 @@ templates.footer.videos	Template footer, after templates.footer’s counts	{k} n
 templates.footer.videos.one	Template footer (1 item)	1 needs videos picked
 templates.writes_off.one	Template footer (1 waiting)	Creating audiences is switched off, so this one waits.
 templates.picker.preset	Audiences step, video picker, opened from a template item	From {template}: {threshold} watched · {days} days. Pick this show’s videos.
+templates.footer.held	Template footer, lists another account holds, after templates.footer’s counts	{h} held in {Meta account name}
+templates.footer.held.one	Template footer (1 list held)	1 held in {Meta account name}

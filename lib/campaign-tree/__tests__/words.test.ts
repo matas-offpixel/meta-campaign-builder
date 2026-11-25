@@ -38,8 +38,8 @@ function recordText(): string {
 }
 
 describe("campaign tree words", () => {
-  it("the fixture is the final list (252 rows)", () => {
-    assert.equal(ROWS.length, 252);
+  it("the fixture is the final list (254 rows)", () => {
+    assert.equal(ROWS.length, 254);
   });
 
   it("every tree.* row is in words.ts or CC-1's words.ts, word for word", () => {

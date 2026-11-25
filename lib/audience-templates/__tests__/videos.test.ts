@@ -13,7 +13,8 @@ import { replicateDraft, type ReplicateEvent, type ReplicateVenue } from "../../
 import { HOUSE_DISCO, RC_E_DATA, RC_E_EVENT, RC_E_KNOWN, RC_E_PICKS } from "../../../scripts/plan-frames/audience-templates-fixtures.ts";
 import { itemRow, ITEM_CONFLICT_KEY } from "../store.ts";
 import { buildTemplateView } from "../view.ts";
-import { isUsablePick, pickFor, withPick } from "../videos.ts";
+import { isUsablePick, pickFor, pickerStart, withPick } from "../videos.ts";
+import { TEMPLATE_WORDS } from "../words.ts";
 
 const video = HOUSE_DISCO.items.find((i) => i.listRole === "video_viewers")!;
 
@@ -38,6 +39,29 @@ describe("picks", () => {
     assert.ok(isUsablePick(RC_E_PICKS[0]));
     assert.equal(isUsablePick({ ...RC_E_PICKS[0]!, videoIds: [] }), false);
     assert.equal(isUsablePick({ ...RC_E_PICKS[0]!, contextId: undefined }), false);
+  });
+});
+
+describe("the picker opened from an item", () => {
+  it("its header is exactly templates.picker.preset with 50% and 30 days, the threshold set, nothing ticked", () => {
+    const start = pickerStart("House & disco", 50, 30, [], RC_E_EVENT);
+    assert.equal(
+      start.header,
+      TEMPLATE_WORDS["templates.picker.preset"].replace("{template}", "House & disco").replace("{threshold}", "50%").replace("{days}", "30"),
+    );
+    assert.equal(start.header, "From House & disco: 50% watched · 30 days. Pick this show’s videos.");
+    assert.equal(start.threshold, 50);
+    assert.deepEqual(start.videoIds, []);
+    assert.equal(start.contextId, undefined);
+  });
+  it("Change videos opens on this draft's own pick for this event only", () => {
+    assert.deepEqual(pickerStart("House & disco", 50, 30, RC_E_PICKS, RC_E_EVENT).videoIds, RC_E_PICKS[0]!.videoIds);
+    assert.deepEqual(pickerStart("House & disco", 50, 30, RC_E_PICKS, { eventId: "another", code: "NX26-OTHER" }).videoIds, []);
+  });
+  it("the panel draws that header", () => {
+    const panel = readFileSync(new URL("../../../components/audience-templates/video-pick-panel.tsx", import.meta.url), "utf8");
+    assert.match(panel, /const start = pickerStart\(template, threshold, days, picks, event\);/);
+    assert.match(panel, /\{start\.header\}/);
   });
 });
 

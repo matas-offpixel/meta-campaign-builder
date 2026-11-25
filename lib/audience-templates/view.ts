@@ -7,9 +7,9 @@
  */
 
 import { TEMPLATE_NAMES, GROUP_LABEL, changedLine, footerLine, fw, heldLine, madeOnLine, pickedLine, signupsLine, tw } from "./words.ts";
-import { createItems, createTargets, type PickLookup } from "./create.ts";
+import { createTargets, type PickLookup } from "./create.ts";
 import { isUsablePick, isVideoViewers, itemThreshold } from "./videos.ts";
-import { normalizeAccount, resolveTemplate, type ResolvedTemplate, type AudienceTemplate, type KnownAudience, type ResolvedItem, type TemplateItem, type TemplateItemKind } from "./resolve.ts";
+import { PAGE_ENGAGER_SUBTYPES, normalizeAccount, resolveTemplate, type ResolvedTemplate, type AudienceTemplate, type KnownAudience, type ResolvedItem, type TemplateItem, type TemplateItemKind } from "./resolve.ts";
 
 export const GROUP_ORDER: readonly TemplateItemKind[] = ["customer_list", "retargeting_pool", "page_engagers", "interest"];
 
@@ -123,13 +123,59 @@ function pixelLabel(ctx: ViewContext): string {
 }
 
 /**
- * The one count of what's to create (Matas, 25 Nov): the footer's
- * "{m} will be created" and Create's "{m}" both read it, so they are always
- * the same items. A page is one item; video viewers count once this show's
- * videos are picked.
+ * The tab's counts, in one unit everywhere (design, 25 Nov): Meta audiences.
+ * A page on Facebook + Instagram is 2 (one per platform), a list, a pool and
+ * a video-viewer item 1 each, the interests row 1 however many interests it
+ * holds. Held lists count 1 each, by the account that holds them; items
+ * waiting for videos, and shows' lists not made yet, count as items.
+ *
+ * The footer's "{n} reused · {m} will be created", the button's "{m}" and
+ * "Add to this draft"'s "{n}" / "{m}" all read it. `toCreate` is the rows
+ * Create would ask Meta for, so it is also what "Created {m}" counts.
  */
-export function willBeCreated(resolved: ResolvedTemplate, pixelId: string | null, picks?: PickLookup): number {
-  return createItems(createTargets(resolved.items, pixelId, picks)).length;
+export interface TemplateCounts {
+  reused: number;
+  toCreate: number;
+  held: Array<{ account: string; n: number }>;
+  needVideos: number;
+  waiting: number;
+  /** Every audience the template stands for in this account, in the same unit. */
+  total: number;
+}
+
+function units(it: TemplateItem): number {
+  return it.kind === "page_engagers" ? PAGE_ENGAGER_SUBTYPES.length : 1;
+}
+
+export function templateCounts(resolved: ResolvedTemplate, ctx: { accountId: string; pixelId: string | null; picks?: PickLookup }): TemplateCounts {
+  const items = resolved.items;
+  const interests = items.filter((r) => r.item.kind === "interest");
+  const others = items.filter((r) => r.item.kind !== "interest");
+  const interestRow = interests.length > 0 ? 1 : 0;
+  const reused =
+    (interests.some((r) => r.status === "reused") ? 1 : 0) +
+    others.reduce((n, r) => {
+      if (r.item.kind === "page_engagers") return n + units(r.item) - r.missingPageSubtypes.length;
+      return n + (r.status === "reused" ? 1 : 0);
+    }, 0);
+  const holders = new Map<string, number>();
+  for (const r of items) {
+    const h = heldElsewhere(r, ctx.accountId);
+    if (h) holders.set(h, (holders.get(h) ?? 0) + 1);
+  }
+  return {
+    reused,
+    toCreate: createTargets(items, ctx.pixelId, ctx.picks).length,
+    held: [...holders.entries()].map(([account, n]) => ({ account, n })),
+    needVideos: items.filter((r) => r.status === "create" && isVideoViewers(r.item) && !isUsablePick(ctx.picks?.(r.item) ?? null)).length,
+    waiting: items.filter((r) => r.status === "create" && isShowSignups(r.item) && !r.item.metaAudienceId).length,
+    total: interestRow + others.reduce((n, r) => n + units(r.item), 0),
+  };
+}
+
+/** The footer's "{m} will be created" and Create's "{m}": one number (templateCounts). */
+export function willBeCreated(resolved: ResolvedTemplate, pixelId: string | null, picks?: PickLookup, accountId = resolved.accountId): number {
+  return templateCounts(resolved, { accountId, pixelId, picks }).toCreate;
 }
 
 /** The account holding a list the target can't use, when it isn't the target. */
@@ -246,26 +292,20 @@ export function buildTemplateView(
       ],
     };
   });
-  // A held list is shared in Business Manager, never re-uploaded: not one of the creates.
-  const held = resolved.items.filter((r) => heldElsewhere(r, ctx.accountId)).length;
-  // A show's list the sync hasn't made: not created here either (SU2: "Create never counts it").
-  const waiting = resolved.items.filter((r) => r.status === "create" && isShowSignups(r.item) && !r.item.metaAudienceId).length;
-  // One count for the footer's "{m} will be created" and Create's button (Matas, 25 Nov): the audiences
-  // Create makes. Held lists, a show's list not made yet and video viewers are none of them.
-  const toCreate = willBeCreated(resolved, ctx.pixelId, ctx.picks);
-  const needVideos = resolved.items.filter((r) => r.status === "create" && isVideoViewers(r.item) && !isUsablePick(ctx.picks?.(r.item) ?? null)).length;
+  const c = templateCounts(resolved, ctx);
+  const heldParts = c.held.map((h) => ({ account: ctx.accountLabel?.(h.account) ?? h.account, n: h.n }));
   return {
     header: headerFor(t, ctx),
     groups,
-    footer: footerLine(resolved.reused, toCreate, ctx.accountName, ctx.writesEnabled, needVideos),
-    reused: resolved.reused,
-    toCreate,
-    held,
-    waiting,
-    needVideos,
-    addCount: resolved.reused,
-    leftOut: resolved.items.length - resolved.reused,
-    createCount: toCreate,
+    footer: footerLine(c.reused, c.toCreate, ctx.accountName, ctx.writesEnabled, c.needVideos, heldParts),
+    reused: c.reused,
+    toCreate: c.toCreate,
+    held: c.held.reduce((n, h) => n + h.n, 0),
+    waiting: c.waiting,
+    needVideos: c.needVideos,
+    addCount: c.reused,
+    leftOut: c.total - c.reused,
+    createCount: c.toCreate,
     resolved,
     metaCreates: resolved.metaCreates,
     changed: added.length > 0 ? changedLine(added.length) : null,

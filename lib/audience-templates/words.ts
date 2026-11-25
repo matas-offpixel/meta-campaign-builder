@@ -61,6 +61,8 @@ export const TEMPLATE_WORDS = {
   "templates.footer.videos.one": "1 needs videos picked",
   "templates.writes_off.one": "Creating audiences is switched off, so this one waits.",
   "templates.picker.preset": "From {template}: {threshold} watched · {days} days. Pick this show’s videos.",
+  "templates.footer.held": "{h} held in {Meta account name}",
+  "templates.footer.held.one": "1 held in {Meta account name}",
 } as const;
 
 export type TemplateWordKey = keyof typeof TEMPLATE_WORDS;
@@ -175,18 +177,30 @@ export function pickerPresetLine(template: string, threshold: number, days: numb
 }
 
 /**
- * The footer (RC5, and the 25 Nov ruling for video-viewer items):
- * "{n} reused · {m} will be created in {account}", then " · {k} need videos
- * picked" when some wait for videos (the "will be created" part is dropped
- * when m is 0), then, with audience writes off and something to create, the
- * writes-off sentence (its one-form for 1). Joined with ". " as the frames
- * draw them.
+ * The footer (RC5, and the 25 Nov rulings): "{n} reused · {m} will be
+ * created in {account}", then each holding account's " · {h} held in
+ * {account}", then " · {k} need videos picked" (the create part is dropped
+ * when m is 0; a part with nothing in it never shows), then, with audience
+ * writes off and something to create, the writes-off sentence (its one-form
+ * for 1). Joined with ". " as the frames draw them. Counts are Meta
+ * audiences (view.ts templateCounts).
  */
-export function footerLine(reused: number, toCreate: number, account: string, writesEnabled: boolean, needVideos = 0): string {
+export function footerLine(
+  reused: number,
+  toCreate: number,
+  account: string,
+  writesEnabled: boolean,
+  needVideos = 0,
+  held: ReadonlyArray<{ account: string; n: number }> = [],
+): string {
   const full = tw("templates.footer", { n: reused, m: toCreate, account });
-  const head = needVideos > 0 && toCreate === 0 ? full.split(" · ")[0]! : full;
-  const videos = needVideos === 0 ? "" : `${fw("frame.sep")}${needVideos === 1 ? tw("templates.footer.videos.one") : tw("templates.footer.videos", { k: needVideos })}`;
-  const first = `${head}${videos}`;
+  const [reusedPart] = full.split(" · ");
+  const parts = [toCreate === 0 && (needVideos > 0 || held.length > 0) ? reusedPart! : full];
+  for (const h of held) {
+    if (h.n > 0) parts.push(h.n === 1 ? tw("templates.footer.held.one", { "Meta account name": h.account }) : tw("templates.footer.held", { h: h.n, "Meta account name": h.account }));
+  }
+  if (needVideos > 0) parts.push(needVideos === 1 ? tw("templates.footer.videos.one") : tw("templates.footer.videos", { k: needVideos }));
+  const first = parts.join(fw("frame.sep"));
   if (writesEnabled || toCreate === 0) return first;
   return `${first}. ${toCreate === 1 ? tw("templates.writes_off.one") : tw("templates.writes_off", { m: toCreate })}`;
 }

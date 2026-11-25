@@ -6,6 +6,7 @@ import type { AudienceTemplatesPayload, CreateTemplateResult, TemplatePage } fro
 import { addTemplateToDraft } from "@/lib/audience-templates/apply";
 import type { AudienceSettings, TemplateVideoPick } from "@/lib/types";
 import { pickFor, type PickEvent } from "@/lib/audience-templates/videos";
+import { codeSpans } from "@/lib/launch-guard/code-spans";
 import { VideoPickPanel } from "./video-pick-panel";
 import type { AudienceTemplate, TemplateItem } from "@/lib/audience-templates/resolve";
 import { buildTemplateView, pageItem, rowKey, type TemplateRow } from "@/lib/audience-templates/view";
@@ -52,6 +53,23 @@ export interface AudienceTemplatesPanelProps {
 
 const NONE: TemplateItem[] = [];
 
+/** Event codes never break across lines ("NX27-GLITTERBOX", never "NX27-" / "GLITTERBOX"): lib/launch-guard/code-spans.ts. */
+function NoBreak({ text }: { text: string }) {
+  return (
+    <>
+      {codeSpans(text).map((span, i) =>
+        span.whole ? (
+          <span key={i} data-nowrap="" className="whitespace-nowrap">
+            {span.text}
+          </span>
+        ) : (
+          span.text
+        ),
+      )}
+    </>
+  );
+}
+
 function StatusChip({ status, label }: { status: Exclude<TemplateRow["status"], "held"> | "unconfirmed"; label: string }) {
   const tone =
     status === "reused"
@@ -59,7 +77,7 @@ function StatusChip({ status, label }: { status: Exclude<TemplateRow["status"], 
       : status === "create" || status === "waiting"
         ? "border-dashed border-border-strong text-muted-foreground"
         : status === "needs_videos"
-          ? "border-dashed border-warning text-warning"
+          ? "border-dashed border-warning text-ochre-text"
           : "border-warning bg-warning/15 text-warning-foreground";
   return (
     <span className={`inline-flex shrink-0 items-center whitespace-nowrap rounded-full border px-2.5 py-0.5 text-[11px] leading-4 ${tone}`}>
@@ -73,11 +91,17 @@ function ItemRow({ row, onVideos, canPick, children }: { row: TemplateRow; onVid
     <div className="border-b border-border py-2" data-template-row={row.key}>
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0">
-          <div className="text-sm leading-5 text-foreground [overflow-wrap:anywhere]">{row.title}</div>
-          {row.line ? <div className="text-xs leading-4 text-muted-foreground">{row.line}</div> : null}
+          <div className="text-sm leading-5 text-foreground [overflow-wrap:anywhere]">
+            <NoBreak text={row.title} />
+          </div>
+          {row.line ? (
+            <div className="text-xs leading-4 text-muted-foreground">
+              <NoBreak text={row.line} />
+            </div>
+          ) : null}
           {row.note ? (
-            <div className={`text-xs leading-4 ${row.note.tone === "ochre" ? "text-warning" : "text-muted-foreground"}`} data-template-note>
-              {row.note.text}
+            <div className={`text-xs leading-4 ${row.note.tone === "ochre" ? "text-ochre-text" : "text-muted-foreground"}`} data-template-note>
+              <NoBreak text={row.note.text} />
             </div>
           ) : null}
           {row.videos ? (
@@ -190,7 +214,8 @@ export function AudienceTemplatesPanel({ data, onSave, draft, onCreate, initialR
     if (!draft || !view.header.confirmed) return;
     const res = addTemplateToDraft(draft.audiences, template.name, view.resolved);
     draft.onAdd(res.audiences);
-    setResult({ template: template.name, lines: addedLines(template.name, draft.name, res.added, res.leftOut) });
+    // The same unit as the footer (Meta audiences): view.addCount / view.leftOut.
+    setResult({ template: template.name, lines: addedLines(template.name, draft.name, view.addCount, view.leftOut) });
   };
   const create = async () => {
     if (!onCreate || !view.header.confirmed || !data.writesEnabled || view.createCount === 0) return;
@@ -246,7 +271,7 @@ export function AudienceTemplatesPanel({ data, onSave, draft, onCreate, initialR
       </div>
       {resultLines.length > 0 ? (
         <p className="mt-2 text-xs leading-5 text-foreground" role="status" data-template-result>
-          {resultLines.join(" ")}
+          <NoBreak text={resultLines.join(" ")} />
         </p>
       ) : null}
     </div>

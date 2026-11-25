@@ -2,8 +2,7 @@
 
 import { SourcePicker, type SourceSelection } from "@/components/audiences/source-picker";
 import type { TemplateVideoPick } from "@/lib/types";
-import { withPick, type PickEvent } from "@/lib/audience-templates/videos";
-import { pickerPresetLine } from "@/lib/audience-templates/words";
+import { pickerStart, withPick, type PickEvent } from "@/lib/audience-templates/videos";
 
 /**
  * "Pick this show's videos" (25 Nov ruling, record
@@ -38,14 +37,12 @@ export function VideoPickPanel({
   onPicks?: (next: TemplateVideoPick[]) => void;
   onClose: () => void;
 }) {
-  const mine = (picks ?? []).find(
-    (p) => p.template === template && p.threshold === threshold && p.retentionDays === days && p.eventId === event.eventId && p.code === event.code,
-  );
+  const start = pickerStart(template, threshold, days, picks, event);
   const value: SourceSelection = {
-    threshold: threshold as SourceSelection["threshold"],
-    videoIds: mine?.videoIds ?? [],
-    ...(mine?.contextId ? { contextId: mine.contextId } : {}),
-    ...(mine?.campaignIds?.length ? { campaignIds: mine.campaignIds } : {}),
+    threshold: start.threshold as SourceSelection["threshold"],
+    videoIds: start.videoIds,
+    ...(start.contextId ? { contextId: start.contextId } : {}),
+    ...(start.campaignIds ? { campaignIds: start.campaignIds } : {}),
   };
   const change = (next: SourceSelection) => {
     if (!onPicks) return;
@@ -70,7 +67,9 @@ export function VideoPickPanel({
           ✕
         </button>
       </div>
-      <p className="mb-2 text-xs leading-5 text-muted-foreground">{pickerPresetLine(template, threshold, days)}</p>
+      <p className="mb-2 text-xs leading-5 text-muted-foreground" data-template-picker-preset>
+        {start.header}
+      </p>
       {/* The item's threshold is the template's: the picker's own threshold control can't move it. */}
       <SourcePicker
         clientId={clientId}

@@ -21,9 +21,10 @@
  *    (SU2, "Create never touches it").
  *  - Never interests: they aren't audiences.
  *
- * Counts are items, as the tab's rows are: a page is one item ("Facebook +
- * Instagram") however many platforms it needs. The footer's "{m} will be
- * created" and the button's "{m}" are both willBeCreated (view.ts).
+ * Counts are Meta audiences (design, 25 Nov): every target is one, so a
+ * page needing both platforms is 2. The footer's "{m} will be created", the
+ * button's "{m}" and "Created {m}" are all this count (view.ts
+ * templateCounts).
  *
  * The Meta write is the existing path (createMetaCustomAudienceBatch: the
  * OFFPIXEL_META_AUDIENCE_WRITES_ENABLED gate, meta_write_idempotency, reuse of
@@ -187,9 +188,9 @@ export type CreateRunResult =
 /**
  * Make the rows, then send them through the existing write path. With
  * audience writes off it stops before anything is written, local rows
- * included. Counts are items: an item is created when every row it needs
- * was made, else it failed ("Try again" runs Create again; a made audience
- * reads Reused next time, so it isn't asked for twice).
+ * included. Counts are Meta audiences: each row made, or not ("Try again"
+ * runs Create again; a made audience reads Reused next time, so it isn't
+ * asked for twice).
  */
 export async function runTemplateCreate(deps: {
   writesEnabled: boolean;
@@ -205,7 +206,6 @@ export async function runTemplateCreate(deps: {
   const ids = drafts.map((d) => d.id);
   const res = ids.length ? await deps.createBatch(ids) : { successes: [], failures: [] };
   const made = new Set(res.successes.map((s) => s.audienceId));
-  const items = [...new Set(deps.plan.map((p) => p.item))];
-  const created = items.filter((item) => deps.plan.every((p, i) => p.item !== item || (ids[i] != null && made.has(ids[i]!)))).length;
-  return { ok: true, created, failed: items.length - created };
+  const created = ids.filter((id) => made.has(id)).length;
+  return { ok: true, created, failed: deps.plan.length - created };
 }

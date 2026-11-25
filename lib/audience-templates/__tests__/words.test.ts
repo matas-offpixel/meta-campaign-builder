@@ -48,15 +48,15 @@ const RECORD = readFileSync(new URL("../../../docs/design-record/2026-11-24-camp
   .replace(/&nbsp;/g, " ");
 
 describe("audience template words", () => {
-  it("the fixture is the record's final list: 252 rows, sha256 e4de6728…4bb01", () => {
-    assert.equal(createHash("sha256").update(RAW).digest("hex"), "e4de67283a548f8d3f13a2fa2c5fc0f8624b8d9b2d57ce40dd819a4612bb4701");
-    assert.equal(ROWS.length, 252);
-    assert.equal(new Set(ROWS.map((r) => r.key)).size, 252);
+  it("the fixture is the record's final list: 254 rows, sha256 4b1f729e…eb51", () => {
+    assert.equal(createHash("sha256").update(RAW).digest("hex"), "4b1f729ea90421e9522c6d07363f5c0578ee108077342437928b3d0fe405eb51");
+    assert.equal(ROWS.length, 254);
+    assert.equal(new Set(ROWS.map((r) => r.key)).size, 254);
   });
 
   it("every templates.* row is in words.ts, word for word", () => {
     const wanted = ROWS.filter((r) => r.key.startsWith("templates."));
-    assert.equal(wanted.length, 42);
+    assert.equal(wanted.length, 44);
     for (const r of wanted) assert.equal((TEMPLATE_WORDS as Record<string, string>)[r.key], r.words, r.key);
   });
 
@@ -153,5 +153,13 @@ describe("audience template words", () => {
     assert.equal(footerLine(10, 0, "NX Promoter", false, 1), "10 reused · 1 needs videos picked");
     assert.equal(footerLine(3, 0, "NX Promoter", false, 2), "3 reused · 2 need videos picked");
     assert.equal(footerLine(3, 4, "Electric Studios Sheffield", true, 2), "3 reused · 4 will be created in Electric Studios Sheffield · 2 need videos picked");
+  });
+
+  it("the footer names held lists by their account, after the create part", () => {
+    assert.equal(
+      footerLine(1, 6, "Electric Studios Sheffield", false, 1, [{ account: "NX Promoter", n: 3 }]),
+      "1 reused · 6 will be created in Electric Studios Sheffield · 3 held in NX Promoter · 1 needs videos picked. Creating audiences is switched off, so these 6 wait.",
+    );
+    assert.equal(footerLine(0, 0, "NX Promoter", true, 0, [{ account: "Electric Bristol Live", n: 1 }]), "0 reused · 1 held in Electric Bristol Live");
   });
 });
