@@ -20,6 +20,8 @@ import { setDraftNameTool } from "../tools/draft-edit.ts";
 import { attachDriveCreativesTool, listDriveCreativesTool } from "../tools/draft-drive.ts";
 import { APPROVAL_WORDS } from "../meta/approval.ts";
 import { draftMoneyADay } from "../meta/ceiling.ts";
+import { MCP_WORDS } from "../meta/words.ts";
+import { TODAY_UNDO_SHIPPED } from "../meta/today-undo.ts";
 import { ToolInputError, type McpTool, type ToolContext } from "../tool-types.ts";
 import { CLIENT_EL, D_DRAFT, EV_EL, EV_SRC, EV_TGT, UPDATED, draftCtx, fakeDrive, fakeDraftDeps, newSpies, readRow } from "./draft-fixtures.ts";
 
@@ -94,14 +96,15 @@ test("launch_draft paused: the stored files go first (no drop), then the launch 
   assert.equal(out.data.adsManager, "https://adsmanager.facebook.com/adsmanager/manage/campaigns?act=606252931141334&selected_campaign_ids=120200000000000001");
   assert.equal(out.summary.metaCampaignId, "120200000000000001");
   assert.equal(out.data.ceiling, undefined, "a paused launch reads no ceiling");
-  // FC2: "Done: {result}." and, a paused campaign Claude made having an Undo (FC1), the undo note.
+  // FC2: "Done: {result}." The undo note goes only where an Undo exists, and Today's Undo ships in M3b:
+  // with TODAY_UNDO_SHIPPED off (as M3a ships) a paused launch has no undo note.
+  assert.equal(TODAY_UNDO_SHIPPED, false, "M3b turns this on with Today's Undo");
   assert.equal(
     out.data.message,
     [
       "Done: 1 campaign launched · 120200000000000001.",
       "It’s paused: nothing spends until it’s switched on.",
       "Ads Manager: https://adsmanager.facebook.com/adsmanager/manage/campaigns?act=606252931141334&selected_campaign_ids=120200000000000001",
-      "Matas can undo this on Today.",
     ].join("\n"),
   );
   // FC4's second step: the sent videos waited for before the launch.
@@ -161,6 +164,22 @@ test("launch_draft live: refused with no ceiling and over the ceiling (nothing s
   }
 });
 
+test("launch_draft paused with Today's Undo on: the undo note follows the Ads Manager link (FC1, FC2)", async () => {
+  const { ctx } = await metaCtx({ ceiling: null });
+  (ctx as ToolContext).todayUndo = true;
+  const out = await run(launchDraftTool, ctx, { draft_id: D_DRAFT, mode: "paused", approval: YES });
+  assert.equal(
+    out.data.message,
+    [
+      "Done: 1 campaign launched · 120200000000000001.",
+      "It’s paused: nothing spends until it’s switched on.",
+      "Ads Manager: https://adsmanager.facebook.com/adsmanager/manage/campaigns?act=606252931141334&selected_campaign_ids=120200000000000001",
+      MCP_WORDS.undoNote,
+    ].join("\n"),
+  );
+  assert.equal(MCP_WORDS.undoNote, "Matas can undo this on Today.");
+});
+
 test("the draft's money a day: daily ad sets summed, a campaign budget, a lifetime budget over its days", () => {
   const base = { budgetSchedule: { budgetLevel: "ad_set", budgetType: "daily", budgetAmount: 0, currency: "GBP", startDate: "2026-12-01T10:00", endDate: "2026-12-11T10:00" }, adSetSuggestions: [{ enabled: true, budgetPerDay: 20 }, { enabled: true, budgetPerDay: 30 }, { enabled: false, budgetPerDay: 99 }] } as never as CampaignDraft;
   assert.equal(draftMoneyADay(base).gbp, 50);
@@ -170,6 +189,20 @@ test("the draft's money a day: daily ad sets summed, a campaign budget, a lifeti
     draftMoneyADay({ ...base, budgetSchedule: { ...base.budgetSchedule, budgetType: "lifetime" }, adSetSuggestions: [{ enabled: true, budgetLifetime: 200 }, { enabled: true, budgetLifetime: 100 }] } as never).gbp,
     30,
   );
+});
+
+test("the draft's money a day counts only the ad sets the launch sends: not a disabled one, not one whose audience is gone", () => {
+  const audiences = { pageGroups: [], customAudienceGroups: [], interestGroups: [{ id: "ig-1" }], savedAudiences: { audienceIds: [] }, selectedPagesLookalikeGroups: [] };
+  const draft = {
+    budgetSchedule: { budgetLevel: "ad_set", budgetType: "daily", budgetAmount: 0, currency: "GBP", startDate: "2026-12-01T10:00", endDate: "2026-12-11T10:00" },
+    audiences,
+    adSetSuggestions: [
+      { enabled: true, sourceType: "interest_group", sourceId: "ig-1", budgetPerDay: 10 },
+      { enabled: false, sourceType: "interest_group", sourceId: "ig-1", budgetPerDay: 40 },
+      { enabled: true, sourceType: "interest_group", sourceId: "ig-gone", budgetPerDay: 25 },
+    ],
+  } as never as CampaignDraft;
+  assert.equal(draftMoneyADay(draft).gbp, 10);
 });
 
 test("a pending slot without a Storage copy still blocks: launch_draft refuses on the wizard's check and sends nothing", async () => {

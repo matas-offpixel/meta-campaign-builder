@@ -170,6 +170,8 @@ const EXTERNAL_READERS: Record<string, readonly string[]> = {
   "lib/wizard/assignments.ts": ["assignAllCreatives", "assignmentCounts", "forAdSets", "withoutCreatives"],
   "lib/wizard/generate-adset-suggestions.ts": ["generateSuggestions"],
   "lib/wizard/follow-audience-groups.ts": ["followAudienceGroups", "groupKey"],
+  // M3a ceiling: the launch route's own "launchable" filter (a pure read of the draft).
+  "lib/wizard/import-edits.ts": ["adSetAudienceRemoved"],
   "lib/meta/advantage-plus-compat.ts": ["isAdvantageAudienceSupportedForObjective"],
   "lib/meta/adset.ts": ["buildPromotedObject"],
   "lib/mock-data.ts": ["CTA_OPTIONS"],
