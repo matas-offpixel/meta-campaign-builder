@@ -11,6 +11,7 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { artistStatics } from "../artist-library/load.ts";
 import { clipRights, usableOn } from "../artist-library/rights.ts";
 import { isArchivedClientStatus } from "../db/client-status.ts";
 import { approvedClaim, type WarningRow } from "../creative-lab/claim-approval.ts";
@@ -266,16 +267,8 @@ export async function loadPackageState(db: Db, eventId: string, deps: LoadDeps, 
   }
   // Press shots and story artwork: the lead artist's statics in the library, each with its rights.
   if (lead) {
-    const statics = await db
-      .from("artist_assets")
-      .select("name, kind, shareable, source_client_id")
-      .eq("artist_id", lead.libraryArtistId)
-      .eq("kind", "static")
-      .range(0, 499);
-    for (const a of (statics.error ? [] : (statics.data ?? [])) as Row[]) {
-      const name = text(a, "name");
-      if (!name) continue;
-      materials.push({ kind: /story/i.test(name) ? "story_artwork" : "press_shot", name, shareable: a.shareable === true, clientId: text(a, "source_client_id") || null });
+    for (const a of await artistStatics(db, lead.libraryArtistId)) {
+      materials.push({ kind: /story/i.test(a.name) ? "story_artwork" : "press_shot", name: a.name, shareable: a.shareable, clientId: a.clientId });
     }
   }
   const muted = mutedInputs({

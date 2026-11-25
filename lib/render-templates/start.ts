@@ -12,6 +12,7 @@
  * Relative imports only (node:test).
  */
 
+import { isApprovedCaption } from "../artist-library/load.ts";
 import { beatGrid, type BeatGrid } from "./beats.ts";
 import type { MontageVariant, Ratio } from "./file-name.ts";
 import { driveIdFromLink, foreignPicks, loadPackageState, type Db, type LoadDeps, type LoadedPackage } from "./load.ts";
@@ -69,17 +70,10 @@ export function montageText(loaded: LoadedPackage, copy: CopyPick | undefined): 
   };
 }
 
-/** Is `hook` one of the artist's approved captions (artist_assets kind caption, approved)? */
+/** Is `hook` one of the artist's approved captions? (The library's own read, lib/artist-library/load.ts.) */
 export async function approvedCaption(db: Db, artistName: string | null, hook: string | undefined): Promise<boolean> {
   if (!artistName || !hook?.trim()) return false;
-  const a = await db.from("artists").select("id").ilike("name", artistName).limit(1);
-  if (a.error) throw new Error(`artists: ${a.error.message}`);
-  const id = (a.data?.[0] as { id?: string } | undefined)?.id;
-  if (!id) return false;
-  const res = await db.from("artist_assets").select("caption_text, approved_at").eq("artist_id", id).eq("kind", "caption").not("approved_at", "is", null).range(0, 499);
-  if (res.error) return false;
-  const want = hook.trim().toLowerCase();
-  return ((res.data ?? []) as { caption_text?: string | null }[]).some((r) => (r.caption_text ?? "").trim().toLowerCase() === want);
+  return isApprovedCaption(db, artistName, hook);
 }
 
 function resolvePicks(loaded: LoadedPackage, picks: RequestInput["picks"]): Picks {

@@ -9,7 +9,7 @@
  * Videos, the filing stages Lab renders use), the 8 checks and the Montage
  * list on the file, then the row. A No text version from artist material
  * only also gets a shortcut in the artist library's Renders and an
- * artist_assets row. A file whose render fails is "Didn't render"; one
+ * library row (recordLibraryRender). A file whose render fails is "Didn't render"; one
  * whose Drive copy fails stays done with drive_status failed (the Lab's
  * existing retry), and its checks still run.
  *
@@ -20,6 +20,7 @@
  * Relative imports only (node:test).
  */
 
+import { recordLibraryRender } from "../artist-library/library-drive.ts";
 import type { CompositionRender } from "../creative-lab/lambda.ts";
 import type { Probe } from "../creative-lab/mp4-probe.ts";
 import { APP_ID_KEY, APP_TAG_KEY, type DriveApi } from "../drive/client.ts";
@@ -216,7 +217,7 @@ type Filed = { driveFileId: string | null; driveError: string | null; shortcutId
 /**
  * Drive: {stage} / {owner} / Videos, the file under its own name; the cut
  * sheet once per package; and, for a shareable file that passed every check,
- * the library's Renders shortcut and its artist_assets row (AL1). Never
+ * the library's Renders shortcut and its library row (AL1). Never
  * throws: a failure is the row's drive_error.
  */
 async function fileOnDrive(
@@ -252,25 +253,16 @@ async function fileOnDrive(
       if (libraryId && renders) {
         const sc = await deps.drive.createShortcut({ parentId: renders, name: fileName, targetId: file.id, appProperties: { [APP_TAG_KEY]: LIBRARY_RENDER_TAG, [APP_ID_KEY]: id } });
         shortcutId = sc.id;
-        await db.from("artist_assets").upsert(
-          {
-            artist_id: libraryId,
-            asset_key: `m4_render:${id}`,
-            kind: "render",
-            name: fileName,
-            drive_file_id: file.id,
-            storage_path: input.storagePath,
-            source_event_id: String(event.id),
-            source_client_id: String(event.client_id),
-            owner_kind: "offpixel",
-            shareable: true,
-            held_reason: null,
-            lab_render_id: id,
-            matched_by: "lab",
-            material_at: deps.now().toISOString(),
-          },
-          { onConflict: "artist_id,asset_key" },
-        );
+        await recordLibraryRender(db as unknown as DriveDb, {
+          artistId: libraryId,
+          renderId: id,
+          name: fileName,
+          driveFileId: file.id,
+          storagePath: input.storagePath,
+          eventId: String(event.id),
+          clientId: String(event.client_id),
+          now: deps.now(),
+        });
       }
     }
     return { driveFileId, driveError: null, shortcutId };
