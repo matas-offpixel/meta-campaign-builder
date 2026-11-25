@@ -36,8 +36,8 @@ describe("launch-guard words", () => {
   const rows = tsvRows();
   const wanted = rows.filter((row) => row.key.startsWith("launch.") || row.key.startsWith("identity.") || CHECKS.includes(row.key.split(".")[0]!));
 
-  it("the fixture is the 242-row record list", () => {
-    assert.equal(rows.length, 242);
+  it("the fixture is the 259-row record list", () => {
+    assert.equal(rows.length, 259);
   });
 
   it("every launch.* and check row is in words.ts with the same text", () => {
