@@ -10,7 +10,7 @@
 
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { describe, it } from "node:test";
+import { describe, it, mock } from "node:test";
 
 import { memoryDb } from "../../onsale-refresh/__tests__/memory-db.ts";
 import { applyTestCall, takeWholeTotal, type CallWrite } from "../apply-call.ts";
@@ -108,7 +108,7 @@ describe("Ops (c): the test starts at 00:00 in the ad account's timezone, tomorr
   });
 });
 
-function testFake(opts: { refuse?: boolean } = {}) {
+function testFake(opts: { refuse?: boolean; timezone?: string } = {}) {
   const calls: [string, ...unknown[]][] = [];
   let next = 0;
   const id = (prefix: string) => `${prefix}${++next}`;
@@ -128,7 +128,7 @@ function testFake(opts: { refuse?: boolean } = {}) {
     readAdSetTargeting: async () => ({ geo_locations: { countries: ["GB"] } }),
     audienceState: async () => "ready",
     listShowVideos: async () => [{ contextId: "pg1", videoIds: ["v1"] }],
-    accountInfo: async () => ({ timezone: "Europe/London", businessId: "biz1" }),
+    accountInfo: async () => ({ timezone: opts.timezone ?? "Europe/London", businessId: "biz1" }),
     createAdStudy: async (businessId, payload) => {
       calls.push(["createAdStudy", businessId, payload]);
       if (opts.refuse) throw new Error("Invalid parameter: a campaign in this cell has a scheduled start");
@@ -198,7 +198,7 @@ describe("Ops (c) at Apply: nothing delivers before the split", () => {
       assert.ok(Date.parse(String(set.start_time).replace(/([+-]\d{2})(\d{2})$/, "$1:$2")) >= studyStart, `${set.name} starts at or after the test`);
       assert.equal(set.status, "PAUSED");
     }
-    // The test's start is 00:00 tomorrow in the account's timezone, after now.
+    // The test's start is 00:00 tomorrow in Europe/London (Matas, 25 Nov), after now.
     assert.ok(studyStart > Date.now());
     // Nothing is switched on before the study exists.
     const studyAt = fake.calls.indexOf(study);
@@ -217,6 +217,31 @@ describe("Ops (c) at Apply: nothing delivers before the split", () => {
     assert.equal(String(out.reason), "Meta didn't accept the A/B test, so nothing is switched on: both arms are made and paused.\nMeta said: \"Invalid parameter: a campaign in this cell has a scheduled start\"");
     assert.equal(fake.calls.some(([name, , fields]) => name === "setAdSetActive" || (name === "updateCampaign" && (fields as Record<string, unknown>)?.status === "ACTIVE")), false);
   });
+
+  for (const [season, now, startUtc] of [
+    ["winter", "2026-11-17T12:00:00Z", "2026-11-18T00:00:00.000Z"],
+    ["summer", "2026-06-01T12:00:00Z", "2026-06-01T23:00:00.000Z"],
+  ] as const) {
+    it(`Matas (25 Nov): an America/New_York account's arms and study start at 00:00 Europe/London, never New York's midnight (${season}: ${startUtc})`, async () => {
+      mock.timers.enable({ apis: ["Date"], now: new Date(now) });
+      try {
+        const fake = testFake({ timezone: "America/New_York" });
+        const { deps, ctx } = setup();
+        const out = await applyRetargetingCampaign(deps(fake.meta) as never, enteredLine(), ctx as never);
+        assert.equal(out.state, "applied", String(out.reason));
+        const study = fake.calls.find(([name]) => name === "createAdStudy")!;
+        assert.equal(new Date(Number((study[2] as Record<string, unknown>).start_time) * 1000).toISOString(), startUtc);
+        const sets = fake.calls.filter(([name]) => name === "createAdSet").map(([, payload]) => payload as Record<string, unknown>);
+        assert.equal(sets.length, 6);
+        for (const set of sets) assert.equal(set.start_time, metaTime(new Date(startUtc)), String(set.name));
+        const london = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/London", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(startUtc));
+        const newYork = new Intl.DateTimeFormat("en-GB", { timeZone: "America/New_York", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(startUtc));
+        assert.deepEqual([london, newYork === "00:00"], ["00:00", false]);
+      } finally {
+        mock.timers.reset();
+      }
+    });
+  }
 
   it("not wired: nothing is built", async () => {
     const fake = testFake();

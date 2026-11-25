@@ -363,8 +363,8 @@ export const RT_START_PASSED = "The test's start passed before the Meta A/B test
 
 /**
  * RT17 under ops' option (c): one Accept builds both arms, each a campaign
- * made PAUSED whose ad sets all start at the test's start (00:00 in the ad
- * account's timezone, tomorrow there), then the Meta A/B test with that
+ * made PAUSED whose ad sets all start at the test's start (00:00 Europe/London
+ * tomorrow, whatever the ad account's timezone: Matas, 25 Nov), then the Meta A/B test with that
  * start and the two campaigns as 50 % cells, then everything is switched
  * on. Nothing can deliver before the split: no ad set starts earlier, and
  * nothing is switched on before the test exists. If Meta refuses the test,
@@ -386,7 +386,8 @@ async function applyTestArms(
   try {
     const account = await deps.meta.accountInfo(ctx.adAccountId);
     businessId = account.businessId;
-    if (!progress.test.startAt) progress.test.startAt = testStart(account.timezone || "Europe/London", new Date()).at.toISOString();
+    // Matas (25 Nov): 00:00 Europe/London, the hour the start line names, whatever the account's timezone; every arm's ad set and the study start then.
+    if (!progress.test.startAt) progress.test.startAt = testStart("Europe/London", new Date()).at.toISOString();
   } catch (err) {
     return fail(ctx.plainMetaReason(err), { error: err instanceof Error ? err.message : String(err), step: "account" });
   }
