@@ -13,7 +13,15 @@
  *   2. Otherwise the ad set name, unless it is only the campaign's own name
  *      (Ads Manager's quick create copies it down), which labels the
  *      campaign, not the creative.
- *   3. Otherwise no artist: the ad is the show's own (the general bucket).
+ *   3. Otherwise no artist: the ad is the show's own (a general ad). It goes
+ *      to the show's headliner (headlinerOf: the one artist the show's code
+ *      or name names) and to no one else; a show naming none, or two, keeps
+ *      it in the general bucket. Supports never get general ads.
+ *
+ * Some names are narrower (aliases.ts): an AD_NAME_ONLY name matches only
+ * in the ad name (never the ad set name or a show's code or name), and an
+ * OTHER_ACTS name is an act with no artists row: an ad naming it is that
+ * act's, so it is never general and goes to no one.
  *
  * A name inside a longer name of another artist on the roster gives way to
  * the longer one. The campaign name, tag assignments and "the artist is on
@@ -52,37 +60,49 @@ export function hasFullName(text: string | null | undefined, artistName: string)
 export interface RosterEntry {
   id: string;
   names: readonly string[];
+  /** Matches only in the ad name (aliases.ts AD_NAME_ONLY). */
+  adNameOnly?: boolean;
+  /** An act with no artists row (aliases.ts OTHER_ACTS): it names an ad, and no one gets it. */
+  noRow?: boolean;
 }
 
 /** A roster ready to match: folded names, longest first. */
 export interface Roster {
-  names: { artistId: string; folded: string }[];
+  names: { artistId: string; folded: string; adNameOnly: boolean }[];
+  /** Ids that are acts with no artists row. */
+  noRow: ReadonlySet<string>;
 }
 
 export function buildRoster(entries: readonly RosterEntry[]): Roster {
   const seen = new Set<string>();
   const names: Roster["names"] = [];
+  const noRow = new Set<string>();
   for (const e of entries) {
+    if (e.noRow) noRow.add(e.id);
     for (const n of e.names) {
       const folded = fold(n).trim();
       if (!folded || seen.has(`${e.id}\u0000${folded}`)) continue;
       seen.add(`${e.id}\u0000${folded}`);
-      names.push({ artistId: e.id, folded });
+      names.push({ artistId: e.id, folded, adNameOnly: Boolean(e.adNameOnly) });
     }
   }
   names.sort((a, b) => b.folded.length - a.folded.length || a.folded.localeCompare(b.folded));
-  return { names };
+  return { names, noRow };
 }
 
 /**
  * The artists a text names, as whole words. A hit inside a longer hit of
- * another artist ("Luke" inside "Luke Dean") is dropped.
+ * another artist ("Luke" inside "Luke Dean") is dropped. `adName: false`
+ * leaves out the AD_NAME_ONLY names (for an ad set name or a show's code
+ * or name).
  */
-export function artistsNamedIn(text: string | null | undefined, roster: Roster): string[] {
+export function artistsNamedIn(text: string | null | undefined, roster: Roster, opts: { adName?: boolean } = {}): string[] {
   const folded = fold(text);
   if (folded.trim() === "") return [];
   const spans: { artistId: string; start: number; end: number }[] = [];
+  const adName = opts.adName ?? true;
   for (const n of roster.names) {
+    if (!adName && n.adNameOnly) continue;
     const needle = ` ${n.folded} `;
     for (let at = folded.indexOf(needle); at !== -1; at = folded.indexOf(needle, at + 1)) {
       const start = at + 1;
@@ -107,10 +127,22 @@ export function artistsOfAd(ad: AdNames, roster: Roster): { artistIds: string[];
   const byAd = artistsNamedIn(ad.ad_name, roster);
   if (byAd.length) return { artistIds: byAd, field: "ad" };
   if (ad.adset_name && fold(ad.adset_name) !== fold(ad.campaign_name)) {
-    const bySet = artistsNamedIn(ad.adset_name, roster);
+    const bySet = artistsNamedIn(ad.adset_name, roster, { adName: false });
     if (bySet.length) return { artistIds: bySet, field: "adset" };
   }
   return { artistIds: [], field: null };
+}
+
+/**
+ * A show's headliner: the one artist its code or name names (real artists
+ * only; AD_NAME_ONLY names and acts with no row left out). "NX26-ENZO"
+ * names Enzo Siragusa only through the confirmed "Enzo" alias. Two named:
+ * no headliner, and `ambiguous` lists them.
+ */
+export function headlinerOf(event: { event_code: string | null; name: string | null }, roster: Roster): { artistId: string | null; ambiguous: string[] } {
+  const ids = artistsNamedIn(`${event.event_code ?? ""} ${event.name ?? ""}`, roster, { adName: false }).filter((id) => !roster.noRow.has(id));
+  if (ids.length === 1) return { artistId: ids[0]!, ambiguous: [] };
+  return { artistId: null, ambiguous: ids.length > 1 ? ids : [] };
 }
 
 /** "x – Copy", "x - Copy 2", "x – Copy – Copy": the duplicate suffixes Ads Manager adds, folded off. */

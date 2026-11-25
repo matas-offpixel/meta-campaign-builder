@@ -21,19 +21,28 @@
  * or not, the stored rows before → after and every removal by name; without
  * it every artist with at least one asset is printed. --event CODE prints
  * the get_artist answer for that event too.
- * --held-tsv PATH writes every held file nothing accounts for, with its
- * suggested owner (suggest.ts; proposals only, never written), and prints
- * them grouped by client × suggested owner. --compare-held PATH (an older
- * held TSV, artist in column 1) prints held files before → after per artist.
- * The general bucket (ads on a billed show that name no artist) is printed
- * per show.
+ * --held-tsv PATH writes the held list for reference (held.ts): every held
+ * file nothing accounts for, one line per client, artist, show and
+ * creative. Nothing is marked or proposed.
+ * --summary-tsv PATH writes per artist: rows, ads, files, held files.
+ * --compare-summary PATH (an earlier --summary-tsv) prints the artists that
+ * changed, before → after.
+ * --matches-tsv PATH writes, for the --artist names, every ad matched and
+ * how (ad name, ad set name, headliner): ad name, show, client, ad count.
+ * Also printed: each confirmed alias's pickup (the ads it adds), shows whose
+ * code or name names two artists (no headliner), list ids that aren't
+ * artists rows, and the general bucket (ads naming no one on a billed show
+ * with no headliner) per show.
  */
 import { readFileSync, writeFileSync } from "node:fs";
 
 import { createClient } from "@supabase/supabase-js";
 
 import { artistAnswer } from "../lib/artist-library/answer.ts";
+import { AD_NAME_ONLY, BRANDS } from "../lib/artist-library/aliases.ts";
 import {
+  adNamesIndex,
+  ambiguousHeadliners,
   deleteArtistAssets,
   loadBackfillInputs,
   loadStoredAssets,
@@ -46,7 +55,7 @@ import {
 } from "../lib/artist-library/backfill.ts";
 import { planShortcuts, type RankedRender } from "../lib/artist-library/library-tree.ts";
 import { fold } from "../lib/artist-library/match.ts";
-import { heldNoSourceFiles, suggestOwner, type HeldFile, type Suggestion } from "../lib/artist-library/suggest.ts";
+import { heldNoSourceFiles, type HeldFile } from "../lib/artist-library/held.ts";
 import { buildArtistView } from "../lib/artist-library/view.ts";
 import { costWords, RANKED_STAGES, STAGE_LABEL, type RankedStage } from "../lib/artist-library/words.ts";
 import { londonToday } from "../lib/drive/tree.ts";
@@ -59,7 +68,9 @@ const apply = flag("--apply");
 const only = values("--artist");
 const eventCode = values("--event")[0] ?? null;
 const heldTsv = values("--held-tsv")[0] ?? null;
-const compareHeld = values("--compare-held")[0] ?? null;
+const summaryTsv = values("--summary-tsv")[0] ?? null;
+const compareSummary = values("--compare-summary")[0] ?? null;
+const matchesTsv = values("--matches-tsv")[0] ?? null;
 if (apply && !only.length) {
   console.error("--apply needs --artist NAME: the all-artists run is a dry run only.");
   process.exit(1);
@@ -79,6 +90,10 @@ const started = Date.now();
 const inputs = await loadBackfillInputs(db);
 console.log(`read: ${inputs.artists.length} artists · ${inputs.events.length} events · ${inputs.ads.length} ads over ${inputs.insights.length} ad-days · ${inputs.clips.length} Lab clips · ${inputs.renders.length} Lab renders · ${((Date.now() - started) / 1000).toFixed(1)} s`);
 console.log(apply ? "mode: --apply (artist_assets only; no Drive, no Meta)" : "mode: dry run (nothing written)");
+const artistIds = new Set(inputs.artists.map((a) => a.id));
+for (const e of [...inputs.aliases.map((a) => ({ id: a.artistId, what: `alias ${a.alias}` })), ...BRANDS.map((b) => ({ id: b.artistId, what: `brand ${b.name}` })), ...AD_NAME_ONLY.map((b) => ({ id: b.artistId, what: `ad-name-only ${b.name}` }))]) {
+  if (!artistIds.has(e.id)) console.log(`WARNING: ${e.what} points at ${e.id}, which isn't an artists row`);
+}
 
 const wanted = only.length ? inputs.artists.filter((a) => only.some((n) => a.name === n || fold(a.name) === fold(n))) : inputs.artists;
 for (const n of only) if (!wanted.some((a) => fold(a.name) === fold(n))) console.log(`no artist called "${n}"`);
@@ -87,7 +102,9 @@ const clientName = new Map(inputs.clients.map((c) => [c.id, c.name]));
 const eventOf = eventCode ? inputs.events.find((e) => e.event_code === eventCode) ?? null : null;
 let totalRows = 0;
 const plans: ArtistPlan[] = [];
-const held: (HeldFile & Suggestion)[] = [];
+const held: HeldFile[] = [];
+const summary: string[] = ["artist\trows\tads\tfiles\theld_files"];
+const { headliners } = adNamesIndex(inputs);
 const eventById = new Map(inputs.events.map((e) => [e.id, e]));
 for (const artist of [...wanted].sort((a, b) => a.name.localeCompare(b.name))) {
   const plan = planArtistAssets(inputs, artist);
@@ -108,13 +125,16 @@ for (const artist of [...wanted].sort((a, b) => a.name.localeCompare(b.name))) {
   for (const r of plan.rows) byMatch[r.matched_by] = (byMatch[r.matched_by] ?? 0) + 1;
   const byField = { ad: 0, adset: 0 };
   for (const f of plan.namedIn.values()) byField[f] += 1;
-  for (const h of heldNoSourceFiles(plan.rows, artist.name)) {
-    const ev = h.eventId ? eventById.get(h.eventId) : undefined;
-    held.push({ ...h, ...suggestOwner(h, { venueNames: [ev?.venue_name] }) });
-  }
+  const heldFiles = heldNoSourceFiles(plan.rows, artist.name);
+  held.push(...heldFiles);
+  const adRows = plan.rows.filter((r) => r.meta_ad_id).length;
+  summary.push([artist.name, plan.rows.length, adRows, 0, heldFiles.length].join("\t"));
   const shareableFiles = view.groups.filter((g) => g.shareable).length;
+  summary[summary.length - 1] = [artist.name, plan.rows.length, adRows, view.groups.length, heldFiles.length].join("\t");
+  const headlined = inputs.events.filter((e) => headliners.get(e.id)?.artistId === artist.id).map((e) => e.event_code ?? e.id);
   console.log(`\n${artist.name} (${artist.id})`);
-  console.log(`  rows: ${plan.rows.length} · ${Object.entries(byKind).map(([k, n]) => `${k} ${n}`).join(" · ")} · matched by ${Object.entries(byMatch).map(([k, n]) => `${k} ${n}`).join(", ")} (named in the ad name ${byField.ad}, the ad set name ${byField.adset})`);
+  if (headlined.length) console.log(`  headliner of: ${headlined.join(", ")}`);
+  console.log(`  rows: ${plan.rows.length} · ads ${adRows} · ${Object.entries(byKind).map(([k, n]) => `${k} ${n}`).join(" · ")} · matched by ${Object.entries(byMatch).map(([k, n]) => `${k} ${n}`).join(", ")} (named in the ad name ${byField.ad}, the ad set name ${byField.adset})`);
   console.log(`  files: ${view.groups.length} · shareable ${shareableFiles} · held ${view.groups.length - shareableFiles} · skipped: archived ${plan.skipped.archived}, no client ${plan.skipped.noClient}`);
   console.log(`  shows with spend on the artist's ads: ${view.counted.shows} for ${view.counted.clients} clients`);
   for (const s of view.shows) {
@@ -149,7 +169,7 @@ console.log(`\n${plans.length} artists · ${totalRows} rows planned`);
 
 // ─── The general bucket: ads on a billed show that name no artist ──────────
 const general = planGeneral(inputs);
-console.log(`\ngeneral bucket (ads naming no artist, on shows with a bill): ${general.reduce((s, g) => s + g.ads, 0)} ads on ${general.length} shows`);
+console.log(`\ngeneral bucket (ads naming no artist, on billed shows with no headliner): ${general.reduce((s, g) => s + g.ads, 0)} ads on ${general.length} shows`);
 for (const g of general.slice(0, only.length ? general.length : 15)) {
   if (only.length && !plans.some((p) => inputs.links.some((l) => l.artist_id === p.artist.id && l.event_id === g.eventId))) continue;
   const top = [...g.files].sort((a, b) => b[1] - a[1]).slice(0, 4).map(([f, n]) => `${f} (${n})`).join(" · ");
@@ -174,63 +194,99 @@ if (only.length) {
     const byName = new Map<string, number>();
     for (const r of removals) byName.set(`${(r.name ?? r.asset_key).trim()} · ${r.kind}${r.shareable ? " · shareable" : ""}`, (byName.get(`${(r.name ?? r.asset_key).trim()} · ${r.kind}${r.shareable ? " · shareable" : ""}`) ?? 0) + 1);
     for (const [name, n] of [...byName].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))) console.log(`    − ${name} × ${n}`);
+    const added = new Map<string, number>();
+    for (const r of plan.rows.filter((row) => !storedKeys.has(row.asset_key))) {
+      const k = `${(r.name ?? r.asset_key).trim()} · ${r.kind} · ${r.matched_by}${r.shareable ? " · shareable" : ""}`;
+      added.set(k, (added.get(k) ?? 0) + 1);
+    }
+    for (const [name, n] of [...added].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))) console.log(`    + ${name} × ${n}`);
   }
 }
 
-// ─── Held files nothing accounts for, with a suggested owner (never written) ─
+// ─── Shows whose code or name names two artists: no headliner ─────────────
+const ambiguous = ambiguousHeadliners(inputs);
+const artistName = new Map(inputs.artists.map((a) => [a.id, a.name]));
+console.log(`\nshows whose code or name names two or more artists (no headliner): ${ambiguous.length}`);
+for (const a of ambiguous) console.log(`  ${a.code ?? a.eventId} · ${a.name ?? ""} · ${a.artistIds.map((id) => artistName.get(id) ?? id).join(" + ")}`);
+
+// ─── Each confirmed alias's pickup: the ad rows it adds ─────────────────────
+if (!only.length) {
+  console.log("\nconfirmed aliases: ad rows each adds (named, and through a headliner)");
+  for (const alias of inputs.aliases) {
+    const artist = inputs.artists.find((a) => a.id === alias.artistId);
+    if (!artist) continue;
+    const without = { ...inputs, aliases: inputs.aliases.filter((a) => a !== alias) };
+    const before = new Set(planArtistAssets(without, artist).rows.filter((r) => r.meta_ad_id).map((r) => r.asset_key));
+    const added = planArtistAssets(inputs, artist).rows.filter((r) => r.meta_ad_id && !before.has(r.asset_key));
+    const viaHeadliner = added.filter((r) => r.matched_by === "event_artists").length;
+    const shows = new Set(added.map((r) => r.source_event_id));
+    console.log(`  ${alias.alias} = ${artist.name}: +${added.length} ads (${added.length - viaHeadliner} named, ${viaHeadliner} through a headliner) on ${shows.size} shows`);
+  }
+}
+
+// ─── Every ad matched for the named artists, and how ───────────────────────
+if (matchesTsv && only.length) {
+  const lines = ["artist\tmatched_as\tcreative\tshow\tclient\tad_names\tads"];
+  for (const plan of plans) {
+    const by = new Map<string, { as: string; creative: string; show: string; client: string; names: Set<string>; ads: number }>();
+    for (const r of plan.rows.filter((row) => row.meta_ad_id)) {
+      const field = plan.namedIn.get(r.asset_key);
+      const as = r.matched_by === "event_artists" ? "headliner" : field === "adset" ? "ad set name" : r.matched_by === "lab" ? "lab" : r.drive_file_id ? "source map" : "ad name";
+      const name = (r.name ?? r.asset_key).trim();
+      const creative = name.split(" \u2014 ")[0]!.replace(/\s*[\u2013-]\s*Copy(?:\s+\d+)?$/i, "").trim();
+      const show = r.source_event_id ? eventById.get(r.source_event_id)?.event_code ?? "" : "";
+      const k = [as, creative, show].join("\u0000");
+      const have = by.get(k) ?? by.set(k, { as, creative, show, client: clientName.get(r.source_client_id ?? "") ?? "?", names: new Set(), ads: 0 }).get(k)!;
+      have.names.add(name);
+      have.ads += 1;
+    }
+    for (const m of [...by.values()].sort((a, b) => b.ads - a.ads || a.creative.localeCompare(b.creative))) {
+      lines.push([plan.artist.name, m.as, m.creative.replace(/\t/g, " "), m.show, m.client, m.names.size, m.ads].join("\t"));
+    }
+  }
+  writeFileSync(matchesTsv, `${lines.join("\n")}\n`);
+  console.log(`\nmatched ads for ${plans.map((p) => p.artist.name).join(", ")}: ${lines.length - 1} lines → ${matchesTsv}`);
+}
+
+// ─── The held list, for reference (nothing marked or proposed) ─────────────
 if (heldTsv) {
-  const order: Record<string, number> = { promoter: 0, artist: 1, unsure: 2 };
   const showOf = (h: HeldFile) => (h.eventId ? eventById.get(h.eventId)?.event_code ?? "" : "");
-  const sorted = [...held].sort(
-    (a, b) =>
-      (clientName.get(a.clientId ?? "") ?? "").localeCompare(clientName.get(b.clientId ?? "") ?? "") ||
-      order[a.owner]! - order[b.owner]! ||
-      a.artistName.localeCompare(b.artistName) ||
-      a.file.localeCompare(b.file),
-  );
-  // One line per client, owner, artist, show and creative: the ad names it ran as folded in.
-  const lines = ["client\tsuggested_owner\twhy\tartist\tcreative\tkind\tshow\tad_names\tads\tconfirm (promoter / artist / offpixel)"];
-  const byCreative = new Map<string, { h: HeldFile & Suggestion; names: number; ads: number }>();
-  for (const h of sorted) {
-    const k = [h.clientId, h.owner, h.artistId, h.eventId, h.creative].join("\u0000");
+  const byCreative = new Map<string, { h: HeldFile; names: number; ads: number }>();
+  for (const h of held) {
+    const k = [h.clientId, h.artistId, h.eventId, h.creative].join("\u0000");
     const have = byCreative.get(k);
     if (have) {
       have.names += 1;
       have.ads += h.ads;
     } else byCreative.set(k, { h, names: 1, ads: h.ads });
   }
-  for (const { h, names, ads } of byCreative.values()) {
-    lines.push([clientName.get(h.clientId ?? "") ?? "?", h.owner, h.why, h.artistName, h.creative.replace(/\t/g, " "), h.kind, showOf(h), names, ads, ""].join("\t"));
-  }
+  const rows = [...byCreative.values()].sort(
+    (a, b) =>
+      (clientName.get(a.h.clientId ?? "") ?? "").localeCompare(clientName.get(b.h.clientId ?? "") ?? "") ||
+      a.h.artistName.localeCompare(b.h.artistName) ||
+      showOf(a.h).localeCompare(showOf(b.h)) ||
+      a.h.creative.localeCompare(b.h.creative),
+  );
+  const lines = ["client\tartist\tcreative\tkind\tshow\tad_names\tads"];
+  for (const { h, names, ads } of rows) lines.push([clientName.get(h.clientId ?? "") ?? "?", h.artistName, h.creative.replace(/\t/g, " "), h.kind, showOf(h), names, ads].join("\t"));
   writeFileSync(heldTsv, `${lines.join("\n")}\n`);
-  console.log(`\nheld files nothing accounts for: ${held.length} ad names, ${byCreative.size} creatives (suggestions only; nothing written) → ${heldTsv}`);
-  const groups = new Map<string, { items: (HeldFile & Suggestion)[]; creatives: Set<string> }>();
-  for (const { h } of byCreative.values()) {
-    const k = `${clientName.get(h.clientId ?? "") ?? "?"}\u0000${h.owner}`;
-    const g = groups.get(k) ?? groups.set(k, { items: [], creatives: new Set() }).get(k)!;
-    g.items.push(h);
-    g.creatives.add(`${h.artistId}\u0000${h.eventId}\u0000${h.creative}`);
-  }
-  for (const [k, g] of groups) {
-    const [client, owner] = k.split("\u0000");
-    const whys = [...new Set(g.items.map((i) => i.why))].join("; ");
-    const examples = [...new Set(g.items.map((i) => i.creative))].slice(0, 5).join(" · ");
-    console.log(`  ${client} · ${owner}: ${g.creatives.size} creatives · ${new Set(g.items.map((i) => i.artistId)).size} artists · ${whys} · e.g. ${examples}`);
-  }
+  console.log(`\nheld list (this client only; for reference): ${held.length} ad names, ${byCreative.size} creatives → ${heldTsv}`);
 }
 
-if (compareHeld) {
-  const before = new Map<string, number>();
-  for (const line of readFileSync(compareHeld, "utf8").split("\n").slice(1)) {
-    const artist = line.split("\t")[0];
-    if (artist) before.set(artist, (before.get(artist) ?? 0) + 1);
+if (summaryTsv) writeFileSync(summaryTsv, `${summary.join("\n")}\n`);
+if (compareSummary) {
+  const parse = (text: string) => new Map(text.split("\n").slice(1).filter(Boolean).map((l) => { const [a, ...n] = l.split("\t"); return [a!, n.map(Number)] as const; }));
+  const before = parse(readFileSync(compareSummary, "utf8"));
+  const after = parse(summary.join("\n"));
+  const names = [...new Set([...before.keys(), ...after.keys()])].sort((a, b) => a.localeCompare(b));
+  const z = [0, 0, 0, 0];
+  const changed = names.filter((n) => JSON.stringify(before.get(n) ?? z) !== JSON.stringify(after.get(n) ?? z));
+  console.log(`\nartists that changed (${compareSummary} → this run): ${changed.length} · rows, ads, files, held files`);
+  for (const n of changed) {
+    const [r0, a0, f0, h0] = before.get(n) ?? z;
+    const [r1, a1, f1, h1] = after.get(n) ?? z;
+    console.log(`  ${n}: rows ${r0} → ${r1} · ads ${a0} → ${a1} · files ${f0} → ${f1} · held ${h0} → ${h1}`);
   }
-  const after = new Map<string, number>();
-  for (const h of held) after.set(h.artistName, (after.get(h.artistName) ?? 0) + 1);
-  const names = [...new Set([...before.keys(), ...after.keys()])].sort((a, b) => (before.get(b) ?? 0) - (before.get(a) ?? 0) || a.localeCompare(b));
-  const total = (m: Map<string, number>) => [...m.values()].reduce((s, n) => s + n, 0);
-  console.log(`\nheld files before → after (${compareHeld}): ${total(before)} → ${total(after)} across ${before.size} → ${after.size} artists`);
-  for (const n of names) console.log(`  ${n}: ${before.get(n) ?? 0} → ${after.get(n) ?? 0}`);
 }
 
 if (apply) {

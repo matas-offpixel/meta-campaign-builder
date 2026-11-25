@@ -10,8 +10,11 @@
  *     ads keep their own show and client;
  *   - ads matched to the artist (match.ts): a Lab render's ads take its
  *     rights; an ad whose ad name (or ad set name) names the artist is the
- *     client's (held). An ad naming no artist is its show's own (the
- *     general bucket, planGeneral), never every artist on the bill.
+ *     client's (held). An ad naming no artist is a general ad: it goes to
+ *     the show's headliner (the one artist the show's code or name names;
+ *     matched_by event_artists, held like any client ad) and to no one
+ *     else. A show naming none or two keeps it in the general bucket
+ *     (planGeneral). Supports never get general ads.
  * Spend and results are never stored: readers take them from
  * ad_daily_insights by meta_ad_id. Archived clients are left out.
  *
@@ -27,8 +30,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { isArchivedClientStatus } from "../db/client-status.ts";
 import { loadAllPaged } from "../db/paged-read.ts";
 import { loadAdContextIndex, resolveAdContext, type AdContextIndex } from "../learning/ad-facts.ts";
-import { ALIASES, type AliasEntry } from "./aliases.ts";
-import { artistsOfAd, buildRoster, fold, isClipIdentity, kindFromAd, type MatchedBy, type NamedField, type Roster } from "./match.ts";
+import { AD_NAME_ONLY, ALIASES, BRANDS, OTHER_ACTS, type AliasEntry, type NameMark, type OtherAct } from "./aliases.ts";
+import { artistsOfAd, buildRoster, fold, headlinerOf, isClipIdentity, kindFromAd, type MatchedBy, type NamedField, type Roster } from "./match.ts";
 import { clientAdRights, clipRights, renderRights, rightsProblem, type Rights } from "./rights.ts";
 import type { AssetRow, EventLite, InsightRow } from "./view.ts";
 import { EVENT_LITE_COLUMNS } from "./load.ts";
@@ -75,9 +78,14 @@ export interface BackfillInputs {
   context: AdContextIndex;
   /** Confirmed sources (source-map.ts). */
   sources: readonly SourceEntry[];
-  /** Recorded aliases (aliases.ts). */
+  /** Confirmed aliases (aliases.ts ALIASES; never the proposals list). */
   aliases: readonly AliasEntry[];
+  /** Brands, ad-name-only names and other acts (aliases.ts). */
+  marks: { brands: readonly NameMark[]; adNameOnly: readonly NameMark[]; otherActs: readonly OtherAct[] };
 }
+
+/** The marks the loader uses: aliases.ts as checked in. */
+export const NAME_MARKS: BackfillInputs["marks"] = { brands: BRANDS, adNameOnly: AD_NAME_ONLY, otherActs: OTHER_ACTS };
 
 export interface ArtistPlan {
   artist: { id: string; name: string };
@@ -94,15 +102,31 @@ export function artistNames(inputs: Pick<BackfillInputs, "aliases" | "labArtists
   return [...new Map(out.map((n) => [fold(n), n])).values()];
 }
 
-const rosterCache = new WeakMap<object, { roster: Roster; byAd: Map<string, { artistIds: string[]; field: NamedField | null }> }>();
+interface NamesIndex {
+  roster: Roster;
+  byAd: Map<string, { artistIds: string[]; field: NamedField | null }>;
+  /** Each show's headliner, or the artists its code or name names when there are two or more. */
+  headliners: Map<string, { artistId: string | null; ambiguous: string[] }>;
+}
+const rosterCache = new WeakMap<object, NamesIndex>();
 
-/** The roster and who every ad names, worked out once per inputs. */
-export function adNamesIndex(inputs: BackfillInputs) {
+/**
+ * The roster (artists less brands, with their confirmed aliases and Lab
+ * names; ad-name-only names marked; other acts with no row), who every ad
+ * names, and every show's headliner. Worked out once per inputs.
+ */
+export function adNamesIndex(inputs: BackfillInputs): NamesIndex {
   let hit = rosterCache.get(inputs);
   if (!hit) {
-    const roster = buildRoster(inputs.artists.map((a) => ({ id: a.id, names: artistNames(inputs, a) })));
+    const brands = new Set(inputs.marks.brands.map((b) => b.artistId));
+    const adNameOnly = new Set(inputs.marks.adNameOnly.map((b) => b.artistId));
+    const roster = buildRoster([
+      ...inputs.artists.filter((a) => !brands.has(a.id)).map((a) => ({ id: a.id, names: artistNames(inputs, a), adNameOnly: adNameOnly.has(a.id) })),
+      ...inputs.marks.otherActs.map((o) => ({ id: `act:${fold(o.name).trim()}`, names: [o.name], noRow: true })),
+    ]);
     const byAd = new Map(inputs.ads.map((ad) => [ad.meta_ad_id, artistsOfAd(ad, roster)]));
-    hit = { roster, byAd };
+    const headliners = new Map(inputs.events.map((e) => [e.id, headlinerOf(e, roster)]));
+    hit = { roster, byAd, headliners };
     rosterCache.set(inputs, hit);
   }
   return hit;
@@ -247,7 +271,7 @@ export function planArtistAssets(inputs: BackfillInputs, artist: { id: string; n
   const renderOfAd = labAdRenders(inputs);
   const launched = new Map(inputs.launchedAds.map((a) => [a.meta_ad_id, a]));
   const linkedCampaigns = campaignEvents(inputs.events);
-  const { byAd } = adNamesIndex(inputs);
+  const { byAd, headliners } = adNamesIndex(inputs);
   const clientNameOf = new Map(inputs.clients.map((c) => [c.id, c.name]));
   const names = artistNames(inputs, artist);
   for (const ad of inputs.ads) {
@@ -273,7 +297,7 @@ export function planArtistAssets(inputs: BackfillInputs, artist: { id: string; n
       continue;
     }
     const named = byAd.get(ad.meta_ad_id);
-    const how: MatchedBy | null = named?.artistIds.includes(artist.id) ? "ad_name" : null;
+    const byName: MatchedBy | null = named?.artistIds.includes(artist.id) ? "ad_name" : null;
     // An ad that ran a confirmed file: the footage's rights, the ad's own show and client.
     const code = context.eventId ? eventById.get(context.eventId)?.event_code ?? null : null;
     const ranFile = sourceOfAd(sources, ad, code, context.clientId ? clientNameOf.get(context.clientId) ?? null : null, () => names);
@@ -288,13 +312,15 @@ export function planArtistAssets(inputs: BackfillInputs, artist: { id: string; n
         meta_ad_id: ad.meta_ad_id,
         launched_ad_id: ledger?.id ?? null,
         material_at: ad.last_date,
-        matched_by: how ?? "drive",
+        matched_by: byName ?? "drive",
         ...withRights({ ownerKind: ranFile.ownerKind, shareable: true, heldReason: null, clientId: context.clientId }),
       });
       continue;
     }
+    // A general ad (naming no one) is the headliner's, and only theirs.
+    const how: MatchedBy | null = byName ?? (!named?.artistIds.length && context.eventId && headliners.get(context.eventId)?.artistId === artist.id ? "event_artists" : null);
     if (!how) continue;
-    if (named?.field) namedIn.set(`ad:${ad.meta_ad_id}`, named.field);
+    if (byName && named?.field) namedIn.set(`ad:${ad.meta_ad_id}`, named.field);
     const clientId = context.clientId;
     const kind = kindFromAd(ledger?.media_type, ad.ad_name);
     keep({
@@ -326,9 +352,10 @@ export interface GeneralBucket {
 }
 
 /**
- * The general bucket per show: every ad on a show with a bill that names no
- * artist in its ad or ad set name. Before this they went to every artist on
- * the bill. Not stored (artist_assets is per artist): the dry run prints it.
+ * The general bucket per show: every ad on a show with a bill and no
+ * headliner that names no artist (nor another act) in its ad or ad set
+ * name. A show with a headliner gives these to the headliner instead. Not
+ * stored (artist_assets is per artist): the dry run prints it.
  */
 export function planGeneral(inputs: BackfillInputs): GeneralBucket[] {
   const archived = new Set(inputs.clients.filter((c) => isArchivedClientStatus(c.status)).map((c) => c.id));
@@ -337,7 +364,7 @@ export function planGeneral(inputs: BackfillInputs): GeneralBucket[] {
   for (const l of inputs.links) bill.set(l.event_id, (bill.get(l.event_id) ?? 0) + 1);
   const renderOfAd = labAdRenders(inputs);
   const linkedCampaigns = campaignEvents(inputs.events);
-  const { byAd } = adNamesIndex(inputs);
+  const { byAd, headliners } = adNamesIndex(inputs);
   const clientNameOf = new Map(inputs.clients.map((c) => [c.id, c.name]));
   const artistById = new Map(inputs.artists.map((a) => [a.id, a]));
   const namesOf = (id: string) => (artistById.get(id) ? artistNames(inputs, artistById.get(id)!) : []);
@@ -345,7 +372,7 @@ export function planGeneral(inputs: BackfillInputs): GeneralBucket[] {
   for (const ad of inputs.ads) {
     if (renderOfAd.has(ad.meta_ad_id) || byAd.get(ad.meta_ad_id)?.artistIds.length) continue;
     const context = adEvent(ad, inputs.context, linkedCampaigns, eventById);
-    if (!context.eventId || !bill.has(context.eventId)) continue;
+    if (!context.eventId || !bill.has(context.eventId) || headliners.get(context.eventId)?.artistId) continue;
     if (context.clientId && archived.has(context.clientId)) continue;
     const code = eventById.get(context.eventId)?.event_code ?? null;
     if (sourceOfAd(inputs.sources, ad, code, context.clientId ? clientNameOf.get(context.clientId) ?? null : null, namesOf)) continue;
@@ -356,6 +383,14 @@ export function planGeneral(inputs: BackfillInputs): GeneralBucket[] {
     b.files.set(file, (b.files.get(file) ?? 0) + 1);
   }
   return [...out.values()].sort((a, b) => b.ads - a.ads || String(a.code).localeCompare(String(b.code)));
+}
+
+/** Shows whose code or name names two or more artists: no headliner, their general ads stay general. */
+export function ambiguousHeadliners(inputs: BackfillInputs): { eventId: string; code: string | null; name: string | null; artistIds: string[] }[] {
+  const { headliners } = adNamesIndex(inputs);
+  return inputs.events
+    .filter((e) => (headliners.get(e.id)?.ambiguous.length ?? 0) > 0)
+    .map((e) => ({ eventId: e.id, code: e.event_code, name: e.name, artistIds: headliners.get(e.id)!.ambiguous }));
 }
 
 /** A stored artist_assets row, as much as a removal needs. */
@@ -504,6 +539,7 @@ export async function loadBackfillInputs(db: Db): Promise<BackfillInputs> {
     context,
     sources: SOURCE_MAP,
     aliases: ALIASES,
+    marks: NAME_MARKS,
   };
 }
 

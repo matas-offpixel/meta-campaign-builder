@@ -1,11 +1,25 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { ALIASES, type AliasEntry } from "../aliases.ts";
-import { adEvent, campaignEvents, planArtistAssets, planGeneral, planRemovals, summariseAds, type BackfillInputs, type StoredAsset } from "../backfill.ts";
-import { artistsNamedIn, artistsOfAd, buildRoster, codeInName, hasFullName, isClipIdentity, kindFromAd, rankedStageOf } from "../match.ts";
+import { readFileSync } from "node:fs";
+
+import { AD_NAME_ONLY, ALIASES, BRANDS, OTHER_ACTS, PROPOSED_ALIASES, type AliasEntry } from "../aliases.ts";
+import {
+  adNamesIndex,
+  adEvent,
+  ambiguousHeadliners,
+  campaignEvents,
+  NAME_MARKS,
+  planArtistAssets,
+  planGeneral,
+  planRemovals,
+  summariseAds,
+  type BackfillInputs,
+  type StoredAsset,
+} from "../backfill.ts";
+import { creativeName, heldNoSourceFiles } from "../held.ts";
+import { artistsNamedIn, artistsOfAd, buildRoster, codeInName, hasFullName, headlinerOf, isClipIdentity, kindFromAd, rankedStageOf } from "../match.ts";
 import { SOURCE_MAP, type SourceEntry } from "../source-map.ts";
-import { creativeName, heldNoSourceFiles, suggestOwner } from "../suggest.ts";
 import { buildArtistView, forEvent } from "../view.ts";
 
 const ENZO = { id: "lib-enzo", name: "Enzo Siragusa" };
@@ -121,6 +135,7 @@ function inputs(sources: readonly SourceEntry[] = [], aliases: readonly AliasEnt
     { ...day("ad-luke-set", "[P26-BDAY] SIGNUP", 30, 15), ad_name: "Carousel 3", adset_name: "Lineup Push - Luke Dean" },
     { ...day("ad-banana", "Enzo Siragusa Interest Targeting (RA)", 10, 0), ad_name: "Dr Banana", adset_name: "Enzo Siragusa Interest Targeting (RA)" },
     { ...day("ad-lili", "Enzo Siragusa Interest Targeting (RA)", 10, 0), ad_name: "LILI", adset_name: "Enzo Siragusa Interest Targeting (RA)" },
+    { ...day("ad-halloween", "Enzo Siragusa Engagers (Skiddle)", 40, 0, 3), ad_name: "Halloween Video", adset_name: "Enzo Siragusa Engagers (Skiddle)" },
   ];
   return {
     artists: [ENZO, { id: "lib-luke", name: "Luke Dean" }, { id: "lib-banana", name: "Dr Banana" }],
@@ -154,11 +169,16 @@ function inputs(sources: readonly SourceEntry[] = [], aliases: readonly AliasEnt
     launches: [{ round_ad_id: "ra1", meta_ad_id: "ad-lab" }, { round_ad_id: "ra2", meta_ad_id: "ad-mixed" }],
     launchedAds: [],
     aliases,
+    marks: { brands: [], adNameOnly: [], otherActs: OTHER_ACTS.filter((o) => o.name === "LILI") },
     ads: summariseAds(days),
     insights: days,
     sources,
     context: {
-      launchedAds: new Map([["ad-banana", { clientId: "c-electric", eventId: "e-nx" }], ["ad-lili", { clientId: "c-electric", eventId: "e-nx" }]]),
+      launchedAds: new Map([
+        ["ad-banana", { clientId: "c-electric", eventId: "e-nx" }],
+        ["ad-lili", { clientId: "c-electric", eventId: "e-nx" }],
+        ["ad-halloween", { clientId: "c-electric", eventId: "e-nx" }],
+      ]),
       launchedAdSets: new Map(),
       codedEvents: [
         { eventId: "e-bday", clientId: "c-puzzle", eventCode: "P26-BDAY", adAccountId: null },
@@ -238,15 +258,117 @@ describe("shared shows (Matas, 25 Nov)", () => {
   it("an ad naming another act in an ad set named for the headliner is the act's", () => {
     const i = inputs();
     const enzo = new Set(planArtistAssets(i, ENZO).rows.map((r) => r.asset_key));
-    assert.ok(!enzo.has("ad:ad-banana") && !enzo.has("ad:ad-lili"));
+    assert.ok(!enzo.has("ad:ad-banana"));
     assert.ok(planArtistAssets(i, { id: "lib-banana", name: "Dr Banana" }).rows.some((r) => r.asset_key === "ad:ad-banana"));
-    assert.equal(planGeneral(i).find((g) => g.code === "NX26-ENZO")!.files.get("LILI"), 1, "LILI names no one on the roster");
+  });
+});
+
+describe("the headliner rule (Matas, 25 Nov)", () => {
+  it("a show's general ads go to the artist its code or name names, as event_artists, held", () => {
+    const i = inputs();
+    assert.equal(adNamesIndex(i).headliners.get("e-nx")!.artistId, ENZO.id, "NX26-ENZO / \"Enzo\" through the confirmed alias");
+    const row = planArtistAssets(i, ENZO).rows.find((r) => r.asset_key === "ad:ad-halloween")!;
+    assert.deepEqual([row.matched_by, row.owner_kind, row.shareable, row.held_reason, row.source_client_id], ["event_artists", "promoter", false, "filmed", "c-electric"]);
+    assert.ok(!planGeneral(i).some((g) => g.code === "NX26-ENZO"), "a headlined show has no general bucket");
+  });
+
+  it("a support act on the same show never gets its general ads", () => {
+    const i = inputs();
+    i.links = [...i.links, { event_id: "e-nx", artist_id: "lib-luke" }];
+    assert.ok(!planArtistAssets(i, { id: "lib-luke", name: "Luke Dean" }).rows.some((r) => r.asset_key === "ad:ad-halloween"));
+    assert.ok(planArtistAssets(i, ENZO).rows.some((r) => r.asset_key === "ad:ad-halloween"));
+  });
+
+  it("a show whose code or name names two artists gives its general ads to no one", () => {
+    const i = inputs();
+    i.events = i.events.map((e) => (e.id === "e-nx" ? { ...e, name: "Enzo Siragusa b2b Luke Dean" } : e));
+    assert.deepEqual(ambiguousHeadliners(i).map((a) => [a.code, a.artistIds]), [["NX26-ENZO", ["lib-enzo", "lib-luke"]]]);
+    for (const artist of [ENZO, { id: "lib-luke", name: "Luke Dean" }]) assert.ok(!planArtistAssets(i, artist).rows.some((r) => r.asset_key === "ad:ad-halloween"), artist.name);
+    assert.equal(planGeneral(i).find((g) => g.code === "NX26-ENZO")!.files.get("Halloween Video"), 1);
+  });
+
+  it("without the confirmed alias NX26-ENZO names no one, so it has no headliner", () => {
+    const i = inputs([], []);
+    assert.equal(adNamesIndex(i).headliners.get("e-nx")!.artistId, null, "\"NX26-ENZO\" and \"Enzo\" hold only the alias");
+    assert.ok(!planArtistAssets(i, ENZO).rows.some((r) => r.asset_key === "ad:ad-halloween"));
+    const named = { ...i, events: i.events.map((e) => (e.id === "e-nx" ? { ...e, name: "Enzo Siragusa: Halloween" } : e)) };
+    assert.equal(adNamesIndex(named).headliners.get("e-nx")!.artistId, ENZO.id, "the full name in the show's name does");
+  });
+
+  it("another act named by Matas (LILI) is never a general ad: not the headliner's, not anyone's", () => {
+    const i = inputs();
+    for (const artist of i.artists) assert.ok(!planArtistAssets(i, artist).rows.some((r) => r.asset_key === "ad:ad-lili"), artist.name);
+    const unheadlined = { ...i, events: i.events.map((e) => (e.id === "e-nx" ? { ...e, event_code: "NX26-X", name: "Halloween" } : e)) };
+    const bucket = planGeneral(unheadlined).find((g) => g.code === "NX26-X")!;
+    assert.equal(bucket.files.get("Halloween Video"), 1, "with no headliner the general ad is general");
+    assert.ok(!bucket.files.has("LILI"), "but LILI is another act's, not general");
+    assert.deepEqual(OTHER_ACTS.map((o) => o.name), ["LILI", "PACH."]);
   });
 
   it("without the recorded alias, 'Enzo - …' ads are the show's own", () => {
     const keys = new Set(planArtistAssets(inputs([], []), ENZO).rows.map((r) => r.asset_key));
     assert.ok(!keys.has("ad:ad-lineup") && !keys.has("ad:ad-map"));
     assert.ok(keys.has("ad:ad-ugc"), "the full name still matches");
+  });
+});
+
+describe("the name lists (aliases.ts)", () => {
+  const roster = buildRoster([
+    { id: "adam", names: ["Adam Ten", "AT"] },
+    { id: "jamie", names: ["Jamie Jones", "JJ"] },
+    { id: "mall", names: ["Mall Grab", "MG"] },
+    { id: "eed", names: ["East End Dubs", "EED"] },
+  ]);
+
+  it("short aliases match only as whole words", () => {
+    assert.deepEqual(artistsNamedIn("AT - Static", roster), ["adam"]);
+    assert.deepEqual(artistsNamedIn("Static", roster), []);
+    assert.deepEqual(artistsNamedIn("Late Entry", roster), []);
+    assert.deepEqual(artistsNamedIn("JJones teaser", roster), []);
+    assert.deepEqual(artistsNamedIn("JJones b2b Jamie Jones", roster), ["jamie"]);
+    assert.deepEqual(artistsNamedIn("Artwork - MG", roster), ["mall"]);
+    assert.deepEqual(artistsNamedIn("Image gallery", roster), []);
+    assert.deepEqual(artistsNamedIn("EED Static - 4", roster), ["eed"]);
+    assert.deepEqual(artistsNamedIn("Seeds", roster), []);
+  });
+
+  it("the six confirmed aliases and Enzo are Matas's, 25 Nov; HMD is in neither list", () => {
+    assert.deepEqual(ALIASES.map((a) => a.alias), ["Enzo", "MG", "CDW", "JJ", "AT", "EED", "PB69"]);
+    for (const a of ALIASES) assert.deepEqual([a.confirmedBy, a.confirmedOn], ["Matas", "2026-11-25"], a.alias);
+    assert.equal(new Set(ALIASES.map((a) => a.artistId)).size, ALIASES.length);
+    assert.ok(![...ALIASES, ...PROPOSED_ALIASES].some((a) => a.alias === "HMD"));
+  });
+
+  it("the matcher never reads PROPOSED_ALIASES", () => {
+    for (const file of ["../backfill.ts", "../match.ts", "../load.ts", "../view.ts", "../answer.ts"]) {
+      assert.ok(!readFileSync(new URL(file, import.meta.url), "utf8").includes("PROPOSED_ALIASES"), file);
+    }
+    const proposed: AliasEntry = { artistId: ENZO.id, alias: "Siragusa", confirmedBy: "-", confirmedOn: "-", note: "proposal" };
+    const i = inputs();
+    i.ads = [...i.ads, { ...i.ads[0]!, meta_ad_id: "ad-surname", ad_name: "Siragusa teaser" }];
+    assert.ok(!planArtistAssets(i, ENZO).rows.some((r) => r.asset_key === "ad:ad-surname"), "a name that isn't in ALIASES doesn't match");
+    assert.ok(planArtistAssets({ ...i, aliases: [...i.aliases, proposed] }, ENZO).rows.some((r) => r.asset_key === "ad:ad-surname"), "once confirmed it does");
+    assert.deepEqual(NAME_MARKS, { brands: BRANDS, adNameOnly: AD_NAME_ONLY, otherActs: OTHER_ACTS });
+  });
+
+  it("a brand never matches as an artist: not by ad name, not as a headliner", () => {
+    const i = inputs();
+    i.artists = [...i.artists, { id: "lib-glitter", name: "Glitterbox" }];
+    i.marks = { ...i.marks, brands: [{ artistId: "lib-glitter", name: "Glitterbox", markedBy: "Matas", markedOn: "2026-11-25", note: "brand" }] };
+    i.ads = [...i.ads, { ...i.ads[0]!, meta_ad_id: "ad-glitter", ad_name: "Glitterbox - Static" }];
+    i.events = i.events.map((e) => (e.id === "e-nx" ? { ...e, event_code: "GB26-IBIZA", name: "Glitterbox Ibiza" } : e));
+    assert.equal(planArtistAssets(i, { id: "lib-glitter", name: "Glitterbox" }).rows.length, 0);
+    assert.equal(adNamesIndex(i).headliners.get("e-nx")!.artistId, null);
+    assert.deepEqual(BRANDS.map((b) => b.name), ["Glitterbox", "Innervisions", "Appetite"]);
+  });
+
+  it("an ad-name-only name (Hard, Bridge, Fragrance) matches the ad name as a whole word only", () => {
+    const r = buildRoster([{ id: "hard", names: ["Hard"], adNameOnly: true }]);
+    assert.deepEqual(artistsOfAd({ ad_name: "Hard - Static", adset_name: null, campaign_name: "x" }, r).artistIds, ["hard"]);
+    assert.deepEqual(artistsOfAd({ ad_name: "Hardcore teaser", adset_name: null, campaign_name: "x" }, r).artistIds, []);
+    assert.deepEqual(artistsOfAd({ ad_name: "Carousel", adset_name: "Hard techno fans", campaign_name: "x" }, r).artistIds, [], "never by the ad set name");
+    assert.equal(headlinerOf({ event_code: "HARD26", name: "Hard Night" }, r).artistId, null, "never as a headliner");
+    assert.deepEqual(AD_NAME_ONLY.map((b) => b.name), ["Hard", "Bridge", "Fragrance"]);
   });
 });
 
@@ -276,18 +398,14 @@ describe("re-applying for an artist (planRemovals)", () => {
   });
 });
 
-describe("owner suggestions (proposals only)", () => {
-  it("statics and crowd or venue videos read promoter; posts, IG ids and press kits read artist; the rest unsure", () => {
-    assert.equal(suggestOwner({ file: "ENZO- TICKETING TIERS ARTWORK", kind: "static" }).owner, "promoter");
-    assert.equal(suggestOwner({ file: "Puzzle crowd recap", kind: "clip" }).owner, "promoter");
-    assert.equal(suggestOwner({ file: "Live at Circuit & Engine Rooms", kind: "clip" }, { venueNames: ["Circuit & Engine Rooms"] }).owner, "promoter");
-    assert.equal(suggestOwner({ file: "Enzo IG post 3", kind: "clip" }).owner, "artist");
-    assert.equal(suggestOwner({ file: "IW Feed Post - Countdown Promo", kind: "clip" }).owner, "unsure", "a feed post may be the promoter's feed");
-    assert.equal(suggestOwner({ file: "IV Location Reel - FEED", kind: "clip" }).owner, "unsure", "a bare reel isn't the artist's account");
-    assert.equal(suggestOwner({ file: "17987037296972560.mp4", kind: "clip" }).owner, "artist");
-    assert.equal(suggestOwner({ file: "Enzo press shot", kind: "static" }).owner, "artist", "a press shot isn't the client's artwork");
-    assert.equal(suggestOwner({ file: "Puzzle - Enzo Vid CTA 1", kind: "clip" }).owner, "unsure");
-    assert.equal(suggestOwner({ file: "Puzzle - Enzo Vid 2 - 12PM Thursday", kind: "clip" }, { venueNames: ["Circuit & Engine Rooms"] }).owner, "unsure", "the client's name in an edit isn't the venue");
+describe("the held list (for reference)", () => {
+  it("held files are exactly the plan's held ad rows nothing accounts for; the plan is unchanged", () => {
+    const plan = planArtistAssets(inputs(), ENZO);
+    const before = JSON.stringify(plan.rows);
+    const files = heldNoSourceFiles(plan.rows, ENZO.name);
+    assert.ok(files.length > 0);
+    for (const f of files) assert.ok(plan.rows.filter((r) => r.name === f.file && r.source_event_id === f.eventId).every((r) => !r.shareable), f.file);
+    assert.equal(JSON.stringify(plan.rows), before);
   });
 
   it("one creative is one line: bulk-attach tails and copies fold", () => {
@@ -295,22 +413,6 @@ describe("owner suggestions (proposals only)", () => {
     assert.equal(creativeName("Arthi Artist Card Motion \u2014 Garage Audience 2"), "Arthi Artist Card Motion");
     assert.equal(creativeName("Adam Promo Vid -Cutdown 2 \u2013 Copy 2"), "Adam Promo Vid -Cutdown 2");
     assert.equal(creativeName("Enzo - UGC 1 \u2013 Copy \u2013 Copy"), "Enzo - UGC 1");
-    assert.equal(creativeName("Lineup - 2 for 1"), "Lineup - 2 for 1");
-  });
-
-  it("a suggestion never marks anything shareable or changes an owner: the plan is the same, every held file stays held", () => {
-    const plan = planArtistAssets(inputs(), ENZO);
-    const before = JSON.stringify(plan.rows);
-    const files = heldNoSourceFiles(plan.rows, ENZO.name);
-    assert.ok(files.length > 0);
-    for (const f of files) {
-      const s = suggestOwner(f);
-      assert.deepEqual(Object.keys(s).sort(), ["owner", "why"]);
-      const rows = plan.rows.filter((r) => r.name === f.file && r.source_event_id === f.eventId);
-      assert.ok(rows.every((r) => !r.shareable && r.owner_kind === "promoter"), f.file);
-    }
-    assert.equal(JSON.stringify(plan.rows), before);
-    assert.ok(!files.some((f) => plan.rows.some((r) => r.name === f.file && r.shareable)), "a shareable row is never in the held list");
   });
 });
 
