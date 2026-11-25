@@ -197,13 +197,28 @@ export function driveIdFromLink(value: string): string | null {
 
 export type TrackRow = CandidateTrack & { storagePath: string | null; beatGrid: (BeatGrid & { dropS: number }) | null };
 
+/**
+ * The order tracks are offered in, and the one taken when nothing is picked:
+ * the lineup's billing order, then a drop set by hand (operator) before the
+ * Lab's own, then no drop; then the oldest file first, then the id, so the
+ * same rows always give the same track.
+ */
+export function compareTracks(order: ReadonlyMap<string, number>) {
+  const dropRank = (r: Row) => (num(r.drop_s) == null ? 2 : text(r, "drop_source") === "operator" ? 0 : 1);
+  return (a: Row, b: Row): number =>
+    (order.get(text(a, "artist_id")) ?? 99) - (order.get(text(b, "artist_id")) ?? 99) ||
+    dropRank(a) - dropRank(b) ||
+    text(a, "created_at").localeCompare(text(b, "created_at")) ||
+    text(a, "id").localeCompare(text(b, "id"));
+}
+
 export async function loadTracks(db: Db, eventId: string, lineup: readonly LineupEntry[]): Promise<TrackRow[]> {
-  const rows = await rowsEq(db, "creative_lab_audio_files", "id, artist_id, drive_file_name, duration_s, storage_path, unusable_reason, drop_s, drop_source, rights_flag, spotify_title, beat_grid", "event_id", eventId);
+  const rows = await rowsEq(db, "creative_lab_audio_files", "id, artist_id, drive_file_name, duration_s, storage_path, unusable_reason, drop_s, drop_source, rights_flag, spotify_title, beat_grid, created_at", "event_id", eventId);
   const order = new Map(lineup.map((a, i) => [a.libraryArtistId, i]));
   const names = new Map(lineup.map((a) => [a.libraryArtistId, a.name]));
   return rows
     .filter((r) => !text(r, "unusable_reason") && text(r, "storage_path"))
-    .sort((a, b) => (order.get(text(a, "artist_id")) ?? 99) - (order.get(text(b, "artist_id")) ?? 99))
+    .sort(compareTracks(order))
     .map((r) => {
       const dropS = num(r.drop_s);
       const cached = r.beat_grid as (BeatGrid & { dropS: number }) | null;
