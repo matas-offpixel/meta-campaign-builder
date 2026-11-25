@@ -1,7 +1,7 @@
 /**
  * Picked videos are this draft's, for this event (25 Nov ruling): the
- * template never stores them, and a pick for another event is never used,
- * including on a draft Replicate copied to another event.
+ * template never stores them, Replicate's copy never carries them, and a
+ * pick for another event is never used.
  */
 
 import assert from "node:assert/strict";
@@ -83,15 +83,15 @@ describe("Replicate", () => {
   const TARGET_EVENT: ReplicateEvent = { ...SOURCE_EVENT, id: "event-other", event_code: "NX27-OTHER", name: "Other" };
   const VENUE: ReplicateVenue = { id: "venue-nx", name: "NX Newcastle", meta_ad_account_id: "act_606252931141334", meta_pixel_id: "645185673672763" };
 
-  it("copies the draft's picks as data, and the copy's event never uses them", () => {
+  it("the copy carries no picks", () => {
     const source = createDefaultDraft();
     source.settings = { ...source.settings, eventId: RC_E_EVENT.eventId, campaignCode: RC_E_EVENT.code, campaignName: `[${RC_E_EVENT.code}] PURCHASE` };
     source.templateVideoPicks = RC_E_PICKS;
     const { draft } = replicateDraft(source, { event: TARGET_EVENT, venue: VENUE }, { sourceEvent: SOURCE_EVENT, now: new Date("2026-11-26T09:00:00Z"), id: "copy" });
-    // Replicate spreads the source draft, so the field is copied (reported, not changed here).
-    assert.deepEqual(draft.templateVideoPicks, RC_E_PICKS);
-    const event = { eventId: draft.settings.eventId ?? "", code: draft.settings.campaignCode };
-    assert.equal(event.code, "NX27-OTHER");
-    assert.equal(pickFor(draft.templateVideoPicks, "House & disco", video, event), null);
+    assert.ok(!("templateVideoPicks" in draft), "dropped, not emptied");
+    assert.ok(!JSON.stringify(draft).includes("1200000000000001"));
+    assert.deepEqual(source.templateVideoPicks, RC_E_PICKS, "the source draft keeps its own");
+    // And were one ever copied, the copy's event wouldn't use it.
+    assert.equal(pickFor(RC_E_PICKS, "House & disco", video, { eventId: draft.settings.eventId ?? "", code: draft.settings.campaignCode }), null);
   });
 });
