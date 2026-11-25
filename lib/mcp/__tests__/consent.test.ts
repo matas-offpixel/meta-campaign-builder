@@ -288,3 +288,49 @@ test("allowing an upgrade leaves one live grant for the connection: the read gra
   assert.equal(live.filter((g) => g.client_id === other.clientId).length, 1);
   assert.ok((await checkBearer(`Bearer ${other.tokens.access_token}`, urls, deps)).ok);
 });
+
+test("an upgrade whose revoke of the read grant fails is undone: 500, the new grant revoked, the read grant still the one live grant", async () => {
+  const state = { clients: new Map(), grants: new Map(), codes: new Map(), tokens: new Map() };
+  const base = createMemoryStore(state as never);
+  let failRevokeOf: string | null = null;
+  const store = {
+    ...base,
+    async revokeGrant(id: string, reason: never, nowIso: string) {
+      if (id === failRevokeOf) throw new Error("revoke grant: connection reset");
+      return base.revokeGrant(id, reason, nowIso);
+    },
+  };
+  const deps = { ...makeDeps(), store };
+  const { clientId, tokens: old } = await connect(deps);
+  const oldGrantId = [...state.grants.values()].find((g) => g.client_id === clientId)!.id;
+  failRevokeOf = oldGrantId;
+
+  const params = {
+    response_type: "code",
+    client_id: clientId,
+    redirect_uri: CLAUDE_CALLBACK,
+    code_challenge: pkceChallengeFor(VERIFIER),
+    code_challenge_method: "S256",
+    state: "up9rade",
+    scope: "mcp:read mcp:draft",
+    resource: urls.resource,
+  };
+  const out = await decideConsentRequest(params, "allow", OPERATOR, urls, deps);
+  assert.ok("redirectTo" in out);
+  const code = new URL(out.redirectTo).searchParams.get("code")!;
+  const tok = await exchangeToken(
+    new URLSearchParams({ grant_type: "authorization_code", code, code_verifier: VERIFIER, client_id: clientId, redirect_uri: CLAUDE_CALLBACK, resource: urls.resource }),
+    urls,
+    deps,
+  );
+  assert.equal(tok.status, 500);
+  assert.equal((tok.body as { error: string }).error, "server_error");
+  assert.equal("access_token" in tok.body, false, "no token leaves on a failed exchange");
+
+  const mine = (await deps.store.listLiveGrants({ userId: OPERATOR })).filter((g) => g.client_id === clientId);
+  assert.equal(mine.length, 1, "never two live grants");
+  assert.equal(mine[0]!.id, oldGrantId, "the read grant is the one left");
+  const newGrant = [...state.grants.values()].find((g) => g.client_id === clientId && g.id !== oldGrantId)!;
+  assert.ok(newGrant.revoked_at, "the new grant is revoked");
+  assert.ok((await checkBearer(`Bearer ${old.access_token}`, urls, deps)).ok, "the read token still reads");
+});

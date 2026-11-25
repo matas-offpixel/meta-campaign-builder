@@ -320,9 +320,19 @@ export async function exchangeToken(
     if (!verifyPkceS256(verifier, row.code_challenge)) return oauthError(400, "invalid_grant", "PKCE check failed.");
     if (!deps.isOperator(row.user_id)) return oauthError(400, "invalid_grant");
     const grant = await deps.store.insertGrant({ user_id: row.user_id, client_id: row.client_id, scope: row.scope, resource: row.resource });
-    const { response } = await issueTokens(grant, deps);
-    await revokeReplacedGrants(grant, deps, nowIso);
-    return { status: 200, body: response };
+    try {
+      const { response } = await issueTokens(grant, deps);
+      await revokeReplacedGrants(grant, deps, nowIso);
+      return { status: 200, body: response };
+    } catch (err) {
+      // The store has no transaction across these writes, so a failure part
+      // way is undone by revoking the new grant: its tokens never reach the
+      // client, and the connection is never left with two live grants. The
+      // read grant stays live unless its own revoke had already gone through.
+      console.error("[mcp/oauth] code exchange failed after the grant insert; revoking the new grant", err instanceof Error ? err.message : "error");
+      await deps.store.revokeGrant(grant.id, "user", nowIso);
+      return oauthError(500, "server_error", "The connection could not be finished. Connect again.");
+    }
   }
 
   if (grantType === "refresh_token") {

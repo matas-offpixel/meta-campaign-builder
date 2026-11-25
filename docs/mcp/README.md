@@ -34,7 +34,7 @@ You need all three of these:
 
 ## Draft tools (M2)
 
-A connection made after M2 asks to **use** Off/Pixel, and the consent page says it can make, change and archive drafts that aren't published. A connection made before M2 can still read. The first time Claude calls a draft tool on it, the server answers `403 insufficient_scope` and Claude asks you to connect again: the page reads **Let Claude change drafts in Off/Pixel**. Cancelling keeps the read-only access. Allowing replaces it: once the new connection is issued, the read-only one is revoked, so the connector has one live grant.
+A connection made after M2 asks to **use** Off/Pixel, and the consent page says it can make, change and archive drafts that aren't published. A connection made before M2 can still read. The first time Claude calls a draft tool on it, the server answers `403 insufficient_scope` and Claude asks you to connect again: the page reads **Let Claude change drafts in Off/Pixel**. Cancelling keeps the read-only access. Allowing replaces it: once the new connection is issued, the read-only one is revoked, so the connector has one live grant. If that fails part way, the new connection is undone and Claude asks you to connect again.
 
 The eight draft tools (scope `mcp:draft`, operators):
 
