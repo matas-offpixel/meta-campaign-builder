@@ -35,11 +35,13 @@ test("loopback redirect matches on any port, nothing else does", () => {
   assert.equal(redirectUriMatches([CLAUDE_CALLBACK], `${CLAUDE_CALLBACK}?x=1`), false);
 });
 
-test("scopes: mcp:read only; offline_access ignored; others refused", () => {
+test("scopes: mcp:read and mcp:draft (always with read); offline_access ignored; mcp:meta and others refused", () => {
   assert.equal(resolveScope(undefined), "mcp:read");
   assert.equal(resolveScope("mcp:read offline_access"), "mcp:read");
   assert.equal(resolveScope("mcp:meta"), null);
-  assert.equal(resolveScope("mcp:draft"), null);
+  assert.equal(resolveScope("mcp:read mcp:meta"), null);
+  assert.equal(resolveScope("mcp:draft"), "mcp:read mcp:draft");
+  assert.equal(resolveScope("mcp:draft mcp:read offline_access"), "mcp:read mcp:draft");
 });
 
 test("authorize: unknown client and wrong redirect never redirect; bad PKCE method redirects with an error", async () => {

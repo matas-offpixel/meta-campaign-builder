@@ -40,8 +40,9 @@ export class FakeQuery implements PromiseLike<{ data: unknown; error: { message:
   private lim: number | null = null;
   private mode: "many" | "maybe" | "single" = "many";
   private head = false;
-  private op: "select" | "insert" | "update" = "select";
+  private op: "select" | "insert" | "update" | "upsert" = "select";
   private payload: unknown = null;
+  private conflict: string[] = ["id"];
 
   private readonly db: { tables: Record<string, Row[]>; writes: FakeDb["writes"]; reads: string[] };
   private readonly table: string;
@@ -58,6 +59,13 @@ export class FakeQuery implements PromiseLike<{ data: unknown; error: { message:
   insert(rows: unknown) {
     this.op = "insert";
     this.payload = rows;
+    return this;
+  }
+  /** Insert, or merge onto the row with the same `onConflict` columns (comma list). */
+  upsert(rows: unknown, opts?: { onConflict?: string }) {
+    this.op = "upsert";
+    this.payload = rows;
+    this.conflict = opts?.onConflict ? opts.onConflict.split(",").map((c) => c.trim()) : ["id"];
     return this;
   }
   update(patch: unknown) {
@@ -110,8 +118,8 @@ export class FakeQuery implements PromiseLike<{ data: unknown; error: { message:
     this.preds.push(parseOr(expr));
     return this;
   }
-  order(col: string, o: { ascending: boolean }) {
-    this.orders.push({ col, asc: o.ascending });
+  order(col: string, o?: { ascending?: boolean }) {
+    this.orders.push({ col, asc: o?.ascending ?? true });
     return this;
   }
   range(a: number, b: number) {
@@ -140,6 +148,24 @@ export class FakeQuery implements PromiseLike<{ data: unknown; error: { message:
       rows.push(...stamped);
       this.db.writes.push({ table: this.table, op: "insert", rows: list });
       return { data: this.mode === "many" ? stamped : stamped[0] ?? null, error: null };
+    }
+    if (this.op === "upsert") {
+      const list = (Array.isArray(this.payload) ? this.payload : [this.payload]) as Row[];
+      const clean = list.map((r) => Object.fromEntries(Object.entries(r).filter(([, v]) => v !== undefined)));
+      const out: Row[] = [];
+      for (const r of clean) {
+        const hit = rows.find((x) => this.conflict.every((c) => x[c] === r[c]));
+        if (hit) {
+          Object.assign(hit, r);
+          out.push(hit);
+        } else {
+          const stamped = { id: crypto.randomUUID(), created_at: new Date().toISOString(), ...r };
+          rows.push(stamped);
+          out.push(stamped);
+        }
+      }
+      this.db.writes.push({ table: this.table, op: "upsert", rows: clean });
+      return { data: this.mode === "many" ? out.map((r) => ({ ...r })) : out[0] ? { ...out[0] } : null, error: null };
     }
     let out = rows.filter((r) => this.preds.every((p) => p(r)));
     if (this.op === "update") {
