@@ -1542,6 +1542,15 @@ export interface CampaignAttachResult {
     note?: string;
     /** Meta's own refusal that the salvage recovered from (code, subcode, message), next to `note`. */
     metaError?: { code: number | null; subcode: number | null; message: string };
+    /**
+     * Set when this Advantage+ ad set went out WITHOUT the draft's age
+     * suggestion (age_max 65, so a wider age range than the draft's):
+     * "objective" — the campaign objective can't take an age suggestion;
+     * "meta_refused" — Meta refused the suggestion and the retry without
+     * it was accepted (metaError holds the refusal). See
+     * lib/audiences/adset-create-with-salvage.ts (Tier 2a).
+     */
+    ageSuggestionDropped?: "objective" | "meta_refused";
   }[];
   adSetsFailed: { name: string; error: string }[];
   adsCreated: number;
@@ -1855,6 +1864,15 @@ export interface LaunchSummary {
     note?: string;
     /** Meta's own refusal that the salvage recovered from (code, subcode, message), next to `note`. */
     metaError?: { code: number | null; subcode: number | null; message: string };
+    /**
+     * Set when this Advantage+ ad set went out WITHOUT the draft's age
+     * suggestion (age_max 65, so a wider age range than the draft's):
+     * "objective" — the campaign objective can't take an age suggestion;
+     * "meta_refused" — Meta refused the suggestion and the retry without
+     * it was accepted (metaError holds the refusal). See
+     * lib/audiences/adset-create-with-salvage.ts (Tier 2a).
+     */
+    ageSuggestionDropped?: "objective" | "meta_refused";
   }[];
   adSetsFailed: { name: string; error: string; skippedReason?: string }[];
   creativesCreated: {

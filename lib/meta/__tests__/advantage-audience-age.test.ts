@@ -18,7 +18,13 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { advantageAudienceAgeTargeting, buildAdSetPayload, buildMetaTargeting } from "../adset.ts";
+import {
+  advantageAudienceAgeTargeting,
+  ageSuggestionDroppedForObjective,
+  buildAdSetPayload,
+  buildMetaTargeting,
+  withoutAgeSuggestion,
+} from "../adset.ts";
 import type { AdSetSuggestion, AudienceSettings, BudgetScheduleSettings } from "../../types.ts";
 
 const SUGGESTION_IDS = ["120250923818990239", "120250923819000239", "120250923819010239"];
@@ -53,7 +59,7 @@ function adSet(overrides: Partial<AdSetSuggestion> = {}): AdSetSuggestion {
 }
 
 describe("Advantage+ Audience age — payload snapshot", () => {
-  it("18–45 Advantage+ with suggestion audiences: age_max 65 control, 18–45 as the age suggestion, audiences as suggestions", () => {
+  it("step 1, Sales (registration): 18–45 Advantage+ with suggestion audiences: age_max 65 control, 18–45 as the age suggestion, audiences as suggestions", () => {
     const payload = buildAdSetPayload(adSet(), "cam_armB", audiences, schedule, "conversions", "registration", "pixel_1");
     // As it goes on the wire (JSON drops undefined keys).
     const wire = JSON.parse(JSON.stringify(payload.targeting));
@@ -72,6 +78,39 @@ describe("Advantage+ Audience age — payload snapshot", () => {
     const individual = t.targeting_automation?.individual_setting as Record<string, unknown> | undefined;
     assert.equal(individual?.age_min, undefined);
     assert.equal(individual?.age_max, undefined);
+  });
+});
+
+describe("step 2 up front: an objective that can't take an age suggestion", () => {
+  it("traffic, 18–45 Advantage+: age_min control, age_max 65, no suggestion, audiences still suggestions", () => {
+    const payload = buildAdSetPayload(adSet(), "cam_t", audiences, schedule, "landing_page_views", "traffic");
+    assert.deepEqual(JSON.parse(JSON.stringify(payload.targeting)), {
+      age_min: 18,
+      age_max: 65,
+      targeting_automation: { advantage_audience: 1 },
+      geo_locations: { countries: ["GB"] },
+      custom_audiences: SUGGESTION_IDS.map((id) => ({ id })),
+    });
+    assert.equal(ageSuggestionDroppedForObjective(adSet(), "traffic"), "objective");
+  });
+
+  it("Sales objectives keep the suggestion and report nothing dropped", () => {
+    for (const objective of ["registration", "purchase", "initiate_checkout"] as const) {
+      assert.equal(ageSuggestionDroppedForObjective(adSet(), objective), null);
+    }
+  });
+
+  it("nothing is reported for a full-range or strict ad set", () => {
+    assert.equal(ageSuggestionDroppedForObjective(adSet({ ageMax: 65 }), "traffic"), null);
+    assert.equal(ageSuggestionDroppedForObjective(adSet({ advantagePlus: false }), "traffic"), null);
+  });
+
+  it("withoutAgeSuggestion keeps everything but the suggestion", () => {
+    const t = withoutAgeSuggestion(buildMetaTargeting(adSet(), audiences));
+    assert.equal(t.age_range, undefined);
+    assert.equal(t.age_max, 65);
+    assert.deepEqual(t.targeting_automation, { advantage_audience: 1 });
+    assert.equal(t.custom_audiences?.length, SUGGESTION_IDS.length);
   });
 });
 

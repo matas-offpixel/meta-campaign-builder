@@ -464,14 +464,16 @@ describe("createAdSetWithSalvage — subcode 1359207 (deleted custom audience)",
 
 // ─── createAdSetWithSalvage — Tier 2: 1870196 ───────────────────────────────
 
-describe("createAdSetWithSalvage — subcode 1870196 (invalid targeting automation)", () => {
-  // ES27-ENZOSIRAGUSA arm B, 25 Nov 2026: the old retry sent
+describe("createAdSetWithSalvage — Advantage+ age order (steps 2 and 3)", () => {
+  // ES27-ENZOSIRAGUSA arm B, 25 Nov 2026: the old 1870196 retry sent
   // advantage_audience 0 with strict ages, which turned "Broad +
   // suggestions"' 126 suggestion audiences into hard targeting.
-  const suggestionsPayload = (): MetaAdSetPayload =>
-    payload(["ca_1", "ca_2"], {
+  const SUGGESTION_IDS = ["ca_1", "ca_2"];
+  /** Step 1's payload: Advantage+ with the 18–45 age suggestion and suggestion audiences. */
+  const step1Payload = (): MetaAdSetPayload =>
+    payload(SUGGESTION_IDS, {
       targeting: {
-        custom_audiences: [{ id: "ca_1" }, { id: "ca_2" }],
+        custom_audiences: SUGGESTION_IDS.map((id) => ({ id })),
         geo_locations: { countries: ["GB"] },
         age_min: 18,
         age_max: 65,
@@ -479,8 +481,79 @@ describe("createAdSetWithSalvage — subcode 1870196 (invalid targeting automati
         targeting_automation: { advantage_audience: 1, individual_setting: { age: 1 } },
       },
     } as Partial<MetaAdSetPayload>);
+  /** Advantage+ at the full range — no age suggestion to drop. */
+  const noSuggestionPayload = (): MetaAdSetPayload =>
+    payload(SUGGESTION_IDS, {
+      targeting: {
+        custom_audiences: SUGGESTION_IDS.map((id) => ({ id })),
+        geo_locations: { countries: ["GB"] },
+        age_min: 18,
+        age_max: 65,
+        targeting_automation: { advantage_audience: 1 },
+      },
+    } as Partial<MetaAdSetPayload>);
+  const params = (initialPayload: MetaAdSetPayload, initialError: unknown) => ({
+    adSet: adSet({ sourceType: "custom_group", ageMin: 18, ageMax: 45, advantagePlus: true }),
+    initialPayload,
+    initialError,
+    adAccountId: "act_1",
+    logPrefix: "Phase 2",
+    asStart: Date.now(),
+    freshReadinessResults: new Map(),
+    preflightDroppedCount: 0,
+    audienceNameById: new Map(),
+    pageGroups: [],
+  });
 
-  it("never retries a refused Advantage+ ad set as strict targeting — fails with Meta's error unchanged", async () => {
+  it("step 2: the age suggestion refused → one retry as Advantage+ with age_max 65, no suggestion, audiences kept", async () => {
+    const sent: MetaAdSetPayload[] = [];
+    const deps = baseDeps({
+      createMetaAdSet: async (_acc, p) => {
+        sent.push(p);
+        return { id: "meta_as_step2" };
+      },
+    });
+    const res = await createAdSetWithSalvage(params(step1Payload(), invalidTargetingAutomationError()), deps);
+
+    assert.equal(res.metaAdSetId, "meta_as_step2");
+    assert.equal(sent.length, 1);
+    // Step 2's payload snapshot, as it goes on the wire.
+    assert.deepEqual(JSON.parse(JSON.stringify(sent[0].targeting)), {
+      custom_audiences: [{ id: "ca_1" }, { id: "ca_2" }],
+      geo_locations: { countries: ["GB"] },
+      age_min: 18,
+      age_max: 65,
+      targeting_automation: { advantage_audience: 1 },
+    });
+    assert.equal(res.ageSuggestionDropped, "meta_refused");
+    assert.deepEqual(res.metaError, { code: 100, subcode: 1870196, message: "targeting automation type passed is invalid" });
+  });
+
+  it("step 3: Advantage+ refused again without the suggestion → fails with Meta's error, never strict", async () => {
+    const sent: MetaAdSetPayload[] = [];
+    const second = invalidTargetingAutomationError();
+    second.message = "targeting automation type passed is invalid (second)";
+    const deps = baseDeps({
+      createMetaAdSet: async (_acc, p) => {
+        sent.push(p);
+        throw second;
+      },
+    });
+    await assert.rejects(createAdSetWithSalvage(params(step1Payload(), invalidTargetingAutomationError()), deps), (err: unknown) => {
+      assert.equal(err, second, "Meta's own error from the refusal of Advantage+ itself");
+      const e = err as { code: number; subcode: number };
+      assert.equal(e.code, 100);
+      assert.equal(e.subcode, 1870196);
+      return true;
+    });
+    assert.equal(sent.length, 1, "one retry (step 2), then no more");
+    for (const p of sent) {
+      assert.equal(p.targeting.targeting_automation?.advantage_audience, 1, "never advantage_audience 0");
+      assert.equal(p.targeting.age_max, 65, "never the draft's 45 as a hard ceiling");
+    }
+  });
+
+  it("step 3 directly: Advantage+ with no age suggestion refused → fails with Meta's error unchanged, no retry", async () => {
     let calls = 0;
     const deps = baseDeps({
       createMetaAdSet: async () => {
@@ -489,68 +562,38 @@ describe("createAdSetWithSalvage — subcode 1870196 (invalid targeting automati
       },
     });
     const refusal = invalidTargetingAutomationError();
-
-    await assert.rejects(
-      createAdSetWithSalvage(
-        {
-          adSet: adSet({ sourceType: "custom_group", ageMin: 18, ageMax: 45, advantagePlus: true }),
-          initialPayload: suggestionsPayload(),
-          initialError: refusal,
-          adAccountId: "act_1",
-          logPrefix: "Phase 2",
-          asStart: Date.now(),
-          freshReadinessResults: new Map(),
-          preflightDroppedCount: 0,
-          audienceNameById: new Map(),
-          pageGroups: [],
-        },
-        deps,
-      ),
-      (err: unknown) => {
-        // The SAME error object: the caller's formatMetaError puts Meta's
-        // message, code and subcode in the launch result.
-        assert.equal(err, refusal);
-        const e = err as { code: number; subcode: number; message: string };
-        assert.equal(e.code, 100);
-        assert.equal(e.subcode, 1870196);
-        assert.match(e.message, /targeting automation type passed is invalid/);
-        return true;
-      },
-    );
+    await assert.rejects(createAdSetWithSalvage(params(noSuggestionPayload(), refusal), deps), (err: unknown) => {
+      assert.equal(err, refusal);
+      const e = err as { code: number; subcode: number; message: string };
+      assert.equal(e.code, 100);
+      assert.equal(e.subcode, 1870196);
+      assert.match(e.message, /targeting automation type passed is invalid/);
+      return true;
+    });
     assert.equal(calls, 0, "no second createMetaAdSet call — the audience is never changed behind the operator's back");
   });
 
-  it("logs Meta's code, subcode and message for the refusal", async () => {
+  it("logs Meta's code, subcode and message for each refusal", async () => {
     const logged: string[] = [];
-    const orig = console.error;
-    console.error = (...args: unknown[]) => {
-      logged.push(args.map(String).join(" "));
-    };
+    const origErr = console.error;
+    const origWarn = console.warn;
+    console.error = (...args: unknown[]) => void logged.push(args.map(String).join(" "));
+    console.warn = (...args: unknown[]) => void logged.push(args.map(String).join(" "));
     try {
-      await assert.rejects(
-        createAdSetWithSalvage(
-          {
-            adSet: adSet({ advantagePlus: true }),
-            initialPayload: suggestionsPayload(),
-            initialError: invalidTargetingAutomationError(),
-            adAccountId: "act_1",
-            logPrefix: "Phase 2",
-            asStart: Date.now(),
-            freshReadinessResults: new Map(),
-            preflightDroppedCount: 0,
-            audienceNameById: new Map(),
-            pageGroups: [],
-          },
-          baseDeps(),
-        ),
-      );
+      const deps = baseDeps({
+        createMetaAdSet: async () => {
+          throw invalidTargetingAutomationError();
+        },
+      });
+      await assert.rejects(createAdSetWithSalvage(params(step1Payload(), invalidTargetingAutomationError()), deps));
     } finally {
-      console.error = orig;
+      console.error = origErr;
+      console.warn = origWarn;
     }
-    const line = logged.find((l) => l.includes("Meta refused Advantage+ Audience"));
-    assert.ok(line, "a refusal line is logged");
-    assert.match(line!, /code=100 subcode=1870196 message=targeting automation type passed is invalid/);
-    assert.match(line!, /not retried as strict targeting/);
+    const suggestion = logged.find((l) => l.includes("Meta refused the age suggestion"));
+    const advantage = logged.find((l) => l.includes("Meta refused Advantage+ Audience"));
+    assert.match(suggestion ?? "", /code=100 subcode=1870196 message=targeting automation type passed is invalid/);
+    assert.match(advantage ?? "", /code=100 subcode=1870196 message=.*not retried as strict targeting/);
   });
 });
 
