@@ -8,9 +8,9 @@
  *
  *   promoter  a static the client ran (its own artwork, ticket tiers, line-up
  *             cards), or a video named for the crowd, the room or the venue;
- *   artist    a file named as the artist's own post (Instagram, a reel, an
- *             Instagram media id) or their press kit;
- *   unsure    anything else.
+ *   artist    a file named as the artist's own post (Instagram, IG, TikTok,
+ *             or an Instagram media id as its name) or their press kit;
+ *   unsure    anything else, a "feed post" included (whose feed?).
  *
  * A suggestion is never written: it changes no owner_kind and no shareable
  * flag, and the planned rows are the same with or without it. A confirmed
@@ -30,6 +30,8 @@ export interface HeldFile {
   artistName: string;
   /** The ad name, as the file reads in the held list. */
   file: string;
+  /** The creative it is: the ad name less a bulk-attach " — {ad set}" tail and copy suffixes (creativeName). */
+  creative: string;
   kind: string;
   eventId: string | null;
   clientId: string | null;
@@ -44,26 +46,45 @@ export interface Suggestion {
 
 const has = (folded: string, words: readonly string[]) => words.some((w) => folded.includes(` ${w} `));
 
-const ARTIST_POST = ["ig", "insta", "instagram", "reel", "reels", "post", "story", "stories", "tiktok"];
+/** Named for the artist's own account. A bare "reel", "story" or "post" isn't: "IV Location Reel" is the promoter's. */
+const ARTIST_POST = ["ig", "insta", "instagram", "tiktok", "ig post", "ig reel", "ig story"];
 const PRESS = ["press", "presskit", "press kit", "press shot", "press shots", "press pic", "press photo", "epk"];
 const CROWD = ["crowd", "crowds", "venue", "recap", "aftermovie", "after movie", "highlights", "dancefloor", "dance floor", "room", "rooms", "drone", "queue", "atmosphere"];
 /** An Instagram media id as a file name: 15–20 digits, nothing else. */
 const IG_MEDIA_ID = /^\s*\d{15,20}(?:\.[a-z0-9]{2,4})?\s*$/i;
 
 /**
- * The proposal for one held file. `venueNames` are the show's venue name
- * and the client's name, matched whole (folded), never by a word of them.
+ * The creative an ad name stands for: bulk-attach adds " — {ad set}" (or
+ * " — attached:{id}") and Ads Manager " – Copy n"; both are cut, so one
+ * creative is one line to decide. "Arthi Artist Card Motion — Garage
+ * Audience 2" is "Arthi Artist Card Motion".
+ */
+export function creativeName(adName: string): string {
+  let out = adName.split(" \u2014 ")[0]!.trim();
+  for (;;) {
+    const next = out.replace(/\s*[\u2013-]\s*Copy(?:\s+\d+)?$/i, "").trim();
+    if (next === out) return out || adName.trim();
+    out = next;
+  }
+}
+
+/**
+ * The proposal for one held file. `venueNames` are the show's venue names,
+ * matched whole (folded), never by a word of them. The client's name isn't
+ * one: "Puzzle - Enzo Vid 2" is how Puzzle names its edits, not crowd footage.
  */
 export function suggestOwner(file: Pick<HeldFile, "file" | "kind">, ctx: { venueNames?: readonly (string | null | undefined)[] } = {}): Suggestion {
   const name = fold(file.file);
   if (IG_MEDIA_ID.test(file.file)) return { owner: "artist", why: "named by its Instagram media id" };
   if (has(name, PRESS)) return { owner: "artist", why: "named as a press kit" };
+  // "IW Feed Post", "J2 - Adam Beyer Feed Post": a feed post is as often the promoter's feed as the artist's.
+  if (has(name, ["feed post", "feed posts"])) return { owner: "unsure", why: "a feed post: whose feed isn't said" };
   if (has(name, ARTIST_POST)) return { owner: "artist", why: "named as the artist's own post" };
   if (file.kind === "static") return { owner: "promoter", why: "a static the client ran (its artwork)" };
   if (has(name, CROWD)) return { owner: "promoter", why: "named for the crowd or the venue" };
   for (const v of ctx.venueNames ?? []) {
     const venue = fold(v).trim();
-    if (venue && name.includes(` ${venue} `)) return { owner: "promoter", why: "named for the venue or the client" };
+    if (venue && name.includes(` ${venue} `)) return { owner: "promoter", why: "named for the venue" };
   }
   return { owner: "unsure", why: "the name doesn't say" };
 }
@@ -81,7 +102,7 @@ export function heldNoSourceFiles(rows: readonly PlannedAsset[], artistName: str
     const key = `${r.source_event_id ?? r.source_client_id ?? ""}\u0000${file}`;
     const have = out.get(key);
     if (have) have.ads += 1;
-    else out.set(key, { artistId: r.artist_id, artistName, file, kind: r.kind, eventId: r.source_event_id, clientId: r.source_client_id, ads: 1 });
+    else out.set(key, { artistId: r.artist_id, artistName, file, creative: creativeName(file), kind: r.kind, eventId: r.source_event_id, clientId: r.source_client_id, ads: 1 });
   }
   return [...out.values()];
 }

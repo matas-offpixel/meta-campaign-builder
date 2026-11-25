@@ -5,7 +5,7 @@ import { ALIASES, type AliasEntry } from "../aliases.ts";
 import { adEvent, campaignEvents, planArtistAssets, planGeneral, planRemovals, summariseAds, type BackfillInputs, type StoredAsset } from "../backfill.ts";
 import { artistsNamedIn, artistsOfAd, buildRoster, codeInName, hasFullName, isClipIdentity, kindFromAd, rankedStageOf } from "../match.ts";
 import { SOURCE_MAP, type SourceEntry } from "../source-map.ts";
-import { heldNoSourceFiles, suggestOwner } from "../suggest.ts";
+import { creativeName, heldNoSourceFiles, suggestOwner } from "../suggest.ts";
 import { buildArtistView, forEvent } from "../view.ts";
 
 const ENZO = { id: "lib-enzo", name: "Enzo Siragusa" };
@@ -282,9 +282,20 @@ describe("owner suggestions (proposals only)", () => {
     assert.equal(suggestOwner({ file: "Puzzle crowd recap", kind: "clip" }).owner, "promoter");
     assert.equal(suggestOwner({ file: "Live at Circuit & Engine Rooms", kind: "clip" }, { venueNames: ["Circuit & Engine Rooms"] }).owner, "promoter");
     assert.equal(suggestOwner({ file: "Enzo IG post 3", kind: "clip" }).owner, "artist");
+    assert.equal(suggestOwner({ file: "IW Feed Post - Countdown Promo", kind: "clip" }).owner, "unsure", "a feed post may be the promoter's feed");
+    assert.equal(suggestOwner({ file: "IV Location Reel - FEED", kind: "clip" }).owner, "unsure", "a bare reel isn't the artist's account");
     assert.equal(suggestOwner({ file: "17987037296972560.mp4", kind: "clip" }).owner, "artist");
     assert.equal(suggestOwner({ file: "Enzo press shot", kind: "static" }).owner, "artist", "a press shot isn't the client's artwork");
     assert.equal(suggestOwner({ file: "Puzzle - Enzo Vid CTA 1", kind: "clip" }).owner, "unsure");
+    assert.equal(suggestOwner({ file: "Puzzle - Enzo Vid 2 - 12PM Thursday", kind: "clip" }, { venueNames: ["Circuit & Engine Rooms"] }).owner, "unsure", "the client's name in an edit isn't the venue");
+  });
+
+  it("one creative is one line: bulk-attach tails and copies fold", () => {
+    assert.equal(creativeName("Arthi Artist Card Motion \u2014 attached:120251365392580755"), "Arthi Artist Card Motion");
+    assert.equal(creativeName("Arthi Artist Card Motion \u2014 Garage Audience 2"), "Arthi Artist Card Motion");
+    assert.equal(creativeName("Adam Promo Vid -Cutdown 2 \u2013 Copy 2"), "Adam Promo Vid -Cutdown 2");
+    assert.equal(creativeName("Enzo - UGC 1 \u2013 Copy \u2013 Copy"), "Enzo - UGC 1");
+    assert.equal(creativeName("Lineup - 2 for 1"), "Lineup - 2 for 1");
   });
 
   it("a suggestion never marks anything shareable or changes an owner: the plan is the same, every held file stays held", () => {
