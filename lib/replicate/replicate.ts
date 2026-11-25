@@ -179,7 +179,7 @@ export interface ReplicateResult {
   changesTitle: string;
   /** "Kept from the source" */
   keptTitle: string;
-  /** "Objective, {n} ad sets, budgets, placements, interests." */
+  /** "Objective, {n} ad sets, budgets, placements, interests, ad copy." (RC13; one form for 1 ad set) */
   kept: string;
   /** One boxed question per page the ads run from. */
   pages: ReplicatePageQuestion[];
@@ -504,13 +504,19 @@ export function replicateDraft(
   const place = clean(venue?.name) || clean(event.venue_name) || code;
   const changes: ReplicateChange[] = [];
 
-  // Event, client, code, name.
-  const settings = applyEventToCampaignSettings(source.settings, {
-    id: event.id,
-    event_code: event.event_code,
-    client_id: event.client_id,
-  });
+  // Event, client, code, name. replaceEventCodePrefix swaps the name's [CODE]
+  // only when the stored campaignCode agrees with it, and a draft can store a
+  // short code ("DOD") under a name written for its event ("[NX26-DOD] DOD -
+  // On sale"); the copy then kept the source's code (#1372). The name was
+  // written for the source event, so its code is the current one. A
+  // hand-written prefix that isn't the source event's code is still kept.
   const sourceCode = clean(sourceEvent?.event_code) || clean(source.settings.campaignCode);
+  const named = applyEventToCampaignSettings(
+    { ...source.settings, campaignCode: sourceCode || source.settings.campaignCode },
+    { id: event.id, event_code: event.event_code, client_id: event.client_id },
+  );
+  // A target with no code keeps the stored code, as applyEventToCampaignSettings does.
+  const settings = code ? named : { ...named, campaignCode: source.settings.campaignCode };
   if ((source.settings.eventId ?? "") !== event.id) {
     const fill = { code, venue: place };
     changes.push(
@@ -786,7 +792,8 @@ export function replicateDraft(
     }),
     changesTitle: fillWords(word("replicate.summary.changes"), { code }),
     keptTitle: word("replicate.kept.title"),
-    kept: fillWords(word("replicate.kept.line"), { n: adSets }),
+    // RC13 (#1366): copy isn't rewritten until R8, so the kept line names the ad copy.
+    kept: fillWords(word(adSets === 1 ? "replicate.kept.line.copy.one" : "replicate.kept.line.copy"), { n: adSets }),
     pages,
     audiences: outcome,
   };

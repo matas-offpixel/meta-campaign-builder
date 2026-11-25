@@ -37,6 +37,8 @@ import {
   type LibraryTab,
 } from "@/components/library/library-rows";
 import type { CampaignListItem, CampaignDraft, CampaignTemplate } from "@/lib/types";
+import { ReplicateDialog } from "@/components/replicate/replicate-dialog";
+import type { TreeStage } from "@/lib/campaign-tree/tree";
 
 export function CampaignLibrary() {
   const router = useRouter();
@@ -54,6 +56,7 @@ export function CampaignLibrary() {
   const [addError, setAddError] = useState<{ id: string; message: string } | null>(null);
   const [targetingWritesEnabled, setTargetingWritesEnabled] = useState<boolean | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [replicateId, setReplicateId] = useState<string | null>(null);
 
   // Save-as-template modal
   const [templateModalOpen, setTemplateModalOpen] = useState(false);
@@ -150,8 +153,33 @@ export function CampaignLibrary() {
   };
 
   const handleDuplicate = (id: string) => {
+    // RC1: on a published campaign, Duplicate is "Same event, same settings".
+    const row = campaigns.find((c) => c.id === id);
+    if (row?.status === "published" && row.eventId) {
+      void duplicateToSameEvent(id, row.eventId);
+      return;
+    }
     setEventPick({ kind: "duplicate", sourceId: id });
     setPickedEventId("");
+  };
+
+  const duplicateToSameEvent = async (id: string, eventId: string) => {
+    if (!userId) return;
+    setActionLoading(id);
+    const copy = await duplicateCampaign(id, userId, eventId);
+    if (copy) setCampaigns(await loadCampaignList(userId));
+    setActionLoading(null);
+  };
+
+  // RC6: the stage actions open the campaign's event tree.
+  const handleStageAction = (c: CampaignListItem, stage: TreeStage, kind: "creatives" | "audience") => {
+    if (!c.eventId) return;
+    if (kind === "creatives") {
+      const qs = new URLSearchParams({ stage, ...(c.adAccountId ? { adAccountId: c.adAccountId } : {}) });
+      router.push(`/events/${c.eventId}/bulk-attach?${qs.toString()}`);
+    } else {
+      router.push(`/events/${c.eventId}?${new URLSearchParams({ tab: "campaigns", add: "audience", stage }).toString()}`);
+    }
   };
 
   const handleArchive = async (id: string) => {
@@ -414,6 +442,8 @@ export function CampaignLibrary() {
                   addToCampaignError={addError?.id === c.id ? addError.message : null}
                   onSaveAsTemplate={handleSaveAsTemplate}
                   targetingWritesEnabled={targetingWritesEnabled}
+                  onReplicate={(rowId) => setReplicateId(rowId)}
+                  onStageAction={handleStageAction}
                 />
               ))}
             </div>
@@ -427,6 +457,15 @@ export function CampaignLibrary() {
         onClose={() => { setTemplateModalOpen(false); setTemplateSourceId(null); }}
         onSave={handleSaveTemplateConfirm}
       />
+
+      {replicateId ? (
+        <ReplicateDialog
+          draftId={replicateId}
+          open
+          onClose={() => setReplicateId(null)}
+          onDuplicate={() => handleDuplicate(replicateId)}
+        />
+      ) : null}
 
       <NewCampaignModal
         open={newCampaignOpen}
