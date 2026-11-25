@@ -136,6 +136,9 @@ export function draftTables() {
     ],
     drive_folders: [{ event_id: EV_TGT, key: "event", name: "NX27-GLITTERBOX", drive_folder_id: "drv-event" }],
     creative_assets: [] as Array<Record<string, unknown>>,
+    // M3a: the send step's dedupe and the client ceilings.
+    creative_asset_channel_ids: [] as Array<Record<string, unknown>>,
+    client_spend_ceilings: [] as Array<Record<string, unknown>>,
     creative_lab_captions: [
       { id: "cap-1", event_id: EV_TGT, style: "artist_first_person", text: "Newcastle, I can't wait to play for you again", primary_text: null },
       { id: "cap-2", event_id: EV_TGT, style: "promoter", text: "Glitterbox returns to Newcastle", primary_text: null },

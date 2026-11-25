@@ -42,6 +42,7 @@ import { changes, checksSummary, launchChecksFor, linkKey, requireDraftScope } f
 import { APPLY_WORDS, addReusedToDraft, applySentences, loadTemplatesFor, templateGroupId } from "../drafts/templates.ts";
 import { followAudienceGroups, groupKey } from "../../wizard/follow-audience-groups.ts";
 import { archiveDraftRow, loadWritableDraft, saveDraft, type WritableDraft } from "../drafts/write.ts";
+import { NAME_WORDS } from "../meta/words.ts";
 
 export const draftArgs = {
   draft_id: z.string().uuid().describe("The draft's id (a UUID), from get_drafts."),
@@ -570,5 +571,54 @@ export const archiveDraftTool: McpTool = {
       clientId: loaded.row.client_id,
       summary: { draftId: loaded.row.id, fieldsChanged: ["status"], before: { status: "draft" }, after: { status: "archived" }, ...checksSummary(checks) },
     };
+  },
+};
+
+// ─── set_draft_name (M3a) ───────────────────────────────────────────────────
+
+/** Meta's campaign name limit. */
+export const MAX_CAMPAIGN_NAME_LENGTH = 400;
+
+/**
+ * The draft's name: the Campaign step's Campaign Name field
+ * (settings.campaignName), which the library lists and the launch sends as
+ * the Meta campaign's name. The library has no rename of its own; this is
+ * the field Matas edits in the app. The code-in-name launch check runs after.
+ */
+export const setDraftNameTool: McpTool = {
+  name: "set_draft_name",
+  title: "Rename a draft",
+  kind: "draft",
+  readOnly: false,
+  idempotent: true,
+  description: [
+    "Renames a draft: the Campaign step's Campaign Name, which the library shows and Meta gets as the campaign's name at launch. Keep the event code in square brackets at the front (\"[ES27-ENZOSIRAGUSA] ANNOUNCE\"): the launch checks flag a name without it.",
+    'Example: set_draft_name({ draft_id: "3f2c…-uuid", updated_at: "2026-11-24T10:00:00.123+00:00", name: "[ES27-ENZOSIRAGUSA] ANNOUNCE A" }).',
+  ].join(" "),
+  inputSchema: {
+    ...draftArgs,
+    // Trimmed by the input check, so an empty or blank name never reaches the tool.
+    name: z.string().trim().min(1).max(20_000).describe("The new name."),
+  },
+  async run(ctx, args) {
+    requireDraftScope(ctx);
+    const name = typeof args.name === "string" ? args.name.replace(/\s+/g, " ").trim() : "";
+    if (name.length > MAX_CAMPAIGN_NAME_LENGTH) throw new ToolInputError(NAME_WORDS.tooLong(MAX_CAMPAIGN_NAME_LENGTH), { refused: "name_too_long" });
+    const loaded = await loadWritableDraft(ctx, args.draft_id, args.updated_at);
+    const before = loaded.draft.settings.campaignName ?? "";
+    if (before === name) {
+      // claude.mcp.name.same: nothing is written.
+      return {
+        data: { draft_id: loaded.row.id, updated_at: loaded.row.updated_at, name, message: NAME_WORDS.same },
+        eventId: loaded.row.event_id,
+        clientId: loaded.row.client_id,
+        summary: { draftId: loaded.row.id, fieldsChanged: [] },
+      };
+    }
+    const next: CampaignDraft = { ...loaded.draft, settings: { ...loaded.draft.settings, campaignName: name } };
+    return finish(ctx, loaded, next, () => ({
+      data: { name, message: NAME_WORDS.done(before, name) },
+      summary: { fieldsChanged: ["campaignName"], changes: changes([["campaignName", before, name]]) },
+    }));
   },
 };

@@ -125,7 +125,7 @@ test("full path: initialize → tools/list (all readOnlyHint) → tools/call, lo
 
   const list = await (await handleMcpRequest(rpc("tools/list", {}, tokens.access_token), deps)).json();
   const tools = list.result.tools as Array<{ name: string; annotations: Record<string, boolean>; description: string }>;
-  assert.equal(tools.length, 26, "a read-only grant still lists the draft tools (calling one asks for the step-up)");
+  assert.equal(tools.length, 30, "a read-only grant still lists the draft and meta tools (calling one asks for the step-up)");
   const readNames = new Set(READ_TOOLS.map((t) => t.name));
   for (const t of tools) {
     assert.equal(t.annotations.readOnlyHint, readNames.has(t.name) || t.name === "list_drive_creatives", t.name);
@@ -214,7 +214,7 @@ test("scope: a read-only grant gets 403 insufficient_scope with the step-up chal
     assert.deepEqual(await res.json(), { error: "insufficient_scope" });
     const challenge = res.headers.get("www-authenticate") ?? "";
     assert.match(challenge, /error="insufficient_scope"/);
-    assert.match(challenge, /scope="mcp:read mcp:draft"/);
+    assert.match(challenge, /scope="mcp:read mcp:draft mcp:meta"/);
     assert.match(challenge, /resource_metadata="/);
   }
   // Nothing written but the refusals in the log, one per call.

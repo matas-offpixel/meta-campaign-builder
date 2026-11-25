@@ -25,24 +25,29 @@ export const RATE_LIMIT_PER_HOUR = 600;
 
 /**
  * Scopes. `mcp:read` (M1) reads; `mcp:draft` (M2) changes campaign drafts in
- * the app database only. Both are for OPERATOR_USER_IDS. `mcp:meta` (M3) and
- * setting client spend ceilings are Matas only (MATAS_USER_IDS, Matas's
- * answer 24 Nov) and are not issued yet. Unknown scopes are refused;
+ * the app database only. Both are for OPERATOR_USER_IDS. `mcp:meta` (M3a)
+ * launches drafts to Meta and edits events, and is Matas only
+ * (MATAS_USER_IDS): another operator's consent is issued without it, and a
+ * meta tool checks MATAS_USER_IDS again on every call. Each scope brings the
+ * ones before it (meta → draft → read). Unknown scopes are refused;
  * `offline_access` is accepted and ignored (refresh tokens are always issued).
  *
  * A grant made before M2 holds `mcp:read` only: its reads keep working, and
- * a draft tool answers 403 insufficient_scope with
- * `scope="mcp:read mcp:draft"`, which sends Claude to a fresh consent.
+ * a draft tool answers 403 insufficient_scope with the step-up challenge,
+ * which sends Claude to a fresh consent. A grant without `mcp:meta` gets the
+ * same 403 on a meta tool.
  *
- * M1 records no approvals: mcp_actions.approval_source ('claude_prompt' |
- * 'today') means nothing yet. M3's write tools are request-then-confirm on
- * the server, approved on Today; the design record before M3 decides it.
+ * Approvals (Matas's ruling 25 Nov, scratch/mcp/m3-full-control-2026-11-25.md):
+ * his typed yes in Claude is the approval for a Meta change. Every meta tool
+ * takes `approval: { asked, answer }`, stored on its mcp_actions row with
+ * approval_source 'claude_prompt'. This replaces TD1–TD2's Approve on Today.
  */
 export const SCOPE_READ = "mcp:read";
 export const SCOPE_DRAFT = "mcp:draft";
-export const SCOPES_SUPPORTED: readonly string[] = [SCOPE_READ, SCOPE_DRAFT];
-/** What the 401 challenge and the step-up 403 ask for: everything an operator may hold. */
-export const CHALLENGE_SCOPE = `${SCOPE_READ} ${SCOPE_DRAFT}`;
+export const SCOPE_META = "mcp:meta";
+export const SCOPES_SUPPORTED: readonly string[] = [SCOPE_READ, SCOPE_DRAFT, SCOPE_META];
+/** What the 401 challenge and the step-up 403 ask for: everything a connector may hold. Consent drops mcp:meta for anyone not in MATAS_USER_IDS. */
+export const CHALLENGE_SCOPE = `${SCOPE_READ} ${SCOPE_DRAFT} ${SCOPE_META}`;
 export const IGNORED_SCOPES: readonly string[] = ["offline_access"];
 
 /** The one hosted callback Claude uses (claude.ai web, desktop, mobile, Cowork). */

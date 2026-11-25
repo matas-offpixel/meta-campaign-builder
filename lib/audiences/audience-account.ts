@@ -235,6 +235,10 @@ function labelForSentAudience(
 /**
  * Meta audience ids enabled ad sets will send. The ids come from
  * buildMetaTargeting, so a group no enabled row references is absent.
+ * Disabled ad sets are never sent, so they are skipped. The targeting is
+ * built with the draft's location groups and exclusions, as the launch builds
+ * it (buildAdSetPayload): without them a row on location groups resolves to
+ * no area, buildMetaTargeting throws, and its audiences went unchecked.
  */
 export function collectAudienceAccountRefs(draft: CampaignDraft): AudienceAccountRef[] {
   const byId = new Map<string, AudienceAccountRef>();
@@ -242,7 +246,12 @@ export function collectAudienceAccountRefs(draft: CampaignDraft): AudienceAccoun
     if (!adSet.enabled) continue;
     let targeting;
     try {
-      targeting = buildMetaTargeting(adSet, draft.audiences);
+      targeting = buildMetaTargeting(
+        adSet,
+        draft.audiences,
+        draft.budgetSchedule?.locationGroups,
+        draft.budgetSchedule?.excludedLocations,
+      );
     } catch (err) {
       console.error("[account-scope-preflight] targeting for audience refs failed:", err);
       continue;

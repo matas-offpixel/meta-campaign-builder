@@ -32,6 +32,7 @@ import {
 import { launchFailureLead, type LaunchErrorSource } from "@/lib/meta/launch-failure-copy";
 import { LaunchChecks } from "@/components/launch-guard/launch-checks";
 import { keptIdentityLines, keptLinkLines, keptLocationLines } from "@/lib/launch-guard/check";
+import { LAUNCH_UPLOAD_WORDS, filesToSendAtLaunch, storedSendSteps, type StoredSendProgress } from "@/lib/creatives/stored-at-launch";
 import type { LaunchCheck, LaunchCheckFix, LaunchGuardResult } from "@/lib/launch-guard/types";
 import { attachedAdSetKey, type CampaignDraft, type CampaignSettings, type LaunchSummary } from "@/lib/types";
 import { urlTagsReviewLine } from "@/lib/meta/url-tags";
@@ -89,6 +90,10 @@ interface ReviewLaunchProps {
   draft: CampaignDraft;
   /** True while the launch API call is in-flight */
   isLaunching?: boolean;
+  /** FC4: the two upload steps ahead of the launch, while they run. */
+  storedSend?: StoredSendProgress | null;
+  /** FC4: an upload failed, so the launch stopped before anything was made. */
+  uploadStopped?: { files: number; lines: string[] } | null;
   /** Set when the launch call fails */
   launchError?: string | null;
   /** `preflight` when we refused before a Meta write. Absent keeps the Meta wording. */
@@ -912,6 +917,8 @@ export function RetryLookalikesPanel({ draft }: { draft: CampaignDraft }) {
 export function ReviewLaunch({
   draft,
   isLaunching = false,
+  storedSend = null,
+  uploadStopped = null,
   launchError,
   launchErrorSource = null,
   launchRateLimit = null,
@@ -983,10 +990,19 @@ export function ReviewLaunch({
 
   // Events to display in the feed
   const launchEvents = useMemo<LaunchEvent[]>(() => {
-    if (isLaunching) return PENDING_EVENTS;
+    if (isLaunching) {
+      // FC4: the upload steps go first, then the existing ones from "Validating configuration…".
+      const upload: LaunchEvent[] = storedSend
+        ? storedSendSteps(storedSend).map((st) => ({ id: st.id, stage: "preflight", entity: st.entity, status: st.done ? "success" : "pending", label: st.label }))
+        : [];
+      return [...upload, ...PENDING_EVENTS];
+    }
     if (launchSummary) return buildLaunchEvents(launchSummary, draft);
     return [];
-  }, [isLaunching, launchSummary, draft]);
+  }, [isLaunching, launchSummary, draft, storedSend]);
+  const filesAtLaunch = filesToSendAtLaunch(draft).files;
+  // The stopped line stays only while a failed slot is still there (a drop or a removal clears it).
+  const slotStillFailed = draft.creatives.some((c) => c.assetVariations?.some((v) => v.assets.some((a) => a.uploadStatus === "error")));
 
   // After a launch, persist any page capability failures back into the cache so
   // the page audience panel shows updated badges on the next visit.
@@ -1046,6 +1062,20 @@ export function ReviewLaunch({
           onFix={canvasOwnsLaunch ? undefined : onLaunchGuardFix}
           keptLines={[...keptIdentityLines(draft), ...keptLinkLines(draft), ...keptLocationLines(draft)]}
         />
+      ) : null}
+
+      {/* ── FC4: files that go to Meta at Launch, and a launch an upload stopped ── */}
+      {!isLaunching && !launchSummary && uploadStopped && slotStillFailed ? (
+        <Card className="border-destructive" role="alert">
+          <Datum className="text-sm font-medium text-destructive">{LAUNCH_UPLOAD_WORDS.stopped(uploadStopped.files)}</Datum>
+          {uploadStopped.lines.map((line) => (
+            <Datum key={line} className="mt-1 block text-xs text-destructive">
+              {line}
+            </Datum>
+          ))}
+        </Card>
+      ) : !isLaunching && !launchSummary && filesAtLaunch > 0 ? (
+        <Datum className="block text-sm text-muted-foreground">{LAUNCH_UPLOAD_WORDS.review(filesAtLaunch)}</Datum>
       ) : null}
 
       {/* ── Live launch progress feed ──────────────────────────────────────── */}

@@ -518,25 +518,45 @@ async function runUploadAsset(req: Request, h: UploadAssetHooks): Promise<Respon
 }
 
 async function defaultHooks(): Promise<UploadAssetHooks> {
-  const { createClient, createServiceRoleClient } = await import("../supabase/server.ts");
+  const { createClient } = await import("../supabase/server.ts");
+  const supabase = await createClient();
+  return hooksWith(supabase, async () => {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    return user ? { id: user.id } : null;
+  });
+}
+
+/**
+ * The handler's hooks for one operator without a browser session: the
+ * connector's launch (lib/mcp/meta-deps.ts, M3a). Reads, the token and the
+ * registry run on the service-role client, every one filtered by this
+ * user's id as the session's RLS would; the operator check in
+ * runUploadAsset still applies.
+ */
+export async function uploadAssetHooksForUser(userId: string): Promise<UploadAssetHooks> {
+  const { createServiceRoleClient } = await import("../supabase/server.ts");
+  return hooksWith(createServiceRoleClient(), async () => ({ id: userId }));
+}
+
+async function hooksWith(
+  supabase: Awaited<ReturnType<typeof import("../supabase/server.ts").createClient>> | ReturnType<typeof import("../supabase/server.ts").createServiceRoleClient>,
+  getUser: () => Promise<{ id: string } | null>,
+): Promise<UploadAssetHooks> {
+  const { createServiceRoleClient } = await import("../supabase/server.ts");
   const { resolveServerMetaToken } = await import("./server-token.ts");
   const { uploadImageAsset, uploadVideoAsset } = await import("./client.ts");
   const { findExistingMetaChannelUpload, registerMetaUpload } = await import("../creatives/register-upload.ts");
   const { downloadSignedStorageObject } = await import("./video-file-url.ts");
   const { uploadToStorageBucket } = await import("../clients/asset-queue/storage-upload.ts");
 
-  const supabase = await createClient();
   const storage = createServiceRoleClient();
 
   return {
-    getUser: async () => {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      return user ? { id: user.id } : null;
-    },
+    getUser,
     resolveToken: async (userId) => {
-      const resolved = await resolveServerMetaToken(supabase, userId);
+      const resolved = await resolveServerMetaToken(supabase as never, userId);
       return { token: resolved.token, source: resolved.source };
     },
     supabase,
