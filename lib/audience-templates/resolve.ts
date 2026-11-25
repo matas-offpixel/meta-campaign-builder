@@ -56,6 +56,16 @@ export interface TemplateItemDetail {
   shows?: string[];
   /** A list's holding account (`act_…`), read from Meta by the seed. */
   heldIn?: string;
+  /** A show's Signups list (#1367, lib/customer-lists/templates.ts): its event code. */
+  code?: string;
+  /** A show's Signups list: the event's ad account that holds it (`act_…`). */
+  ad_account_id?: string;
+  /** "show_signups" on a show's Signups list. */
+  source?: string;
+  /** A show's Signups list: what's on it now (sent less removed), from customer_list_syncs. Set on load, never stored. */
+  signups?: number;
+  /** A show's Signups list not made yet: when the sync makes it (ISO, 08:00 London). Set on load, never stored. */
+  madeOn?: string;
   [key: string]: unknown;
 }
 
@@ -100,6 +110,8 @@ export interface ResolvedItem {
   reusedIds: string[];
   /** Audiences Meta would be asked to make for this item with writes on. */
   metaCreates: number;
+  /** A page item's platforms this account has no audience for (page_engagement_fb / _ig). Empty for other kinds. */
+  missingPageSubtypes: string[];
   /**
    * A list with a Meta id that this account can't use yet: the account that
    * holds it, so it can be shared in Business Manager. A list is never
@@ -180,6 +192,8 @@ function needs(item: TemplateItem, known: KnownAudience[], pixelId: string | nul
       // A list saved with its Meta id is that list: this account can use it
       // when it holds it or it's shared here. Never matched by role instead.
       if (item.metaAudienceId) return [known.find((k) => k.metaAudienceId === item.metaAudienceId) ?? null];
+      // A show's Signups list is that show's alone (SU2): never another show's list by role.
+      if (item.listRole === "signups") return [null];
       return [known.find((k) => matchList(item, k)) ?? null];
     case "retargeting_pool":
       return [known.find((k) => matchPool(item, k, pixelId)) ?? null];
@@ -202,12 +216,15 @@ export function resolveTemplate(
     const covered = needs(item, here, pixelId);
     const missing = covered.filter((c) => c == null).length;
     const listById = item.kind === "customer_list" && Boolean(item.metaAudienceId);
-    const holder = listById && missing > 0 ? (typeof item.detail.heldIn === "string" ? item.detail.heldIn : null) : null;
+    // The seed stores the holder as heldIn; a show's Signups list (#1367) as ad_account_id.
+    const heldIn = typeof item.detail.heldIn === "string" ? item.detail.heldIn : typeof item.detail.ad_account_id === "string" ? item.detail.ad_account_id : null;
+    const holder = listById && missing > 0 ? heldIn : null;
     return {
       item,
       status: missing === 0 ? "reused" : "create",
       reusedIds: covered.flatMap((c) => (c ? [c.metaAudienceId] : [])),
       metaCreates: listById ? 0 : missing,
+      missingPageSubtypes: item.kind === "page_engagers" ? PAGE_ENGAGER_SUBTYPES.filter((_, i) => covered[i] == null) : [],
       heldIn: holder,
     };
   });

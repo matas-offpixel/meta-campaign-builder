@@ -2,10 +2,12 @@
 
 import { useMemo, useState } from "react";
 
-import type { AudienceTemplatesPayload, TemplatePage } from "@/lib/actions/audience-templates";
+import type { AudienceTemplatesPayload, CreateTemplateResult, TemplatePage } from "@/lib/actions/audience-templates";
+import { addTemplateToDraft } from "@/lib/audience-templates/apply";
+import type { AudienceSettings } from "@/lib/types";
 import type { AudienceTemplate, TemplateItem } from "@/lib/audience-templates/resolve";
 import { buildTemplateView, pageItem, rowKey, type TemplateRow } from "@/lib/audience-templates/view";
-import { TEMPLATE_NAMES, fw, tw } from "@/lib/audience-templates/words";
+import { TEMPLATE_NAMES, addedLines, createButtonLabel, createdLines, fw, tw } from "@/lib/audience-templates/words";
 
 /**
  * The Audience templates tab's body (R6, record RC5 / frame RC-E): the
@@ -17,9 +19,20 @@ import { TEMPLATE_NAMES, fw, tw } from "@/lib/audience-templates/words";
  * the new pages to the template (onSave); nothing is created here.
  */
 
+/** The draft the tab sits in, for "Add to this draft". The drawer writes it; the tab only hands over the next audiences. */
+export interface TemplateDraftTarget {
+  name: string;
+  audiences: AudienceSettings;
+  onAdd: (next: AudienceSettings) => void;
+}
+
 export interface AudienceTemplatesPanelProps {
   data: AudienceTemplatesPayload;
   onSave?: (template: AudienceTemplate, pending: TemplateItem[]) => Promise<boolean>;
+  draft?: TemplateDraftTarget;
+  onCreate?: (template: AudienceTemplate) => Promise<CreateTemplateResult>;
+  /** Frames: a result line to open with. */
+  initialResult?: string[];
   /** Frames: the state to open in. */
   initialTemplate?: string;
   initialPending?: TemplateItem[];
@@ -32,7 +45,7 @@ function StatusChip({ status, label }: { status: Exclude<TemplateRow["status"], 
   const tone =
     status === "reused"
       ? "border-success bg-success text-background"
-      : status === "create"
+      : status === "create" || status === "waiting"
         ? "border-dashed border-border-strong text-muted-foreground"
         : "border-warning bg-warning/15 text-warning-foreground";
   return (
@@ -49,7 +62,7 @@ function ItemRow({ row }: { row: TemplateRow }) {
         <div className="text-sm leading-5 text-foreground [overflow-wrap:anywhere]">{row.title}</div>
         {row.line ? <div className="text-xs leading-4 text-muted-foreground">{row.line}</div> : null}
       </div>
-      {row.status === "held" ? null : <StatusChip status={row.status} label={row.statusLabel} />}
+      {row.status === "held" || !row.statusLabel ? null : <StatusChip status={row.status} label={row.statusLabel} />}
     </div>
   );
 }
@@ -79,7 +92,7 @@ function UnconfirmedCard({ template }: { template: AudienceTemplate }) {
   );
 }
 
-export function AudienceTemplatesPanel({ data, onSave, initialTemplate, initialPending, initialPickerOpen }: AudienceTemplatesPanelProps) {
+export function AudienceTemplatesPanel({ data, onSave, draft, onCreate, initialResult, initialTemplate, initialPending, initialPickerOpen }: AudienceTemplatesPanelProps) {
   const chips = useMemo(
     () => TEMPLATE_NAMES.map((name) => data.templates.find((t) => t.name === name)).filter((t): t is AudienceTemplate => Boolean(t)),
     [data.templates],
@@ -92,6 +105,8 @@ export function AudienceTemplatesPanel({ data, onSave, initialTemplate, initialP
   );
   const [pickerOpen, setPickerOpen] = useState(Boolean(initialPickerOpen));
   const [saving, setSaving] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [result, setResult] = useState<{ template: string; lines: string[] } | null>(null);
 
   const template = all.find((t) => t.name === selected) ?? all[0];
   const pending = (template ? pendingByTemplate[template.name] : undefined) ?? NONE;
@@ -138,6 +153,25 @@ export function AudienceTemplatesPanel({ data, onSave, initialTemplate, initialP
       setSaving(false);
     }
   };
+  const add = () => {
+    if (!draft || !view.header.confirmed) return;
+    const res = addTemplateToDraft(draft.audiences, template.name, view.resolved);
+    draft.onAdd(res.audiences);
+    setResult({ template: template.name, lines: addedLines(template.name, draft.name, res.added, res.leftOut) });
+  };
+  const create = async () => {
+    if (!onCreate || !view.header.confirmed || !data.writesEnabled || view.createCount === 0) return;
+    setCreating(true);
+    try {
+      const res = await onCreate(template);
+      // Anything but a run that happened reads as none made: the button stays for Try again.
+      const lines = res.ok ? createdLines(res.created, res.failed, data.accountName) : createdLines(0, view.createCount, data.accountName);
+      setResult({ template: template.name, lines });
+    } finally {
+      setCreating(false);
+    }
+  };
+  const resultLines = result?.template === template.name ? result.lines : (initialResult ?? []);
   const others = all.filter((t) => t.name !== template.name && !(t.confirmedBy && t.confirmedAt));
   const sep = fw("frame.sep");
 
@@ -157,6 +191,31 @@ export function AudienceTemplatesPanel({ data, onSave, initialTemplate, initialP
           {tw("templates.save")}
         </button>
       </div>
+      <div className="mt-3 flex flex-wrap gap-2" data-template-actions>
+        <button
+          type="button"
+          onClick={add}
+          disabled={!draft || !view.header.confirmed || view.addCount === 0}
+          className="rounded-md border border-foreground bg-foreground px-3 py-1.5 text-sm text-background disabled:opacity-50"
+        >
+          {tw("templates.apply")}
+        </button>
+        {view.createCount > 0 ? (
+          <button
+            type="button"
+            onClick={() => void create()}
+            disabled={!onCreate || !view.header.confirmed || !data.writesEnabled || creating}
+            className="rounded-md border border-border-strong px-3 py-1.5 text-left text-sm text-foreground disabled:opacity-50 [overflow-wrap:anywhere]"
+          >
+            {createButtonLabel(view.createCount, data.accountName)}
+          </button>
+        ) : null}
+      </div>
+      {resultLines.length > 0 ? (
+        <p className="mt-2 text-xs leading-5 text-foreground" role="status" data-template-result>
+          {resultLines.join(" ")}
+        </p>
+      ) : null}
     </div>
   );
 

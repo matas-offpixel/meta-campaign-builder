@@ -6,8 +6,9 @@
  * Pure. No `@/` imports, so node --test can load it.
  */
 
-import { TEMPLATE_NAMES, GROUP_LABEL, changedLine, footerLine, fw, heldLine, tw } from "./words.ts";
-import { normalizeAccount, resolveTemplate, type AudienceTemplate, type KnownAudience, type ResolvedItem, type TemplateItem, type TemplateItemKind } from "./resolve.ts";
+import { TEMPLATE_NAMES, GROUP_LABEL, changedLine, footerLine, fw, heldLine, madeOnLine, signupsLine, tw } from "./words.ts";
+import { createTargets } from "./create.ts";
+import { normalizeAccount, resolveTemplate, type ResolvedTemplate, type AudienceTemplate, type KnownAudience, type ResolvedItem, type TemplateItem, type TemplateItemKind } from "./resolve.ts";
 
 export const GROUP_ORDER: readonly TemplateItemKind[] = ["customer_list", "retargeting_pool", "page_engagers", "interest"];
 
@@ -20,8 +21,8 @@ export interface TemplateRow {
    * yet. It is never re-uploaded, so it isn't "Will be created": the line
    * says where it's held, and the row has no status chip.
    */
-  status: "reused" | "create" | "held";
-  /** Empty for a held list. */
+  status: "reused" | "create" | "held" | "waiting";
+  /** Empty for a held list; "Made on {date}" for a show's list the sync hasn't made yet (dashed, like Will be created). */
   statusLabel: string;
   /** How many items this row stands for (the interests row is all of them). */
   count: number;
@@ -52,6 +53,15 @@ export interface TemplateView {
   toCreate: number;
   /** Customer lists held in another account (templates.item.held). */
   held: number;
+  /** Shows' Signups lists the sync hasn't made yet ("Made on {date}"): never created here. */
+  waiting: number;
+  /** "Add to this draft": the made items it adds ({n}), and the ones left out ({m}). */
+  addCount: number;
+  leftOut: number;
+  /** Audiences "Create" would ask Meta for: pixel pools and page engagers only. */
+  createCount: number;
+  /** The template resolved in the account, for "Add to this draft". */
+  resolved: ResolvedTemplate;
   metaCreates: number;
   /** "{n} change since this template was saved", or null with no change. */
   changed: string | null;
@@ -119,6 +129,16 @@ function itemRow(r: ResolvedItem, ctx: ViewContext): TemplateRow {
   const days = it.retentionDays ?? 0;
   switch (it.kind) {
     case "customer_list": {
+      if (isShowSignups(it)) {
+        const code = it.detail.code ?? "";
+        const title = it.detail.name ?? `${code} · Signups`;
+        // SU2: before the sync makes the list, its status is the day it will be, never Will be created.
+        if (!it.metaAudienceId) {
+          return { ...base, status: "waiting", statusLabel: it.detail.madeOn ? madeOnLine(shortDate(it.detail.madeOn)) : "", title, line: signupsLine(code, null) };
+        }
+        const line = signupsLine(code, typeof it.detail.signups === "number" ? it.detail.signups : null);
+        return { ...base, title, line: holder ? `${line}${fw("frame.sep")}${heldLine(ctx.accountLabel?.(holder) ?? holder)}` : line };
+      }
       // RC-E's line; a list for every genre has no family, so it stops at the role.
       const line = it.familyKey
         ? fw("frame.list.line", { role: it.listRole ?? "", family: it.familyKey })
@@ -146,7 +166,21 @@ function itemRow(r: ResolvedItem, ctx: ViewContext): TemplateRow {
 }
 
 export function rowKey(it: TemplateItem): string {
-  return [it.kind, it.listRole ?? "", it.familyKey ?? "", it.pageId ?? "", it.retentionDays ?? "", it.interestId ?? ""].join("|");
+  // A show's Signups list is one item per list (267's key has meta_audience_id); the code tells a waiting one apart.
+  const list = isShowSignups(it) ? [it.metaAudienceId ?? "", it.detail.code ?? ""] : [];
+  return [it.kind, it.listRole ?? "", it.familyKey ?? "", it.pageId ?? "", it.retentionDays ?? "", it.interestId ?? "", ...list].join("|");
+}
+
+/** A show's "{code} · Signups" list (#1367 / SU2): role signups on a customer list. */
+export function isShowSignups(it: TemplateItem): boolean {
+  return it.kind === "customer_list" && it.listRole === "signups";
+}
+
+/** SU2: the genre lists first, then each show's list, by code. */
+function customerListOrder(rows: ResolvedItem[]): ResolvedItem[] {
+  const genre = rows.filter((r) => !isShowSignups(r.item));
+  const shows = rows.filter((r) => isShowSignups(r.item)).sort((a, b) => (a.item.detail.code ?? "").localeCompare(b.item.detail.code ?? ""));
+  return [...genre, ...shows];
 }
 
 /**
@@ -164,7 +198,8 @@ export function buildTemplateView(
   const added = pending.filter((p) => !saved.has(rowKey(p)));
   const resolved = resolveTemplate([...t.items, ...added], ctx.accountId, known, ctx.pixelId);
   const groups = GROUP_ORDER.map((kind): TemplateGroup => {
-    const rows = resolved.items.filter((r) => r.item.kind === kind);
+    const inKind = resolved.items.filter((r) => r.item.kind === kind);
+    const rows = kind === "customer_list" ? customerListOrder(inKind) : inKind;
     if (kind !== "interest" || rows.length === 0) {
       return { kind, label: GROUP_LABEL[kind], rows: rows.map((r) => itemRow(r, ctx)) };
     }
@@ -186,7 +221,9 @@ export function buildTemplateView(
   });
   // A held list is shared in Business Manager, never re-uploaded: not one of the creates.
   const held = resolved.items.filter((r) => heldElsewhere(r, ctx.accountId)).length;
-  const toCreate = resolved.toCreate - held;
+  // A show's list the sync hasn't made: not created here either (SU2: "Create never counts it").
+  const waiting = resolved.items.filter((r) => r.status === "create" && isShowSignups(r.item) && !r.item.metaAudienceId).length;
+  const toCreate = resolved.toCreate - held - waiting;
   return {
     header: headerFor(t, ctx),
     groups,
@@ -194,6 +231,11 @@ export function buildTemplateView(
     reused: resolved.reused,
     toCreate,
     held,
+    waiting,
+    addCount: resolved.reused,
+    leftOut: resolved.items.length - resolved.reused,
+    createCount: createTargets(resolved.items, ctx.pixelId).length,
+    resolved,
     metaCreates: resolved.metaCreates,
     changed: added.length > 0 ? changedLine(added.length) : null,
     canSave: added.length > 0,

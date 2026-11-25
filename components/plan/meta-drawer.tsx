@@ -322,6 +322,9 @@ export function MetaDrawer({
               clientId={settings.clientId}
               adAccountId={settings.metaAdAccountId || settings.adAccountId}
               pixelId={settings.metaPixelId || settings.pixelId}
+              audiences={draft.audiences}
+              draftName={settings.campaignName}
+              onAddToDraft={updateAudiences}
             >
             <AudiencesStep
               surface="drawer"

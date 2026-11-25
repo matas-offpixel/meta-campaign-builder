@@ -36,6 +36,21 @@ export const TEMPLATE_WORDS = {
   "templates.changed": "{n} change since this template was saved / {n} changes since this template was saved",
   "templates.save": "Save to template",
   "templates.item.held": "held in {Meta account name}",
+  "templates.item.signups": "Customer list · role: signups · {code} · {n} signups",
+  "templates.item.signups.one": "Customer list · role: signups · {code} · 1 signup",
+  "templates.item.signups.none": "Customer list · role: signups · {code}",
+  "templates.item.signups.waiting": "Made on {date}",
+  "templates.apply": "Add to this draft",
+  "templates.apply.done": "Added {template} to {draft}: {n} audiences.",
+  "templates.apply.done.one": "Added {template} to {draft}: 1 audience.",
+  "templates.apply.left_out": "{m} aren’t made yet, so they’re left out.",
+  "templates.apply.left_out.one": "1 isn’t made yet, so it’s left out.",
+  "templates.create_button": "Create {m} audiences in {Meta account name}",
+  "templates.create_button.one": "Create 1 audience in {Meta account name}",
+  "templates.created": "Created {m} in {Meta account name}.",
+  "templates.created.one": "Created 1 in {Meta account name}.",
+  "templates.create_failed": "{n} weren’t created. Try again.",
+  "templates.create_failed.one": "1 wasn’t created. Try again.",
 } as const;
 
 export type TemplateWordKey = keyof typeof TEMPLATE_WORDS;
@@ -97,6 +112,46 @@ export function changedLine(n: number): string {
  */
 export function heldLine(accountName: string): string {
   return tw("templates.item.held", { "Meta account name": accountName });
+}
+
+/** A count as SU4 writes it: thousands separators ("1,204"). */
+export function count(n: number): string {
+  return n.toLocaleString("en-GB");
+}
+
+/** A show's Signups list line (SU2): with its count once made, without before. */
+export function signupsLine(code: string, n: number | null): string {
+  if (n == null) return tw("templates.item.signups.none", { code });
+  return n === 1 ? tw("templates.item.signups.one", { code }) : tw("templates.item.signups", { code, n: count(n) });
+}
+
+/** "Made on Thu 27 Nov": a show's list before the sync makes it, in place of a status. */
+export function madeOnLine(date: string): string {
+  return tw("templates.item.signups.waiting", { date });
+}
+
+/** After "Add to this draft": the added line, and the left-out line when some aren't made yet. */
+export function addedLines(template: string, draft: string, n: number, m: number): string[] {
+  const done = n === 1 ? tw("templates.apply.done.one", { template, draft }) : tw("templates.apply.done", { template, draft, n });
+  if (m === 0) return [done];
+  return [done, m === 1 ? tw("templates.apply.left_out.one") : tw("templates.apply.left_out", { m })];
+}
+
+/** "Create {m} audiences in {account}", one form for 1. */
+export function createButtonLabel(m: number, account: string): string {
+  return m === 1
+    ? tw("templates.create_button.one", { "Meta account name": account })
+    : tw("templates.create_button", { m, "Meta account name": account });
+}
+
+/** After Create: what was made, and what wasn't. */
+export function createdLines(created: number, failed: number, account: string): string[] {
+  const out: string[] = [];
+  if (created > 0) {
+    out.push(created === 1 ? tw("templates.created.one", { "Meta account name": account }) : tw("templates.created", { m: created, "Meta account name": account }));
+  }
+  if (failed > 0) out.push(failed === 1 ? tw("templates.create_failed.one") : tw("templates.create_failed", { n: failed }));
+  return out;
 }
 
 /**

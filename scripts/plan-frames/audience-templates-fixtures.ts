@@ -8,13 +8,20 @@
  * confirmed. The record says its counts, retention days and interests are
  * invented; so are the ids here.
  *
+ * SU-C (record 2026-11-25-signups-into-meta, SU2): the same template with
+ * two shows' Signups lists, NX27-GLITTERBOX made (1,204, Reused) and
+ * NX27-SILVABUMPA made on Thu 27 Nov. SU-C-held: that template in Electric
+ * Studios Sheffield, where NX Promoter holds every list (as Meta has them
+ * today, #1363's dry run), so the lists read "held in NX Promoter" and the
+ * pools and pages are to create. Both with audience writes off.
+ *
  * Pure. No `@/` imports, so node --test can load it.
  */
 
 import type { AudienceTemplatesPayload } from "../../lib/actions/audience-templates.ts";
 import type { AudienceTemplate, KnownAudience, TemplateItem } from "../../lib/audience-templates/resolve.ts";
 
-export const AUDIENCE_TEMPLATE_FRAME_IDS = ["RC-E"] as const;
+export const AUDIENCE_TEMPLATE_FRAME_IDS = ["RC-E", "SU-C", "SU-C-held"] as const;
 export type AudienceTemplateFrameId = (typeof AUDIENCE_TEMPLATE_FRAME_IDS)[number];
 
 const ACCOUNT = "act_606252931141334";
@@ -122,4 +129,63 @@ export const RC_E_DATA: AudienceTemplatesPayload = {
     { pageId: "1000000000000003", name: "Ewan McVicar" },
     { pageId: "756330917740654", name: "Folamour" },
   ],
+};
+
+// ─── SU-C and SU-C-held ──────────────────────────────────────────────────────
+
+const SHEFFIELD = "act_2011069725849568";
+const SHEFFIELD_PIXEL = "2261755947685271";
+
+const showList = (code: string, metaAudienceId: string | null, extra: Record<string, unknown>): TemplateItem => ({
+  ...base,
+  kind: "customer_list",
+  listRole: "signups",
+  metaAudienceId,
+  detail: { name: `${code} · Signups`, code, source: "show_signups", ...extra },
+});
+
+const GLITTERBOX = showList("NX27-GLITTERBOX", "9000000000000011", { ad_account_id: ACCOUNT, signups: 1204 });
+/** Presale Thu 27 Nov: the sync makes the list at 08:00 London. */
+const SILVABUMPA = showList("NX27-SILVABUMPA", null, { madeOn: "2026-11-27T08:00:00.000Z" });
+
+export const SU_C_TEMPLATE: AudienceTemplate = { ...HOUSE_DISCO, items: [...HOUSE_DISCO.items, GLITTERBOX, SILVABUMPA] };
+
+const GLITTERBOX_KNOWN: KnownAudience = { source: "row", metaAudienceId: "9000000000000011", accountId: ACCOUNT, subtype: "customer_list", listRole: "signups", familyKey: null };
+
+export const SU_C_DATA: AudienceTemplatesPayload = {
+  ...RC_E_DATA,
+  templates: [SU_C_TEMPLATE, HOUSE_GARAGE, TECHNO, COMMERCIAL],
+  known: [...RC_E_KNOWN, GLITTERBOX_KNOWN],
+};
+
+/** The genre lists by their Meta ids, held in NX Promoter. */
+const heldList = (family: "house_tech" | "disco", name: string, metaAudienceId: string): TemplateItem => ({
+  ...list(family, name),
+  metaAudienceId,
+  detail: { name, heldIn: ACCOUNT },
+});
+
+export const SU_C_HELD_TEMPLATE: AudienceTemplate = {
+  ...SU_C_TEMPLATE,
+  items: [
+    heldList("house_tech", "Tech house buyers", "9000000000000001"),
+    heldList("disco", "Disco buyers", "9000000000000002"),
+    ...SU_C_TEMPLATE.items.filter((i) => i.kind !== "customer_list" || i.listRole === "signups"),
+  ],
+};
+
+export const SU_C_HELD_DATA: AudienceTemplatesPayload = {
+  ...SU_C_DATA,
+  templates: [SU_C_HELD_TEMPLATE, HOUSE_GARAGE, TECHNO, COMMERCIAL],
+  accountId: SHEFFIELD,
+  accountName: "Electric Studios Sheffield",
+  pixelId: SHEFFIELD_PIXEL,
+  pixelName: "Electric Sheffield",
+  accountNames: { [ACCOUNT]: "NX Promoter", [SHEFFIELD]: "Electric Studios Sheffield" },
+};
+
+export const AUDIENCE_TEMPLATE_FRAME_DATA: Record<AudienceTemplateFrameId, { data: AudienceTemplatesPayload; pending: TemplateItem[] }> = {
+  "RC-E": { data: RC_E_DATA, pending: RC_E_PENDING },
+  "SU-C": { data: SU_C_DATA, pending: [] },
+  "SU-C-held": { data: SU_C_HELD_DATA, pending: [] },
 };

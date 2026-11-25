@@ -7,7 +7,17 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import type { KnownAudience, TemplateItem } from "../resolve.ts";
-import { HOUSE_DISCO, RC_E_DATA, RC_E_KNOWN, RC_E_PENDING, TECHNO } from "../../../scripts/plan-frames/audience-templates-fixtures.ts";
+import {
+  HOUSE_DISCO,
+  RC_E_DATA,
+  RC_E_KNOWN,
+  RC_E_PENDING,
+  SU_C_DATA,
+  SU_C_HELD_DATA,
+  SU_C_HELD_TEMPLATE,
+  SU_C_TEMPLATE,
+  TECHNO,
+} from "../../../scripts/plan-frames/audience-templates-fixtures.ts";
 import { buildTemplateView, pageItem, shortDate } from "../view.ts";
 
 const ctx = {
@@ -138,5 +148,55 @@ describe("buildTemplateView (RC-E)", () => {
       assert.ok(v.groups.every((g) => g.rows.every((r) => !r.line.includes("held in"))));
     });
   });
+
+describe("SU2: shows' Signups lists in the tab (SU-C, SU-C-held)", () => {
+  it("a show's list not made yet is never another show's list", () => {
+    const v = buildTemplateView(SU_C_TEMPLATE, SU_C_DATA.known, ctx);
+    assert.ok(!v.resolved.items.find((r) => r.item.detail.code === "NX27-SILVABUMPA")!.reusedIds.length);
+  });
+
+  it("SU-C: after the genre lists, the made list Reused with its count, the other Made on its day", () => {
+    const v = buildTemplateView(SU_C_TEMPLATE, SU_C_DATA.known, ctx);
+    assert.deepEqual(
+      v.groups[0]!.rows.map((r) => `${r.title} | ${r.line} | ${r.statusLabel}`),
+      [
+        "Tech house buyers | Customer list · role: buyers, house_tech | Reused",
+        "Disco buyers | Customer list · role: buyers, disco | Reused",
+        "NX27-GLITTERBOX · Signups | Customer list · role: signups · NX27-GLITTERBOX · 1,204 signups | Reused",
+        // The record writes "Thu 27 Nov"; 27 Nov 2026 is a Friday, and the date is read from the presale.
+        "NX27-SILVABUMPA · Signups | Customer list · role: signups · NX27-SILVABUMPA | Made on Fri 27 Nov",
+      ],
+    );
+    assert.equal(v.groups[0]!.rows[3]!.status, "waiting");
+  });
+
+  it("a waiting list is never Will be created, and Create never counts it", () => {
+    const v = buildTemplateView(SU_C_TEMPLATE, SU_C_DATA.known, ctx);
+    assert.equal(v.waiting, 1);
+    assert.equal(v.toCreate, 1, "video viewers only");
+    assert.equal(v.createCount, 0);
+    assert.equal(v.footer, "10 reused · 1 will be created in NX Promoter. Creating audiences is switched off, so these 1 wait.");
+  });
+
+  it("SU-C-held: in Sheffield every list reads held in NX Promoter, the waiting list still Made on", () => {
+    const held = { ...ctx, accountId: SU_C_HELD_DATA.accountId, accountName: SU_C_HELD_DATA.accountName, pixelId: SU_C_HELD_DATA.pixelId, pixelName: SU_C_HELD_DATA.pixelName, accountLabel: (id: string) => SU_C_HELD_DATA.accountNames[id] ?? null };
+    const v = buildTemplateView(SU_C_HELD_TEMPLATE, SU_C_HELD_DATA.known, held);
+    assert.deepEqual(
+      v.groups[0]!.rows.map((r) => `${r.line} | ${r.status}`),
+      [
+        "Customer list · role: buyers, house_tech · held in NX Promoter | held",
+        "Customer list · role: buyers, disco · held in NX Promoter | held",
+        "Customer list · role: signups · NX27-GLITTERBOX · 1,204 signups · held in NX Promoter | held",
+        "Customer list · role: signups · NX27-SILVABUMPA | waiting",
+      ],
+    );
+    assert.equal(v.held, 3);
+    assert.equal(v.toCreate, 5);
+    assert.equal(v.createCount, 6);
+    assert.equal(v.addCount, 3);
+    assert.equal(v.leftOut, 9);
+    assert.equal(v.footer, "3 reused · 5 will be created in Electric Studios Sheffield. Creating audiences is switched off, so these 5 wait.");
+  });
 });
 
+});
