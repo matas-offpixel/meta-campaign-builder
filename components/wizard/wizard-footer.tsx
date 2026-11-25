@@ -115,12 +115,16 @@ export function WizardFooter({
         </div>
       )}
 
-      {/* ── Main footer row ── */}
-      <div className="px-6 py-3">
-        <div className="mx-auto flex max-w-5xl items-center justify-between">
-          <div className="flex items-center gap-3">
+      {/* ── Main footer row ──
+          Under 640px it is two rows (#1361 design round, 393): the primary
+          action full width on top, so "Launch · {n} to fix" always shows,
+          then Back, Save as Template, Save Draft. From 640px it is one row as
+          before: the primary sits last, at the right. */}
+      <div className="px-4 py-3 sm:px-6">
+        <div className="mx-auto flex max-w-5xl flex-wrap items-center gap-2 sm:flex-nowrap">
+          <div className="flex items-center gap-2 sm:gap-3">
             {!isFirstStep && (
-              <Button variant="outline" onClick={onBack}>
+              <Button variant="outline" onClick={onBack} className="max-sm:px-3">
                 <ChevronLeft className="h-4 w-4" />
                 Back
               </Button>
@@ -131,7 +135,7 @@ export function WizardFooter({
                 Load Template
               </Button>
             )}
-            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground empty:hidden">
               {saveStatus === "saving" && (
                 <>
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -147,18 +151,20 @@ export function WizardFooter({
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="ml-auto flex items-center sm:gap-2">
             {showTemplates ? (
-              <Button variant="ghost" onClick={onSaveTemplate}>
+              <Button variant="ghost" onClick={onSaveTemplate} className="whitespace-nowrap max-sm:gap-1.5 max-sm:px-2">
                 <BookmarkPlus className="h-4 w-4" />
                 Save as Template
               </Button>
             ) : null}
-            <Button variant="ghost" onClick={onSaveDraft}>
+            <Button variant="ghost" onClick={onSaveDraft} className="whitespace-nowrap max-sm:gap-1.5 max-sm:px-2">
               <Save className="h-4 w-4" />
               Save Draft
             </Button>
+          </div>
 
+          <div data-footer-primary="" className="order-first flex w-full empty:hidden sm:order-none sm:w-auto [&>*]:w-full sm:[&>*]:w-auto">
             {isLastStep ? (
               showLaunch ? (
                 <Button

@@ -1,6 +1,7 @@
 "use client";
 
 import { cleanLine, countLine } from "@/lib/launch-guard/check";
+import { codeSpans } from "@/lib/launch-guard/code-spans";
 import type { LaunchCheck, LaunchCheckFix, LaunchGuardResult } from "@/lib/launch-guard/types";
 
 /**
@@ -38,13 +39,17 @@ export function LaunchChecks({
           </>
         )}
       </div>
-      {clean ? <p className="text-[13px] text-foreground">{cleanLine(result.eventCode)}</p> : null}
+      {clean ? (
+        <p className="text-[13px] text-foreground">
+          <NoBreakCodes text={cleanLine(result.eventCode)} />
+        </p>
+      ) : null}
       {result.checks.map((check, index) => (
         <CheckRow key={`${check.key}-${index}`} check={check} onFix={onFix} />
       ))}
       {keptLines.map((line) => (
         <p key={line} data-launch-kept="" className="text-[11.5px] text-muted-foreground">
-          {line}
+          <NoBreakCodes text={line} />
         </p>
       ))}
     </section>
@@ -73,8 +78,14 @@ function CheckRow({
       >
         {check.label}
       </div>
-      <p className="font-semibold leading-snug text-foreground">{check.sentence}</p>
-      {check.evidence ? <p className="mb-1.5 mt-1 text-[11.5px] text-muted-foreground">{check.evidence}</p> : null}
+      <p className="font-semibold leading-snug text-foreground">
+        <NoBreakCodes text={check.sentence} />
+      </p>
+      {check.evidence ? (
+        <p className="mb-1.5 mt-1 text-[11.5px] text-muted-foreground">
+          <NoBreakCodes text={check.evidence} />
+        </p>
+      ) : null}
       {onFix && check.fixes.length > 0 ? (
         <div className="flex flex-wrap gap-2">
           {check.fixes.map((fix) => (
@@ -124,12 +135,31 @@ export function FixLabel({ label, names }: { label: string; names?: readonly str
         .map((part, index) =>
           part.name ? (
             <span key={index} className="normal-case">
-              {part.text}
+              <NoBreakCodes text={part.text} />
             </span>
           ) : (
-            <span key={index}>{part.text}</span>
+            <span key={index}>
+              <NoBreakCodes text={part.text} />
+            </span>
           ),
         )}
+    </>
+  );
+}
+
+/** The text with each event code set nowrap, so the line wraps before a code, never inside it. */
+export function NoBreakCodes({ text }: { text: string }) {
+  return (
+    <>
+      {codeSpans(text).map((span, index) =>
+        span.code ? (
+          <span key={index} data-event-code="" className="whitespace-nowrap">
+            {span.text}
+          </span>
+        ) : (
+          span.text
+        ),
+      )}
     </>
   );
 }
