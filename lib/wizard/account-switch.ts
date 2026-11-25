@@ -139,10 +139,12 @@ function adSetHasGeo(adSet: AdSetSuggestion): boolean {
       geo.cities?.length ||
       geo.regions?.length ||
       geo.country_groups?.length ||
+      geo.custom_locations?.length ||
       excluded?.countries?.length ||
       excluded?.cities?.length ||
       excluded?.regions?.length ||
-      excluded?.country_groups?.length,
+      excluded?.country_groups?.length ||
+      excluded?.custom_locations?.length,
   );
 }
 

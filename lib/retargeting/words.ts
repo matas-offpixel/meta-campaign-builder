@@ -102,24 +102,36 @@ export function leavesOut(tier: Tier, buyers: boolean): string {
   return parts.join(" · ");
 }
 
-/** RT3: the includes in short, one entry per line. */
-export function audiencesShort(tier: Tier, args: { signupLists: number; similarLists: number; pagesUsed: number; pagesTotal: number; hasVideo: boolean }): string[] {
+/** RT14: a source's windows as words, "7, 14 and 30 days". */
+export function windowsText(days: readonly number[]): string {
+  const parts = days.map(String);
+  return `${parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts.at(-1)}` : parts[0]} days`;
+}
+
+/**
+ * RT3 / RT14: the includes in short, one entry per line; sources with the
+ * same windows share a line ("Ticket-link visitors · checkout starters ·
+ * 7, 14 and 30 days").
+ */
+export function audiencesShort(tier: Tier, args: { signupLists: number; similarLists: number; pagesUsed: number; pagesTotal: number; hasVideo: boolean; hasTickets: boolean; hasLanding: boolean }): string[] {
+  const lines: string[] = [];
   if (tier === "bottom") {
-    const lines = ["Ticket-link visitors · checkout starters · 30 days"];
+    if (args.hasTickets) lines.push(`Ticket-link visitors · checkout starters · ${windowsText([7, 14, 30])}`);
+    if (args.hasLanding) lines.push(`Registrations · ${windowsText([30, 90, 180])}`);
     if (args.signupLists) lines.push(args.signupLists === 1 ? "Signup list" : `${args.signupLists} signup lists`);
     return lines;
   }
   if (tier === "mid_bottom") {
+    if (args.hasLanding) lines.push(`Page visitors · ${windowsText([14, 30, 60])}`);
+    if (args.hasTickets) lines.push(`Checkout starters · ${windowsText([60])}`);
     // Similar lists sit in Mid Bottom (Matas, 17 Nov).
-    const lines = ["Page visitors · checkout starters · 60 days"];
     if (args.similarLists) lines.push(args.similarLists === 1 ? "Similar list" : `${args.similarLists} similar lists`);
     return lines;
   }
-  const lines: string[] = [];
-  if (args.hasVideo) lines.push("Video viewers 75 % · 365 days");
+  if (args.hasVideo) lines.push(`Video viewers 75 % · ${windowsText([90, 180, 365])}`);
   if (args.pagesUsed) {
     const pages = args.pagesUsed === args.pagesTotal ? `${args.pagesUsed} page${args.pagesUsed === 1 ? "" : "s"}` : `${args.pagesUsed} of ${args.pagesTotal} pages`;
-    lines.push(`Page and Instagram engagers · 180 days · ${pages}`);
+    lines.push(`Page and Instagram engagers · ${windowsText([30, 90, 180])} · ${pages}`);
   }
   return lines;
 }
@@ -147,10 +159,15 @@ export function floorSuffix(floorMinor: number): string {
   return ` · ${pounds(floorMinor / 100)} a tier minimum`;
 }
 
-/** RT4's Create line: "£{total} a day · {pct} % of current daily spend · Bottom £{b} · Mid Bottom £{mb} · Mid £{m}". */
-export function createLine(args: { totalMinor: number; pct: number; tiers: Record<Tier, number>; atFloor: boolean; floorMinor: number }): string {
+/** RT11: "£{total} a day · {share} % of current daily spend", inside a step "{share} % of current daily spend, {stretch}". */
+export function createHead(totalMinor: number, pct: number, stretch: string | null): string {
+  return `${budgetHeader(totalMinor, pct)}${stretch ? `, ${stretch}` : ""}`;
+}
+
+/** RT11's Create line: "£{total} a day · {share} % of current daily spend[, {stretch}] · Bottom £{b} · Mid Bottom £{mb} · Mid £{m}". */
+export function createLine(args: { totalMinor: number; pct: number; tiers: Record<Tier, number>; atFloor: boolean; floorMinor: number; stretch?: string | null }): string {
   const tiers = TIERS.filter((tier) => args.tiers[tier] > 0).map((tier) => `${TIER_LABEL[tier]} ${pence(args.tiers[tier], { minor: true })}`);
-  return `${budgetHeader(args.totalMinor, args.pct)} · ${tiers.join(" · ")}${args.atFloor ? floorSuffix(args.floorMinor) : ""}`;
+  return `${createHead(args.totalMinor, args.pct, args.stretch ?? null)} · ${tiers.join(" · ")}${args.atFloor ? floorSuffix(args.floorMinor) : ""}`;
 }
 
 /** RT4 at 393 (frame RB 393): the tier split on its own line. */
@@ -191,6 +208,46 @@ export const CREATE_WRITE = "New campaign, audiences and ad sets through the Pur
 // ── RT8 ──────────────────────────────────────────────────────────────────────
 
 export const NO_SIGNUP_LIST = "No signup list yet, so Bottom runs on ticket-link visitors and checkout starters only.";
+
+/** RT15: "No signup list yet, so Bottom runs on {sources} only.", {sources} what Bottom has. */
+export function noSignupList(sources: readonly string[]): string {
+  const list = sources.length > 1 ? `${sources.slice(0, -1).join(", ")} and ${sources.at(-1)}` : (sources[0] ?? "nothing else");
+  return `No signup list yet, so Bottom runs on ${list} only.`;
+}
+
+/** RT15: no registrations reaching the pixel from the landing pages in 28 days. */
+export function noRegistrations(pages: readonly string[]): string {
+  return `No registrations from ${joinNames(pages)} reach the pixel in 28 days, so Bottom counts signups from the signup list only.`;
+}
+
+/** RT13: Bottom can't be built; its 50 % goes to Mid Bottom and Mid, 1 to 1. */
+export const BOTTOM_NOT_BUILT = "Bottom has no audience yet: no visits, checkout starters, registrations or signup list.";
+
+/** RT18: before Apply the links' audiences don't exist. */
+export const BY_LINK_BEFORE_CREATE = "By link: known after create";
+
+/** RT18: a link audience's size band, "2,100–2,500" or "below 1,000". */
+export function sizeBand(lower: number, upper: number): string {
+  if (!(upper >= 1000)) return "below 1,000";
+  return `${group(String(Math.round(lower)))}–${group(String(Math.round(upper)))}`;
+}
+
+/** RT18: "Skiddle 2,100–2,500 · RA 1,000–1,200 · Fixr below 1,000"; a size Meta didn't give reads "—". */
+export function sizesLine(entries: readonly { name: string; band: string | null }[]): string {
+  return entries.map((entry) => `${entry.name} ${entry.band ?? NO_FIGURE}`).join(" · ");
+}
+
+/** RT18: "Pixel on {names}: yes · {names}: no", or "Pixel on {names}: no" when all are no. */
+export function pixelLine(entries: readonly { name: string; on: boolean }[]): string {
+  const yes = entries.filter((entry) => entry.on).map((entry) => entry.name);
+  const no = entries.filter((entry) => !entry.on).map((entry) => entry.name);
+  if (!yes.length) return `Pixel on ${joinNames(no)}: no`;
+  return `Pixel on ${joinNames(yes)}: yes${no.length ? ` · ${joinNames(no)}: no` : ""}`;
+}
+
+/** RT18: under a ticket site the pixel isn't on. */
+export const TICKET_SITE_COUNTS = "A ticket site counts visitors only when your pixel is on it there.";
+
 export const UPLOAD_SIGNUP_LIST = "Upload the signup list";
 
 /** RT8: one line naming every lineup page with no role. */
@@ -225,6 +282,10 @@ export function sellsElsewhere(args: { host: string; pct: number; purchases: num
   return `No Retargeting campaign: this pixel mostly sells on ${args.host} (${args.pct} % of ${group(String(args.purchases))} purchases in 28 days), not on ${args.platform}.`;
 }
 export const NOT_READ = "Retargeting not proposed: purchases couldn't be read this run. The next run tries again.";
+/** RT13: CIRQLIN's 404 no_page. */
+export const LINKS_NO_PAGE = "Retargeting not proposed: this show's CIRQLIN page isn't published. It's proposed at the first read after it is.";
+/** RT13: any other failure of the page-links read. */
+export const LINKS_NOT_READ = "Retargeting not proposed: the show's links couldn't be read from CIRQLIN this run. The next run tries again.";
 /** RT8 (#1299 6ec5353): E2's "nothing reaches", with no platform path. */
 export function nothingReaches(domain: string): string {
   return `No Retargeting campaign: no purchase has reached ${domain} in 28 days, and the ticket link isn't on a ticket platform.`;
@@ -249,4 +310,9 @@ export function joinNames(names: readonly string[]): string {
   if (names.length <= 1) return names[0] ?? "";
   if (names.length > 3) return `${names.slice(0, 3).join(", ")} and ${names.length - 3} more`;
   return `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
+}
+
+/** RT9: when the campaign is off, one line on the Retargeting panel. */
+export function retargetingOff(code: string): string {
+  return `${retargetingCampaignName(code)} is off.`;
 }

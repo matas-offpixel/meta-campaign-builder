@@ -30,6 +30,19 @@ const nextConfig: NextConfig = {
   async redirects() {
     return MML_LEGACY_REDIRECTS.map((rule) => ({ ...rule }));
   },
+  async headers() {
+    // The MCP consent page must never be framed (clickjacking an Allow).
+    return [
+      {
+        source: "/oauth/:path*",
+        headers: [
+          { key: "X-Frame-Options", value: "DENY" },
+          { key: "Content-Security-Policy", value: "frame-ancestors 'none'" },
+          { key: "Referrer-Policy", value: "no-referrer" },
+        ],
+      },
+    ];
+  },
   outputFileTracingIncludes: {
     // Only the two routes that render in-process carry these. Turbopack
     // matches each key as a substring of the route's entry name

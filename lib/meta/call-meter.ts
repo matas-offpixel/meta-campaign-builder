@@ -13,7 +13,8 @@
  *
  * `client.ts` calls `countMetaCall` once per HTTP attempt, retries and
  * network failures included, so `calls` is what was sent to Meta; then
- * `noteMetaUsage` once the response is parsed. Outside a meter both do nothing.
+ * `noteMetaUsage` once the response is parsed, which also hands the reading to
+ * the meter's `onAppUsage` watcher, if any. Outside a meter both do nothing.
  *
  * Pure apart from `node:async_hooks`, so `node --test` loads it directly.
  */
@@ -41,6 +42,12 @@ export interface MetaCallMeter {
   lastRateLimitedAppUsage: AppUsageReading | null;
   /** Rate-limited responses seen, retries included. */
   rateLimitedResponses: number;
+  /**
+   * Called with every `X-App-Usage` reading, right after the response that
+   * carried it (bm-page-scan's 80 % stop, lib/bm/scan-run.ts). A throw is
+   * swallowed so a watcher can never break a Graph call.
+   */
+  onAppUsage?: (reading: AppUsageReading) => void;
 }
 
 const storage = new AsyncLocalStorage<MetaCallMeter>();
@@ -84,7 +91,14 @@ export function noteMetaUsage(info: { appUsage: AppUsageSnapshot | null; rateLim
   const meter = storage.getStore();
   if (!meter) return;
   const reading = toAppUsageReading(info.appUsage);
-  if (reading) meter.lastAppUsage = reading;
+  if (reading) {
+    meter.lastAppUsage = reading;
+    try {
+      meter.onAppUsage?.(reading);
+    } catch {
+      // Never let a watcher fail the Graph call.
+    }
+  }
   if (info.rateLimited) {
     meter.rateLimitedResponses += 1;
     meter.lastRateLimitedAppUsage = reading;

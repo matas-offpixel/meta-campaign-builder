@@ -1,0 +1,291 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Campaign creator: the tree and Replicate, as built — 24 Nov 2026</title>
+<style>
+:root{
+  --sand:#F0C9A8; --card:#e8d4c0; --edit:#f6ebe0; --paper:#fff8f0; --ink:#1e1810; --ink-2:#4a3d30; --ink-3:#6f6052;
+  --border:rgba(30,24,16,.10); --border-strong:rgba(30,24,16,.18); --muted:rgba(30,24,16,.06);
+  --olive:#4f5a1f; --ochre:#8a560c; --brick:#8f3424;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--sand);color:var(--ink);font:14px/1.5 var(--sans);font-feature-settings:"calt" 0}
+.wrap{max-width:1360px;margin:0 auto;padding:40px 24px 120px}
+h1{font-size:24px;font-weight:600;margin:0 0 6px}
+h2{font-size:20px;font-weight:600;margin:56px 0 8px}
+h3{font-size:13px;font-weight:600;margin:20px 0 6px}
+p{margin:0 0 10px;max-width:86ch}
+.lead{font-size:13px;color:var(--ink-2)}
+.k{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+code{font:12px var(--mono);background:var(--muted);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+figure{margin:0;min-width:0;max-width:100%}
+figcaption{font:700 9px/1.5 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+table.t{border-collapse:collapse;width:100%;font-size:12.5px;margin:10px 0 22px;background:var(--card);border-radius:8px;overflow:hidden;table-layout:fixed}
+table.t th,table.t td{text-align:left;vertical-align:top;padding:8px 12px;border-bottom:1px solid var(--border);overflow-wrap:anywhere}
+table.t th{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.t td:first-child{font-weight:600;width:190px}
+table.t ul{margin:4px 0 0 16px;padding:0}table.t li{margin:0 0 4px}
+.open{background:#f3e3c8;border:1px dashed var(--ochre);border-radius:8px;padding:10px 14px;font-size:12.5px;margin:10px 0 16px}
+.notes{font-size:12.5px;color:var(--ink-2)}.notes li{margin:0 0 6px;max-width:96ch}
+.frame{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start;margin:12px 0 24px}
+.vp{background:var(--paper);border:1px solid var(--border-strong);border-radius:8px;overflow:hidden;max-width:100%;padding:16px;font-size:13px}
+.vp.wide{width:760px}.vp.w393{width:393px}
+.ph{font:700 9px/1.4 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+.h{font-weight:600;font-size:14px;margin:0 0 4px}
+.sub{font-size:12px;color:var(--ink-2);margin:0 0 10px}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 10px}
+.chip{border:1px solid var(--border-strong);border-radius:999px;padding:3px 10px;font-size:12px;background:#fff}
+.chip.on{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.mono{font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase}
+.row{display:grid;grid-template-columns:22px 26px 1fr auto;gap:8px;align-items:center;padding:7px 0;border-top:1px solid var(--border)}
+.row .n{color:var(--ink-3);font:12px var(--mono)}
+.box{width:16px;height:16px;border:1.5px solid var(--ink);border-radius:3px;display:inline-block}
+.box.on{background:var(--ink)}
+.box.off{border-color:var(--ink-3);opacity:.45}
+.fs{font-size:11.5px;color:var(--ink-2)}
+.fs.warn{color:var(--brick)}
+.ok{color:var(--olive)}
+.btn{display:inline-block;border:1px solid var(--ink);border-radius:4px;padding:5px 10px;font:700 10px var(--mono);letter-spacing:.1em;text-transform:uppercase;background:var(--ink);color:var(--paper)}
+.btn.ghost{background:transparent;color:var(--ink)}
+.btn.dis{opacity:.4}
+.wave{position:relative;height:64px;background:repeating-linear-gradient(90deg,var(--ink-3) 0 2px,transparent 2px 5px);border-radius:4px;margin:26px 0 4px;opacity:.9}
+.wave .win{position:absolute;top:-4px;bottom:-4px;border:2px solid var(--ink);background:rgba(232,212,192,.55);border-radius:4px}
+.wave .drop{position:absolute;top:-10px;bottom:-10px;width:2px;background:var(--brick)}
+.wave .drop span{position:absolute;top:-16px;left:-20px;font:700 9px var(--mono);letter-spacing:.1em;color:var(--brick);white-space:nowrap}
+.tl{display:flex;justify-content:space-between;font:11px var(--mono);color:var(--ink-3)}
+.pv{width:150px;height:267px;background:#222;border-radius:6px;position:relative;flex:none;display:flex;align-items:center;justify-content:center;color:#fff;font:700 9px var(--mono);letter-spacing:.12em}
+.pv .play{position:absolute;bottom:10px;left:10px;width:28px;height:28px;border-radius:50%;background:#fff}
+.split{display:flex;gap:16px;align-items:flex-start}
+table.v{border-collapse:collapse;width:100%;font-size:12px;margin:6px 0}
+table.v th{font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);text-align:left;padding:4px 6px;border-bottom:1px solid var(--border-strong)}
+table.v td{padding:6px;border-bottom:1px solid var(--border)}
+table.v td.r,table.v th.r{text-align:right}
+.st{display:inline-block;border:1px solid var(--border-strong);border-radius:10px;padding:2px 8px;font:700 9px/1.5 var(--mono);letter-spacing:.1em;text-transform:uppercase}
+.st.run{border-style:dashed}
+.st.win{background:var(--olive);color:#fff;border-color:var(--olive)}
+.test{border:1px solid var(--border);border-radius:6px;padding:10px 12px;margin:8px 0;background:#fff}
+.test.dim{opacity:.55}
+.line{background:var(--card);border-radius:6px;padding:8px 10px;margin:6px 0;font-size:12px}
+.inv{text-decoration:underline dotted var(--brick);text-decoration-thickness:1.5px;text-underline-offset:3px}
+table.t table.t td:first-child{width:auto;font-weight:400}
+@media (max-width:560px){table.t th[style]{width:100px!important}table.t td:first-child{width:100px}}
+.st.fail{border-color:var(--brick);color:var(--brick)}
+.line .acts{float:right;font:700 9px var(--mono);letter-spacing:.1em;text-transform:uppercase}
+.line.wait{opacity:.6}
+.line.failed{border:1px solid var(--brick);background:#f6e3dc}
+.tick{display:inline-block;width:11px;height:11px;border:1.5px solid var(--ink);border-radius:2px;margin-right:6px;vertical-align:-1px}
+.tick.on{background:var(--ink)}
+.bar{display:inline-block;height:8px;background:var(--ink-3);border-radius:2px;vertical-align:middle;margin-right:6px}
+.sbar{position:relative;display:inline-block;width:100px;height:8px;background:var(--muted);border-radius:2px;vertical-align:middle;margin-right:8px}
+.sbar i{position:absolute;left:0;top:0;bottom:0;background:var(--ink-3);border-radius:2px}
+.sbar i.lead{background:var(--olive)}
+.sbar b{position:absolute;left:60px;top:-3px;bottom:-3px;width:1px;background:var(--ink)}
+.sbar s{position:absolute;left:10px;top:-3px;bottom:-3px;width:1px;background:var(--ink-3);opacity:.6}
+
+/* ---------- campaign creator: replicate record ---------- */
+.scrollx{overflow-x:auto;max-width:100%}
+.vp.w1280{width:1280px;padding:0}
+.vp.w393{padding:0}
+.bar1{display:flex;justify-content:space-between;align-items:center;padding:12px 18px;border-bottom:1px solid var(--border);background:#fff}
+.bar1 .bc{font:700 9px var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3)}
+.bar1 .bc b{color:var(--ink)}
+.body1{padding:18px}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.g3{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.g4{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.card2{background:#fff;border:1px solid var(--border-strong);border-radius:8px;padding:14px 16px;min-width:0}
+.card2 .ttl{font-weight:600;font-size:14px;margin:0 0 2px}
+.card2 .s{font-size:12px;color:var(--ink-2)}
+.menu{width:260px;background:#fff;border:1px solid var(--border-strong);border-radius:8px;box-shadow:0 8px 28px rgba(30,24,16,.14);padding:6px 0}
+.menu .mi{padding:8px 14px;font-size:13px}
+.menu .mi small{display:block;font-size:11.5px;color:var(--ink-2)}
+.menu .mi.hi{background:var(--edit)}
+.menu hr{border:0;border-top:1px solid var(--border);margin:4px 0}
+.dlg{background:#fff;border:1px solid var(--border-strong);border-radius:10px;box-shadow:0 12px 40px rgba(30,24,16,.18);overflow:hidden}
+.dlg .dh{padding:14px 18px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}
+.dlg .dh b{font-size:15px}
+.dlg .db{padding:14px 18px}
+.dlg .df{padding:12px 18px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:8px;align-items:center;background:var(--paper)}
+.dlg .df .fs{margin-right:auto}
+.ev{display:grid;grid-template-columns:1fr auto;gap:2px 10px;padding:9px 10px;border:1px solid var(--border);border-radius:6px;margin:0 0 6px;font-size:13px;background:#fff}
+.ev.on{border:1.5px solid var(--ink);background:var(--edit)}
+.ev small{grid-column:1/-1;font-size:11.5px;color:var(--ink-2)}
+.ev .code{font:700 10px var(--mono);letter-spacing:.08em}
+.search{border:1px solid var(--border-strong);border-radius:6px;padding:8px 10px;font-size:13px;color:var(--ink-3);margin:0 0 10px;background:#fff}
+.chg{display:grid;grid-template-columns:96px 1fr;gap:4px 12px;padding:8px 0;border-top:1px solid var(--border);font-size:13px;align-items:baseline}
+.chg .l{font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3)}
+.chg .was{color:var(--ink-3)}
+.chg.amb{background:#f3e3c8;margin:0 -10px;padding:8px 10px;border-radius:6px;border-top:0}
+.sec2{font:700 9px var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin:14px 0 4px}
+.ask{border:1.5px solid var(--ink);border-radius:8px;padding:10px 12px;margin:10px 0 0;font-size:13px}
+.ask .btns{display:flex;gap:8px;margin-top:8px}
+.chk{border:1px solid var(--border-strong);border-left:4px solid var(--brick);border-radius:6px;padding:10px 12px;margin:0 0 8px;background:#fff;font-size:13px}
+.chk.warn{border-left-color:var(--ochre)}
+.chk .key{font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--brick);margin:0 0 3px}
+.chk.warn .key{color:var(--ochre)}
+.chk .ev2{font-size:11.5px;color:var(--ink-2);margin:4px 0 6px}
+.chk .acts{display:flex;gap:8px;flex-wrap:wrap}
+.sum{display:flex;gap:10px;align-items:center;font:700 10px var(--mono);letter-spacing:.1em;text-transform:uppercase;margin:0 0 10px}
+.sum .r{color:var(--brick)}.sum .a{color:var(--ochre)}
+.vc{background:#fff;border:1px solid var(--border-strong);border-radius:8px;padding:12px 14px}
+.vc .ttl{font-weight:600}
+.kv2{display:grid;grid-template-columns:90px 1fr;gap:6px 10px;font-size:12.5px;margin-top:8px;align-items:baseline}
+.kv2 .l{font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3)}
+.sel{display:inline-block;border:1px solid var(--border-strong);border-radius:6px;padding:4px 8px;background:var(--paper);font-size:12.5px}
+.ovr{border:1px dashed var(--ochre);background:#f7ecda}
+.tabs2{display:flex;gap:2px;border-bottom:1px solid var(--border-strong);margin:0 0 12px}
+.tabs2>span{padding:8px 14px;font:700 10px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3)}
+.tabs2>span.on{color:var(--ink);box-shadow:inset 0 -2px 0 var(--ink)}
+.beta{font:700 8px var(--mono);letter-spacing:.12em;border:1px solid var(--ochre);color:var(--ochre);border-radius:8px;padding:1px 5px;margin-left:5px;vertical-align:1px}
+.ti{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:7px 0;border-top:1px solid var(--border);font-size:13px}
+.ti small{display:block;font-size:11.5px;color:var(--ink-2)}
+.st.reuse{background:var(--olive);color:#fff;border-color:var(--olive)}
+.st.make{border-style:dashed;color:var(--ink-2)}
+.st.amb{border-color:var(--ochre);color:var(--ochre);background:#f7ecda}
+.st.ok2{border-color:var(--olive);color:var(--olive)}
+.tree{font-size:13px}
+.tree .stg{display:flex;justify-content:space-between;align-items:center;padding:10px 0 6px;border-top:1px solid var(--border-strong)}
+.tree .stg b{font:700 10px var(--mono);letter-spacing:.14em;text-transform:uppercase}
+.tree .cmp{margin-left:14px;padding:7px 0 7px 12px;border-left:2px solid var(--border-strong)}
+.tree .cmp .nm{font-weight:600}
+.tree .add{margin-left:30px;padding:4px 0 4px 12px;border-left:2px dashed var(--border-strong);font-size:12px;color:var(--ink-2)}
+.tree .add b{color:var(--ink);font-weight:600}
+.tk{display:flex;align-items:center;gap:8px;padding:6px 0;border-top:1px solid var(--border);font-size:13px}
+.tk.sub{padding-left:22px;font-size:12.5px;color:var(--ink-2)}
+.cap{border:1px solid var(--border-strong);border-radius:8px;padding:10px 12px;margin:0 0 8px;background:#fff;font-size:13px}
+.cap .meta{display:flex;justify-content:space-between;align-items:center;gap:8px;margin:0 0 6px}
+.cap .lock{background:var(--card);border-radius:3px;padding:0 3px}
+.form3{display:grid;grid-template-columns:80px 1fr;gap:8px;align-items:center;font-size:12.5px;margin:8px 0}
+.form3 .l{font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3)}
+.seg{display:inline-flex;border:1px solid var(--ink);border-radius:4px;overflow:hidden}
+.seg span{padding:3px 8px;font-size:12px}.seg span.on{background:var(--ink);color:#fff}
+table.w{border-collapse:collapse;width:100%;min-width:900px;font-size:12px;background:var(--card);table-layout:fixed}
+table.w th,table.w td{text-align:left;vertical-align:top;padding:6px 10px;border-bottom:1px solid var(--border);overflow-wrap:anywhere}
+table.w th{font:700 9px var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.w td:first-child{font:11px var(--mono)}
+.cap .meta{flex-wrap:wrap}.cap .meta .st{white-space:nowrap}
+.seg{flex-wrap:wrap}.seg span{white-space:nowrap}
+</style>
+</head><body>
+<div class="wrap">
+
+<p class="k">Off/Pixel · design record · campaign creator · the campaign tree and Replicate, from the build · 24 November 2026 · amends 2026-11-24-campaign-creator-replicate (#1359) RC1, RC2 and RC6</p>
+<h1>The tree and Replicate, as built</h1>
+<p class="lead">CC-4 (#1364, head 40e8a87) built Replicate and the campaign tree and brought back seven questions. Ops recommended an answer for each; this record rules them. It adds 36 rows to the word list and keeps all 151 existing rows word for word. One ruling differs from Ops' recommendation: RC11, the event picker.</p>
+<p class="lead"><b>What stands:</b> everything else in #1359 and #1362. Frames RC-B and RC-F from #1359 are replaced by RC-B2 and RC-F2 below.</p>
+
+<h2>Rulings</h2>
+<table class="t">
+<tr><th style="width:190px">#</th><th>Ruling</th></tr>
+<tr><td>RC9 · One ad set, one campaign</td><td>
+<ul>
+<li>Every tree string with a count has a one form, picked by n, as the launch checks do (RC3):
+<ul>
+<li>addition rows: "+ 1 ad added", "to 1 ad set", "→ 1 ad set";</li>
+<li>the sheet's title: "Add 1 creative to {stage}";</li>
+<li>a campaign's count: "{n} of 1 ad set";</li>
+<li>the button: "Add to {n} ad sets in 1 campaign", and "Add to 1 ad set in 1 campaign".</li>
+</ul></li>
+<li>With nothing ticked, the button is off and reads "Nothing ticked".</li>
+<li>Replicate's kept line gets the same: "Objective, 1 ad set, budgets, …".</li>
+</ul></td></tr>
+<tr><td>RC10 · A campaign with no draft on the event</td><td>
+<ul>
+<li>A campaign the event links to but no published draft on this event made (one built in Ads Manager, say) stays in the tree, under its stage, with its status and ad sets, so the whole stage still shows.</li>
+<li>It reads muted, with one line under its name: <b>"No draft on this event, so additions can’t reach it."</b></li>
+<li>In a sheet it's listed, unticked, and can't be ticked, with the same line.</li>
+<li>Ops suggested "Built in Ads Manager, …". That isn't always true: a draft deleted, or made for another event, gives the same state. The line says what the app knows.</li>
+</ul></td></tr>
+<tr><td>RC11 · The event picker</td><td>
+<ul>
+<li>It lists <b>upcoming events only</b>, soonest first, searchable by code or name. Replicating to a show that's over has no use.</li>
+<li><b>Only the source's client.</b> This is RC1 as written ("It lists the client's events"), and differs from Ops' recommendation. Copying across clients carries one client's page, Instagram and audiences onto another's show, which is the mistake page_other_client blocks at launch. Better to make it impossible than block it later. If Matas wants cross-client copies, it's a new ruling with its own frame.</li>
+<li>The source's own event is listed only while it's upcoming. For a past show, "Duplicate" in the ⋯ menu already does the plain copy.</li>
+<li>Empty: "No upcoming events for {client}." No search match: "No upcoming events match “{query}”."</li>
+</ul></td></tr>
+<tr><td>RC12 · Words for errors and pickers</td><td>
+<ul>
+<li>The dialog's five errors, the audience picker's three labels (kept as the app has them elsewhere), the learning-phase line, the run results and the sheet's errors are now rows. See the word list.</li>
+<li><b>Nothing raw reaches the screen:</b> not a server message, an HTTP code, an outcome code (refused, failed, noop) or a variable name. Each maps to a row, and anything unmapped shows the row for "nothing was added" or "the draft wasn't saved".</li>
+<li><b>Results:</b> after a run where some ad sets weren't added, the sheet stays open and lists them under "Not added to {n} ad sets:", each "{ad set}: refused, nothing changed on it" or "{ad set}: didn’t go through. Try again." Ad sets that already had it count as added and aren't listed.</li>
+<li><b>Part way:</b> when the run stops after some ad sets were written, it says how many: "Stopped part way: added to {n} ad sets, then stopped. Try again for the rest." The run's ledger means a retry skips what's done.</li>
+</ul></td></tr>
+<tr><td>RC13 · RC-B, as built</td><td>
+<ul>
+<li><b>Audiences row.</b> The build is right. The account is written as everywhere else (RC2): Meta's name, then the venue in brackets. "9 found in NX Promoter (NX Newcastle) · 3 will be created". The row's words don't change; {account} fills as the Account row does.</li>
+<li><b>Copy row.</b> It stays out until copy is rewritten (R8). Until then the copy is the source's, so the kept line names it: "Objective, 18 ad sets, budgets, placements, interests, ad copy." Matas sees that the old copy came with it, and the launch checks still look for the other show's artist in it.</li>
+<li>Frame RC-B2 replaces RC-B.</li>
+</ul></td></tr>
+<tr><td>RC14 · How a campaign finds its stage</td><td>
+<ul>
+<li><b>First, the name.</b> Only stage words count, as whole words after the [CODE]:
+<ul>
+<li>SIGNUP, SIGN UP, SIGNUPS or REGISTRATION → Signup;</li>
+<li>PRESALE or PRE SALE → Presale;</li>
+<li>ON SALE, ONSALE, GEN SALE or GENERAL SALE → On sale;</li>
+<li>SHOW WEEK or FINAL PUSH → Show week;</li>
+<li>PURCHASE, TRAFFIC or REACH → On sale. These are the On sale stage's own campaigns in the brief (R7: "On sale → Purchase / Traffic / Reach"). Signup's words are matched first, so "[CODE] SIGNUP TRAFFIC" stays under Signup.</li>
+</ul>
+TICKET(S) and REG aren't stage words and no longer sort a campaign.</li>
+<li><b>Then the objective,</b> only where it means one stage: the draft's registration, a Complete Registration ad set or Meta's leads → Signup; the draft's purchase, an on-sale ad set or Meta's sales → On sale.</li>
+<li>A traffic, awareness, engagement or reach <i>objective</i> runs in every stage, so on its own, without the word in the name, it decides nothing.</li>
+<li><b>Anything still unknown goes under "Unsorted",</b> last, after Show week, and only when it has campaigns. It carries no "Add … to…" actions, and one muted line: "The name and objective don’t say the stage, so these take no stage additions." Filing a guess under On sale is how a copy picks up the wrong stage.</li>
+<li>Frame RC-F2 replaces RC-F. TRAFFIC and REACH stay under On sale as #1359 drew them. The example under Unsorted is a campaign named with no stage word that runs an engagement objective.</li>
+</ul></td></tr>
+<tr><td>RC15 · Where the tree sits</td><td>
+<ul>
+<li>Inside Linked campaigns on the event, for now.</li>
+<li><b>Follow-up:</b> it moves to its own section on the event page once #1160 (event-detail.tsx, open since 10 Nov) is merged or closed. Matas decides #1160.</li>
+</ul></td></tr>
+<tr><td>Ops · The switch for adding creatives</td><td>
+<ul>
+<li>Recorded as Ops ruled it: "Add creatives to…" from the tree sits behind a new <code>OFFPIXEL_META_TREE_ADD_WRITES_ENABLED</code>. It must be exactly "true", and it's off by default. The existing bulk-attach page is unchanged.</li>
+<li>While it's off, the sheet still opens and ticks as usual, the button is off, and the line above it reads <b>"Adding creatives from here is switched off."</b></li>
+<li>"Add audience to…" works the same way behind its existing switch: "Adding audiences from here is switched off." No variable name is shown to Matas (RC12).</li>
+</ul></td></tr>
+</table>
+<h2>Frames</h2><h3>RC-A2 · The picker (RC11, RC12)</h3><div class="frame"><figure><figcaption>RC-A2 · 393 · the source client’s upcoming events</figcaption><div class="vp w393"><div class="bar1"><span class="bc">Replicate to event</span></div><div class="body1" style="padding:14px"><p style="margin:0 0 8px">Which event is this for?</p><div class="search">Search events</div><div class="sec2">Upcoming · Electric</div><div class="ev"><span>Dave Pearce</span><span class="code">ES27-DAVEPEARCE</span><small>Electric Studios, Sheffield · Sat 13 Feb</small></div><div class="ev"><span>Locklead</span><span class="code">EBR27-LOCKLEAD</span><small>Electric Bristol · Fri 26 Feb</small></div><div class="ev"><span>Glitterbox</span><span class="code">EBR27-GLITTERBOX</span><small>Electric Bristol · Sat 27 Feb · this campaign’s event</small></div><div class="ev on"><span>Glitterbox</span><span class="code">NX27-GLITTERBOX</span><small>NX Newcastle · Sat 6 Mar</small></div><div style="display:flex;gap:8px;justify-content:flex-end"><span class="btn ghost">Cancel</span><span class="btn">Next</span></div></div></div><p class="fs" style="max-width:640px;margin-top:8px">Upcoming only, soonest first, the source’s client only. The source’s own event is listed while it’s upcoming.</p></figure><figure><figcaption>RC-A2 · 393 · no match</figcaption><div class="vp w393"><div class="bar1"><span class="bc">Replicate to event</span></div><div class="body1" style="padding:14px"><p style="margin:0 0 8px">Which event is this for?</p><div class="search" style="color:var(--ink)">ironworks</div><div class="sec2">Upcoming · Electric</div><p class="fs" style="margin:6px 0 10px">No upcoming events match “ironworks”.</p><div style="display:flex;gap:8px;justify-content:flex-end"><span class="btn ghost">Cancel</span><span class="btn dis">Next</span></div></div></div><p class="fs" style="max-width:640px;margin-top:8px">A search with no match says so; Next stays off.</p></figure><figure><figcaption>RC-A2 · 393 · an error</figcaption><div class="vp w393"><div class="bar1"><span class="bc">Replicate to event</span></div><div class="body1" style="padding:14px"><p style="margin:0 0 8px">Which event is this for?</p><div class="search">Search events</div><div class="sec2">Upcoming · Electric</div><div class="ev"><span>Dave Pearce</span><span class="code">ES27-DAVEPEARCE</span><small>Electric Studios, Sheffield · Sat 13 Feb</small></div><div class="ev"><span>Locklead</span><span class="code">EBR27-LOCKLEAD</span><small>Electric Bristol · Fri 26 Feb</small></div><div class="ev"><span>Glitterbox</span><span class="code">EBR27-GLITTERBOX</span><small>Electric Bristol · Sat 27 Feb · this campaign’s event</small></div><div class="ev"><span>Glitterbox</span><span class="code">NX27-GLITTERBOX</span><small>NX Newcastle · Sat 6 Mar</small></div><p style="margin:4px 0 10px;color:var(--brick);font-size:13px">Can’t find that event. Pick it again.</p><div style="display:flex;gap:8px;justify-content:flex-end"><span class="btn ghost">Cancel</span><span class="btn dis">Next</span></div></div></div><p class="fs" style="max-width:640px;margin-top:8px">Errors are ruled rows, never the server’s message.</p></figure></div><h3>RC-B2 · What changed, as built (RC13)</h3><div class="frame"><figure><figcaption>RC-B2 · 1280 · replaces RC-B</figcaption><div class="scrollx"><div class="vp w1280"><div class="bar1"><span class="bc">Events › EBR27-GLITTERBOX › Replicate</span><span class="bc">OFF/PIXEL</span></div><div class="body1"><div style="display:flex;justify-content:center"><div class="dlg" style="width:600px"><div class="dh"><b>Replicate [EBR27-GLITTERBOX] SIGNUP to NX27-GLITTERBOX</b><span class="fs">✕</span></div><div class="db"><div class="sec2">Changes to match NX27-GLITTERBOX</div><div class="chg"><span class="l">Event</span><span>NX27-GLITTERBOX · NX Newcastle <span class="was">(was EBR27-GLITTERBOX)</span></span></div><div class="chg"><span class="l">Name</span><span>[NX27-GLITTERBOX] SIGNUP <span class="was">(was [EBR27-GLITTERBOX] SIGNUP)</span></span></div><div class="chg"><span class="l">Account</span><span>Account: NX Promoter (NX Newcastle) <span class="was">(was Electric Bristol Live (Electric Bristol))</span></span></div><div class="chg"><span class="l">Pixel</span><span>Pixel …2763 <span class="was">(was …4093)</span></span></div><div class="chg"><span class="l">Link</span><span>Link: crqln.com/l/glitterbox-newcastle · 54 ads <span class="was">(was crqln.com/l/glitterbox-bristol)</span></span></div><div class="chg"><span class="l">Dates</span><span>Starts Thu 26 Nov · ends at On sale <span class="was">(was Mon 23 Nov)</span></span></div><div class="chg"><span class="l">Audiences</span><span>9 found in NX Promoter (NX Newcastle) · 3 will be created</span></div><div class="sec2">Kept from the source</div><p class="fs" style="margin:0">Objective, 18 ad sets, budgets, placements, interests, ad copy.</p><div class="ask"><b>Ads run from Glitterbox Official: keep or change</b><div class="btns"><span class="btn ghost">Keep Glitterbox Official</span><span class="btn ghost">Change</span></div></div></div><div class="df"><span class="fs">Nothing launches. Launch runs the checks.</span><span class="btn ghost">Back</span><span class="btn dis">Create draft</span></div></div></div></div></div></div><p class="fs" style="max-width:640px;margin-top:8px">The Audiences row writes the account as the Account row does: Meta’s name, then the venue. No Copy row until R8; meanwhile the kept line names the ad copy.</p></figure><figure><figcaption>RC-B2 · 393 · the same</figcaption><div class="vp w393"><div class="bar1"><span class="bc">Replicate [EBR27-GLITTERBOX] SIGNUP to NX27-GLITTERBOX</span></div><div class="body1" style="padding:14px"><div class="sec2">Changes to match NX27-GLITTERBOX</div><div class="chg"><span class="l">Event</span><span>NX27-GLITTERBOX · NX Newcastle <span class="was">(was EBR27-GLITTERBOX)</span></span></div><div class="chg"><span class="l">Name</span><span>[NX27-GLITTERBOX] SIGNUP <span class="was">(was [EBR27-GLITTERBOX] SIGNUP)</span></span></div><div class="chg"><span class="l">Account</span><span>Account: NX Promoter (NX Newcastle) <span class="was">(was Electric Bristol Live (Electric Bristol))</span></span></div><div class="chg"><span class="l">Pixel</span><span>Pixel …2763 <span class="was">(was …4093)</span></span></div><div class="chg"><span class="l">Link</span><span>Link: crqln.com/l/glitterbox-newcastle · 54 ads <span class="was">(was crqln.com/l/glitterbox-bristol)</span></span></div><div class="chg"><span class="l">Dates</span><span>Starts Thu 26 Nov · ends at On sale <span class="was">(was Mon 23 Nov)</span></span></div><div class="chg"><span class="l">Audiences</span><span>9 found in NX Promoter (NX Newcastle) · 3 will be created</span></div><div class="sec2">Kept from the source</div><p class="fs" style="margin:0">Objective, 18 ad sets, budgets, placements, interests, ad copy.</p><div class="ask"><b>Ads run from Glitterbox Official: keep or change</b><div class="btns"><span class="btn ghost">Keep Glitterbox Official</span><span class="btn ghost">Change</span></div></div><p class="fs" style="margin:12px 0 8px">Nothing launches. Launch runs the checks.</p><div style="display:flex;gap:8px;justify-content:flex-end"><span class="btn ghost">Back</span><span class="btn dis">Create draft</span></div></div></div></figure></div><h3>RC-F2 · The tree (RC9, RC10, RC14)</h3><div class="frame"><figure><figcaption>RC-F2 · 1280 · replaces RC-F</figcaption><div class="scrollx"><div class="vp w1280"><div class="bar1"><span class="bc">Events › NX27-GLITTERBOX › Linked campaigns</span><span class="bc">OFF/PIXEL</span></div><div class="body1"><div style="display:grid;grid-template-columns:1fr 460px;gap:22px;align-items:start"><div class="tree"><div class="stg"><b>Signup</b><span><span class="btn ghost">Add creatives to…</span> <span class="btn ghost">Add audience to…</span></span></div><div class="cmp"><span class="nm">[NX27-GLITTERBOX] SIGNUP</span> <span class="st ">master</span> <span class="fs">· live · 18 ad sets</span></div><div class="add"><b>+ 4 ads added</b> Thu 26 Nov · to 18 ad sets · Matas</div><div class="add"><b>+ audience added</b> Fri 27 Nov · Techno page engagers → 1 ad set · Matas · proposed by the on-sale refresh</div><div class="stg"><b>On sale</b><span><span class="btn ghost">Add creatives to…</span> <span class="btn ghost">Add audience to…</span></span></div><div class="cmp"><span class="nm">[NX27-GLITTERBOX] PURCHASE</span> <span class="fs">· live · 6 ad sets</span></div><div class="add"><b>+ 1 ad added</b> Fri 4 Dec · to 6 ad sets · Matas</div><div class="cmp" style="color:var(--ink-3)"><span class="nm" style="font-weight:500">[NX27-GLITTERBOX] ON SALE · RETARGET</span> <span class="fs">· live · 2 ad sets</span><div class="fs" style="margin-top:2px">No draft on this event, so additions can’t reach it.</div></div><div class="cmp"><span class="nm">[NX27-GLITTERBOX] TRAFFIC</span> <span class="fs">· live · 2 ad sets</span></div><div class="cmp"><span class="nm">[NX27-GLITTERBOX] REACH</span> <span class="fs">· paused · 1 ad set</span></div><div class="stg"><b>Unsorted</b><span></span></div><p class="fs" style="margin:0 0 4px 14px">The name and objective don’t say the stage, so these take no stage additions.</p><div class="cmp"><span class="nm">[NX27-GLITTERBOX] VIDEO VIEWS</span> <span class="fs">· live · 1 ad set</span></div></div><div class="dlg" style="box-shadow:none"><div class="dh"><b>Add 1 creative to On sale</b><span class="fs">✕</span></div><div class="db"><div class="tk"><span class="tick on"></span><span><b>[NX27-GLITTERBOX] PURCHASE</b> · 6 of 6 ad sets</span></div><div class="tk sub"><span class="tick on"></span><span>Adv+ Broad</span></div><div class="tk sub"><span class="tick on"></span><span>Retargeting · signups</span></div><div class="tk sub"><span class="tick on"></span><span>Similar pages</span></div><div class="tk sub">… and 3 more</div><div class="tk"><span class="tick on"></span><span><b>[NX27-GLITTERBOX] TRAFFIC</b> · 2 of 2 ad sets</span></div><div class="tk"><span class="tick"></span><span><b>[NX27-GLITTERBOX] REACH</b> · paused</span></div><div class="tk" style="color:var(--ink-3)"><span class="tick" style="opacity:.45"></span><span><b>[NX27-GLITTERBOX] ON SALE · RETARGET</b><span class="fs" style="display:block">No draft on this event, so additions can’t reach it.</span></span></div></div><div class="df" style="flex-wrap:wrap"><span class="fs">Logged under each campaign.</span><span class="btn ghost">Cancel</span><span class="btn">Add to 8 ad sets in 2 campaigns</span></div></div></div></div></div></div><p class="fs" style="max-width:640px;margin-top:8px">TRAFFIC and REACH are On sale’s own campaigns. VIDEO VIEWS has no stage word in its name and an engagement objective, which runs in every stage, so it sits under Unsorted with no stage actions. The RETARGET campaign has no draft on this event: it shows, muted, and can’t be ticked. One forms throughout.</p></figure><figure><figcaption>RC-F2 · 393 · the tree</figcaption><div class="vp w393"><div class="bar1"><span class="bc">NX27-GLITTERBOX · Linked campaigns</span></div><div class="body1" style="padding:14px"><div class="tree"><div class="stg"><b>Signup</b><span><span class="btn ghost">Add creatives to…</span> <span class="btn ghost">Add audience to…</span></span></div><div class="cmp"><span class="nm">[NX27-GLITTERBOX] SIGNUP</span> <span class="st ">master</span> <span class="fs">· live · 18 ad sets</span></div><div class="add"><b>+ 4 ads added</b> Thu 26 Nov · to 18 ad sets · Matas</div><div class="add"><b>+ audience added</b> Fri 27 Nov · Techno page engagers → 1 ad set · Matas · proposed by the on-sale refresh</div><div class="stg"><b>On sale</b><span><span class="btn ghost">Add creatives to…</span> <span class="btn ghost">Add audience to…</span></span></div><div class="cmp"><span class="nm">[NX27-GLITTERBOX] PURCHASE</span> <span class="fs">· live · 6 ad sets</span></div><div class="add"><b>+ 1 ad added</b> Fri 4 Dec · to 6 ad sets · Matas</div><div class="cmp" style="color:var(--ink-3)"><span class="nm" style="font-weight:500">[NX27-GLITTERBOX] ON SALE · RETARGET</span> <span class="fs">· live · 2 ad sets</span><div class="fs" style="margin-top:2px">No draft on this event, so additions can’t reach it.</div></div><div class="cmp"><span class="nm">[NX27-GLITTERBOX] TRAFFIC</span> <span class="fs">· live · 2 ad sets</span></div><div class="cmp"><span class="nm">[NX27-GLITTERBOX] REACH</span> <span class="fs">· paused · 1 ad set</span></div><div class="stg"><b>Unsorted</b><span></span></div><p class="fs" style="margin:0 0 4px 14px">The name and objective don’t say the stage, so these take no stage additions.</p><div class="cmp"><span class="nm">[NX27-GLITTERBOX] VIDEO VIEWS</span> <span class="fs">· live · 1 ad set</span></div></div></div></div></figure><figure><figcaption>RC-F2 · 393 · Add creatives to…</figcaption><div class="vp w393"><div class="bar1"><span class="bc">Add creatives</span></div><div class="body1" style="padding:14px"><div class="dlg" style="box-shadow:none"><div class="dh"><b>Add 1 creative to On sale</b><span class="fs">✕</span></div><div class="db"><div class="tk"><span class="tick on"></span><span><b>[NX27-GLITTERBOX] PURCHASE</b> · 6 of 6 ad sets</span></div><div class="tk sub"><span class="tick on"></span><span>Adv+ Broad</span></div><div class="tk sub"><span class="tick on"></span><span>Retargeting · signups</span></div><div class="tk sub"><span class="tick on"></span><span>Similar pages</span></div><div class="tk sub">… and 3 more</div><div class="tk"><span class="tick on"></span><span><b>[NX27-GLITTERBOX] TRAFFIC</b> · 2 of 2 ad sets</span></div><div class="tk"><span class="tick"></span><span><b>[NX27-GLITTERBOX] REACH</b> · paused</span></div><div class="tk" style="color:var(--ink-3)"><span class="tick" style="opacity:.45"></span><span><b>[NX27-GLITTERBOX] ON SALE · RETARGET</b><span class="fs" style="display:block">No draft on this event, so additions can’t reach it.</span></span></div></div><div class="df" style="flex-wrap:wrap"><span class="fs">Logged under each campaign.</span><span class="btn ghost">Cancel</span><span class="btn">Add to 8 ad sets in 2 campaigns</span></div></div></div></div><p class="fs" style="max-width:640px;margin-top:8px">Live campaigns start ticked and paused ones unticked (Matas, 24 Nov). The campaign with no draft can’t be ticked.</p></figure><figure><figcaption>RC-F-off · 393 · the switch off</figcaption><div class="vp w393"><div class="bar1"><span class="bc">Add creatives</span></div><div class="body1" style="padding:14px"><div class="dlg" style="box-shadow:none"><div class="dh"><b>Add 1 creative to On sale</b><span class="fs">✕</span></div><div class="db"><div class="tk"><span class="tick on"></span><span><b>[NX27-GLITTERBOX] PURCHASE</b> · 6 of 6 ad sets</span></div><div class="tk sub"><span class="tick on"></span><span>Adv+ Broad</span></div><div class="tk sub"><span class="tick on"></span><span>Retargeting · signups</span></div><div class="tk sub"><span class="tick on"></span><span>Similar pages</span></div><div class="tk sub">… and 3 more</div><div class="tk"><span class="tick on"></span><span><b>[NX27-GLITTERBOX] TRAFFIC</b> · 2 of 2 ad sets</span></div><div class="tk"><span class="tick"></span><span><b>[NX27-GLITTERBOX] REACH</b> · paused</span></div><div class="tk" style="color:var(--ink-3)"><span class="tick" style="opacity:.45"></span><span><b>[NX27-GLITTERBOX] ON SALE · RETARGET</b><span class="fs" style="display:block">No draft on this event, so additions can’t reach it.</span></span></div></div><div class="df" style="flex-wrap:wrap"><div style="flex-basis:100%"><p style="margin:0 0 8px;font-size:12.5px;color:var(--ochre)">Adding creatives from here is switched off.</p></div><span class="fs">Logged under each campaign.</span><span class="btn ghost">Cancel</span><span class="btn dis">Add to 8 ad sets in 2 campaigns</span></div></div></div></div><p class="fs" style="max-width:640px;margin-top:8px">OFFPIXEL_META_TREE_ADD_WRITES_ENABLED isn’t “true”: the sheet still ticks, the button is off, and the line says why.</p></figure></div><h3>RC-G · Add audience to…, after a run with misses (RC12)</h3><div class="frame"><figure><figcaption>RC-G · 393 · two ad sets not added</figcaption><div class="vp w393"><div class="bar1"><span class="bc">Add audience</span></div><div class="body1" style="padding:14px"><div class="dlg" style="box-shadow:none"><div class="dh"><b>Add Techno page engagers to Signup</b><span class="fs">✕</span></div><div class="db"><div style="font-size:12px;font-weight:600;margin:0 0 4px">Audience</div><div class="search" style="color:var(--ink);display:flex;justify-content:space-between"><span>Techno page engagers</span><span>⌄</span></div><div class="tk"><span class="tick on"></span><span><b>[NX27-GLITTERBOX] SIGNUP</b> · 18 of 18 ad sets</span></div><div class="tk sub"><span class="tick on"></span><span>Adv+ Broad</span></div><div class="tk sub"><span class="tick on"></span><span>Retargeting · page</span></div><div class="tk sub"><span class="tick on"></span><span>Similar pages</span></div><div class="tk sub">… and 15 more</div><p style="margin:10px 0 0;font-size:12.5px;color:var(--ochre)">Changing targeting on a delivering ad set resets its learning phase.</p><p style="margin:10px 0 2px;font-size:13px;font-weight:600">Not added to 2 ad sets:</p><p class="fs" style="margin:0">Retargeting · page: refused, nothing changed on it</p><p class="fs" style="margin:0">Similar pages: didn’t go through. Try again.</p></div><div class="df" style="flex-wrap:wrap"><span class="fs">Logged under each campaign.</span><span class="btn ghost">Cancel</span><span class="btn">Add to 18 ad sets in 1 campaign</span></div></div></div></div><p class="fs" style="max-width:640px;margin-top:8px">The sheet stays open and names what wasn’t added, in words, never codes. Ad sets that already had the audience count as added.</p></figure></div>
+<h2>The words</h2>
+<p class="lead">These 36 rows are added to <code>scratch/campaign-replicate/words-rc-2026-11-24.tsv</code>, each next to its family. All 151 existing rows stay word for word and in order, so the list is now 187 rows.</p>
+<div class="scrollx"><table class="w"><tr><th style="width:280px">Key</th><th style="width:240px">Where</th><th>Words</th></tr><tr><td>replicate.pick.empty</td><td>Dialog, step 1 (no upcoming events)</td><td>No upcoming events for {client}.</td></tr><tr><td>replicate.pick.no_match</td><td>Dialog, step 1 (search)</td><td>No upcoming events match “{query}”.</td></tr><tr><td>replicate.kept.line.one</td><td>Dialog, step 2 (1 ad set)</td><td>Objective, 1 ad set, budgets, placements, interests.</td></tr><tr><td>replicate.kept.line.copy</td><td>Dialog, step 2 (copy not rewritten, until R8)</td><td>Objective, {n} ad sets, budgets, placements, interests, ad copy.</td></tr><tr><td>replicate.kept.line.copy.one</td><td>Dialog, step 2 (copy not rewritten, 1 ad set)</td><td>Objective, 1 ad set, budgets, placements, interests, ad copy.</td></tr><tr><td>replicate.error.signed_out</td><td>Dialog, error</td><td>You’re signed out. Sign in again, then replicate.</td></tr><tr><td>replicate.error.not_operator</td><td>Dialog, error</td><td>Only operators can replicate a campaign.</td></tr><tr><td>replicate.error.draft_not_found</td><td>Dialog, error</td><td>Can’t find this campaign’s draft. Nothing was made.</td></tr><tr><td>replicate.error.event_not_found</td><td>Dialog, error</td><td>Can’t find that event. Pick it again.</td></tr><tr><td>replicate.error.save_failed</td><td>Dialog, error</td><td>The draft wasn’t saved. Try again.</td></tr><tr><td>tree.stage.unsorted</td><td>Event › Campaigns (last, only when it has campaigns)</td><td>Unsorted</td></tr><tr><td>tree.unsorted.line</td><td>Unsorted, under its header (muted)</td><td>The name and objective don’t say the stage, so these take no stage additions.</td></tr><tr><td>tree.campaign.no_draft</td><td>Campaign row and sheet row (muted, can’t be ticked)</td><td>No draft on this event, so additions can’t reach it.</td></tr><tr><td>tree.add.creatives.one</td><td>Addition row (1 ad)</td><td>+ 1 ad added</td></tr><tr><td>tree.add.line.one</td><td>Addition row (1 ad set)</td><td>{date} · to 1 ad set · {who}</td></tr><tr><td>tree.add.audience_line.one</td><td>Addition row (1 ad set)</td><td>{date} · {audience} → 1 ad set · {who}</td></tr><tr><td>tree.sheet.title.creatives.one</td><td>Sheet (1 creative)</td><td>Add 1 creative to {stage}</td></tr><tr><td>tree.sheet.count.one</td><td>Sheet (campaign with 1 ad set)</td><td>{n} of 1 ad set</td></tr><tr><td>tree.sheet.button.campaign</td><td>Sheet (1 campaign)</td><td>Add to {n} ad sets in 1 campaign</td></tr><tr><td>tree.sheet.button.one</td><td>Sheet (1 ad set)</td><td>Add to 1 ad set in 1 campaign</td></tr><tr><td>tree.sheet.button.none</td><td>Sheet (nothing ticked, button off)</td><td>Nothing ticked</td></tr><tr><td>tree.sheet.off.creatives</td><td>Creatives sheet (switch off, button off)</td><td>Adding creatives from here is switched off.</td></tr><tr><td>tree.sheet.off.audience</td><td>Audience sheet (switch off, button off)</td><td>Adding audiences from here is switched off.</td></tr><tr><td>tree.sheet.audience.label</td><td>Audience sheet, picker</td><td>Audience</td></tr><tr><td>tree.sheet.audience.placeholder</td><td>Audience sheet, picker</td><td>Select an audience</td></tr><tr><td>tree.sheet.audience.loading</td><td>Audience sheet, picker</td><td>Loading audiences…</td></tr><tr><td>tree.sheet.audience.learning</td><td>Audience sheet (amber)</td><td>Changing targeting on a delivering ad set resets its learning phase.</td></tr><tr><td>tree.result.heading</td><td>Sheet, after a run with misses</td><td>Not added to {n} ad sets:</td></tr><tr><td>tree.result.heading.one</td><td>Sheet, after a run with misses</td><td>Not added to 1 ad set:</td></tr><tr><td>tree.result.refused</td><td>Result row</td><td>{ad set}: refused, nothing changed on it</td></tr><tr><td>tree.result.failed</td><td>Result row</td><td>{ad set}: didn’t go through. Try again.</td></tr><tr><td>tree.error.partial</td><td>Sheet, error</td><td>Stopped part way: added to {n} ad sets, then stopped. Try again for the rest.</td></tr><tr><td>tree.error.partial.one</td><td>Sheet, error</td><td>Stopped part way: added to 1 ad set, then stopped. Try again for the rest.</td></tr><tr><td>tree.error.none</td><td>Sheet, error</td><td>Nothing was added. Try again.</td></tr><tr><td>tree.error.log</td><td>Sheet, error (run can’t be logged)</td><td>Nothing was added: this run couldn’t be logged, so it didn’t start.</td></tr><tr><td>tree.error.load</td><td>Event › Campaigns, error</td><td>The campaigns couldn’t be loaded. Reload the page.</td></tr></table></div>
+
+<h2>Acceptance</h2>
+<ul class="notes">
+<li><b>One forms:</b> a stage with one campaign and one ad set reads "Add to 1 ad set in 1 campaign"; an addition to one ad set reads "to 1 ad set".</li>
+<li><b>No draft:</b> a campaign built in Ads Manager and linked to the event shows under its stage, muted with the line, and can't be ticked in either sheet.</li>
+<li><b>Picker:</b> only the source client's upcoming events. A past source event isn't listed. Search matches code or name.</li>
+<li><b>Stages:</b> [NX27-GLITTERBOX] TRAFFIC and REACH land under On sale. [CODE] SIGNUP lands under Signup whatever its objective. [NX27-GLITTERBOX] VIDEO VIEWS on an engagement objective lands under Unsorted.</li>
+<li><b>Switch off:</b> with OFFPIXEL_META_TREE_ADD_WRITES_ENABLED unset, or set to anything but "true", the creatives sheet's button is off with the line, and no request leaves for Meta (CC-4's test).</li>
+<li><b>Words:</b> every string on these surfaces is a row, exactly. No server message, code or variable name shows.</li>
+</ul>
+
+<h2>Invented here</h2>
+<ul class="notes">
+<li>The no-draft line, the Unsorted line, and every error and result line.</li>
+<li>"Nothing ticked".</li>
+<li>The [NX27-GLITTERBOX] ON SALE · RETARGET and VIDEO VIEWS campaigns in RC-F2, and the audience and ad set names in RC-G.</li>
+<li>Dates and counts in the frames.</li>
+</ul>
+
+<h2>Hand-back</h2>
+<table class="t">
+<tr><th style="width:190px">To</th><th>What</th></tr>
+<tr><td>CC-4 (#1364)</td><td>
+<ul>
+<li>Take the 36 rows into <code>lib/campaign-tree/words.ts</code>, <code>lib/replicate/words.ts</code> and the fixture, and pick one forms by n.</li>
+<li>Replace <code>errorText</code>'s strings and every raw message in the sheets with the rows (RC12).</li>
+<li>Limit the picker to the source's client (RC11).</li>
+<li>Change <code>stageFromName</code> and <code>stageOfCampaign</code> to RC14, with "unsorted" as a fifth group that has no stage actions.</li>
+<li>Add the switch and its line.</li>
+<li>Re-shoot RC-A, RC-B, RC-F and RC-F-sheet, and add RC-F-off and RC-G, against the frames here.</li>
+</ul></td></tr>
+<tr><td>Matas</td><td>#1160, which decides where the tree finally sits (RC15).</td></tr>
+</table>
+
+</div>
+</body>
+</html>

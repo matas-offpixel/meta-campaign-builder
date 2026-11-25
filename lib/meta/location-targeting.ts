@@ -14,6 +14,7 @@
  */
 
 import type {
+  AdSetCustomLocation,
   AdSetGeoLocations,
   AdSetSuggestion,
   BudgetScheduleSettings,
@@ -28,10 +29,17 @@ type GeoArea = {
   cities?: GeoCity[];
   regions?: { key: string }[];
   country_groups?: string[];
+  custom_locations?: AdSetCustomLocation[];
 };
 
 function areaHas(area: GeoArea): boolean {
-  return !!(area.countries?.length || area.cities?.length || area.regions?.length || area.country_groups?.length);
+  return !!(
+    area.countries?.length ||
+    area.cities?.length ||
+    area.regions?.length ||
+    area.country_groups?.length ||
+    area.custom_locations?.length
+  );
 }
 
 function pushSelection(target: GeoArea, sel: LocationSelection): void {
@@ -47,6 +55,21 @@ function pushSelection(target: GeoArea, sel: LocationSelection): void {
   } else if (sel.locationType === "country_group" && sel.locationKey) {
     target.country_groups = target.country_groups ?? [];
     target.country_groups.push(sel.locationKey);
+  } else if (
+    sel.locationType === "pin" &&
+    typeof sel.latitude === "number" &&
+    typeof sel.longitude === "number" &&
+    sel.radius
+  ) {
+    // LP1: the same fields as #1368's live write. Meta drops `name`.
+    target.custom_locations = target.custom_locations ?? [];
+    target.custom_locations.push({
+      latitude: sel.latitude,
+      longitude: sel.longitude,
+      radius: sel.radius,
+      distance_unit: sel.distanceUnit ?? "kilometer",
+      name: sel.label,
+    });
   }
 }
 
@@ -61,6 +84,7 @@ function unionArea(parts: GeoArea[]): GeoArea {
   const regions = new Map<string, { key: string }>();
   const cities = new Map<string, GeoCity>();
   const countryGroups = new Set<string>();
+  const pins = new Map<string, AdSetCustomLocation>();
   for (const part of parts) {
     for (const c of part.countries ?? []) countries.add(c);
     for (const r of part.regions ?? []) regions.set(r.key, r);
@@ -71,12 +95,18 @@ function unionArea(parts: GeoArea[]): GeoArea {
       }
     }
     for (const g of part.country_groups ?? []) countryGroups.add(g);
+    for (const p of part.custom_locations ?? []) {
+      const k = `${p.latitude},${p.longitude}`;
+      const prev = pins.get(k);
+      if (!prev || radiusKm(p.radius, p.distance_unit) > radiusKm(prev.radius, prev.distance_unit)) pins.set(k, p);
+    }
   }
   const out: GeoArea = {};
   if (countries.size) out.countries = [...countries];
   if (cities.size) out.cities = [...cities.values()];
   if (regions.size) out.regions = [...regions.values()];
   if (countryGroups.size) out.country_groups = [...countryGroups];
+  if (pins.size) out.custom_locations = [...pins.values()];
   return out;
 }
 
@@ -182,7 +212,13 @@ export function resolveAdSetGeoLocations(
 
 /** True when the resolved geo includes nothing — Meta has no area to deliver in. */
 export function geoHasNoIncludedArea(geo: AdSetGeoLocations): boolean {
-  return !geo.countries?.length && !geo.cities?.length && !geo.regions?.length && !geo.country_groups?.length;
+  return (
+    !geo.countries?.length &&
+    !geo.cities?.length &&
+    !geo.regions?.length &&
+    !geo.country_groups?.length &&
+    !geo.custom_locations?.length
+  );
 }
 
 /**
@@ -224,7 +260,14 @@ function selectionLabel(sel: LocationSelection): string {
 }
 
 function toPlace(sel: LocationSelection, label: string): Place | null {
-  const key = sel.locationType === "country" ? sel.countryCode : sel.locationKey;
+  const key =
+    sel.locationType === "country"
+      ? sel.countryCode
+      : sel.locationType === "pin"
+        ? typeof sel.latitude === "number" && typeof sel.longitude === "number"
+          ? `${sel.latitude},${sel.longitude}`
+          : undefined
+        : sel.locationKey;
   if (!key) return null;
   return {
     kind: sel.locationType,
@@ -258,7 +301,7 @@ function covers(ex: Place, inc: Place): boolean {
   }
   if (ex.kind === "country") return inc.kind === "country" ? inc.key === ex.key : inc.countryCode === ex.key;
   if (ex.kind !== inc.kind || ex.key !== inc.key) return false;
-  return ex.kind !== "city" || ex.radiusKm >= inc.radiusKm;
+  return (ex.kind !== "city" && ex.kind !== "pin") || ex.radiusKm >= inc.radiusKm;
 }
 
 /**
