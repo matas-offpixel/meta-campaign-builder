@@ -15,7 +15,7 @@ export function makeDeps(operators = new Set([OPERATOR])): FlowDeps & { operator
   return { store: createMemoryStore(), isOperator: (id) => operators.has(id), operators };
 }
 
-export async function connect(deps: FlowDeps, userId = OPERATOR, redirect = CLAUDE_CALLBACK) {
+export async function connect(deps: FlowDeps, userId = OPERATOR, redirect = CLAUDE_CALLBACK, scope?: string) {
   const reg = await registerClient({ client_name: "Claude", redirect_uris: [redirect] }, deps);
   assert.equal(reg.status, 201);
   const clientId = String((reg.body as { client_id: string }).client_id);
@@ -28,6 +28,7 @@ export async function connect(deps: FlowDeps, userId = OPERATOR, redirect = CLAU
       code_challenge_method: "S256",
       state: "st4te",
       resource: urls.resource,
+      ...(scope ? { scope } : {}),
     },
     urls,
     deps,
