@@ -338,6 +338,7 @@ describe("the name lists (aliases.ts)", () => {
     assert.equal(headlinerOf({ event_code: "P26-CIRCUIT", name: "Puzzle at Circuit" }, r).artistId, null);
     assert.equal(headlinerOf({ event_code: "IRW0002", name: "Adam Ten at Ironworks" }, r).artistId, "adam", "the full name still does");
     assert.deepEqual(ALIASES.filter((a) => a.notForShows).map((a) => a.alias), ["AT"]);
+    assert.match(ALIASES.find((a) => a.alias === "AT")!.notForShows!, /AT counts in ad names only, Matas 25 Nov/);
     const i = inputs();
     const adam = { id: "lib-adam", name: "Adam Ten" };
     const at = { ...i, artists: [...i.artists, adam], aliases: [...i.aliases, { ...ALIASES.find((a) => a.alias === "AT")!, artistId: adam.id }], events: i.events.map((e) => (e.id === "e-bday" ? { ...e, name: "Puzzle at Circuit" } : e)) };
@@ -372,7 +373,8 @@ describe("the name lists (aliases.ts)", () => {
     i.events = i.events.map((e) => (e.id === "e-nx" ? { ...e, event_code: "GB26-IBIZA", name: "Glitterbox Ibiza" } : e));
     assert.equal(planArtistAssets(i, { id: "lib-glitter", name: "Glitterbox" }).rows.length, 0);
     assert.equal(adNamesIndex(i).headliners.get("e-nx")!.artistId, null);
-    assert.deepEqual(BRANDS.map((b) => b.name), ["Glitterbox", "Innervisions", "Appetite"]);
+    assert.deepEqual(BRANDS.map((b) => b.name), ["Glitterbox", "Innervisions", "Appetite", "Hard", "Bridge", "Fragrance"]);
+    for (const b of BRANDS.slice(3)) assert.equal(b.note, "Matas, 25 Nov: Junction 2 stage / genre names");
   });
 
   it("an ad-name-only name (Hard, Bridge, Fragrance) matches the ad name as a whole word only", () => {
@@ -381,7 +383,7 @@ describe("the name lists (aliases.ts)", () => {
     assert.deepEqual(artistsOfAd({ ad_name: "Hardcore teaser", adset_name: null, campaign_name: "x" }, r).artistIds, []);
     assert.deepEqual(artistsOfAd({ ad_name: "Carousel", adset_name: "Hard techno fans", campaign_name: "x" }, r).artistIds, [], "never by the ad set name");
     assert.equal(headlinerOf({ event_code: "HARD26", name: "Hard Night" }, r).artistId, null, "never as a headliner");
-    assert.deepEqual(AD_NAME_ONLY.map((b) => b.name), ["Hard", "Bridge", "Fragrance"]);
+    assert.deepEqual(AD_NAME_ONLY, [], "Hard, Bridge and Fragrance are brands now");
   });
 });
 
