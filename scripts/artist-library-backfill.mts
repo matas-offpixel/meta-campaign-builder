@@ -110,7 +110,7 @@ for (const artist of [...wanted].sort((a, b) => a.name.localeCompare(b.name))) {
   for (const f of plan.namedIn.values()) byField[f] += 1;
   for (const h of heldNoSourceFiles(plan.rows, artist.name)) {
     const ev = h.eventId ? eventById.get(h.eventId) : undefined;
-    held.push({ ...h, ...suggestOwner(h, { venueNames: [ev?.venue_name, clientName.get(h.clientId ?? "")] }) });
+    held.push({ ...h, ...suggestOwner(h, { venueNames: [ev?.venue_name] }) });
   }
   const shareableFiles = view.groups.filter((g) => g.shareable).length;
   console.log(`\n${artist.name} (${artist.id})`);
@@ -188,19 +188,34 @@ if (heldTsv) {
       a.artistName.localeCompare(b.artistName) ||
       a.file.localeCompare(b.file),
   );
-  const lines = ["client\tsuggested_owner\twhy\tartist\tfile\tkind\tshow\tads\tconfirm (promoter / artist / offpixel)"];
-  for (const h of sorted) lines.push([clientName.get(h.clientId ?? "") ?? "?", h.owner, h.why, h.artistName, h.file.replace(/\t/g, " "), h.kind, showOf(h), h.ads, ""].join("\t"));
-  writeFileSync(heldTsv, `${lines.join("\n")}\n`);
-  console.log(`\nheld files nothing accounts for: ${held.length} (suggestions only; nothing written) → ${heldTsv}`);
-  const groups = new Map<string, (HeldFile & Suggestion)[]>();
+  // One line per client, owner, artist, show and creative: the ad names it ran as folded in.
+  const lines = ["client\tsuggested_owner\twhy\tartist\tcreative\tkind\tshow\tad_names\tads\tconfirm (promoter / artist / offpixel)"];
+  const byCreative = new Map<string, { h: HeldFile & Suggestion; names: number; ads: number }>();
   for (const h of sorted) {
-    const k = `${clientName.get(h.clientId ?? "") ?? "?"}\u0000${h.owner}`;
-    (groups.get(k) ?? groups.set(k, []).get(k)!).push(h);
+    const k = [h.clientId, h.owner, h.artistId, h.eventId, h.creative].join("\u0000");
+    const have = byCreative.get(k);
+    if (have) {
+      have.names += 1;
+      have.ads += h.ads;
+    } else byCreative.set(k, { h, names: 1, ads: h.ads });
   }
-  for (const [k, items] of groups) {
+  for (const { h, names, ads } of byCreative.values()) {
+    lines.push([clientName.get(h.clientId ?? "") ?? "?", h.owner, h.why, h.artistName, h.creative.replace(/\t/g, " "), h.kind, showOf(h), names, ads, ""].join("\t"));
+  }
+  writeFileSync(heldTsv, `${lines.join("\n")}\n`);
+  console.log(`\nheld files nothing accounts for: ${held.length} ad names, ${byCreative.size} creatives (suggestions only; nothing written) → ${heldTsv}`);
+  const groups = new Map<string, { items: (HeldFile & Suggestion)[]; creatives: Set<string> }>();
+  for (const { h } of byCreative.values()) {
+    const k = `${clientName.get(h.clientId ?? "") ?? "?"}\u0000${h.owner}`;
+    const g = groups.get(k) ?? groups.set(k, { items: [], creatives: new Set() }).get(k)!;
+    g.items.push(h);
+    g.creatives.add(`${h.artistId}\u0000${h.eventId}\u0000${h.creative}`);
+  }
+  for (const [k, g] of groups) {
     const [client, owner] = k.split("\u0000");
-    const examples = [...new Set(items.map((i) => i.file))].slice(0, 4).join(" · ");
-    console.log(`  ${client} · ${owner}: ${items.length} files · ${new Set(items.map((i) => i.artistId)).size} artists · e.g. ${examples}`);
+    const whys = [...new Set(g.items.map((i) => i.why))].join("; ");
+    const examples = [...new Set(g.items.map((i) => i.creative))].slice(0, 5).join(" · ");
+    console.log(`  ${client} · ${owner}: ${g.creatives.size} creatives · ${new Set(g.items.map((i) => i.artistId)).size} artists · ${whys} · e.g. ${examples}`);
   }
 }
 
