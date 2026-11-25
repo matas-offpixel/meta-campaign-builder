@@ -147,13 +147,16 @@ export function FixLabel({ label, names }: { label: string; names?: readonly str
   );
 }
 
-/** The text with each event code set nowrap, so the line wraps before a code, never inside it. */
+/**
+ * The text with each event code, pixel ending and domain set nowrap, so the
+ * line wraps before one, never inside it (lib/launch-guard/code-spans.ts).
+ */
 export function NoBreakCodes({ text }: { text: string }) {
   return (
     <>
       {codeSpans(text).map((span, index) =>
-        span.code ? (
-          <span key={index} data-event-code="" className="whitespace-nowrap">
+        span.whole ? (
+          <span key={index} data-nowrap="" className="whitespace-nowrap">
             {span.text}
           </span>
         ) : (
