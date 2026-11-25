@@ -17,6 +17,7 @@ import type { LocationSearchHit } from "../meta/location-search.ts";
 import type { AccountPage, InterestHit } from "./graph-reads.ts";
 import type { CampaignDraft } from "../types.ts";
 import type { StoredSendOutcome } from "../plan/stored-assets-meta.ts";
+import type { McpLiveDeps } from "./live/types.ts";
 
 export type Db = Pick<SupabaseClient, "from">;
 
@@ -146,6 +147,8 @@ export interface ToolContext {
   meta?: McpMetaDeps;
   /** M4a's render reach (the track's low end, the kit); absent unless the route wires it. */
   render?: McpRenderDeps;
+  /** M3b's live reach (reads and the live writes, lib/mcp/live/types.ts); absent unless the route wires it. */
+  live?: McpLiveDeps;
   /** The caller is in MATAS_USER_IDS (mcp:meta tools check it again). */
   isMatas?: boolean;
   /** Today's Undo exists; omitted means TODAY_UNDO_SHIPPED (meta/today-undo.ts). Injected so tests cover both. */

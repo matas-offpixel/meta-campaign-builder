@@ -99,6 +99,11 @@ export interface BulkAttachRequest {
    * the write ledger for every create and the campaign_additions log.
    */
   tree?: { eventId: string; stage: TreeStage; runId: string };
+  /**
+   * Create the new ads PAUSED (the connector's add_creatives_to_stage
+   * default, M3b). Unset keeps today's ACTIVE ads.
+   */
+  createPaused?: boolean;
 }
 
 export interface CampaignAttachResult {
@@ -151,11 +156,31 @@ function formatMetaError(err: unknown): string {
 // ─── Route handler ────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
+  return bulkAttach(req, null);
+}
+
+/**
+ * The same run for an operator without a browser session: the Off/Pixel
+ * connector's add_creatives_to_stage (lib/mcp/meta-deps.ts, M3b), as
+ * launchCampaignAs is for launch_draft. `supabase` is the service-role
+ * client and `user` the connector's operator; the caller has checked that
+ * the event is theirs. Everything else (the tree switch, the ledger, the
+ * caps, the token, the additions log) is the route's own.
+ */
+export async function bulkAttachAs(
+  req: NextRequest,
+  auth: { supabase: Awaited<ReturnType<typeof createClient>>; user: { id: string; user_metadata?: Record<string, unknown> } },
+): Promise<NextResponse> {
+  return bulkAttach(req, auth);
+}
+
+async function bulkAttach(
+  req: NextRequest,
+  auth: { supabase: Awaited<ReturnType<typeof createClient>>; user: { id: string; user_metadata?: Record<string, unknown> } } | null,
+): Promise<NextResponse> {
   // ── Auth ─────────────────────────────────────────────────────────────────
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const supabase = auth?.supabase ?? (await createClient());
+  const user = auth ? auth.user : (await supabase.auth.getUser()).data.user;
   if (!user) {
     return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
   }
@@ -560,7 +585,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       let creativeGotAds = false;
       for (const adSetId of adSetIds) {
         const adName = metaAdName(creative.name);
-        const adPayload = buildAdPayload(adName, metaCreativeId, adSetId);
+        const adPayload = buildAdPayload(adName, metaCreativeId, adSetId, body.createPaused === true ? "PAUSED" : "ACTIVE");
         try {
           let wrote = !treeRun;
           const adId = treeRun

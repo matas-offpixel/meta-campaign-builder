@@ -14,7 +14,7 @@ import { createServiceRoleClient } from "@/lib/supabase/server";
 import { isOperator, MATAS_USER_IDS } from "@/lib/auth/operator-allowlist";
 import { createActionLogger } from "./action-log";
 import { realDraftDeps } from "./draft-deps";
-import { realMetaDeps } from "./meta-deps";
+import { realLiveDeps, realMetaDeps } from "./meta-deps";
 import { startDeps } from "@/lib/render-templates/server-deps";
 import { realReaders } from "./readers";
 import { createSupabaseStore, devMemoryStore, type McpStore } from "./oauth/store";
@@ -43,6 +43,8 @@ export function mcpHandlerDeps(): McpHandlerDeps {
     readers: realReaders,
     draft: realDraftDeps(db),
     meta: realMetaDeps(db),
+    // M3b: get_live and the live changes.
+    live: realLiveDeps(db),
     // M4a: render_package starts packages; the render tick renders them.
     render: startDeps(db),
   };

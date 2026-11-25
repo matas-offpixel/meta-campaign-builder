@@ -18,6 +18,13 @@
  *     that no other MCP file reaches it but the route wiring.
  *   - events, from lib/mcp/meta/event-write.ts only (update_event: three
  *     dates and two links).
+ *
+ * M3b adds the live changes, all through the same seam: the status writes,
+ * the budget write, the refresh's move, the name write and the ad study
+ * (each handed its Graph POST as a callback), and the campaign tree's two
+ * route handlers (bulkAttachAs, adsetAudienceAs). Its one table is
+ * scheduled_meta_changes, from lib/mcp/live/scheduled.ts only, applied by
+ * the cron route it pins too.
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -37,6 +44,8 @@ const ALLOWED_WRITERS: Record<string, RegExp> = {
   "lib/mcp/drafts/write.ts": /^campaign_drafts$/,
   // M3a: update_event, the event form's save for five fields.
   "lib/mcp/meta/event-write.ts": /^events$/,
+  // M3b: budget changes for later, and the cron that applies them.
+  "lib/mcp/live/scheduled.ts": /^scheduled_meta_changes$/,
 };
 
 /**
@@ -49,7 +58,31 @@ const META_SEAM_IMPORTS: Record<string, readonly string[]> = {
   "app/api/meta/launch-campaign/route.ts": ["launchCampaignAs"],
   "lib/meta/upload-asset-handler.ts": ["handleUploadAsset", "uploadAssetHooksForUser"],
   "lib/plan/creative-intake-server.ts": ["sendStoredDraftAssetsToMeta", "waitForStoredVideosAs"],
+  // M3b: the campaign tree's two route handlers, for the operator.
+  "app/api/meta/bulk-attach-ads/route.ts": ["bulkAttachAs"],
+  "app/api/meta/adset-audience/route.ts": ["adsetAudienceAs"],
+  // M3b: the reads and the POSTs handed to the ledgered writers below.
+  "lib/meta/client.ts": ["graphGetWithToken", "graphPostWithToken"],
+  "lib/meta/server-token.ts": ["resolveServerMetaToken"],
+  "lib/meta/ad-status-write.ts": ["adStatusWritesEnabled", "writeAdStatus"],
+  "lib/meta/adset-status-write.ts": ["adsetStatusWritesEnabled", "writeAdSetStatus"],
+  "lib/meta/campaign-status-write.ts": ["writeCampaignStatus"],
+  "lib/meta/budget-write.ts": ["budgetWritesEnabled", "writeBudget"],
+  "lib/meta/object-name-write.ts": ["writeObjectName"],
+  "lib/meta/ad-study.ts": ["campaignsInRunningStudies", "studyPayload", "writeAdStudy"],
+  "lib/meta/adset-targeting-write.ts": ["adsetTargetingWritesEnabled"],
+  "lib/campaign-tree/switch.ts": ["treeAddWritesEnabled"],
+  "lib/onsale-refresh/apply.ts": ["moveAdSetDailyBudget"],
 };
+
+/** Every Graph POST in the seam is the callback one ledgered writer is handed. */
+const SEAM_POSTS = [
+  /const post = \(objectId: string, s: string\) => graphPostWithToken\(`\/\$\{objectId\}`, \{ status: s \}, token\)/,
+  /postBudget: \(objectId, f, m\) => graphPostWithToken\(`\/\$\{objectId\}`, \{ \[f\]: m \}, token\)/,
+  /await graphPostWithToken\(`\/\$\{adsetId\}`, \{ daily_budget: minor \}, token\);/,
+  /postName: \(objectId, n\) => graphPostWithToken\(`\/\$\{objectId\}`, \{ name: n \}, token\)/,
+  /createAdStudy: \(b, p\) => graphPostWithToken<\{ id: string \}>\(`\/\$\{b\}\/ad_studies`, p, token\)/,
+];
 
 const ENTRIES = [
   "lib/mcp/server.ts",
@@ -68,6 +101,8 @@ const ENTRIES = [
   "app/.well-known/oauth-protected-resource/route.ts",
   "app/.well-known/oauth-protected-resource/api/mcp/route.ts",
   "app/.well-known/oauth-authorization-server/route.ts",
+  // M3b: the cron that applies scheduled budget changes.
+  "app/api/cron/mcp-scheduled-changes/route.ts",
 ];
 
 function resolve(from: string, spec: string): string | null {
@@ -190,6 +225,9 @@ const EXTERNAL_READERS: Record<string, readonly string[]> = {
   "lib/render-templates/words.ts": ["RECIPES", "candidate", "m4"],
   "lib/render-templates/upload-guard.ts": ["refusedUploads"],
   "lib/render-templates/server-deps.ts": ["startDeps"],
+  // M3b: the event's campaign tree (database reads, and Meta through the reader the live seam passes) and its pure helpers.
+  "lib/campaign-tree/load.ts": ["loadCampaignTree"],
+  "lib/campaign-tree/tree.ts": ["canWrite", "defaultSelection", "stageAccount", "stageLabel", "stageSheetCampaigns"],
 };
 
 /**
@@ -203,6 +241,8 @@ const EXTERNAL_WRITERS: Record<string, Record<string, RegExp>> = {
   "lib/clients/asset-queue/storage-upload.ts": { uploadFileToStorageBucket: /^$/ },
   // M4a (scope mcp:render, Matas only): a package row, its file rows and the track's beat-grid cache. Nothing renders here; the cron does.
   "lib/render-templates/start.ts": { requestPackage: /^(creative_lab_render_packages|creative_lab_renders|creative_lab_audio_files|artists|artist_assets)$/ },
+  // M3b: the cron route's run log (recordCronRun writes cron_runs; the wrapper itself has no table).
+  "lib/reporting/with-cron-run-log.ts": { withCronRunLog: /^cron_runs$/ },
 };
 
 /**
@@ -343,11 +383,23 @@ test("M3a: the Meta seam imports exactly the launch route's handler, the upload 
     got[target] = [...(got[target] ?? []), ...names].sort();
   }
   assert.deepEqual(got, Object.fromEntries(Object.entries(META_SEAM_IMPORTS).map(([k, v]) => [k, [...v].sort()])));
-  // No network call of its own: everything goes through those handlers.
-  assert.doesNotMatch(strip(src), NETWORK);
-  // Only route-deps wires it; no tool imports it (tools reach Meta through ctx.meta).
-  const importers = [...files.entries()].filter(([f, s2]) => f !== META_SEAM && /from\s+["'][^"']*meta-deps["']/.test(s2)).map(([f]) => f);
-  assert.deepEqual(importers, ["lib/mcp/route-deps.ts"]);
+  // No network call of its own but the reads and the POSTs it hands to the ledgered writers (M3b).
+  const code = strip(src);
+  assert.doesNotMatch(code, /\b(fetch|graphDelete)\s*\(/);
+  const posts = code.split("\n").filter((l) => /graphPostWithToken\s*[<(]/.test(l));
+  assert.equal(posts.length, SEAM_POSTS.length, "one POST per ledgered writer");
+  for (const p of SEAM_POSTS) assert.equal(posts.filter((l) => p.test(l)).length, 1, String(p));
+  // Only route-deps and the scheduled-changes cron wire it; no tool imports it (tools reach Meta through ctx.meta / ctx.live).
+  const importers = [...files.entries()].filter(([f, s2]) => f !== META_SEAM && /from\s+["'][^"']*meta-deps["']/.test(s2)).map(([f]) => f).sort();
+  assert.deepEqual(importers, ["app/api/cron/mcp-scheduled-changes/route.ts", "lib/mcp/route-deps.ts"]);
+  // The tree's handlers are the routes' own, and bulk-attach keeps the tree switch and the paused flag.
+  const attach = readFileSync(join(ROOT, "app/api/meta/bulk-attach-ads/route.ts"), "utf8");
+  assert.match(attach, /export async function bulkAttachAs\(/);
+  assert.match(attach, /if \(!treeAddWritesEnabled\(\)\) \{/);
+  assert.match(attach, /buildAdPayload\(adName, metaCreativeId, adSetId, body\.createPaused === true \? "PAUSED" : "ACTIVE"\)/);
+  const audience = readFileSync(join(ROOT, "app/api/meta/adset-audience/route.ts"), "utf8");
+  assert.match(audience, /export async function adsetAudienceAs\(/);
+  assert.match(audience, /if \(commit && !adsetTargetingWritesEnabled\(\)\) \{/);
   // The handlers it names are the app's own, and the launch keeps the route's paused path.
   const route = readFileSync(join(ROOT, "app/api/meta/launch-campaign/route.ts"), "utf8");
   assert.match(route, /export async function launchCampaignAs\(/);
@@ -357,12 +409,17 @@ test("M3a: the Meta seam imports exactly the launch route's handler, the upload 
 
 test("M3a: every meta tool checks the scope and the approval before anything else, and reaches Meta only through ctx.meta", async () => {
   const { META_TOOLS } = await import("../tools/index.ts");
-  for (const file of ["lib/mcp/tools/meta-launch.ts", "lib/mcp/tools/meta-event.ts"]) {
+  const files = ["lib/mcp/tools/meta-launch.ts", "lib/mcp/tools/meta-event.ts", "lib/mcp/tools/live-status.ts", "lib/mcp/tools/live-budget.ts", "lib/mcp/tools/live-rename.ts", "lib/mcp/tools/live-stage.ts", "lib/mcp/tools/live-test.ts", "lib/mcp/tools/live-read.ts"];
+  for (const file of files) {
     const code = strip(readFileSync(join(ROOT, file), "utf8"));
-    for (const m of code.matchAll(/async run\(ctx, args\) \{\n\s*(.+)\n/g)) assert.match(m[1]!, /requireMetaApproval\(ctx, args\)/, file);
-    assert.doesNotMatch(code, /from\s+["'](@\/|\.\.\/\.\.\/)(app|lib\/meta)\//, `${file}: no Meta import`);
+    // The read-only meta tools (get_live, list_scheduled) check the scope; every other one the scope and the approval.
+    for (const m of code.matchAll(/async run\(ctx, args\) \{\n\s*(.+)\n/g)) assert.match(m[1]!, /requireMetaApproval\(ctx, args\)|requireMetaScope\(ctx\)/, file);
+    assert.doesNotMatch(code, /from\s+["'](@\/|\.\.\/\.\.\/)(app\/|meta\/(?!ad-account)|lib\/meta\/)/, `${file}: no Meta import`);
   }
-  assert.deepEqual(META_TOOLS.map((t) => t.kind), ["meta", "meta", "meta"]);
+  // pause and resume share runStatus, which checks the approval first.
+  assert.match(strip(readFileSync(join(ROOT, "lib/mcp/tools/live-status.ts"), "utf8")), /async function runStatus\(ctx: ToolContext, args: Record<string, unknown>, to: "PAUSED" \| "ACTIVE", tool: "pause" \| "resume"\) \{\n\s*const \{ approval \} = requireMetaApproval\(ctx, args\);/);
+  assert.ok(META_TOOLS.length === 14 && META_TOOLS.every((t) => t.kind === "meta"));
+  for (const t of META_TOOLS.filter((x) => x.readOnly === true)) assert.ok(["get_live", "list_scheduled"].includes(t.name), t.name);
 });
 
 test("tools register with honest annotations: read tools read-only, draft tools never destructive", () => {
