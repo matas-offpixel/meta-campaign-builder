@@ -15,7 +15,7 @@ import { isOperator } from "@/lib/auth/operator-allowlist";
 import { isMcpEnabled, mcpUrls } from "@/lib/mcp/config";
 import { checkAuthorizeRequest, scopeForUser } from "@/lib/mcp/oauth/flow";
 import { flowDeps } from "@/lib/mcp/route-deps";
-import { consentContent, upgradeFrom } from "@/lib/mcp/oauth/consent-words";
+import { consentContent, isRenderUpgrade, upgradeFrom } from "@/lib/mcp/oauth/consent-words";
 import { ConsentView } from "@/components/mcp/consent-view";
 import { decideConsent } from "./actions";
 
@@ -65,6 +65,8 @@ export default async function AuthorizePage({ searchParams }: { searchParams: Se
     // The resolved scope: lines 1 and 2 follow mcp:draft (M2).
     scope: req.scope,
     upgradeFrom: from,
+    // M4a: a grant from this client adding mcp:render (Matas only) reads as a render upgrade.
+    addsRender: isRenderUpgrade(live, req.client.client_id, req.scope),
   });
   return (
     <ConsentView

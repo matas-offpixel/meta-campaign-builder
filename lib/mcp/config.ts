@@ -45,9 +45,15 @@ export const RATE_LIMIT_PER_HOUR = 600;
 export const SCOPE_READ = "mcp:read";
 export const SCOPE_DRAFT = "mcp:draft";
 export const SCOPE_META = "mcp:meta";
-export const SCOPES_SUPPORTED: readonly string[] = [SCOPE_READ, SCOPE_DRAFT, SCOPE_META];
-/** What the 401 challenge and the step-up 403 ask for: everything a connector may hold. Consent drops mcp:meta for anyone not in MATAS_USER_IDS. */
-export const CHALLENGE_SCOPE = `${SCOPE_READ} ${SCOPE_DRAFT} ${SCOPE_META}`;
+/**
+ * M4a: render_package starts Lambda renders and files them in Drive, on
+ * Matas's chat yes (RY1). Matas only (MATAS_USER_IDS), like mcp:meta, and
+ * checked again on every call; it brings no other scope.
+ */
+export const SCOPE_RENDER = "mcp:render";
+export const SCOPES_SUPPORTED: readonly string[] = [SCOPE_READ, SCOPE_DRAFT, SCOPE_META, SCOPE_RENDER];
+/** What the 401 challenge and the step-up 403 ask for: everything a connector may hold. Consent drops mcp:meta and mcp:render for anyone not in MATAS_USER_IDS. */
+export const CHALLENGE_SCOPE = `${SCOPE_READ} ${SCOPE_DRAFT} ${SCOPE_META} ${SCOPE_RENDER}`;
 export const IGNORED_SCOPES: readonly string[] = ["offline_access"];
 
 /** The one hosted callback Claude uses (claude.ai web, desktop, mobile, Cowork). */

@@ -25,6 +25,7 @@ import {
   SCOPE_DRAFT,
   SCOPE_META,
   SCOPE_READ,
+  SCOPE_RENDER,
   normaliseResource,
   type McpUrls,
 } from "../config.ts";
@@ -106,10 +107,11 @@ export function resolveScope(requested: string | null | undefined): string | nul
  * a connector asking for everything still connects with read and drafts.
  */
 export function scopeForUser(scope: string, userId: string, deps: Pick<FlowDeps, "isMatas">): string {
-  if (!scopeIncludes(scope, SCOPE_META) || deps.isMatas?.(userId) === true) return scope;
+  if (deps.isMatas?.(userId) === true) return scope;
+  if (!scopeIncludes(scope, SCOPE_META) && !scopeIncludes(scope, SCOPE_RENDER)) return scope;
   return scope
     .split(/\s+/)
-    .filter((s) => s && s !== SCOPE_META)
+    .filter((s) => s && s !== SCOPE_META && s !== SCOPE_RENDER)
     .join(" ");
 }
 

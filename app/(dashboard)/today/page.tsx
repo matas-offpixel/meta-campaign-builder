@@ -3,6 +3,7 @@ import { Suspense } from "react";
 import { TodayDashboard } from "@/components/dashboard/today/today-dashboard";
 import { ClaimToday } from "@/components/dashboard/today/claim-today";
 import { ClientPacingAlerts } from "@/components/dashboard/today/client-pacing-alerts";
+import { ClaudeRenderLog } from "@/components/dashboard/today/claude-render-log";
 
 export default function TodayPage() {
   // The pacing alerts are server-rendered and injected as a slot into the
@@ -16,9 +17,15 @@ export default function TodayPage() {
         </Suspense>
       }
       claimSlot={
-        <Suspense fallback={null}>
-          <ClaimToday />
-        </Suspense>
+        <>
+          <Suspense fallback={null}>
+            <ClaimToday />
+          </Suspense>
+          {/* M4a (RY2): render packages Claude ran today, in FC1's log. */}
+          <Suspense fallback={null}>
+            <ClaudeRenderLog />
+          </Suspense>
+        </>
       }
     />
   );

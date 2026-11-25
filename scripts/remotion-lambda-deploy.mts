@@ -4,6 +4,12 @@
  *
  *   node --env-file=.env.local --experimental-strip-types scripts/remotion-lambda-deploy.mts
  *
+ * M4a: `--site m4-montage-YYYY-MM-DD` deploys a separate, new site under that
+ * name (it must start "m4-montage-" and not exist yet), so the caption site
+ * production renders from is never overwritten. The function and bucket are
+ * reused. Production's REMOTION_LAMBDA_SERVE_URL isn't touched: the printed
+ * serve URL is passed to scripts/render-package.mts --serve-url.
+ *
  * Prints the bucket, function name, serve URL and concurrency quota.
  * @remotion/lambda 4.0.471 has no deploySiteFromBundle, so this bundles
  * the entry point and then calls deploySite, which bundles it again.
@@ -15,7 +21,7 @@ import path from "node:path";
 
 import { bundle } from "@remotion/bundler";
 import { ConfigInternals } from "@remotion/cli/config";
-import { deployFunction, deploySite, getFunctions, getOrCreateBucket } from "@remotion/lambda";
+import { deployFunction, deploySite, getFunctions, getOrCreateBucket, getSites } from "@remotion/lambda";
 
 import "../remotion.config.ts";
 
@@ -36,8 +42,19 @@ if (regionOnFile && regionOnFile !== REMOTION_REGION) {
   throw new Error("REMOTION_AWS_REGION is not eu-west-2");
 }
 
+const siteArg = process.argv.indexOf("--site");
+const siteName = siteArg >= 0 ? String(process.argv[siteArg + 1] ?? "") : LAMBDA_SITE_NAME;
+if (siteArg >= 0 && (!/^m4-montage-[a-z0-9-]+$/.test(siteName) || siteName === LAMBDA_SITE_NAME)) {
+  throw new Error('--site takes a new name starting "m4-montage-" (lower case, digits, hyphens), never the caption site');
+}
+
 const { bucketName } = await getOrCreateBucket({ region: REMOTION_REGION });
 console.log(`bucket ${bucketName}`);
+
+if (siteArg >= 0) {
+  const { sites } = await getSites({ region: REMOTION_REGION });
+  if (sites.some((s) => s.id === siteName)) throw new Error(`site ${siteName} already exists; pick a new name, nothing was deployed`);
+}
 
 const existing = await getFunctions({ region: REMOTION_REGION, compatibleOnly: true });
 const chosen = existing.find((fn) => fn.memorySizeInMb === LAMBDA_MEMORY_MB && fn.timeoutInSeconds === LAMBDA_TIMEOUT_SECONDS && fn.diskSizeInMb === LAMBDA_DISK_MB);
@@ -66,7 +83,7 @@ const site = await deploySite({
   entryPoint,
   bucketName,
   region: REMOTION_REGION,
-  siteName: LAMBDA_SITE_NAME,
+  siteName,
   options: { webpackOverride, enableCaching: false },
 });
 console.log(`serveUrl ${site.serveUrl}`);

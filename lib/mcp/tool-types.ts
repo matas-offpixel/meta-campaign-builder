@@ -124,6 +124,16 @@ export interface McpMetaDeps {
   launch(input: { userId: string; draft: CampaignDraft; createPaused: boolean }): Promise<{ status: number; body: Record<string, unknown> }>;
 }
 
+/**
+ * M4a (scope mcp:render, Matas only): what render_package needs beyond the
+ * database. The route passes the real ones (lib/mcp/render-deps.ts); tests
+ * pass fakes. Starting a package writes rows only; the cron renders.
+ */
+export interface McpRenderDeps {
+  kitReady(eventId: string, clientId: string): Promise<boolean>;
+  readLowPcm(storagePath: string): Promise<Uint8Array>;
+}
+
 export interface ToolContext {
   db: Db;
   readers: McpReaders;
@@ -134,6 +144,8 @@ export interface ToolContext {
   draft?: McpDraftDeps;
   /** M3a's Meta reach (launch, uploads); absent unless the route wires it. */
   meta?: McpMetaDeps;
+  /** M4a's render reach (the track's low end, the kit); absent unless the route wires it. */
+  render?: McpRenderDeps;
   /** The caller is in MATAS_USER_IDS (mcp:meta tools check it again). */
   isMatas?: boolean;
   /** Today's Undo exists; omitted means TODAY_UNDO_SHIPPED (meta/today-undo.ts). Injected so tests cover both. */
@@ -158,7 +170,7 @@ export interface McpTool {
   name: string;
   title: string;
   description: string;
-  kind: "read" | "draft" | "meta";
+  kind: "read" | "draft" | "meta" | "render";
   /** MCP readOnlyHint. Defaults to kind === "read". */
   readOnly?: boolean;
   /** MCP idempotentHint. Defaults to kind === "read". */

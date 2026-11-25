@@ -720,7 +720,8 @@ export async function retryRender(db: ServiceRoleDb, args: { renderId: string; u
   const res = await db.from("creative_lab_renders").select("*").eq("id", args.renderId).maybeSingle();
   if (res.error) throw new Error(`creative_lab_renders: ${res.error.message}`);
   const render = res.data as Row | null;
-  if (!render || render.user_id !== args.userId) throw new RenderRetryError(404, "This render isn't on your Lab — reload the page.");
+  // M4a (migration 270): a render package's file is retried from its own row (Try again), never as a caption render.
+  if (!render || render.user_id !== args.userId || render.recipe != null) throw new RenderRetryError(404, "This render isn't on your Lab — reload the page.");
   if (render.status !== "failed") throw new RenderRetryError(409, "This render isn't failed any more — reload the page.");
   const error = typeof render.error === "string" ? render.error : null;
   if (!renderRetryable(error)) {

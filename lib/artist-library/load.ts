@@ -110,3 +110,31 @@ export async function loadArtistData(db: Db, artistId: string, extraEventIds: re
     driveFolderId: folders.find((f) => f.key === LIBRARY_ARTIST_KEY)?.drive_folder_id ?? null,
   };
 }
+
+/**
+ * M4a's muted cards: an artist's statics in the library (press shots and
+ * story artwork), each with its rights. Callers decide what an event may use
+ * with usableOn, as get_artist does. Reads only.
+ */
+export async function artistStatics(db: Db, artistId: string): Promise<{ name: string; shareable: boolean; clientId: string | null }[]> {
+  const res = await db.from("artist_assets").select("name, shareable, source_client_id").eq("artist_id", artistId).eq("kind", "static").range(0, 499);
+  if (res.error) return [];
+  return ((res.data ?? []) as { name: string | null; shareable: boolean | null; source_client_id: string | null }[])
+    .filter((r) => r.name)
+    .map((r) => ({ name: String(r.name), shareable: r.shareable === true, clientId: r.source_client_id ?? null }));
+}
+
+/**
+ * M4a's voice check: is `text` one of the artist's approved captions, word
+ * for word (case and outer spaces aside)? Reads only.
+ */
+export async function isApprovedCaption(db: Db, artistName: string, text: string): Promise<boolean> {
+  const want = text.trim().toLowerCase();
+  if (!want) return false;
+  const a = await db.from("artists").select("id").ilike("name", artistName).limit(1);
+  const id = (a.data?.[0] as { id?: string } | undefined)?.id;
+  if (a.error || !id) return false;
+  const res = await db.from("artist_assets").select("caption_text").eq("artist_id", id).eq("kind", "caption").not("approved_at", "is", null).range(0, 499);
+  if (res.error) return false;
+  return ((res.data ?? []) as { caption_text?: string | null }[]).some((r) => (r.caption_text ?? "").trim().toLowerCase() === want);
+}

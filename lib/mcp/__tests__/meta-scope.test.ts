@@ -90,7 +90,7 @@ test("read-only and draft grants get 403 insufficient_scope on every meta tool, 
       const res = await handleMcpRequest(rpc(tool.name, { draft_id: D_DRAFT, approval: YES }, tokens.access_token), deps);
       assert.equal(res.status, 403, `${scope} ${tool.name}`);
       assert.deepEqual(await res.json(), { error: "insufficient_scope" });
-      assert.match(res.headers.get("www-authenticate") ?? "", /error="insufficient_scope".*scope="mcp:read mcp:draft mcp:meta"/);
+      assert.match(res.headers.get("www-authenticate") ?? "", /error="insufficient_scope".*scope="mcp:read mcp:draft mcp:meta mcp:render"/);
     }
   }
   // A meta grant held by someone no longer in MATAS_USER_IDS is refused the same way.

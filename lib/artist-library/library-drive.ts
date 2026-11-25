@@ -220,3 +220,34 @@ export async function recordLibraryDrop(
   );
   if (res.error) throw new Error(`artist_assets upsert: ${res.error.message}`);
 }
+
+/**
+ * M4a: a montage file that is shareable (No text, artist material only) and
+ * passed every check joins the library as an Off/Pixel render (AL1), keyed
+ * m4_render:{render id}, which the backfill never removes.
+ */
+export async function recordLibraryRender(
+  db: DriveDb,
+  input: { artistId: string; renderId: string; name: string; driveFileId: string; storagePath: string; eventId: string; clientId: string; now: Date },
+): Promise<void> {
+  const res = await table(db, "artist_assets").upsert(
+    {
+      artist_id: input.artistId,
+      asset_key: `m4_render:${input.renderId}`,
+      kind: "render",
+      name: input.name,
+      drive_file_id: input.driveFileId,
+      storage_path: input.storagePath,
+      source_event_id: input.eventId,
+      source_client_id: input.clientId,
+      owner_kind: "offpixel",
+      shareable: true,
+      held_reason: null,
+      lab_render_id: input.renderId,
+      matched_by: "lab",
+      material_at: input.now.toISOString(),
+    },
+    { onConflict: "artist_id,asset_key" },
+  );
+  if (res.error) throw new Error(`artist_assets upsert: ${res.error.message}`);
+}

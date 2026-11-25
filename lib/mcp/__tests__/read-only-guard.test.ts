@@ -184,6 +184,12 @@ const EXTERNAL_READERS: Record<string, readonly string[]> = {
   "lib/artist-library/load.ts": ["findArtist", "loadArtistData"],
   "lib/artist-library/view.ts": ["buildArtistView"],
   "lib/artist-library/answer.ts": ["artistAnswer", "unknownArtistAnswer"],
+  // M4a: render_package's words, cap and finished lines (pure), the upload guard's read, and the real start deps (Storage and ffmpeg reads).
+  "lib/render-templates/package-view.ts": ["MAX_PACKAGE_FILES", "RECIPE_FILES", "refusalRowLine"],
+  "lib/render-templates/report.ts": ["doneLines"],
+  "lib/render-templates/words.ts": ["RECIPES", "candidate", "m4"],
+  "lib/render-templates/upload-guard.ts": ["refusedUploads"],
+  "lib/render-templates/server-deps.ts": ["startDeps"],
 };
 
 /**
@@ -195,6 +201,8 @@ const EXTERNAL_WRITERS: Record<string, Record<string, RegExp>> = {
   "lib/drive/picker.ts": { copyPickedFile: /^creative_assets$/ },
   // The Storage upload the copy route passes it.
   "lib/clients/asset-queue/storage-upload.ts": { uploadFileToStorageBucket: /^$/ },
+  // M4a (scope mcp:render, Matas only): a package row, its file rows and the track's beat-grid cache. Nothing renders here; the cron does.
+  "lib/render-templates/start.ts": { requestPackage: /^(creative_lab_render_packages|creative_lab_renders|creative_lab_audio_files|artists|artist_assets)$/ },
 };
 
 /**

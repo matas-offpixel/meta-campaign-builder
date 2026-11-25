@@ -14,6 +14,7 @@ import { attachDriveCreativesTool, listDriveCreativesTool } from "./draft-drive.
 import { applyAudienceTemplateTool, archiveDraftTool, setDraftBudgetTool, setDraftLinkTool, setDraftLocationsTool, setDraftNameTool } from "./draft-edit.ts";
 import { launchDraftTool, uploadDraftAssetsTool } from "./meta-launch.ts";
 import { updateEventTool } from "./meta-event.ts";
+import { getRenderPackageTool, renderPackageTool } from "./render.ts";
 import { replicateToEventTool } from "./draft-replicate.ts";
 import { setDraftAudiencesTool } from "./draft-audiences.ts";
 import { duplicateDraftTool, removeDraftCreativesTool, setDraftAdNamesTool, setDraftAdSetsTool, setDraftCopyTool, setDraftIdentityTool, setDraftObjectiveTool, setDraftScheduleTool } from "./draft-build.ts";
@@ -33,6 +34,8 @@ export const READ_TOOLS: readonly McpTool[] = [
   getDraftTool,
   runLaunchChecksTool,
   getArtistTool,
+  // M4a
+  getRenderPackageTool,
 ];
 
 export const DRAFT_TOOLS: readonly McpTool[] = [
@@ -61,4 +64,7 @@ export const DRAFT_TOOLS: readonly McpTool[] = [
 /** Scope mcp:meta (MATAS_USER_IDS only): each takes Matas's chat yes. */
 export const META_TOOLS: readonly McpTool[] = [launchDraftTool, uploadDraftAssetsTool, updateEventTool];
 
-export const MCP_TOOLS: readonly McpTool[] = [...READ_TOOLS, ...DRAFT_TOOLS, ...META_TOOLS];
+/** Scope mcp:render (MATAS_USER_IDS only, M4a): each takes Matas's chat yes. */
+export const RENDER_TOOLS: readonly McpTool[] = [renderPackageTool];
+
+export const MCP_TOOLS: readonly McpTool[] = [...READ_TOOLS, ...DRAFT_TOOLS, ...META_TOOLS, ...RENDER_TOOLS];

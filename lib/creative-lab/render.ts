@@ -196,6 +196,8 @@ export async function renderCaptionOnClip(
   const render = await one(db, "creative_lab_renders", input.renderId);
   if (!render) throw new Error(`render ${input.renderId} not found`);
   if (render.user_id !== input.userId) throw new Error("render belongs to another user");
+  // M4a (migration 270): a render package's file has no clip or caption of its own; the package tick renders it.
+  if (render.recipe != null) throw new Error(`render ${input.renderId} is a render package file, not a caption render`);
 
   const started = Date.now();
   await patchRender(db, input.renderId, { status: "rendering", error: null });

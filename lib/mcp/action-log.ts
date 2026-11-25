@@ -42,7 +42,7 @@ export interface ActionRow {
   event_id?: string | null;
   tool: string;
   args: unknown;
-  kind: "read" | "draft" | "meta";
+  kind: "read" | "draft" | "meta" | "render";
   status: "requested" | "approved" | "rejected" | "done" | "failed";
   result?: Record<string, unknown> | null;
   error?: string | null;
