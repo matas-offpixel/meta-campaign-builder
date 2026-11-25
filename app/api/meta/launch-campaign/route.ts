@@ -101,6 +101,7 @@ import {
 import {
   buildAdSetPayload,
   ageSuggestionDroppedForObjective,
+  ADVANTAGE_AUDIENCE_AGE_MIN_CONTROL_MAX,
   type AgeSuggestionDropped,
   extractDeprecatedReplacements,
   applyInterestReplacements,
@@ -467,11 +468,22 @@ function rateLimitJsonResponse(
 /**
  * Step 2 of the Advantage+ age order went out: the ad set is Advantage+
  * with age_max 65 and no age suggestion, wider than the draft's range.
- * Carried in the launch result as a field; the on-screen words for it
- * are pending design (no launch-line string covers it yet).
+ * Carried in the launch result with the ages the panel's ruled line
+ * (launch.adset.age_widened, lib/launch-guard/adset-row.ts) fills in.
  */
-function ageSuggestionLaunchField(dropped: AgeSuggestionDropped | null | undefined): { ageSuggestionDropped?: AgeSuggestionDropped } {
-  return dropped ? { ageSuggestionDropped: dropped } : {};
+function ageSuggestionLaunchField(
+  dropped: AgeSuggestionDropped | null | undefined,
+  adSet: AdSetSuggestion,
+): { ageSuggestionDropped?: AgeSuggestionDropped; ageWidened?: { min: number; max: number; control: number } } {
+  if (!dropped) return {};
+  return {
+    ageSuggestionDropped: dropped,
+    ageWidened: {
+      min: adSet.ageMin,
+      max: adSet.ageMax,
+      control: Math.min(adSet.ageMin, ADVANTAGE_AUDIENCE_AGE_MIN_CONTROL_MAX),
+    },
+  };
 }
 
 function formatMetaError(err: unknown, campaignId?: string): string {
@@ -3995,7 +4007,7 @@ async function launchCampaign(
             durationMs,
             ...(note ? { note } : {}),
             ...(metaError ? { metaError } : {}),
-            ...ageSuggestionLaunchField(ageSuggestionDropped ?? ageSuggestionDroppedForObjective(adSet, phase2Objective)),
+            ...ageSuggestionLaunchField(ageSuggestionDropped ?? ageSuggestionDroppedForObjective(adSet, phase2Objective), adSet),
           });
           adSetMetaIds.set(adSet.id, metaAdSetId);
           adSetLaunchResults[adSet.id] = { launchStatus: "created", metaAdSetId };
@@ -4441,7 +4453,7 @@ async function launchCampaign(
           ageMode: adSet.advantagePlus ? "suggested" : "strict",
           durationMs: dur,
           ...(prep2b.preflightDroppedNote ? { note: prep2b.preflightDroppedNote } : {}),
-          ...ageSuggestionLaunchField(ageSuggestionDroppedForObjective(adSet, phase2Objective)),
+          ...ageSuggestionLaunchField(ageSuggestionDroppedForObjective(adSet, phase2Objective), adSet),
         });
         adSetMetaIds.set(adSet.id, adSetRes.id);
         adSetLaunchResults[adSet.id] = { launchStatus: "created", metaAdSetId: adSetRes.id };
@@ -4487,7 +4499,7 @@ async function launchCampaign(
             durationMs: salvaged.durationMs,
             ...(salvaged.note ? { note: salvaged.note } : {}),
             ...(salvaged.metaError ? { metaError: salvaged.metaError } : {}),
-            ...ageSuggestionLaunchField(salvaged.ageSuggestionDropped ?? ageSuggestionDroppedForObjective(adSet, phase2Objective)),
+            ...ageSuggestionLaunchField(salvaged.ageSuggestionDropped ?? ageSuggestionDroppedForObjective(adSet, phase2Objective), adSet),
           });
           adSetMetaIds.set(adSet.id, salvaged.metaAdSetId);
           adSetLaunchResults[adSet.id] = { launchStatus: "created", metaAdSetId: salvaged.metaAdSetId };
@@ -4872,7 +4884,7 @@ async function launchCampaign(
               durationMs,
               ...(note ? { note } : {}),
               ...(metaError ? { metaError } : {}),
-              ...ageSuggestionLaunchField(ageSuggestionDropped ?? ageSuggestionDroppedForObjective(adSet, ciObjective)),
+              ...ageSuggestionLaunchField(ageSuggestionDropped ?? ageSuggestionDroppedForObjective(adSet, ciObjective), adSet),
             });
             ciAdSetMetaIds.set(adSet.id, metaAdSetId);
             await recordCreatedAdSet(nextCampaign.id, adSet, metaAdSetId, {
@@ -4951,7 +4963,7 @@ async function launchCampaign(
             ageMode: adSet.advantagePlus ? "suggested" : "strict",
             durationMs: dur,
             ...(prep2b.preflightDroppedNote ? { note: prep2b.preflightDroppedNote } : {}),
-            ...ageSuggestionLaunchField(ageSuggestionDroppedForObjective(adSet, ciObjective)),
+            ...ageSuggestionLaunchField(ageSuggestionDroppedForObjective(adSet, ciObjective), adSet),
           });
           ciAdSetMetaIds.set(adSet.id, adSetRes.id);
           await recordCreatedAdSet(nextCampaign.id, adSet, adSetRes.id, {
@@ -4992,7 +5004,7 @@ async function launchCampaign(
               durationMs: salvaged.durationMs,
               ...(salvaged.note ? { note: salvaged.note } : {}),
               ...(salvaged.metaError ? { metaError: salvaged.metaError } : {}),
-              ...ageSuggestionLaunchField(salvaged.ageSuggestionDropped ?? ageSuggestionDroppedForObjective(adSet, ciObjective)),
+              ...ageSuggestionLaunchField(salvaged.ageSuggestionDropped ?? ageSuggestionDroppedForObjective(adSet, ciObjective), adSet),
             });
             ciAdSetMetaIds.set(adSet.id, salvaged.metaAdSetId);
             await recordCreatedAdSet(nextCampaign.id, adSet, salvaged.metaAdSetId, {

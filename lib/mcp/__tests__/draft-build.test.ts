@@ -459,12 +459,12 @@ test("apply_audience_template: an unconfirmed template and an unknown one are re
   assert.deepEqual(draftWrites(db), []);
 });
 
-test("apply_audience_template's words are words-rc-2026-11-24.tsv's (258 rows, sha256 f2100dd0…e6ce)", async () => {
+test("apply_audience_template's words are words-rc-2026-11-24.tsv's (259 rows, sha256 15db6735…7100)", async () => {
   const { createHash } = await import("node:crypto");
   const raw = readFileSync(join(HERE, "fixtures/words-rc-2026-11-24.tsv"));
-  assert.equal(createHash("sha256").update(raw).digest("hex"), "f2100dd0ebd1eea090f378d749e75bee561b3f0caa7badffecfac1ea02f4e6ce");
+  assert.equal(createHash("sha256").update(raw).digest("hex"), "15db673509a8e2308562908299713f4ed9860e59ab841c485c4e225d36df7100");
   const rows = raw.toString("utf8").trim().split("\n").slice(1).map((l) => l.split("\t"));
-  assert.equal(rows.length, 258);
+  assert.equal(rows.length, 259);
   const byKey = new Map(rows.map((r) => [r[0]!, r[2]!]));
   for (const [k, v] of Object.entries(APPLY_WORDS)) assert.equal(byKey.get(k), v, k);
 });

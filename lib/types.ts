@@ -1551,6 +1551,8 @@ export interface CampaignAttachResult {
      * lib/audiences/adset-create-with-salvage.ts (Tier 2a).
      */
     ageSuggestionDropped?: "objective" | "meta_refused";
+    /** With ageSuggestionDropped: the draft's range and the age_min control, for launch.adset.age_widened. */
+    ageWidened?: { min: number; max: number; control: number };
   }[];
   adSetsFailed: { name: string; error: string }[];
   adsCreated: number;
@@ -1873,6 +1875,8 @@ export interface LaunchSummary {
      * lib/audiences/adset-create-with-salvage.ts (Tier 2a).
      */
     ageSuggestionDropped?: "objective" | "meta_refused";
+    /** With ageSuggestionDropped: the draft's range and the age_min control, for launch.adset.age_widened. */
+    ageWidened?: { min: number; max: number; control: number };
   }[];
   adSetsFailed: { name: string; error: string; skippedReason?: string }[];
   creativesCreated: {

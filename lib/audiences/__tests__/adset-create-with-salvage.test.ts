@@ -541,6 +541,8 @@ describe("createAdSetWithSalvage — Advantage+ age order (steps 2 and 3)", () =
     });
     await assert.rejects(createAdSetWithSalvage(params(step1Payload(), invalidTargetingAutomationError()), deps), (err: unknown) => {
       assert.equal(err, second, "Meta's own error from the refusal of Advantage+ itself");
+      // Step 3 is a failed ad set: no created row, so no age_widened line.
+      assert.equal((err as { ageSuggestionDropped?: unknown }).ageSuggestionDropped, undefined);
       const e = err as { code: number; subcode: number };
       assert.equal(e.code, 100);
       assert.equal(e.subcode, 1870196);

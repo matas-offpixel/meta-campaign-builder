@@ -2,6 +2,7 @@
 
 import React, { useMemo, useEffect, useState, useCallback } from "react";
 import Link from "next/link";
+import { createdAdSetRow } from "@/lib/launch-guard/adset-row";
 import { markPageCapabilityFailures } from "@/lib/hooks/useMeta";
 import { LAUNCH_ON_CANVAS_LABEL } from "@/lib/plan/drawer";
 import { mmlPlanHref } from "@/lib/plan/mml-routes";
@@ -346,15 +347,14 @@ function buildLaunchEvents(
       id: uid("as-ok"),
       stage: "adset",
       entity: s.name,
-      // A note means a create-retry ladder had to salvage this ad set
-      // (dropped a stale custom audience, or stripped an objective-
-      // incompatible Advantage+ Audience automation) — still a success,
-      // but flagged so the operator knows something was adjusted on their
-      // behalf. See lib/audiences/ca-availability-recovery.ts and
-      // isInvalidTargetingAutomationError in lib/meta/error-classify.ts.
-      status: s.note ? "warning" : "success",
+      // A warning when a create-retry ladder salvaged this ad set (its
+      // note) or when it went out Advantage+ without the draft's age
+      // suggestion (launch.adset.age_widened) — still a success, but
+      // flagged so the operator knows something was adjusted on their
+      // behalf. See lib/launch-guard/adset-row.ts and
+      // lib/audiences/adset-create-with-salvage.ts.
+      ...createdAdSetRow(s, true),
       label: `Ad set created · ${ageLabel} age`,
-      detail: s.note,
       metaId: s.metaAdSetId,
       durationMs: s.durationMs,
     });
@@ -387,7 +387,7 @@ function buildLaunchEvents(
           id: uid(`mc-as-ok-${ci}`),
           stage: "adset" as EventStage,
           entity: `${s.name} [${r.campaignName}]`,
-          status: "success",
+          ...createdAdSetRow(s, false),
           label: `Ad set created · ${s.ageMode === "suggested" ? "Advantage+" : "strict"} age`,
           metaId: s.metaAdSetId,
           durationMs: s.durationMs,

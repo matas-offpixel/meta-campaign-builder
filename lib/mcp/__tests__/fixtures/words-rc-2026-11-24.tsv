@@ -257,3 +257,4 @@ templates.apply.held	Template tab, after Add, lists another account holds	{h} ar
 templates.apply.held.one	Template tab, after Add (1 list held)	1 is held in {Meta account name}, so it’s left out.
 templates.apply.videos	Template tab, after Add, video-viewer items with no videos picked	{k} need this show’s videos picked, so they’re left out.
 templates.apply.videos.one	Template tab, after Add (1 video-viewer item)	1 needs this show’s videos picked, so it’s left out.
+launch.adset.age_widened	Launch panel, the ad set’s row (warning), under “Ad set created · Advantage+ age”: step 2 of the Advantage+ age order went out (#1387; ruled 25 Nov, no record)	Meta wouldn’t take ages {min}–{max} as a suggestion, so this ad set reaches everyone aged {control}–65+.

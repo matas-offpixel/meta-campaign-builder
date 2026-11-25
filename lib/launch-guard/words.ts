@@ -20,6 +20,9 @@ export const LAUNCH_GUARD_WORDS = {
   "launch.button.blocked": "Launch · {n} to fix",
   // Any check
   "launch.evidence.more": "… and {n} more",
+  // Launch panel, the ad set's row (warning), under "Ad set created · Advantage+ age":
+  // step 2 of the Advantage+ age order went out (#1387; ruled 25 Nov, no record)
+  "launch.adset.age_widened": "Meta wouldn’t take ages {min}–{max} as a suggestion, so this ad set reaches everyone aged {control}–65+.",
   // Check, blocker
   "pixel_not_venue.key": "Pixel",
   // Check, blocker
