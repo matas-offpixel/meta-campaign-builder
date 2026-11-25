@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { MONTAGE_VARIANTS, RATIOS, buildRenderFileName, nameBreakParts, parseRenderFileName, rowMeta } from "../file-name.ts";
+import { MONTAGE_VARIANTS, RATIOS, buildRenderFileName, nameBreakParts, parseRenderFileName, rowMeta, rowMetaParts } from "../file-name.ts";
 import { badgeLine, fileRights, montageOwner, ownerLabel } from "../rights.ts";
 import { fileNameFor } from "../store.ts";
 import { PUZZLE } from "./fixtures.ts";
@@ -38,6 +38,8 @@ test("the file name for every version × ratio × owner, as the 25 Nov conventio
 test("RT2's row line and line breaks come from the name", () => {
   assert.equal(rowMeta("P26-BDAY__promoter-puzzle__montage__teaser__tickets__r1__9x16.mp4"), "Montage (15 s) · Teaser · tickets · 9:16 · round 1");
   assert.equal(rowMeta("P26-BDAY__promoter-puzzle__montage__no-text__no-cta__r2__4x5.mp4"), "Montage (15 s) · No text · No CTA · 4:5 · round 2");
+  // "round {n}" is set as one piece, so it never breaks across lines.
+  assert.deepEqual(rowMetaParts("P26-BDAY__promoter-puzzle__montage__announcement__tickets__r1__9x16.mp4"), { lead: "Montage (15 s) · Announcement · tickets · 9:16", round: "round 1" });
   assert.deepEqual(nameBreakParts("P26-BDAY__offpixel__montage__no-text__no-cta__r1__1x1.mp4"), ["P26-BDAY__", "offpixel__", "montage__", "no-text__", "no-cta__", "r1__", "1x1.mp4"]);
 });
 

@@ -10,7 +10,7 @@
  * Pure. Relative imports only (node:test).
  */
 
-import { nameBreakParts, rowMeta } from "./file-name.ts";
+import { nameBreakParts, rowMeta, rowMetaParts } from "./file-name.ts";
 import { badgeLine } from "./rights.ts";
 import { checksWord, filesWord, m4, recipeWord, recipesWord, today, type CheckKey, type Recipe } from "./words.ts";
 import { londonDateTime } from "./package-view.ts";
@@ -49,6 +49,7 @@ export function renderRowView(row: RenderFileRow, clientName: string) {
     id: row.id,
     nameParts: nameBreakParts(row.fileName),
     meta: rowMeta(row.fileName),
+    metaParts: rowMetaParts(row.fileName),
     badge: badge.badge,
     why: badge.why,
     shareable: row.shareable,

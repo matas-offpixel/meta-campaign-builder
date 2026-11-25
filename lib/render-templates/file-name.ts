@@ -122,6 +122,18 @@ export function rowMeta(fileName: string): string | null {
     .replace("{round}", String(parsed.round));
 }
 
+/**
+ * RT2's line split for setting: everything before the last " · ", and
+ * "round {n}", which never breaks across lines (design, #1385 at 393: the
+ * same rule as "33 files"). Null when the name isn't a 25 Nov name.
+ */
+export function rowMetaParts(fileName: string): { lead: string; round: string } | null {
+  const meta = rowMeta(fileName);
+  if (!meta) return null;
+  const at = meta.lastIndexOf(" · ");
+  return { lead: meta.slice(0, at), round: meta.slice(at + 3) };
+}
+
 /** RT2: the name breaks only after a "__", never inside a field. */
 export function nameBreakParts(fileName: string): string[] {
   const parts = fileName.split("__");

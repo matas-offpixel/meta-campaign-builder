@@ -143,7 +143,13 @@ export function RenderRowsList({ rows, onRetry, onRerender, onCopy, busyId }: { 
                 </span>
               ))}
             </p>
-            {row.meta ? <p className="text-xs text-muted-foreground">{row.meta}</p> : null}
+            {row.metaParts ? (
+              <p className="text-xs text-muted-foreground">
+                {row.metaParts.lead} · <span className="whitespace-nowrap">{row.metaParts.round}</span>
+              </p>
+            ) : row.meta ? (
+              <p className="text-xs text-muted-foreground">{row.meta}</p>
+            ) : null}
             <p className="text-xs">
               <RightsBadge badge={row.badge} shareable={row.shareable} />
               {row.why ? <span className="text-muted-foreground"> · {row.why}</span> : null}
