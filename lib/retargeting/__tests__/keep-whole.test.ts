@@ -41,8 +41,15 @@ describe("keep-whole: each pattern stays on one line", () => {
     assert.deepEqual(whole("Frequency 6.4 on 3,900–4,600 · £12.00 → £7.50 a day, back to frequency 4 · £4.50 a day back to the plan"), ["3,900–4,600", "£7.50 a day", "£4.50 a day"]);
   });
 
-  it("a date's non-breaking spaces (keepDates) and a number glued to a word are left alone", () => {
-    assert.deepEqual(whole("Mon 16 Nov · day 4 · RT14 · 2026-11-25"), []);
+  it("a date stays whole, with keepDates' non-breaking spaces or without (design, 25 Nov, RG)", () => {
+    assert.deepEqual(whole("14 days, Wed 18 Nov – Tue 1 Dec"), ["14 days", "Wed 18 Nov", "Tue 1 Dec"]);
+    assert.deepEqual(whole("14 days, Wed\u00a018\u00a0Nov – Tue\u00a01\u00a0Dec"), ["14 days", "Wed\u00a018\u00a0Nov", "Tue\u00a01\u00a0Dec"]);
+    assert.deepEqual(whole("Mon 2 – Sun 15 Nov"), ["Mon 2", "Sun 15 Nov"]);
+    assert.deepEqual(whole("Buyers list uploaded 14 Nov · 3 days old"), ["14 Nov", "3 days"]);
+  });
+
+  it("a number glued to a word, an ISO date and a bare count are left alone", () => {
+    assert.deepEqual(whole("day 4 · RT14 · 2026-11-25 · Mon"), []);
     assert.deepEqual(whole("30 days"), ["30 days"]);
     assert.deepEqual(whole("30 days"), ["30 days"]);
   });

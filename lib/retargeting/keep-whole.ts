@@ -11,6 +11,7 @@ import { createElement, Fragment, type ReactNode } from "react";
  *   "£{x} a day"
  *   "below {n}"
  *   a pool range, "3,900–4,600"
+ *   a date, "Wed 18 Nov", "18 Nov" and a range's first end "Tue 17" (design, 25 Nov, RG)
  *
  * The words are never changed: the match is wrapped in a nowrap span and the
  * rest is left as written. The same file, name and exports are on #1314 and
@@ -21,6 +22,8 @@ const SP = "[ \\u00a0]";
 const NUM = "\\d[\\d,]*(?:\\.\\d+)?";
 /** Not inside another number, word or amount. */
 const START = "(?<![\\w.,£\\-–])";
+const WEEKDAY = "(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)";
+const MONTH = "(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)";
 
 const KEEP_WHOLE = new RegExp(
   [
@@ -31,6 +34,8 @@ const KEEP_WHOLE = new RegExp(
     `${START}${NUM}${SP}days?\\b`,
     `\\b[Bb]elow${SP}${NUM}`,
     `${START}${NUM}–${NUM}(?![\\d,])`,
+    `\\b(?:${WEEKDAY}${SP})?\\d{1,2}${SP}${MONTH}\\b`,
+    `\\b${WEEKDAY}${SP}\\d{1,2}\\b`,
   ].join("|"),
   "g",
 );
