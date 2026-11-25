@@ -30,6 +30,7 @@ import { checkSpendCeiling, draftMoneyADay } from "../meta/ceiling.ts";
 import { ToolInputError, type LaunchChecksOutcome, type McpMetaDeps, type McpTool, type ToolContext } from "../tool-types.ts";
 import { failVideos, sentVideoIds, type StoredSendOutcome } from "../../plan/stored-assets-meta.ts";
 import { LAUNCH_WORDS, MCP_WORDS, RESULT_WORDS, THINGS, UPLOAD_WORDS } from "../meta/words.ts";
+import { TODAY_UNDO_SHIPPED } from "../meta/today-undo.ts";
 
 /** The draft a meta tool acts on: the caller's own, status draft. No updated_at: the tool reads it fresh. */
 async function loadOwnDraft(ctx: ToolContext, idArg: unknown): Promise<WritableDraft> {
@@ -311,12 +312,14 @@ export const launchDraftTool: McpTool = {
         { campaign: { id: campaignId }, adSets: ids.adSets, ads: ids.ads, creatives: ids.creatives, adsManager: link },
       );
     }
-    // MW2: Done; paused or live; the Ads Manager link; the undo note only for a paused launch (FC1: no Undo on a live one).
+    // MW2: Done; paused or live; the Ads Manager link; the undo note only for a paused launch (FC1: no Undo on a live one),
+    // and only once Today's Undo exists (FC2: "wherever an Undo exists"; M3b ships it).
+    const undoExists = ctx.todayUndo ?? TODAY_UNDO_SHIPPED;
     const message = [
       MCP_WORDS.done(RESULT_WORDS.launched(THINGS.campaign, [campaignId])),
       mode === "paused" ? LAUNCH_WORDS.paused : LAUNCH_WORDS.live(money.gbp),
       LAUNCH_WORDS.link(link),
-      ...(mode === "paused" ? [MCP_WORDS.undoNote] : []),
+      ...(mode === "paused" && undoExists ? [MCP_WORDS.undoNote] : []),
     ].join("\n");
     return {
       data: {

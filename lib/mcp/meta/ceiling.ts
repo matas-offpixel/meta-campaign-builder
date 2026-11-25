@@ -16,6 +16,9 @@
  *   - campaign budget (CBO), daily: budgetAmount;
  *   - campaign budget, lifetime: budgetAmount ÷ scheduled days;
  *   - ad set budgets, daily: the enabled ad sets' budgetPerDay summed;
+ *     "enabled" is the launch route's own filter (enabled, and its audience
+ *     not removed): a disabled row, or one whose audience is gone, is never
+ *     sent, so it never counts;
  *   - ad set budgets, lifetime: their budgetLifetime summed ÷ scheduled days.
  * Scheduled days use the wizard's own count (budget-pacing/plan.ts:
  * ceil((end − start) / day)); with no usable schedule a lifetime budget
@@ -26,6 +29,7 @@
 import type { CampaignDraft } from "../../types.ts";
 import { ToolInputError, type Db } from "../tool-types.ts";
 import { MCP_WORDS } from "./words.ts";
+import { adSetAudienceRemoved } from "../../wizard/import-edits.ts";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -50,13 +54,15 @@ export function scheduledDays(startDate: string | undefined, endDate: string | u
 }
 
 /** The draft's money a day, as a launch of it would spend. */
-export function draftMoneyADay(draft: Pick<CampaignDraft, "budgetSchedule" | "adSetSuggestions">): MoneyADay {
+export function draftMoneyADay(draft: Pick<CampaignDraft, "budgetSchedule" | "adSetSuggestions"> & { audiences?: CampaignDraft["audiences"] }): MoneyADay {
   const b = draft.budgetSchedule;
   const level = b?.budgetLevel ?? "ad_set";
   const type = b?.budgetType ?? "daily";
   const days = scheduledDays(b?.startDate, b?.endDate);
   const currency = (b?.currency || "GBP").toUpperCase();
-  const enabled = (draft.adSetSuggestions ?? []).filter((s) => s.enabled !== false);
+  // The ad sets the launch sends (app/api/meta/launch-campaign/route.ts `launchable`).
+  const audiences = draft.audiences;
+  const enabled = (draft.adSetSuggestions ?? []).filter((s) => s.enabled && !(audiences && adSetAudienceRemoved(s, audiences)));
   if (level === "campaign") {
     const amount = num(b?.budgetAmount);
     if (type === "lifetime") return { gbp: round2(amount / (days ?? 1)), basis: "campaign_lifetime", days, currency };

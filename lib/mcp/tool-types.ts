@@ -148,6 +148,8 @@ export interface ToolContext {
   render?: McpRenderDeps;
   /** The caller is in MATAS_USER_IDS (mcp:meta tools check it again). */
   isMatas?: boolean;
+  /** Today's Undo exists; omitted means TODAY_UNDO_SHIPPED (meta/today-undo.ts). Injected so tests cover both. */
+  todayUndo?: boolean;
   /** MATAS_USER_IDS sees client names on cross-client learnings; other operators don't. */
   seesClientNames: boolean;
   /** Today's London date (YYYY-MM-DD); injected so tests are stable. */
