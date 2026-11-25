@@ -70,8 +70,8 @@ async function refused(p: Promise<unknown>, re: RegExp): Promise<ToolInputError>
 
 const draftWrites = (db: { writes: Array<{ table: string; op: string }> }) => db.writes.filter((w) => w.table === "campaign_drafts");
 
-test("twenty-six tools: nine read, seventeen draft (M2 + M2b); draft tools say what they change, one example each", async () => {
-  assert.equal(MCP_TOOLS.length, 26);
+test("thirty tools: nine read, eighteen draft (M2 + M2b + set_draft_name), three meta (M3a); each says what it changes, one example each", async () => {
+  assert.equal(MCP_TOOLS.length, 30);
   assert.deepEqual(DRAFT_TOOLS.map((t) => t.name).sort(), [
     "apply_audience_template",
     "archive_draft",
@@ -88,6 +88,7 @@ test("twenty-six tools: nine read, seventeen draft (M2 + M2b); draft tools say w
     "set_draft_identity",
     "set_draft_link",
     "set_draft_locations",
+    "set_draft_name",
     "set_draft_objective",
     "set_draft_schedule",
   ]);
@@ -380,9 +381,9 @@ test("attach_drive_creatives: copies a 9:16 file into Storage and adds one ad, t
   await refused(run(attachDriveCreativesTool, ctx, { draft_id: D_DRAFT, updated_at: out.data.updated_at, file_ids: ["file-static-916"] }), /already in this draft/);
 });
 
-test("attach_drive_creatives: a 4:5 file is refused in the picker's words; artist-voice copy is refused", async () => {
+test("attach_drive_creatives: a 4:5 file on its own is refused with its aspect; artist-voice copy is refused", async () => {
   const { ctx, db, spies } = draftCtx();
-  await refused(run(attachDriveCreativesTool, ctx, { draft_id: D_DRAFT, updated_at: UPDATED, file_ids: ["file-static-45"] }), /Not 9:16/);
+  await refused(run(attachDriveCreativesTool, ctx, { draft_id: D_DRAFT, updated_at: UPDATED, file_ids: ["file-static-45"] }), /poster-feed\.jpg is 4:5\. A file on its own must be 9:16/);
   await refused(
     run(attachDriveCreativesTool, ctx, { draft_id: D_DRAFT, updated_at: UPDATED, file_ids: ["file-clip-916"], primary_text: "Newcastle,  I can't wait to play for you again" }),
     /artist-voice caption/,

@@ -1,5 +1,6 @@
 import type { AdCreativeDraft, AssetMode, AssetRatio } from "../types.ts";
 import { getAspectRatioSlots } from "../meta/upload.ts";
+import { sendsAtLaunch } from "../creatives/stored-at-launch.ts";
 
 export interface AssetCompletenessIssue {
   creativeId: string;
@@ -19,6 +20,14 @@ export interface AssetCompletenessIssue {
  */
 export function validateCreativeAssetCompleteness(
   creative: AdCreativeDraft,
+  opts: {
+    /**
+     * Count a slot whose file is in Storage and goes to Meta at Launch (M3a,
+     * lib/creatives/stored-at-launch.ts) as filled. Review and the launch
+     * checks pass it; the send step stamps the ids before the launch.
+     */
+    sendsAtLaunch?: boolean;
+  } = {},
 ): AssetCompletenessIssue[] {
   if (creative.assetMode === "single") return [];
 
@@ -32,9 +41,12 @@ export function validateCreativeAssetCompleteness(
   for (const variation of creative.assetVariations ?? []) {
     const uploadedRatios = new Set(
       variation.assets
-        .filter((a) => Boolean(a.videoId) || Boolean(a.assetHash))
+        .filter((a) => Boolean(a.videoId) || Boolean(a.assetHash) || (opts.sendsAtLaunch === true && sendsAtLaunch(a)))
         .map((a) => a.aspectRatio),
     );
+    // Dual: the Feed slot is 4:5, or 1:1 (the multi-placement path takes either as Feed;
+    // a connector pair can carry a 1:1 Feed file).
+    if (creative.assetMode === "dual" && uploadedRatios.has("1:1")) uploadedRatios.add("4:5");
 
     const missingRatios = requiredRatios.filter((r) => !uploadedRatios.has(r));
 
@@ -58,7 +70,7 @@ export function validateCreativeAssetCompleteness(
 export function validateAllCreativesAssetCompleteness(
   creatives: AdCreativeDraft[],
 ): AssetCompletenessIssue[] {
-  return creatives.flatMap(validateCreativeAssetCompleteness);
+  return creatives.flatMap((c) => validateCreativeAssetCompleteness(c));
 }
 
 /**

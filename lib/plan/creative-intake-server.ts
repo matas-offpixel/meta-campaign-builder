@@ -10,7 +10,6 @@ import {
   resolveChannelDefaults,
 } from "../clients/channel-defaults.ts";
 import {
-  findChannelId,
   fingerprintBytes,
   loadAssetsByIds,
   upgradeRegisteredAspect,
@@ -19,12 +18,8 @@ import {
 } from "../creatives/asset-registry.ts";
 import { handleUploadAsset } from "../meta/upload-asset-handler.ts";
 import { createServiceRoleClient } from "../supabase/server.ts";
-import {
-  deliverIntakeAssetsToMeta,
-  META_UPLOAD_BUCKET,
-  stampUploadedAssets,
-  type MetaUploadStorage,
-} from "./creative-intake-meta.ts";
+import { META_UPLOAD_BUCKET, type MetaUploadStorage } from "./creative-intake-meta.ts";
+import { sendStoredDraftAssets, uploadMmlDraftAssets, type StoredSendOutcome } from "./stored-assets-meta.ts";
 import { upsertPlanAssetRoute, loadPlanAssetRoutes } from "./asset-routing-db.ts";
 import { runPlanTikTokAssetFanout } from "./asset-routing-server.ts";
 import { tikTokLaunchIsLive } from "./asset-routing-execute.ts";
@@ -476,6 +471,8 @@ export async function syncPlanCreativeIntake(
     creativeIds: new Set(applied.fingerprints.map((row) => row.creativeId)),
     userId: plan.userId,
     byRegistry,
+    storage: lazyServiceStorage(),
+    upload: (request) => handleUploadAsset(request),
     onUpload: hooks?.onUpload,
   });
   if (applied.changed || uploaded.changed) {
@@ -564,58 +561,10 @@ function intakeSendReports(
   return reports;
 }
 
-/**
- * Uploads pending MML assets through `/api/meta/upload-asset`'s storage-path
- * body. A `creative_asset_channel_ids` hit for this ad account makes no call.
- * The route is given a service-role copy, never the registry object's path,
- * because a failed upload deletes the path it was handed. The session client
- * cannot read this bucket, so its copy returns "Object not found".
- */
-async function uploadMmlDraftAssets(input: {
-  supabase: unknown;
-  draft: CampaignDraft;
-  creativeIds: Set<string>;
-  userId: string;
-  byRegistry: Map<string, CreativeAssetRow>;
-  onUpload?: (event: { index: number; total: number; filename: string }) => void;
-}): Promise<{ draft: CampaignDraft; changed: boolean }> {
-  const adAccountId = input.draft.settings.adAccountId || input.draft.settings.metaAdAccountId || "";
-  if (!adAccountId) {
-    const slots = pendingSlots(input.draft, input.creativeIds).map((slot) =>
-      slot.uploadStatus === "uploaded"
-        ? slot
-        : { ...slot, uploadStatus: "pending" as const, error: "No Meta ad account on this draft" },
-    );
-    return {
-      draft: stampUploadedAssets(input.draft, slots, input.creativeIds),
-      changed: slots.some((slot) => slot.error === "No Meta ad account on this draft"),
-    };
-  }
-
-  const channelId = new Map<string, string | null>();
-  const readError = new Map<string, string>();
-  const registryIds = new Set<string>();
-  for (const creative of input.draft.creatives) {
-    if (!input.creativeIds.has(creative.id)) continue;
-    for (const variation of creative.assetVariations) {
-      for (const asset of variation.assets) {
-        if (asset.registryAssetId) registryIds.add(asset.registryAssetId);
-      }
-    }
-  }
-  for (const assetId of registryIds) {
-    const found = await findChannelId(input.supabase, {
-      assetId,
-      userId: input.userId,
-      channel: "meta",
-      scope: adAccountId,
-    });
-    if (!found.ok) readError.set(assetId, found.error);
-    else channelId.set(assetId, found.platformId);
-  }
-
+/** The service-role bucket, made on first use (copy and remove only). */
+function lazyServiceStorage(): MetaUploadStorage {
   let storage: MetaUploadStorage | null = null;
-  const serviceStorage: MetaUploadStorage = {
+  return {
     copy: (from, to) => {
       storage ??= serviceRoleStorage();
       return storage.copy(from, to);
@@ -625,47 +574,30 @@ async function uploadMmlDraftAssets(input: {
       return storage.remove(paths);
     },
   };
-  return deliverIntakeAssetsToMeta({
-    draft: input.draft,
-    creativeIds: input.creativeIds,
-    assetsById: input.byRegistry,
-    adAccountId,
-    channelPlatformId: (assetId) => channelId.get(assetId) ?? null,
-    channelReadError: (assetId) => readError.get(assetId) ?? null,
-    storage: serviceStorage,
-    upload: (request) => handleUploadAsset(request),
-    onUpload: input.onUpload,
-  });
 }
 
-function pendingSlots(draft: CampaignDraft, creativeIds: Set<string>) {
-  const slots: Array<{
-    assetId: string;
-    registryAssetId: string;
-    mediaKind: "image" | "video";
-    uploadStatus: "pending" | "uploading" | "uploaded" | "error";
-    assetHash?: string;
-    videoId?: string;
-    error?: string;
-  }> = [];
-  for (const creative of draft.creatives) {
-    if (!creativeIds.has(creative.id)) continue;
-    for (const variation of creative.assetVariations) {
-      for (const asset of variation.assets) {
-        if (!asset.registryAssetId || !asset.storagePath) continue;
-        slots.push({
-          assetId: asset.id,
-          registryAssetId: asset.registryAssetId,
-          mediaKind: creative.mediaType === "video" ? "video" : "image",
-          uploadStatus: asset.uploadStatus,
-          assetHash: asset.assetHash,
-          videoId: asset.videoId,
-          error: asset.error,
-        });
-      }
-    }
-  }
-  return slots;
+/**
+ * Standalone Launch's first step (POST /api/meta/draft-assets) and the
+ * connector's (lib/mcp/meta-deps.ts): every slot whose file is in Storage
+ * goes to Meta through the MML path, on a service-role copy. `upload`
+ * defaults to the session's handleUploadAsset; the connector passes the
+ * handler bound to its operator.
+ */
+export async function sendStoredDraftAssetsToMeta(input: {
+  supabase: unknown;
+  draft: CampaignDraft;
+  userId: string;
+  upload?: (request: Request) => Promise<Response>;
+  onUpload?: (event: { index: number; total: number; filename: string }) => void;
+}): Promise<StoredSendOutcome> {
+  return sendStoredDraftAssets({
+    supabase: input.supabase,
+    draft: input.draft,
+    userId: input.userId,
+    storage: lazyServiceStorage(),
+    upload: input.upload ?? ((request) => handleUploadAsset(request)),
+    onUpload: input.onUpload,
+  });
 }
 
 function serviceRoleStorage(): MetaUploadStorage {

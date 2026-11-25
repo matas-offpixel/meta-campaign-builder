@@ -17,7 +17,7 @@
  * control characters are dropped, it is capped at CLIENT_NAME_MAX characters
  * inside the curly quotes (59 and "…" when longer), and React escapes it.
  */
-import { CLAUDE_CALLBACK, SCOPE_DRAFT, SCOPE_READ } from "../config.ts";
+import { CLAUDE_CALLBACK, SCOPE_DRAFT, SCOPE_META, SCOPE_READ } from "../config.ts";
 
 export const CLIENT_NAME_MAX = 60;
 
@@ -28,6 +28,15 @@ export const CONSENT_WORDS = {
   /** consent.line2.drafts */
   drafts:
     "It can read every client's events, spend, signup and ticket counts, drafts and learnings. It can also make, change and archive campaign drafts that aren't published, including adding creatives from Google Drive. It can't publish, launch or send anything.",
+  /**
+   * consent.line2.meta (M3a). PENDING DESIGN: the TD record
+   * (2026-11-25-mcp-today-actions) leaves the consent page's Meta line to
+   * M3's own record, and its re-ruling after Matas's 25 Nov chat-yes ruling
+   * isn't merged. This line is the builder's candidate, listed for design in
+   * the M3a PR; it is not merged words.
+   */
+  meta:
+    "It can read every client's events, spend, signup and ticket counts, drafts and learnings, and make, change and archive campaign drafts. It can also send a draft's files to Meta and launch it, paused or live, and change an event's dates and links, each time after you say yes in Claude. A live launch can't go over the client's daily ceiling.",
   /** consent.title.upgrade */
   titleUpgrade: "Let Claude change drafts in Off/Pixel",
   /** consent.title.upgrade.loopback */
@@ -74,6 +83,11 @@ export function asksForDrafts(scope: string | null | undefined): boolean {
   return (scope ?? "").split(/\s+/).includes(SCOPE_DRAFT);
 }
 
+/** Whether the scope the user will get includes mcp:meta (line 2's Meta wording). */
+export function asksForMeta(scope: string | null | undefined): boolean {
+  return (scope ?? "").split(/\s+/).includes(SCOPE_META);
+}
+
 /**
  * The upgrade wording (ops' ruling 24 Nov): the request asks for mcp:draft
  * and the signed-in operator already holds a live grant FROM THE SAME CLIENT
@@ -87,7 +101,8 @@ export function isUpgradeConsent(
   clientId: string,
   requestedScope: string | null | undefined,
 ): boolean {
-  if (!asksForDrafts(requestedScope)) return false;
+  // Adding Meta to a drafts grant has no upgrade words yet (design, M3a): the plain title.
+  if (!asksForDrafts(requestedScope) || asksForMeta(requestedScope)) return false;
   return liveGrants.some((g) => {
     const parts = g.scope.split(/\s+/);
     return !g.revoked_at && g.client_id === clientId && parts.includes(SCOPE_READ) && !parts.includes(SCOPE_DRAFT);
@@ -126,7 +141,12 @@ export function consentContent(input: {
   return {
     kind,
     title,
-    lines: [first, drafts ? CONSENT_WORDS.drafts : CONSENT_WORDS.readOnly, CONSENT_WORDS.stays, `After you allow it, you go back to ${input.returnHost}.`],
+    lines: [
+      first,
+      asksForMeta(input.scope) ? CONSENT_WORDS.meta : drafts ? CONSENT_WORDS.drafts : CONSENT_WORDS.readOnly,
+      CONSENT_WORDS.stays,
+      `After you allow it, you go back to ${input.returnHost}.`,
+    ],
     ...(upgrade ? { cancelNote: CONSENT_WORDS.upgradeCancelNote } : {}),
   };
 }

@@ -572,3 +572,43 @@ export const archiveDraftTool: McpTool = {
     };
   },
 };
+
+// ─── set_draft_name (M3a) ───────────────────────────────────────────────────
+
+/** Meta's campaign name limit. */
+export const MAX_CAMPAIGN_NAME_LENGTH = 400;
+
+/**
+ * The draft's name: the Campaign step's Campaign Name field
+ * (settings.campaignName), which the library lists and the launch sends as
+ * the Meta campaign's name. The library has no rename of its own; this is
+ * the field Matas edits in the app. The code-in-name launch check runs after.
+ */
+export const setDraftNameTool: McpTool = {
+  name: "set_draft_name",
+  title: "Rename a draft",
+  kind: "draft",
+  readOnly: false,
+  idempotent: true,
+  description: [
+    "Renames a draft: the Campaign step's Campaign Name, which the library shows and Meta gets as the campaign's name at launch. Keep the event code in square brackets at the front (\"[ES27-ENZOSIRAGUSA] ANNOUNCE\"): the launch checks flag a name without it.",
+    'Example: set_draft_name({ draft_id: "3f2c…-uuid", updated_at: "2026-11-24T10:00:00.123+00:00", name: "[ES27-ENZOSIRAGUSA] ANNOUNCE A" }).',
+  ].join(" "),
+  inputSchema: {
+    ...draftArgs,
+    name: z.string().min(1).max(MAX_CAMPAIGN_NAME_LENGTH).describe("The new name."),
+  },
+  async run(ctx, args) {
+    requireDraftScope(ctx);
+    const name = typeof args.name === "string" ? args.name.replace(/\s+/g, " ").trim() : "";
+    if (!name) throw new ToolInputError("Give a name.", { refused: "no_name" });
+    if (name.length > MAX_CAMPAIGN_NAME_LENGTH) throw new ToolInputError(`A name is at most ${MAX_CAMPAIGN_NAME_LENGTH} characters.`, { refused: "name_too_long" });
+    const loaded = await loadWritableDraft(ctx, args.draft_id, args.updated_at);
+    const before = loaded.draft.settings.campaignName ?? "";
+    const next: CampaignDraft = { ...loaded.draft, settings: { ...loaded.draft.settings, campaignName: name } };
+    return finish(ctx, loaded, next, () => ({
+      data: { name, ...(before === name ? { note: "The name was already this." } : {}) },
+      summary: { fieldsChanged: before === name ? [] : ["campaignName"], changes: changes([["campaignName", before, name]]) },
+    }));
+  },
+};
