@@ -17,7 +17,7 @@ import { APPROVAL_WORDS } from "../meta/approval.ts";
 import { CEILING_WORDS } from "../meta/ceiling.ts";
 
 const FIXTURE = new URL("./fixtures/words-mcp-today-2026-11-25.tsv", import.meta.url);
-const SHA256 = "4a460af625e2aec158612edee9e4f0401d05dfe6a2e9fde775e60df878282850";
+const SHA256 = "aab1926244c071e8842570e35d053b2351737b2e848fa80dedf1e302bbf7f101";
 
 const raw = readFileSync(FIXTURE);
 const rows = new Map(
@@ -39,9 +39,9 @@ function row(key: string, vars: Record<string, string | number> = {}): string {
   return words!.replace(/\{([a-z_, ]+)\}/g, (m, name: string) => (name in vars ? String(vars[name]) : m));
 }
 
-test("the fixture is design's list: header + 214 rows, sha256 4a460af6…", () => {
+test("the fixture is design's list: header + 217 rows, sha256 aab19262…", () => {
   assert.equal(createHash("sha256").update(raw).digest("hex"), SHA256);
-  assert.equal(rows.size, 214);
+  assert.equal(rows.size, 217);
 });
 
 test("the last six (MW2's rules): the draft refusals, the changed draft, the thrown upload, the event code", () => {
@@ -189,4 +189,8 @@ test("MW2: set_draft_name and the attach refusals", () => {
   assert.equal(ATTACH_WORDS.failed, row("claude.mcp.attach.failed"));
   assert.equal(ATTACH_WORDS.waiting, row("claude.mcp.attach.waiting"));
   assert.equal(ATTACH_WORDS.pairsOff, row("claude.mcp.attach.pairs_off"));
+  // The attach refusals (MW2's rules, 25 Nov): another client's folders, named or not, and an owner that can't be told.
+  assert.equal(ATTACH_WORDS.otherClient("a.mp4", "Electric"), row("claude.mcp.attach.other_client", { name: "a.mp4", client: "Electric" }));
+  assert.equal(ATTACH_WORDS.otherClientUnnamed("a.mp4"), row("claude.mcp.attach.other_client.unnamed", { name: "a.mp4" }));
+  assert.equal(ATTACH_WORDS.ownerUnknown("a.mp4"), row("claude.mcp.attach.owner_unknown", { name: "a.mp4" }));
 });

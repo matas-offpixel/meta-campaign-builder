@@ -14,9 +14,10 @@ import { readFileSync } from "node:fs";
 import { errorAnswer } from "../server.ts";
 import { launchDraftTool, uploadDraftAssetsTool } from "../tools/meta-launch.ts";
 import { updateEventTool } from "../tools/meta-event.ts";
+import { attachDriveCreativesTool } from "../tools/draft-drive.ts";
 import type { McpTool, ToolContext } from "../tool-types.ts";
-import { D_DRAFT, D_STAFF } from "./draft-fixtures.ts";
-import { LAUNCHED, YES, metaCtx } from "./meta-fixtures.ts";
+import { CLIENT_EL, D_DRAFT, D_STAFF, UPDATED } from "./draft-fixtures.ts";
+import { LAUNCHED, YES, driveCtx, metaCtx } from "./meta-fixtures.ts";
 
 const FIXTURE = new URL("./fixtures/words-mcp-today-2026-11-25.tsv", import.meta.url);
 const ROWS = readFileSync(FIXTURE, "utf8")
@@ -269,5 +270,37 @@ test("refusals and successes are rows too: no approval, no ceiling, over it, che
     const { ctx } = await metaCtx();
     assertClean(await answer(updateEventTool, ctx, { event_code: "NX27-GLITTERBOX", changes: { announcement_at: "2026-11-27T18:00:00Z" }, approval: YES }), "event done");
     assertClean(await answer(updateEventTool, ctx, { event_code: "NOPE-1", changes: { announcement_at: "2026-11-27T18:00:00Z" }, approval: YES }), "event unknown");
+  }
+});
+
+test("attach_drive_creatives' owner refusals are rows: another client's folders (named, unnamed) and an owner that can't be told", async () => {
+  const attach = (ctx: ToolContext, file: string) => answer(attachDriveCreativesTool, ctx, { draft_id: D_DRAFT, updated_at: UPDATED, file_ids: [file] });
+  {
+    const { ctx } = await driveCtx();
+    const a = await attach(ctx, "file-el-916");
+    assertClean(a, "other client");
+    assert.match(a.error ?? "", /^Refused: lock-lead_9x16\.mp4 is in Electric’s folders/);
+  }
+  {
+    const { ctx, db } = await driveCtx();
+    await db.from("clients").update({ name: null }).eq("id", CLIENT_EL);
+    const a = await attach(ctx, "file-el-916");
+    assertClean(a, "other client, unnamed");
+    assert.match(a.error ?? "", /^Refused: lock-lead_9x16\.mp4 is in another client’s folders/);
+  }
+  {
+    // The clients read fails: no database text reaches Claude, and the unnamed row answers.
+    const { ctx } = await driveCtx();
+    failing(ctx, "clients", DB_MESSAGE);
+    // A page given, so the client's default page isn't read first.
+    const a = await answer(attachDriveCreativesTool, ctx, { draft_id: D_DRAFT, updated_at: UPDATED, file_ids: ["file-el-916"], page_id: "111111111111111" });
+    assertClean(a, "other client, clients read failed");
+    assert.match(a.error ?? "", /^Refused: lock-lead_9x16\.mp4 is in another client’s folders/);
+  }
+  {
+    const { ctx } = await driveCtx();
+    const a = await attach(ctx, "file-loose-916");
+    assertClean(a, "owner unknown");
+    assert.match(a.error ?? "", /^Refused: loose_9x16\.mp4 isn’t under an event/);
   }
 });
