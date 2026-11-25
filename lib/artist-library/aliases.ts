@@ -9,7 +9,9 @@
  *                      full name: folded for case, accents and punctuation,
  *                      whole words only ("AT - Static" is Adam Ten; "Static"
  *                      and "Late Entry" aren't). They count for the ad name,
- *                      the ad set name and the headliner rule.
+ *                      the ad set name and the headliner rule, except an
+ *                      alias marked notForShows (also an ordinary word),
+ *                      which never counts in a show's code or name.
  *   PROPOSED_ALIASES   names waiting for a confirmation. The matcher never
  *                      reads this list; a line moves to ALIASES when it is
  *                      confirmed.
@@ -36,6 +38,12 @@ export interface AliasEntry {
   confirmedOn: string;
   /** What the confirmation was. */
   note: string;
+  /**
+   * Set when the alias is also an ordinary word that shows are named with:
+   * it still matches ad and ad set names, but never makes a show's
+   * headliner from its code or name.
+   */
+  notForShows?: string;
 }
 
 export interface NameMark {
@@ -68,7 +76,10 @@ export const ALIASES: readonly AliasEntry[] = [
   confirmed("0df6c19d-7274-4145-b7fc-713989ae4a05", "MG", "Mall Grab: confirmed by Matas, 25 Nov."),
   confirmed("29af4515-c858-4a4c-b55b-8ebaede5c15a", "CDW", "Charlotte de Witte: confirmed by Matas, 25 Nov."),
   confirmed("d9278c69-fb15-4ddd-af0e-c8464da022ac", "JJ", "Jamie Jones: confirmed by Matas, 25 Nov."),
-  confirmed("a4a55d2f-c29f-4575-afa5-e3c8859947df", "AT", "Adam Ten: confirmed by Matas, 25 Nov."),
+  {
+    ...confirmed("a4a55d2f-c29f-4575-afa5-e3c8859947df", "AT", "Adam Ten: confirmed by Matas, 25 Nov."),
+    notForShows: "\"at\" is a word in show names: \"Puzzle at Circuit\" (P26-CIRCUIT) would headline Adam Ten",
+  },
   confirmed("66dab67b-91c0-48b4-960a-d28b3e2c8a9f", "EED", "East End Dubs: confirmed by Matas, 25 Nov."),
   confirmed("34f21fc5-2cf9-421b-ae74-908c6853346d", "PB69", "Partiboi69: confirmed by Matas, 25 Nov."),
 ];

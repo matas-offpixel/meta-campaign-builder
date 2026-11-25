@@ -332,6 +332,19 @@ describe("the name lists (aliases.ts)", () => {
     assert.deepEqual(artistsNamedIn("Seeds", roster), []);
   });
 
+  it("an alias that is also a word (AT) matches ads but never makes a show's headliner", () => {
+    const r = buildRoster([{ id: "adam", names: ["Adam Ten", "AT"], notForShows: ["AT"] }]);
+    assert.deepEqual(artistsOfAd({ ad_name: "AT - Motion 1", adset_name: null, campaign_name: "x" }, r).artistIds, ["adam"]);
+    assert.equal(headlinerOf({ event_code: "P26-CIRCUIT", name: "Puzzle at Circuit" }, r).artistId, null);
+    assert.equal(headlinerOf({ event_code: "IRW0002", name: "Adam Ten at Ironworks" }, r).artistId, "adam", "the full name still does");
+    assert.deepEqual(ALIASES.filter((a) => a.notForShows).map((a) => a.alias), ["AT"]);
+    const i = inputs();
+    const adam = { id: "lib-adam", name: "Adam Ten" };
+    const at = { ...i, artists: [...i.artists, adam], aliases: [...i.aliases, { ...ALIASES.find((a) => a.alias === "AT")!, artistId: adam.id }], events: i.events.map((e) => (e.id === "e-bday" ? { ...e, name: "Puzzle at Circuit" } : e)) };
+    assert.equal(adNamesIndex(at).headliners.get("e-bday")!.artistId, null);
+    assert.ok(!planArtistAssets(at, adam).rows.some((r) => r.asset_key === "ad:ad-general"));
+  });
+
   it("the six confirmed aliases and Enzo are Matas's, 25 Nov; HMD is in neither list", () => {
     assert.deepEqual(ALIASES.map((a) => a.alias), ["Enzo", "MG", "CDW", "JJ", "AT", "EED", "PB69"]);
     for (const a of ALIASES) assert.deepEqual([a.confirmedBy, a.confirmedOn], ["Matas", "2026-11-25"], a.alias);

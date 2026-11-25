@@ -64,11 +64,13 @@ export interface RosterEntry {
   adNameOnly?: boolean;
   /** An act with no artists row (aliases.ts OTHER_ACTS): it names an ad, and no one gets it. */
   noRow?: boolean;
+  /** Names that never count in a show's code or name (an alias that is also a word: "AT" in "Puzzle at Circuit"). */
+  notForShows?: readonly string[];
 }
 
 /** A roster ready to match: folded names, longest first. */
 export interface Roster {
-  names: { artistId: string; folded: string; adNameOnly: boolean }[];
+  names: { artistId: string; folded: string; adNameOnly: boolean; notForShows: boolean }[];
   /** Ids that are acts with no artists row. */
   noRow: ReadonlySet<string>;
 }
@@ -79,11 +81,12 @@ export function buildRoster(entries: readonly RosterEntry[]): Roster {
   const noRow = new Set<string>();
   for (const e of entries) {
     if (e.noRow) noRow.add(e.id);
+    const notForShows = new Set((e.notForShows ?? []).map((n) => fold(n).trim()));
     for (const n of e.names) {
       const folded = fold(n).trim();
       if (!folded || seen.has(`${e.id}\u0000${folded}`)) continue;
       seen.add(`${e.id}\u0000${folded}`);
-      names.push({ artistId: e.id, folded, adNameOnly: Boolean(e.adNameOnly) });
+      names.push({ artistId: e.id, folded, adNameOnly: Boolean(e.adNameOnly), notForShows: notForShows.has(folded) });
     }
   }
   names.sort((a, b) => b.folded.length - a.folded.length || a.folded.localeCompare(b.folded));
@@ -94,15 +97,16 @@ export function buildRoster(entries: readonly RosterEntry[]): Roster {
  * The artists a text names, as whole words. A hit inside a longer hit of
  * another artist ("Luke" inside "Luke Dean") is dropped. `adName: false`
  * leaves out the AD_NAME_ONLY names (for an ad set name or a show's code
- * or name).
+ * or name); `show: true` also leaves out names marked not for shows.
  */
-export function artistsNamedIn(text: string | null | undefined, roster: Roster, opts: { adName?: boolean } = {}): string[] {
+export function artistsNamedIn(text: string | null | undefined, roster: Roster, opts: { adName?: boolean; show?: boolean } = {}): string[] {
   const folded = fold(text);
   if (folded.trim() === "") return [];
   const spans: { artistId: string; start: number; end: number }[] = [];
   const adName = opts.adName ?? true;
   for (const n of roster.names) {
     if (!adName && n.adNameOnly) continue;
+    if (opts.show && n.notForShows) continue;
     const needle = ` ${n.folded} `;
     for (let at = folded.indexOf(needle); at !== -1; at = folded.indexOf(needle, at + 1)) {
       const start = at + 1;
@@ -135,12 +139,13 @@ export function artistsOfAd(ad: AdNames, roster: Roster): { artistIds: string[];
 
 /**
  * A show's headliner: the one artist its code or name names (real artists
- * only; AD_NAME_ONLY names and acts with no row left out). "NX26-ENZO"
- * names Enzo Siragusa only through the confirmed "Enzo" alias. Two named:
- * no headliner, and `ambiguous` lists them.
+ * only; AD_NAME_ONLY names, aliases marked not for shows and acts with no
+ * row left out). "NX26-ENZO" holds Enzo Siragusa only through the confirmed
+ * "Enzo" alias; its name ("Enzo Siragusa Halloween") holds the full name.
+ * Two named: no headliner, and `ambiguous` lists them.
  */
 export function headlinerOf(event: { event_code: string | null; name: string | null }, roster: Roster): { artistId: string | null; ambiguous: string[] } {
-  const ids = artistsNamedIn(`${event.event_code ?? ""} ${event.name ?? ""}`, roster, { adName: false }).filter((id) => !roster.noRow.has(id));
+  const ids = artistsNamedIn(`${event.event_code ?? ""} ${event.name ?? ""}`, roster, { adName: false, show: true }).filter((id) => !roster.noRow.has(id));
   if (ids.length === 1) return { artistId: ids[0]!, ambiguous: [] };
   return { artistId: null, ambiguous: ids.length > 1 ? ids : [] };
 }

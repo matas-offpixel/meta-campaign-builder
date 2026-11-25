@@ -121,7 +121,14 @@ export function adNamesIndex(inputs: BackfillInputs): NamesIndex {
     const brands = new Set(inputs.marks.brands.map((b) => b.artistId));
     const adNameOnly = new Set(inputs.marks.adNameOnly.map((b) => b.artistId));
     const roster = buildRoster([
-      ...inputs.artists.filter((a) => !brands.has(a.id)).map((a) => ({ id: a.id, names: artistNames(inputs, a), adNameOnly: adNameOnly.has(a.id) })),
+      ...inputs.artists
+        .filter((a) => !brands.has(a.id))
+        .map((a) => ({
+          id: a.id,
+          names: artistNames(inputs, a),
+          adNameOnly: adNameOnly.has(a.id),
+          notForShows: inputs.aliases.filter((x) => x.artistId === a.id && x.notForShows).map((x) => x.alias),
+        })),
       ...inputs.marks.otherActs.map((o) => ({ id: `act:${fold(o.name).trim()}`, names: [o.name], noRow: true })),
     ]);
     const byAd = new Map(inputs.ads.map((ad) => [ad.meta_ad_id, artistsOfAd(ad, roster)]));
