@@ -118,50 +118,53 @@ export function WizardFooter({
       {/* ── Main footer row ──
           Under 640px it is two rows (#1361 design round, 393): the primary
           action full width on top, so "Launch · {n} to fix" always shows,
-          then Back, Save as Template, Save Draft. From 640px it is one row as
+          then Back, Save as Template, Save Draft on one row that never wraps.
+          From 640px that row is display: contents, so the footer is one row as
           before: the primary sits last, at the right. */}
       <div className="px-4 py-3 sm:px-6">
         <div className="mx-auto flex max-w-5xl flex-wrap items-center gap-2 sm:flex-nowrap">
-          <div className="flex items-center gap-2 sm:gap-3">
-            {!isFirstStep && (
-              <Button variant="outline" onClick={onBack} className="max-sm:px-3">
-                <ChevronLeft className="h-4 w-4" />
-                Back
-              </Button>
-            )}
-            {showTemplates && showLoadTemplate && (
-              <Button variant="outline" onClick={onLoadTemplate}>
-                <FolderOpen className="h-4 w-4" />
-                Load Template
-              </Button>
-            )}
-            <div className="flex items-center gap-1.5 text-xs text-muted-foreground empty:hidden">
-              {saveStatus === "saving" && (
-                <>
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  <span>Saving...</span>
-                </>
+          <div className="flex w-full flex-nowrap items-center justify-between sm:contents">
+            <div className="flex items-center gap-2 sm:gap-3">
+              {!isFirstStep && (
+                <Button variant="outline" onClick={onBack} className="max-sm:px-3">
+                  <ChevronLeft className="h-4 w-4" />
+                  Back
+                </Button>
               )}
-              {saveStatus === "saved" && (
-                <>
-                  <CheckCircle2 className="h-3.5 w-3.5 text-success" />
-                  <span className="text-success">Saved</span>
-                </>
+              {showTemplates && showLoadTemplate && (
+                <Button variant="outline" onClick={onLoadTemplate}>
+                  <FolderOpen className="h-4 w-4" />
+                  Load Template
+                </Button>
               )}
+              <div className="flex items-center gap-1.5 text-xs text-muted-foreground empty:hidden">
+                {saveStatus === "saving" && (
+                  <>
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    <span>Saving...</span>
+                  </>
+                )}
+                {saveStatus === "saved" && (
+                  <>
+                    <CheckCircle2 className="h-3.5 w-3.5 text-success" />
+                    <span className="text-success">Saved</span>
+                  </>
+                )}
+              </div>
             </div>
-          </div>
 
-          <div className="ml-auto flex items-center sm:gap-2">
-            {showTemplates ? (
-              <Button variant="ghost" onClick={onSaveTemplate} className="whitespace-nowrap max-sm:gap-1.5 max-sm:px-2">
-                <BookmarkPlus className="h-4 w-4" />
-                Save as Template
+            <div className="ml-auto flex items-center sm:gap-2">
+              {showTemplates ? (
+                <Button variant="ghost" onClick={onSaveTemplate} className="whitespace-nowrap max-sm:gap-1.5 max-sm:px-1.5">
+                  <BookmarkPlus className="h-4 w-4" />
+                  Save as Template
+                </Button>
+              ) : null}
+              <Button variant="ghost" onClick={onSaveDraft} className="whitespace-nowrap max-sm:gap-1.5 max-sm:px-1.5">
+                <Save className="h-4 w-4" />
+                Save Draft
               </Button>
-            ) : null}
-            <Button variant="ghost" onClick={onSaveDraft} className="whitespace-nowrap max-sm:gap-1.5 max-sm:px-2">
-              <Save className="h-4 w-4" />
-              Save Draft
-            </Button>
+            </div>
           </div>
 
           <div data-footer-primary="" className="order-first flex w-full empty:hidden sm:order-none sm:w-auto [&>*]:w-full sm:[&>*]:w-auto">
