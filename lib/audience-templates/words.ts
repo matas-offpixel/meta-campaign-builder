@@ -35,6 +35,7 @@ export const TEMPLATE_WORDS = {
   "templates.add_page": "Add page to this group",
   "templates.changed": "{n} change since this template was saved / {n} changes since this template was saved",
   "templates.save": "Save to template",
+  "templates.item.held": "held in {Meta account name}",
 } as const;
 
 export type TemplateWordKey = keyof typeof TEMPLATE_WORDS;
@@ -88,6 +89,14 @@ export const GROUP_LABEL = {
 export function changedLine(n: number): string {
   const [one, many] = TEMPLATE_WORDS["templates.changed"].split(" / ");
   return fillWords(n === 1 ? one! : many!, { n });
+}
+
+/**
+ * After a customer list's own line, when the list is held in another account
+ * than the target (templates.item.held): "held in Electric Bristol Live".
+ */
+export function heldLine(accountName: string): string {
+  return tw("templates.item.held", { "Meta account name": accountName });
 }
 
 /**

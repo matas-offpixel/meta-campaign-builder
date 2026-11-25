@@ -6,6 +6,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
+import type { KnownAudience, TemplateItem } from "../resolve.ts";
 import { HOUSE_DISCO, RC_E_DATA, RC_E_KNOWN, RC_E_PENDING, TECHNO } from "../../../scripts/plan-frames/audience-templates-fixtures.ts";
 import { buildTemplateView, pageItem, shortDate } from "../view.ts";
 
@@ -77,4 +78,65 @@ describe("buildTemplateView (RC-E)", () => {
     const v = buildTemplateView(HOUSE_DISCO, RC_E_KNOWN, { ...ctx, pixelName: null });
     assert.equal(v.groups[1]!.rows[0]!.line, "…2763 pixel · 30 days");
   });
+
+  describe("a customer list held in another account (templates.item.held)", () => {
+    const BRISTOL = "act_2011069725849568";
+    const heldList: TemplateItem = {
+      kind: "customer_list",
+      listRole: "buyers",
+      familyKey: "house_tech",
+      pageId: null,
+      retentionDays: null,
+      interestId: null,
+      interestName: null,
+      metaAudienceId: "9100000000000001",
+      detail: { name: "Tech House Data", heldIn: BRISTOL },
+    };
+    const t = { ...HOUSE_DISCO, items: [heldList] };
+    const inBristol: KnownAudience = { source: "meta", metaAudienceId: "9100000000000001", accountId: BRISTOL, subtype: "customer_list", listRole: null, familyKey: "house_tech" };
+    const named = { ...ctx, accountLabel: (id: string) => (id === BRISTOL ? "Electric Bristol Live" : null) };
+
+    it("the line says where it's held, after the list's own line, and replaces Will be created", () => {
+      const v = buildTemplateView(t, [inBristol], named);
+      const row = v.groups[0]!.rows[0]!;
+      assert.equal(row.line, "Customer list · role: buyers, house_tech · held in Electric Bristol Live");
+      assert.equal(row.status, "held");
+      assert.equal(row.statusLabel, "");
+    });
+
+    it("isn't counted as created: nothing is re-uploaded", () => {
+      const v = buildTemplateView(t, [inBristol], named);
+      assert.equal(v.held, 1);
+      assert.equal(v.toCreate, 0);
+      assert.equal(v.metaCreates, 0);
+      assert.equal(v.footer, "0 reused · 0 will be created in NX Promoter");
+    });
+
+    it("reads Reused once it's shared to the target", () => {
+      const v = buildTemplateView(t, [inBristol, { ...inBristol, accountId: ctx.accountId }], named);
+      const row = v.groups[0]!.rows[0]!;
+      assert.equal(row.status, "reused");
+      assert.equal(row.line, "Customer list · role: buyers, house_tech");
+      assert.equal(v.held, 0);
+    });
+
+    it("without a stored name it reads the account id", () => {
+      const v = buildTemplateView(t, [inBristol], ctx);
+      assert.equal(v.groups[0]!.rows[0]!.line, `Customer list · role: buyers, house_tech · held in ${BRISTOL}`);
+    });
+
+    it("a list held in the target itself is never 'held in'", () => {
+      const own = { ...HOUSE_DISCO, items: [{ ...heldList, detail: { name: "Tech House Data", heldIn: ctx.accountId } }] };
+      const row = buildTemplateView(own, [], named).groups[0]!.rows[0]!;
+      assert.equal(row.status, "create");
+      assert.equal(row.statusLabel, "Will be created");
+    });
+
+    it("RC-E draws no held line: its lists are reused in NX Promoter", () => {
+      const v = buildTemplateView(HOUSE_DISCO, RC_E_KNOWN, named, RC_E_PENDING);
+      assert.equal(v.held, 0);
+      assert.ok(v.groups.every((g) => g.rows.every((r) => !r.line.includes("held in"))));
+    });
+  });
 });
+

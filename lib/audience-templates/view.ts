@@ -6,8 +6,8 @@
  * Pure. No `@/` imports, so node --test can load it.
  */
 
-import { TEMPLATE_NAMES, GROUP_LABEL, changedLine, footerLine, fw, tw } from "./words.ts";
-import { resolveTemplate, type AudienceTemplate, type KnownAudience, type ResolvedItem, type TemplateItem, type TemplateItemKind } from "./resolve.ts";
+import { TEMPLATE_NAMES, GROUP_LABEL, changedLine, footerLine, fw, heldLine, tw } from "./words.ts";
+import { normalizeAccount, resolveTemplate, type AudienceTemplate, type KnownAudience, type ResolvedItem, type TemplateItem, type TemplateItemKind } from "./resolve.ts";
 
 export const GROUP_ORDER: readonly TemplateItemKind[] = ["customer_list", "retargeting_pool", "page_engagers", "interest"];
 
@@ -15,7 +15,13 @@ export interface TemplateRow {
   key: string;
   title: string;
   line: string;
-  status: "reused" | "create";
+  /**
+   * "held": a customer list another account holds and the target can't use
+   * yet. It is never re-uploaded, so it isn't "Will be created": the line
+   * says where it's held, and the row has no status chip.
+   */
+  status: "reused" | "create" | "held";
+  /** Empty for a held list. */
   statusLabel: string;
   /** How many items this row stands for (the interests row is all of them). */
   count: number;
@@ -42,7 +48,10 @@ export interface TemplateView {
   groups: TemplateGroup[];
   footer: string;
   reused: number;
+  /** Items that will be created; held lists aren't among them. */
   toCreate: number;
+  /** Customer lists held in another account (templates.item.held). */
+  held: number;
   metaCreates: number;
   /** "{n} change since this template was saved", or null with no change. */
   changed: string | null;
@@ -59,6 +68,8 @@ export interface ViewContext {
   writesEnabled: boolean;
   /** user id → display name, for "confirmed by". */
   confirmerName: (userId: string) => string | null;
+  /** act_… → Meta's account name, for "held in {account}"; the id when none is stored. */
+  accountLabel?: (accountId: string) => string | null;
 }
 
 /** "Tue 24 Nov": the frame's date, in London. */
@@ -92,21 +103,32 @@ function pixelLabel(ctx: ViewContext): string {
   return ctx.pixelId ? `…${ctx.pixelId.slice(-4)}` : "";
 }
 
+/** The account holding a list the target can't use, when it isn't the target. */
+export function heldElsewhere(r: ResolvedItem, accountId: string): string | null {
+  if (r.item.kind !== "customer_list" || r.status !== "create" || !r.heldIn) return null;
+  const holder = normalizeAccount(r.heldIn);
+  return holder && holder !== normalizeAccount(accountId) ? holder : null;
+}
+
 function itemRow(r: ResolvedItem, ctx: ViewContext): TemplateRow {
   const it: TemplateItem = r.item;
-  const statusLabel = tw(r.status === "reused" ? "templates.reused" : "templates.create");
-  const base = { key: rowKey(it), status: r.status, statusLabel, count: 1 } as const;
+  const holder = heldElsewhere(r, ctx.accountId);
+  const status: TemplateRow["status"] = holder ? "held" : r.status;
+  const statusLabel = status === "held" ? "" : tw(status === "reused" ? "templates.reused" : "templates.create");
+  const base = { key: rowKey(it), status, statusLabel, count: 1 } as const;
   const days = it.retentionDays ?? 0;
   switch (it.kind) {
-    case "customer_list":
+    case "customer_list": {
+      // RC-E's line; a list for every genre has no family, so it stops at the role.
+      const line = it.familyKey
+        ? fw("frame.list.line", { role: it.listRole ?? "", family: it.familyKey })
+        : fw("frame.list.line", { role: it.listRole ?? "" }).replace(/, \{family\}$/, "");
       return {
         ...base,
         title: it.detail.name ?? "",
-        // RC-E's line; a list for every genre has no family, so it stops at the role.
-        line: it.familyKey
-          ? fw("frame.list.line", { role: it.listRole ?? "", family: it.familyKey })
-          : fw("frame.list.line", { role: it.listRole ?? "" }).replace(/, \{family\}$/, ""),
+        line: holder ? `${line}${fw("frame.sep")}${heldLine(ctx.accountLabel?.(holder) ?? holder)}` : line,
       };
+    }
     case "retargeting_pool":
       if (it.listRole === "video_viewers") {
         return { ...base, title: fw("frame.pool.video_viewers"), line: fw("frame.pool.video.line", { threshold: Number(it.detail.threshold ?? 0), days }) };
@@ -162,12 +184,16 @@ export function buildTemplateView(
       ],
     };
   });
+  // A held list is shared in Business Manager, never re-uploaded: not one of the creates.
+  const held = resolved.items.filter((r) => heldElsewhere(r, ctx.accountId)).length;
+  const toCreate = resolved.toCreate - held;
   return {
     header: headerFor(t, ctx),
     groups,
-    footer: footerLine(resolved.reused, resolved.toCreate, ctx.accountName, ctx.writesEnabled),
+    footer: footerLine(resolved.reused, toCreate, ctx.accountName, ctx.writesEnabled),
     reused: resolved.reused,
-    toCreate: resolved.toCreate,
+    toCreate,
+    held,
     metaCreates: resolved.metaCreates,
     changed: added.length > 0 ? changedLine(added.length) : null,
     canSave: added.length > 0,

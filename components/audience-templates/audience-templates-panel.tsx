@@ -28,7 +28,7 @@ export interface AudienceTemplatesPanelProps {
 
 const NONE: TemplateItem[] = [];
 
-function StatusChip({ status, label }: { status: TemplateRow["status"] | "unconfirmed"; label: string }) {
+function StatusChip({ status, label }: { status: Exclude<TemplateRow["status"], "held"> | "unconfirmed"; label: string }) {
   const tone =
     status === "reused"
       ? "border-success bg-success text-background"
@@ -49,7 +49,7 @@ function ItemRow({ row }: { row: TemplateRow }) {
         <div className="text-sm leading-5 text-foreground [overflow-wrap:anywhere]">{row.title}</div>
         {row.line ? <div className="text-xs leading-4 text-muted-foreground">{row.line}</div> : null}
       </div>
-      <StatusChip status={row.status} label={row.statusLabel} />
+      {row.status === "held" ? null : <StatusChip status={row.status} label={row.statusLabel} />}
     </div>
   );
 }
@@ -108,6 +108,7 @@ export function AudienceTemplatesPanel({ data, onSave, initialTemplate, initialP
               pixelName: data.pixelName,
               writesEnabled: data.writesEnabled,
               confirmerName: (id) => data.confirmerNames[id] ?? null,
+              accountLabel: (id) => data.accountNames[id] ?? null,
             },
             pending,
           )

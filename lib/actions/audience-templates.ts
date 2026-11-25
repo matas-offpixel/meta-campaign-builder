@@ -44,6 +44,8 @@ export interface AudienceTemplatesPayload {
   writesEnabled: boolean;
   /** user id → display name, for "confirmed by". */
   confirmerNames: Record<string, string>;
+  /** act_… → Meta's account name, the business's accounts, for "held in {account}". */
+  accountNames: Record<string, string>;
   /** The business's pages, for "Add page to this group". */
   pages: TemplatePage[];
 }
@@ -133,9 +135,16 @@ export async function loadAudienceTemplates(input: {
   let accountName: string = accountId;
   let pixelName: string | null = null;
   let pages: TemplatePage[] = [];
+  const accountNames: Record<string, string> = {};
   if (businessId) {
-    const acct = await db.from("bm_ad_accounts").select("name").eq("business_id", businessId).eq("ad_account_id", accountId).maybeSingle();
-    if (typeof acct.data?.name === "string" && acct.data.name) accountName = acct.data.name;
+    const acctRows = await pagedRows((a, b) =>
+      db.from("bm_ad_accounts").select("ad_account_id, name").eq("business_id", businessId).order("ad_account_id").range(a, b),
+    );
+    for (const r of acctRows) {
+      const id = normalizeAdAccountId(typeof r.ad_account_id === "string" ? r.ad_account_id : null);
+      if (id && typeof r.name === "string" && r.name.trim()) accountNames[id] = r.name.trim();
+    }
+    if (accountNames[accountId]) accountName = accountNames[accountId];
     if (input.pixelId) {
       const px = await db.from("bm_pixels").select("name").eq("business_id", businessId).eq("pixel_id", input.pixelId).maybeSingle();
       if (typeof px.data?.name === "string" && px.data.name) pixelName = px.data.name;
@@ -162,6 +171,7 @@ export async function loadAudienceTemplates(input: {
     pixelName,
     writesEnabled: metaAudienceWritesEnabled(),
     confirmerNames,
+    accountNames,
     pages,
   };
 }

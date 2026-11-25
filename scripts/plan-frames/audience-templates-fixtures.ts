@@ -117,6 +117,7 @@ export const RC_E_DATA: AudienceTemplatesPayload = {
   pixelName: "NX Loves",
   writesEnabled: false,
   confirmerNames: { [MATAS]: "Matas" },
+  accountNames: { [ACCOUNT]: "NX Promoter" },
   pages: [
     { pageId: "1000000000000003", name: "Ewan McVicar" },
     { pageId: "756330917740654", name: "Folamour" },

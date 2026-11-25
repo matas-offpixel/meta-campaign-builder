@@ -11,7 +11,7 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
-import { TEMPLATE_FRAME_WORDS, TEMPLATE_NAMES, TEMPLATE_WORDS, changedLine, footerLine, fw } from "../words.ts";
+import { TEMPLATE_FRAME_WORDS, TEMPLATE_NAMES, TEMPLATE_WORDS, changedLine, footerLine, fw, heldLine } from "../words.ts";
 
 const RAW = readFileSync(new URL("./fixtures/words-rc-2026-11-24.tsv", import.meta.url));
 const ROWS = RAW.toString("utf8")
@@ -27,15 +27,15 @@ const RECORD = readFileSync(new URL("../../../docs/design-record/2026-11-24-camp
   .replace(/&nbsp;/g, " ");
 
 describe("audience template words", () => {
-  it("the fixture is the record's final list: 151 rows, sha256 49b811f7…89282", () => {
-    assert.equal(createHash("sha256").update(RAW).digest("hex"), "49b811f7c9f88813ea10fb74aba1e0e9454527c45d5d092bc5f8a2310be89282");
-    assert.equal(ROWS.length, 151);
-    assert.equal(new Set(ROWS.map((r) => r.key)).size, 151);
+  it("the fixture is the record's final list: 213 rows, sha256 9cdf7055…4cdd", () => {
+    assert.equal(createHash("sha256").update(RAW).digest("hex"), "9cdf7055fe1b7bd1602a1f110fa548cd42f46b76e649b0b47eb59691377d4cdd");
+    assert.equal(ROWS.length, 213);
+    assert.equal(new Set(ROWS.map((r) => r.key)).size, 213);
   });
 
   it("every templates.* row is in words.ts, word for word", () => {
     const wanted = ROWS.filter((r) => r.key.startsWith("templates."));
-    assert.equal(wanted.length, 16);
+    assert.equal(wanted.length, 17);
     for (const r of wanted) assert.equal((TEMPLATE_WORDS as Record<string, string>)[r.key], r.words, r.key);
   });
 
@@ -77,5 +77,11 @@ describe("audience template words", () => {
     assert.equal(changedLine(1), "1 change since this template was saved");
     assert.equal(changedLine(2), "2 changes since this template was saved");
     assert.ok(RECORD.includes(changedLine(1)));
+  });
+
+  it("the held line is the list's row, filled with Meta's account name", () => {
+    const row = ROWS.find((r) => r.key === "templates.item.held");
+    assert.deepEqual(row, { key: "templates.item.held", where: "Item, list held in another account", words: "held in {Meta account name}" });
+    assert.equal(heldLine("Electric Bristol Live"), "held in Electric Bristol Live");
   });
 });
