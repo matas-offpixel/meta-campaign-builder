@@ -9,8 +9,8 @@ import { pickFor, type PickEvent } from "@/lib/audience-templates/videos";
 import { codeSpans } from "@/lib/launch-guard/code-spans";
 import { VideoPickPanel } from "./video-pick-panel";
 import type { AudienceTemplate, TemplateItem } from "@/lib/audience-templates/resolve";
-import { buildTemplateView, pageItem, rowKey, type TemplateRow, type TemplateView } from "@/lib/audience-templates/view";
-import { TEMPLATE_NAMES, addedLines, createButtonLabel, createdLines, fw, tw } from "@/lib/audience-templates/words";
+import { buildTemplateView, pageItem, rowKey, type TemplateRow } from "@/lib/audience-templates/view";
+import { TEMPLATE_NAMES, addedLines, createButtonLabel, createdLines, footerNoBreak, fw, tw } from "@/lib/audience-templates/words";
 
 /**
  * The Audience templates tab's body (R6, record RC5 / frame RC-E): the
@@ -53,38 +53,6 @@ export interface AudienceTemplatesPanelProps {
 
 const NONE: TemplateItem[] = [];
 
-/**
- * The footer (design, 25 Nov): a count never parts from its words. Each
- * part's lead is one unbreakable run, an account name may wrap inside
- * itself, and the line breaks between parts only at the space after " ·".
- */
-function FooterLine({ footer }: { footer: TemplateView["footerParts"] }) {
-  // " ·" sits in a nowrap run with the word before it, so the only break is
-  // the plain space after the dot; the text is the footer line, unchanged.
-  const sep = ` ${fw("frame.sep").trim()}`;
-  const last = footer.parts.length - 1;
-  return (
-    <>
-      {footer.parts.map((p, i) => (
-        <span key={i} data-footer-part="">
-          <span className="whitespace-nowrap">
-            {p.lead}
-            {!p.account && i < last ? sep : null}
-          </span>
-          {p.account ? (
-            <>
-              {" "}
-              {p.account}
-              {i < last ? <span className="whitespace-nowrap">{sep}</span> : null}
-            </>
-          ) : null}
-          {i < last ? " " : null}
-        </span>
-      ))}
-      {footer.tail ? `. ${footer.tail}` : null}
-    </>
-  );
-}
 
 /** Event codes never break across lines ("NX27-GLITTERBOX", never "NX27-" / "GLITTERBOX"): lib/launch-guard/code-spans.ts. */
 function NoBreak({ text }: { text: string }) {
@@ -269,7 +237,8 @@ export function AudienceTemplatesPanel({ data, onSave, draft, onCreate, initialR
   const footer = (
     <div>
       <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm text-foreground" role="status">
-        <FooterLine footer={view.footerParts} />
+        {/* A count never parts from its words (design, 25 Nov): footerNoBreak. */}
+        {footerNoBreak(view.footerParts)}
       </div>
       <div className="mt-2 flex items-center justify-between gap-3">
         <span className="text-xs text-muted-foreground">{view.changed ?? ""}</span>

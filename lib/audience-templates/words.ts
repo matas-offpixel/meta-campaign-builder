@@ -230,6 +230,24 @@ export function footerText(footer: { parts: FooterPart[]; tail: string | null })
   return footer.tail ? `${first}. ${footer.tail}` : first;
 }
 
+/**
+ * The footer as the panel draws it: one string, one text run, where the only
+ * places it can wrap are the space after each " ·", inside an account name,
+ * and in the writes-off sentence. Inside a count's words, and before " ·",
+ * the spaces are no-break spaces (U+00A0), so "1 needs videos picked" never
+ * splits. Turning those back into spaces gives footerText exactly.
+ */
+export function footerNoBreak(footer: { parts: FooterPart[]; tail: string | null }): string {
+  const nb = (t: string) => t.replace(/ /g, "\u00a0");
+  const dot = fw("frame.sep").trim();
+  const parts = footer.parts.map((p, i) => {
+    const sep = i < footer.parts.length - 1 ? `\u00a0${dot}` : "";
+    return p.account ? `${nb(p.lead)} ${p.account}${sep}` : `${nb(p.lead)}${sep}`;
+  });
+  const first = parts.join(" ");
+  return footer.tail ? `${first}. ${footer.tail}` : first;
+}
+
 export function footerLine(...args: Parameters<typeof footerParts>): string {
   return footerText(footerParts(...args));
 }

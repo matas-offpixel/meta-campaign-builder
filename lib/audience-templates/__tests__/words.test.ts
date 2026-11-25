@@ -20,6 +20,7 @@ import {
   createButtonLabel,
   createdLines,
   footerLine,
+  footerNoBreak,
   footerParts,
   footerText,
   fw,
@@ -195,12 +196,29 @@ describe("audience template words", () => {
       assert.equal(footerText(footerParts(10, 0, "NX Promoter", false, 1)), "10 reused · 1 needs videos picked");
     });
 
-    it("the panel draws the parts, never the joined string", async () => {
+    it("the drawn footer breaks only after \" ·\", inside an account name, or in the tail", () => {
+      const drawn = footerNoBreak(held);
+      assert.equal(drawn.replace(/\u00a0/g, " "), footerText(held), "the same text as the footer line");
+      // The breakable spaces: after each " ·", inside the account names, and in the tail.
+      const [line] = drawn.split(". ");
+      assert.deepEqual(line!.split(" "), [
+        "1\u00a0reused\u00a0·",
+        "6\u00a0will\u00a0be\u00a0created\u00a0in",
+        "Electric",
+        "Studios",
+        "Sheffield\u00a0·",
+        "3\u00a0held\u00a0in",
+        "NX",
+        "Promoter\u00a0·",
+        "1\u00a0needs\u00a0videos\u00a0picked",
+      ]);
+    });
+
+    it("the panel draws footerNoBreak, never the plain line", async () => {
       const { readFileSync: read } = await import("node:fs");
       const panel = read(new URL("../../../components/audience-templates/audience-templates-panel.tsx", import.meta.url), "utf8");
-      assert.match(panel, /<FooterLine footer=\{view\.footerParts\} \/>/);
+      assert.match(panel, /\{footerNoBreak\(view\.footerParts\)\}/);
       assert.doesNotMatch(panel, /\{view\.footer\}/);
-      assert.match(panel, /<span className="whitespace-nowrap">\s*\{p\.lead\}/);
     });
   });
 });
