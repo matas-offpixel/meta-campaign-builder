@@ -1,9 +1,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { CLAUDE_CALLBACK } from "../config.ts";
 import { pkceChallengeFor } from "../crypto.ts";
 import { checkAuthorizeRequest, decideConsentRequest, exchangeToken, registerClient } from "../oauth/flow.ts";
-import { CLIENT_NAME_MAX, CONSENT_WORDS, consentContent, displayClientName, returnKindOf } from "../oauth/consent-words.ts";
+import { CLIENT_NAME_MAX, CONSENT_WORDS, consentContent, displayClientName, isUpgradeConsent, returnKindOf } from "../oauth/consent-words.ts";
+import { checkBearer } from "../oauth/flow.ts";
+import { createMemoryStore } from "../oauth/store.ts";
+import { sha256Hex } from "../crypto.ts";
 import { OPERATOR, STRANGER, VERIFIER, connect, makeDeps, urls } from "./helpers.ts";
 
 const EMAIL = "op@example.com";
@@ -138,4 +144,193 @@ test("a connection dies after 30 days without use, and each use resets the 30 da
   const dead = await refresh(last);
   assert.equal(dead.status, 400);
   assert.equal((dead.body as { error: string }).error, "invalid_grant");
+});
+
+test("M2 words: a grant with drafts says use and design's line 2; a read grant adding drafts is the upgrade (words-mcp-consent-drafts-2026-11-24.tsv)", () => {
+  const tsv = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "fixtures/words-mcp-consent-drafts-2026-11-24.tsv"), "utf8");
+  const W = Object.fromEntries(tsv.trim().split("\n").slice(1).map((l) => l.split("\t")).map((c) => [c[0], c[2]]));
+  const fillW = (k: string, v: Record<string, string>) => String(W[k]).replace(/\{([^{}]+)\}/g, (_, n: string) => v[n] ?? `{${n}}`);
+  const DRAFTS = "mcp:read mcp:draft";
+  const claude = { redirectUri: CLAUDE_CALLBACK, clientName: "Claude", email: EMAIL, returnHost: "claude.ai" };
+  const plain = consentContent({ ...claude, scope: DRAFTS });
+  assert.equal(plain.title, CONSENT_WORDS.titleClaude);
+  assert.equal(plain.lines[0], fillW("consent.line1.drafts", { email: EMAIL }));
+  assert.equal(plain.lines[1], W["consent.line2.drafts"]);
+  assert.equal(plain.cancelNote, undefined);
+  const up = consentContent({ ...claude, scope: DRAFTS, hasReadOnlyGrant: true });
+  assert.equal(up.title, W["consent.title.upgrade"]);
+  assert.equal(up.cancelNote, W["consent.upgrade.cancel_note"]);
+  const loop = { redirectUri: LOOP, clientName: "Inspector", email: EMAIL, returnHost: "localhost:53682" };
+  const lu = consentContent({ ...loop, scope: DRAFTS, hasReadOnlyGrant: true });
+  assert.equal(lu.title, W["consent.title.upgrade.loopback"]);
+  assert.equal(lu.lines[0], fillW("consent.line1.drafts.loopback", { "client name": "Inspector", email: EMAIL }));
+  assert.equal(consentContent({ ...loop, clientName: null, scope: DRAFTS }).lines[0], fillW("consent.line1.drafts.loopback.unnamed", { email: EMAIL }));
+  // A read-only request keeps every M1 word, with or without an existing grant.
+  assert.deepEqual(consentContent({ ...claude, scope: "mcp:read", hasReadOnlyGrant: true }), consentContent(claude));
+  // Lines 3 and 4 never change.
+  assert.deepEqual([up.lines[2], up.lines[3]], [consentContent(claude).lines[2], consentContent(claude).lines[3]]);
+  // Every word in the list is used.
+  for (const k of Object.keys(W)) assert.ok(k.startsWith("consent."), k);
+  assert.equal(Object.keys(W).length, 7);
+});
+
+test("upgrade vs first connection: a live read-only grant from the SAME client, asking for drafts", () => {
+  const read = { client_id: "c1", scope: "mcp:read", revoked_at: null };
+  assert.equal(isUpgradeConsent([read], "c1", "mcp:read mcp:draft"), true);
+  assert.equal(isUpgradeConsent([read], "c2", "mcp:read mcp:draft"), false, "another client's grant is a first connection");
+  assert.equal(isUpgradeConsent([], "c1", "mcp:read mcp:draft"), false);
+  assert.equal(isUpgradeConsent([{ ...read, scope: "mcp:read mcp:draft" }], "c1", "mcp:read mcp:draft"), false, "already has drafts");
+  assert.equal(isUpgradeConsent([{ ...read, revoked_at: "2026-11-24T00:00:00Z" }], "c1", "mcp:read mcp:draft"), false, "revoked");
+  assert.equal(isUpgradeConsent([read], "c1", "mcp:read"), false, "a read-only request is never an upgrade");
+});
+
+test("cancelling an upgrade keeps the read grant and its tokens: no new grant, code or token; access_denied with state and iss", async () => {
+  const state = { clients: new Map(), grants: new Map(), codes: new Map(), tokens: new Map() };
+  const deps = { ...makeDeps(), store: createMemoryStore(state as never) };
+  const { clientId, tokens } = await connect(deps);
+  assert.equal(tokens.scope, "mcp:read");
+  const grantsBefore = structuredClone([...state.grants.values()]);
+  const tokensBefore = structuredClone([...state.tokens.entries()]);
+  const codesBefore = state.codes.size;
+
+  const params = {
+    response_type: "code",
+    client_id: clientId,
+    redirect_uri: CLAUDE_CALLBACK,
+    code_challenge: pkceChallengeFor(VERIFIER),
+    code_challenge_method: "S256",
+    state: "up9rade",
+    scope: "mcp:read mcp:draft",
+    resource: urls.resource,
+  };
+  const check = await checkAuthorizeRequest(params, urls, deps);
+  assert.ok(check.ok);
+  assert.equal(isUpgradeConsent(await deps.store.listLiveGrants({ userId: OPERATOR }), clientId, check.request.scope), true, "this is the upgrade wording");
+
+  const out = await decideConsentRequest(params, "deny", OPERATOR, urls, deps);
+  assert.ok("redirectTo" in out);
+  const back = new URL(out.redirectTo);
+  assert.equal(`${back.origin}${back.pathname}`, CLAUDE_CALLBACK);
+  assert.equal(back.searchParams.get("error"), "access_denied");
+  assert.equal(back.searchParams.get("state"), "up9rade");
+  assert.equal(back.searchParams.get("iss"), urls.issuer);
+  assert.equal(back.searchParams.get("code"), null);
+
+  // The store is exactly as it was: same grant row, same tokens, no new code.
+  assert.deepEqual([...state.grants.values()], grantsBefore);
+  assert.deepEqual([...state.tokens.entries()], tokensBefore);
+  assert.equal(state.codes.size, codesBefore);
+
+  // The old access token still reads; the old refresh token still refreshes.
+  const bearer = await checkBearer(`Bearer ${tokens.access_token}`, urls, deps);
+  assert.ok(bearer.ok && bearer.scope === "mcp:read");
+  const refreshed = await exchangeToken(new URLSearchParams({ grant_type: "refresh_token", refresh_token: tokens.refresh_token, client_id: clientId }), urls, deps);
+  assert.equal(refreshed.status, 200);
+  assert.equal((refreshed.body as { scope: string }).scope, "mcp:read");
+  assert.ok(state.tokens.get(sha256Hex(tokens.refresh_token)));
+});
+
+test("allowing an upgrade leaves one live grant for the connection: the read grant is revoked once the new one is issued", async () => {
+  const state = { clients: new Map(), grants: new Map(), codes: new Map(), tokens: new Map() };
+  const deps = { ...makeDeps(), store: createMemoryStore(state as never) };
+  const { clientId, tokens: old } = await connect(deps);
+  const other = await connect(deps); // another connector of the same operator, read only
+  assert.equal(old.scope, "mcp:read");
+  const oldGrantId = [...state.grants.values()].find((g) => g.client_id === clientId)!.id;
+
+  const params = {
+    response_type: "code",
+    client_id: clientId,
+    redirect_uri: CLAUDE_CALLBACK,
+    code_challenge: pkceChallengeFor(VERIFIER),
+    code_challenge_method: "S256",
+    state: "up9rade",
+    scope: "mcp:read mcp:draft",
+    resource: urls.resource,
+  };
+  const check = await checkAuthorizeRequest(params, urls, deps);
+  assert.ok(check.ok);
+  assert.equal(isUpgradeConsent(await deps.store.listLiveGrants({ userId: OPERATOR }), clientId, check.request.scope), true);
+
+  const out = await decideConsentRequest(params, "allow", OPERATOR, urls, deps);
+  assert.ok("redirectTo" in out);
+  const code = new URL(out.redirectTo).searchParams.get("code")!;
+  assert.ok(code);
+  // Allow alone (a code not yet exchanged) leaves the read grant live.
+  assert.equal(state.grants.get(oldGrantId)!.revoked_at, null);
+  assert.ok((await checkBearer(`Bearer ${old.access_token}`, urls, deps)).ok);
+
+  const tok = await exchangeToken(
+    new URLSearchParams({ grant_type: "authorization_code", code, code_verifier: VERIFIER, client_id: clientId, redirect_uri: CLAUDE_CALLBACK, resource: urls.resource }),
+    urls,
+    deps,
+  );
+  assert.equal(tok.status, 200);
+  const fresh = tok.body as { access_token: string; scope: string };
+  assert.equal(fresh.scope, "mcp:read mcp:draft");
+
+  // Exactly one live grant for this connection, and it is the new one.
+  const live = await deps.store.listLiveGrants({ userId: OPERATOR });
+  const mine = live.filter((g) => g.client_id === clientId);
+  assert.equal(mine.length, 1);
+  assert.equal(mine[0]!.scope, "mcp:read mcp:draft");
+  assert.notEqual(mine[0]!.id, oldGrantId);
+  assert.ok(state.grants.get(oldGrantId)!.revoked_at, "the read grant is revoked");
+
+  // The old tokens stop working; the new one reads and drafts.
+  assert.equal((await checkBearer(`Bearer ${old.access_token}`, urls, deps)).ok, false);
+  const refresh = await exchangeToken(new URLSearchParams({ grant_type: "refresh_token", refresh_token: old.refresh_token, client_id: clientId }), urls, deps);
+  assert.equal(refresh.status, 400);
+  const bearer = await checkBearer(`Bearer ${fresh.access_token}`, urls, deps, "mcp:draft");
+  assert.ok(bearer.ok);
+
+  // Another client's grant is never touched.
+  assert.equal(live.filter((g) => g.client_id === other.clientId).length, 1);
+  assert.ok((await checkBearer(`Bearer ${other.tokens.access_token}`, urls, deps)).ok);
+});
+
+test("an upgrade whose revoke of the read grant fails is undone: 500, the new grant revoked, the read grant still the one live grant", async () => {
+  const state = { clients: new Map(), grants: new Map(), codes: new Map(), tokens: new Map() };
+  const base = createMemoryStore(state as never);
+  let failRevokeOf: string | null = null;
+  const store = {
+    ...base,
+    async revokeGrant(id: string, reason: never, nowIso: string) {
+      if (id === failRevokeOf) throw new Error("revoke grant: connection reset");
+      return base.revokeGrant(id, reason, nowIso);
+    },
+  };
+  const deps = { ...makeDeps(), store };
+  const { clientId, tokens: old } = await connect(deps);
+  const oldGrantId = [...state.grants.values()].find((g) => g.client_id === clientId)!.id;
+  failRevokeOf = oldGrantId;
+
+  const params = {
+    response_type: "code",
+    client_id: clientId,
+    redirect_uri: CLAUDE_CALLBACK,
+    code_challenge: pkceChallengeFor(VERIFIER),
+    code_challenge_method: "S256",
+    state: "up9rade",
+    scope: "mcp:read mcp:draft",
+    resource: urls.resource,
+  };
+  const out = await decideConsentRequest(params, "allow", OPERATOR, urls, deps);
+  assert.ok("redirectTo" in out);
+  const code = new URL(out.redirectTo).searchParams.get("code")!;
+  const tok = await exchangeToken(
+    new URLSearchParams({ grant_type: "authorization_code", code, code_verifier: VERIFIER, client_id: clientId, redirect_uri: CLAUDE_CALLBACK, resource: urls.resource }),
+    urls,
+    deps,
+  );
+  assert.equal(tok.status, 500);
+  assert.equal((tok.body as { error: string }).error, "server_error");
+  assert.equal("access_token" in tok.body, false, "no token leaves on a failed exchange");
+
+  const mine = (await deps.store.listLiveGrants({ userId: OPERATOR })).filter((g) => g.client_id === clientId);
+  assert.equal(mine.length, 1, "never two live grants");
+  assert.equal(mine[0]!.id, oldGrantId, "the read grant is the one left");
+  const newGrant = [...state.grants.values()].find((g) => g.client_id === clientId && g.id !== oldGrantId)!;
+  assert.ok(newGrant.revoked_at, "the new grant is revoked");
+  assert.ok((await checkBearer(`Bearer ${old.access_token}`, urls, deps)).ok, "the read token still reads");
 });

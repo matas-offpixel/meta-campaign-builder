@@ -11,6 +11,8 @@ export interface OverflowMenuItem {
   id: string;
   icon: ReactNode;
   label: string;
+  /** A muted second line under the label (RC1's "Another event: account, pixel, link and copy follow it"). */
+  sub?: string;
   onSelect?: () => void;
   destructive?: boolean;
   hidden?: boolean;
@@ -101,29 +103,7 @@ export function OverflowMenu({
         onClick={(event) => event.stopPropagation()}
         onPointerDown={(event) => event.stopPropagation()}
       >
-        {visible.map((item) => (
-          <li key={item.id} role="none">
-            <button
-              type="button"
-              role="menuitem"
-              className={`flex w-full items-center gap-2 px-3 py-1.5 text-left ${VIZ_TYPE.body} ${
-                item.destructive
-                  ? "text-destructive hover:bg-destructive/10"
-                  : "text-foreground hover:bg-muted"
-              }`}
-              onClick={(event) => {
-                event.stopPropagation();
-                setOpen(false);
-                item.onSelect?.();
-              }}
-            >
-              <span className="inline-flex h-4 w-4 items-center justify-center [&>svg]:h-3.5 [&>svg]:w-3.5">
-                {item.icon}
-              </span>
-              {item.label}
-            </button>
-          </li>
-        ))}
+        <OverflowMenuItems items={visible} onPicked={() => setOpen(false)} />
       </ul>
     ) : null;
 
@@ -148,5 +128,41 @@ export function OverflowMenu({
       </button>
       {menu ? createPortal(menu, document.body) : null}
     </div>
+  );
+}
+
+/** The menu's rows. The frames draw them open, in place (RC-A). */
+export function OverflowMenuItems({ items, onPicked }: { items: OverflowMenuItem[]; onPicked?: () => void }) {
+  return (
+    <>
+      {items.map((item) => (
+        <li key={item.id} role="none">
+          <button
+            type="button"
+            role="menuitem"
+            className={`flex w-full items-center gap-2 px-3 py-1.5 text-left ${VIZ_TYPE.body} ${
+              item.destructive ? "text-destructive hover:bg-destructive/10" : "text-foreground hover:bg-muted"
+            }`}
+            onClick={(event) => {
+              event.stopPropagation();
+              onPicked?.();
+              item.onSelect?.();
+            }}
+          >
+            <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center [&>svg]:h-3.5 [&>svg]:w-3.5">
+              {item.icon}
+            </span>
+            {item.sub ? (
+              <span className="flex min-w-0 flex-col">
+                <span>{item.label}</span>
+                <span className={`${VIZ_TYPE.label} font-normal text-muted-foreground`}>{item.sub}</span>
+              </span>
+            ) : (
+              item.label
+            )}
+          </button>
+        </li>
+      ))}
+    </>
   );
 }

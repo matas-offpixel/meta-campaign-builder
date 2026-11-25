@@ -13,6 +13,7 @@ import "server-only";
 import { createServiceRoleClient } from "@/lib/supabase/server";
 import { isOperator, MATAS_USER_IDS } from "@/lib/auth/operator-allowlist";
 import { createActionLogger } from "./action-log";
+import { realDraftDeps } from "./draft-deps";
 import { realReaders } from "./readers";
 import { createSupabaseStore, devMemoryStore, type McpStore } from "./oauth/store";
 import type { McpHandlerDeps } from "./server";
@@ -38,6 +39,7 @@ export function mcpHandlerDeps(): McpHandlerDeps {
     logDb: devStore ? null : db,
     logger: createActionLogger(devStore ? null : db),
     readers: realReaders,
+    draft: realDraftDeps(db),
   };
 }
 

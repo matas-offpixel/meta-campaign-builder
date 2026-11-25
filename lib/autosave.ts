@@ -170,6 +170,13 @@ function migrateAsset(raw: Partial<Asset>): Asset {
     assetHash: raw.assetHash,
     videoId: raw.videoId,
     registryAssetId: raw.registryAssetId,
+    // The Drive picker's slot fields (G5): kept, so a reload neither loses the
+    // Storage copy nor adds the same Drive file twice.
+    ...(raw.fileName ? { fileName: raw.fileName } : {}),
+    ...(raw.storagePath ? { storagePath: raw.storagePath } : {}),
+    ...(raw.storageBucket ? { storageBucket: raw.storageBucket } : {}),
+    ...(raw.driveFileId ? { driveFileId: raw.driveFileId } : {}),
+    ...(raw.sourceLabel ? { sourceLabel: raw.sourceLabel } : {}),
     uploadStatus: raw.uploadStatus ?? "pending",
     error: raw.error,
   };

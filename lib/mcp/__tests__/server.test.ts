@@ -11,6 +11,9 @@ import {
   tokenResponse,
 } from "../oauth/http.ts";
 import { resetMemoryRateLimit } from "../rate-limit.ts";
+import { DRAFT_TOOLS, READ_TOOLS } from "../tools/index.ts";
+import { D_DRAFT, UPDATED, draftTables, fakeDraftDeps, newSpies } from "./draft-fixtures.ts";
+import { migrateDraft } from "../../autosave.ts";
 import { fakeDb } from "./fake-db.ts";
 import { NOW, fakeReaders, tables } from "./fixtures.ts";
 import { OPERATOR, ORIGIN, STAFF, connect, makeDeps } from "./helpers.ts";
@@ -122,9 +125,10 @@ test("full path: initialize → tools/list (all readOnlyHint) → tools/call, lo
 
   const list = await (await handleMcpRequest(rpc("tools/list", {}, tokens.access_token), deps)).json();
   const tools = list.result.tools as Array<{ name: string; annotations: Record<string, boolean>; description: string }>;
-  assert.equal(tools.length, 8);
+  assert.equal(tools.length, 16, "a read-only grant still lists the draft tools (calling one asks for the step-up)");
+  const readNames = new Set(READ_TOOLS.map((t) => t.name));
   for (const t of tools) {
-    assert.equal(t.annotations.readOnlyHint, true, t.name);
+    assert.equal(t.annotations.readOnlyHint, readNames.has(t.name) || t.name === "list_drive_creatives", t.name);
     assert.equal(t.annotations.destructiveHint, false, t.name);
   }
 
@@ -179,4 +183,86 @@ test("rate limit: 60 calls a minute per grant, then 429", async () => {
   let last = 0;
   for (let i = 0; i < 61; i++) last = (await handleMcpRequest(rpc("tools/list", {}, tokens.access_token), deps)).status;
   assert.equal(last, 429);
+});
+
+function draftSetup() {
+  const flow = makeDeps(new Set([OPERATOR, STAFF]));
+  const db = fakeDb(draftTables());
+  const lines: string[] = [];
+  const deps: McpHandlerDeps = {
+    ...flow,
+    env: ON,
+    now: () => NOW,
+    db,
+    logDb: db,
+    logger: createActionLogger(db, (l) => lines.push(l)),
+    readers: { ...fakeReaders, migrateDraft: (raw) => migrateDraft(raw) as unknown as Record<string, unknown> },
+    isMatas: (id) => id === OPERATOR,
+    draft: fakeDraftDeps(newSpies()),
+  };
+  return { flow, db, deps, lines };
+}
+
+test("scope: a read-only grant gets 403 insufficient_scope with the step-up challenge on every M2 tool; its reads keep working", async () => {
+  resetMemoryRateLimit();
+  const { deps, flow, db } = draftSetup();
+  const { tokens } = await connect(flow);
+  assert.equal(tokens.scope, "mcp:read");
+  for (const tool of DRAFT_TOOLS) {
+    const res = await handleMcpRequest(rpc("tools/call", { name: tool.name, arguments: { draft_id: D_DRAFT, updated_at: UPDATED } }, tokens.access_token), deps);
+    assert.equal(res.status, 403, tool.name);
+    assert.deepEqual(await res.json(), { error: "insufficient_scope" });
+    const challenge = res.headers.get("www-authenticate") ?? "";
+    assert.match(challenge, /error="insufficient_scope"/);
+    assert.match(challenge, /scope="mcp:read mcp:draft"/);
+    assert.match(challenge, /resource_metadata="/);
+  }
+  // Nothing written but the refusals in the log, one per call.
+  assert.deepEqual([...new Set(db.writes.map((w) => w.table))], ["mcp_actions"]);
+  const refusals = db.writes.map((w) => (w.rows as Array<Record<string, unknown>>)[0]!);
+  assert.equal(refusals.length, DRAFT_TOOLS.length);
+  for (const r of refusals) assert.deepEqual([r.kind, r.status, r.error], ["draft", "failed", "insufficient_scope"]);
+  // Reads still work on the same token.
+  const read = await handleMcpRequest(rpc("tools/call", { name: "get_draft", arguments: { id: D_DRAFT } }, tokens.access_token), deps);
+  assert.equal(read.status, 200);
+  assert.equal((await read.json()).result.isError, false);
+});
+
+test("a draft grant (mcp:read mcp:draft) runs a draft tool: one mcp_actions row, kind draft, done, before → after, no token", async () => {
+  resetMemoryRateLimit();
+  const { deps, flow, db, lines } = draftSetup();
+  const { tokens } = await connect(flow, OPERATOR, undefined, "mcp:read mcp:draft");
+  assert.equal(tokens.scope, "mcp:read mcp:draft");
+  const call = await (
+    await handleMcpRequest(
+      rpc("tools/call", { name: "set_draft_budget", arguments: { draft_id: D_DRAFT, updated_at: UPDATED, type: "daily", amount_gbp: 20, start: "2026-12-01" } }, tokens.access_token),
+      deps,
+    )
+  ).json();
+  assert.equal(call.result.isError, false);
+  const data = JSON.parse(call.result.content[0].text);
+  assert.equal(data.perDayGbp, 20);
+  assert.equal(data.launchChecks.status, "not available yet");
+  // A stale updated_at is a failed row with the reason.
+  const stale = await (
+    await handleMcpRequest(
+      rpc("tools/call", { name: "set_draft_budget", arguments: { draft_id: D_DRAFT, updated_at: UPDATED, type: "daily", amount_gbp: 30, start: "2026-12-01" } }, tokens.access_token),
+      deps,
+    )
+  ).json();
+  assert.equal(stale.result.isError, true);
+  assert.match(JSON.parse(stale.result.content[0].text).error, /changed since you read it/);
+  const logged = db.writes.filter((w) => w.table === "mcp_actions").map((w) => (w.rows as Array<Record<string, unknown>>)[0]!);
+  assert.deepEqual(logged.map((r) => [r.tool, r.kind, r.status]), [
+    ["set_draft_budget", "draft", "done"],
+    ["set_draft_budget", "draft", "failed"],
+  ]);
+  const result = logged[0]!.result as Record<string, unknown>;
+  assert.equal(result.draftId, D_DRAFT);
+  assert.deepEqual((result.after as Record<string, unknown>).amount, 20);
+  assert.equal((logged[1]!.result as Record<string, unknown>).refused, "changed_since_read");
+  const everything = JSON.stringify(db.writes) + lines.join("\n");
+  for (const secret of [tokens.access_token, tokens.refresh_token]) assert.equal(everything.includes(secret), false);
+  // Only campaign_drafts and the log were written.
+  assert.deepEqual([...new Set(db.writes.map((w) => w.table))].sort(), ["campaign_drafts", "mcp_actions"]);
 });

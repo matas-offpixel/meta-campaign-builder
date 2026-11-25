@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import Link from "next/link";
 import { AlertTriangle, ChevronDown, ChevronRight } from "lucide-react";
+import { CampaignTree } from "@/components/campaign-tree/campaign-tree";
 import { AutomationArmControl } from "@/components/optimisation/automation-arm-control";
 import { PostLaunchControls } from "@/components/optimisation/post-launch-controls";
 import { Datum } from "@/components/steps/step-surface";
@@ -583,7 +584,28 @@ function ArmedCampaignTable({
   );
 }
 
+/**
+ * On an event (`eventId` set), the event's campaign tree (R7, RC6) sits above
+ * the list. It's mounted here because the Campaigns tab's own file
+ * (components/dashboard/events/event-detail.tsx) is in open Cursor PR #1160 (RC15);
+ * TODO(#1160): it moves to its own section once that is merged or closed.
+ */
 export function ArmedCampaignList({
+  eventId,
+  onCount,
+}: {
+  eventId?: string;
+  onCount?: (count: number) => void;
+}) {
+  return (
+    <>
+      {eventId ? <CampaignTree eventId={eventId} /> : null}
+      <ArmedCampaignListBody eventId={eventId} onCount={onCount} />
+    </>
+  );
+}
+
+function ArmedCampaignListBody({
   eventId,
   onCount,
 }: {

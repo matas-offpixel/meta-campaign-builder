@@ -1387,6 +1387,25 @@ export interface CampaignSettings {
    * Advantage+ Placements (unchanged pre-existing behavior — see task #117).
    */
   placementConfig?: PlacementConfig;
+
+  /**
+   * Pre-launch check state (`lib/launch-guard`, record RC3). `keptLinks`
+   * is "Keep this link" (ruling b): the link warning stays clear for a
+   * link while the ad's link equals the stored url. Stored in draft_json
+   * only, no column.
+   */
+  launchGuard?: {
+    keptLinks?: Array<{ url: string; keptBy: string; keptAt: string }>;
+    /**
+     * "Keep {draft page}" / "Keep @{handle}" (RC8, #1362): the live-ads
+     * warning stays clear for that field while the draft's page or
+     * Instagram equals the kept id.
+     */
+    keptIdentity?: {
+      page?: { id: string; name: string | null; keptBy: string; keptAt: string };
+      instagram?: { id: string; name: string | null; keptBy: string; keptAt: string };
+    };
+  };
 }
 
 /**
@@ -1900,6 +1919,8 @@ export interface CampaignListItem {
   noEvent?: boolean;
   /** Client (or the event's client) is archived: listed under Archived only. */
   clientArchived?: boolean;
+  /** campaign_drafts.event_id: the published menu's Duplicate keeps it, and the stage actions open its tree. */
+  eventId?: string | null;
 }
 
 // ─── Wizard state ───
