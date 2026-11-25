@@ -504,13 +504,19 @@ export function replicateDraft(
   const place = clean(venue?.name) || clean(event.venue_name) || code;
   const changes: ReplicateChange[] = [];
 
-  // Event, client, code, name.
-  const settings = applyEventToCampaignSettings(source.settings, {
-    id: event.id,
-    event_code: event.event_code,
-    client_id: event.client_id,
-  });
+  // Event, client, code, name. replaceEventCodePrefix swaps the name's [CODE]
+  // only when the stored campaignCode agrees with it, and a draft can store a
+  // short code ("DOD") under a name written for its event ("[NX26-DOD] DOD -
+  // On sale"); the copy then kept the source's code (#1372). The name was
+  // written for the source event, so its code is the current one. A
+  // hand-written prefix that isn't the source event's code is still kept.
   const sourceCode = clean(sourceEvent?.event_code) || clean(source.settings.campaignCode);
+  const named = applyEventToCampaignSettings(
+    { ...source.settings, campaignCode: sourceCode || source.settings.campaignCode },
+    { id: event.id, event_code: event.event_code, client_id: event.client_id },
+  );
+  // A target with no code keeps the stored code, as applyEventToCampaignSettings does.
+  const settings = code ? named : { ...named, campaignCode: source.settings.campaignCode };
   if ((source.settings.eventId ?? "") !== event.id) {
     const fill = { code, venue: place };
     changes.push(

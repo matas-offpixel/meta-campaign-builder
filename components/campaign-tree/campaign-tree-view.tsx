@@ -2,6 +2,7 @@
 
 import { Copy, ExternalLink, Files, Pencil } from "lucide-react";
 
+import { keepCounts } from "@/components/campaign-tree/keep-counts";
 import { Button } from "@/components/ui/button";
 import { OverflowMenu, type OverflowMenuItem } from "@/components/viz/overflow-menu";
 import { isTreeStage, type TreeCampaignView, type TreeStage, type TreeView } from "@/lib/campaign-tree/tree";
@@ -52,7 +53,7 @@ function CampaignRow({ c, menu }: { c: TreeCampaignView; menu?: OverflowMenuItem
               {TREE_WORDS["tree.master"]}
             </span>
           ) : null}
-          <span className={c.status === "paused" ? "text-warning-foreground" : "text-muted-foreground"}> · {c.meta}</span>
+          <span className={c.status === "paused" ? "text-warning-foreground" : "text-muted-foreground"}> · {keepCounts(c.meta)}</span>
           {c.noDraft ? <span className="block text-[12px] text-muted-foreground">{c.noDraft}</span> : null}
         </p>
         {menu && menu.some((item) => !item.hidden) ? <OverflowMenu items={menu} /> : null}
@@ -62,7 +63,7 @@ function CampaignRow({ c, menu }: { c: TreeCampaignView; menu?: OverflowMenuItem
           {c.additions.map((a) => (
             <li key={a.id} data-tree-addition={a.id} className="text-[12.5px]">
               <span className="font-medium text-foreground">{a.head}</span>
-              <span className="text-muted-foreground"> {a.line}</span>
+              <span className="text-muted-foreground"> {keepCounts(a.line)}</span>
               {a.refresh ? <span className="text-muted-foreground"> · {a.refresh}</span> : null}
             </li>
           ))}

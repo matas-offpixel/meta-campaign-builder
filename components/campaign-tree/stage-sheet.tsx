@@ -2,6 +2,7 @@
 
 import { useState, type ReactNode } from "react";
 
+import { keepCounts } from "@/components/campaign-tree/keep-counts";
 import { Button } from "@/components/ui/button";
 import {
   SHEET_AD_SETS_SHOWN,
@@ -110,7 +111,7 @@ export function StageSheetPanel({
                 />
                 <span className="min-w-0 break-words">
                   <span className="font-semibold text-foreground">{c.name}</span>
-                  <span className="text-muted-foreground"> · {sheetCampaignLine(c, selection)}</span>
+                  <span className="text-muted-foreground"> · {keepCounts(sheetCampaignLine(c, selection))}</span>
                 </span>
               </label>
               {showAdSets && c.adSets.length > 0 ? (

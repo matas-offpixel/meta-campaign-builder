@@ -102,15 +102,15 @@ export function ReplicatePickPanel({
               <button
                 type="button"
                 onClick={() => onPick(e.id)}
-                className={`flex w-full flex-col gap-0.5 px-3 py-2 text-left sm:flex-row sm:items-baseline sm:gap-3 ${
+                className={`flex w-full flex-col gap-0.5 px-3 py-2 text-left sm:flex-row sm:flex-wrap sm:items-baseline sm:justify-between sm:gap-x-3 ${
                   on ? "bg-primary-light" : "hover:bg-muted"
                 }`}
               >
                 <span className="flex min-w-0 items-baseline gap-2">
-                  <span className="truncate text-sm font-semibold text-foreground">{e.name ?? e.code}</span>
+                  <span className="break-words text-sm font-semibold text-foreground">{e.name ?? e.code}</span>
                   {e.code ? <span className="shrink-0 font-mono text-[11px] text-muted-foreground">{e.code}</span> : null}
                 </span>
-                <span className={`text-xs sm:ml-auto ${e.isSource ? "text-muted-foreground italic" : "text-muted-foreground"}`}>{eventLine(e)}</span>
+                <span className={`text-xs ${e.isSource ? "text-muted-foreground italic" : "text-muted-foreground"}`}>{eventLine(e)}</span>
               </button>
             </li>
           );

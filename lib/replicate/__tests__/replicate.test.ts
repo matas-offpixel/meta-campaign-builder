@@ -437,6 +437,43 @@ describe("replicateDraft: the Dates row, one word per end", () => {
   });
 });
 
+describe("replicateDraft: the name's [CODE] with a short stored code (#1372)", () => {
+  function named(campaignCode: string, campaignName: string) {
+    const source = glitterboxSignup([]);
+    source.settings = { ...source.settings, campaignCode, campaignName };
+    return replicateDraft(source, { event: NX27_GLITTERBOX, venue: NX_VENUE }, { sourceEvent: EBR27_GLITTERBOX, now: NOW, id: "x" });
+  }
+
+  it("short stored code: the target's [CODE] replaces the source's, and Step 2 shows the Name line", () => {
+    const result = named("SRC", "[EBR27-GLITTERBOX] SRC - On sale");
+    assert.equal(result.draft.settings.campaignName, "[NX27-GLITTERBOX] SRC - On sale");
+    assert.equal(result.draft.settings.campaignCode, "NX27-GLITTERBOX");
+    const name = result.changes.find((c) => c.field === "name");
+    assert.ok(name, "the Name change line shows");
+    assert.equal(name.text, "[NX27-GLITTERBOX] SRC - On sale (was [EBR27-GLITTERBOX] SRC - On sale)");
+  });
+
+  it("long stored code (the event's own): the [CODE] is replaced as before", () => {
+    const result = named("EBR27-GLITTERBOX", "[EBR27-GLITTERBOX] SRC - On sale");
+    assert.equal(result.draft.settings.campaignName, "[NX27-GLITTERBOX] SRC - On sale");
+    assert.equal(result.changes.find((c) => c.field === "name")?.text, "[NX27-GLITTERBOX] SRC - On sale (was [EBR27-GLITTERBOX] SRC - On sale)");
+  });
+
+  it("a hand-written prefix that isn't the source event's code is kept", () => {
+    const result = named("SRC", "[EBR26-OLDSHOW] SRC - On sale");
+    assert.equal(result.draft.settings.campaignName, "[EBR26-OLDSHOW] SRC - On sale");
+    assert.equal(result.changes.find((c) => c.field === "name"), undefined);
+  });
+
+  it("a target with no code keeps the stored code and the name", () => {
+    const source = glitterboxSignup([]);
+    source.settings = { ...source.settings, campaignCode: "SRC", campaignName: "[EBR27-GLITTERBOX] SRC - On sale" };
+    const result = replicateDraft(source, { event: { ...NX27_GLITTERBOX, event_code: null }, venue: NX_VENUE }, { sourceEvent: EBR27_GLITTERBOX, now: NOW, id: "x" });
+    assert.equal(result.draft.settings.campaignCode, "SRC");
+    assert.equal(result.draft.settings.campaignName, "[EBR27-GLITTERBOX] SRC - On sale");
+  });
+});
+
 describe("replicateDraft: one ad", () => {
   it("reads '· 1 ad' (replicate.change.link.one)", () => {
     const source = glitterboxSignup([]);
