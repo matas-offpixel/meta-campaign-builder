@@ -11,6 +11,7 @@ import {
 import { AssignCreatives } from "@/components/steps/assign-creatives";
 import { splitRotationOntoOwnAdSet } from "@/lib/wizard/split-rotation-adset";
 import { AudiencesStep } from "@/components/steps/audiences/audiences-step";
+import { AudiencesTabSwitch } from "@/components/audience-templates/audiences-tab-switch";
 import { BudgetSchedule } from "@/components/steps/budget-schedule";
 import { CampaignSetup } from "@/components/steps/campaign-setup";
 import { Creatives } from "@/components/steps/creatives";
@@ -317,6 +318,11 @@ export function MetaDrawer({
           ) : null}
 
           {tab === "f-audiences" ? (
+            <AudiencesTabSwitch
+              clientId={settings.clientId}
+              adAccountId={settings.metaAdAccountId || settings.adAccountId}
+              pixelId={settings.metaPixelId || settings.pixelId}
+            >
             <AudiencesStep
               surface="drawer"
               audiences={draft.audiences}
@@ -331,6 +337,7 @@ export function MetaDrawer({
               imported={draft.importMeta != null}
               adSetSuggestions={draft.adSetSuggestions}
             />
+            </AudiencesTabSwitch>
           ) : null}
 
           {tab === "f-creatives" ? (

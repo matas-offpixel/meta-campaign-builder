@@ -9,6 +9,8 @@ import {
   type AudienceListDirection,
 } from "@/lib/meta/adset-targeting-write";
 import { resolveServerMetaToken } from "@/lib/meta/server-token";
+import { additionWho, logCampaignAddition, type AdditionsDb } from "@/lib/campaign-tree/additions";
+import { isTreeStage, type TreeStage } from "@/lib/campaign-tree/tree";
 import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 
 const META_OBJECT_ID = /^[0-9]{5,32}$/;
@@ -22,6 +24,12 @@ interface PushBody {
   action?: string;
   adSetIds?: string[];
   commit?: boolean;
+  /**
+   * Set by the event's campaign tree (R7) "Add audience to…": the stage
+   * sheet's run. A committed add is logged in campaign_additions, one row per
+   * campaign and run. The draft must be on this event.
+   */
+  addition?: { eventId?: string; stage?: string; runId?: string };
 }
 
 function isUuid(value: string): boolean {
@@ -63,6 +71,14 @@ export async function POST(request: Request) {
     ? body.adSetIds.map((id) => String(id).trim()).filter(Boolean)
     : [];
   const commit = body.commit === true;
+  let addition: { eventId: string; stage: TreeStage; runId: string } | null = null;
+  if (body.addition !== undefined) {
+    const a = body.addition;
+    if (!a || !isUuid(a.eventId ?? "") || !isUuid(a.runId ?? "") || !isTreeStage(a.stage)) {
+      return Response.json({ error: "Invalid campaign tree run" }, { status: 400 });
+    }
+    addition = { eventId: a.eventId!, stage: a.stage, runId: a.runId! };
+  }
 
   if (!isUuid(draftId)) {
     return Response.json({ error: "draftId is required" }, { status: 400 });
@@ -95,6 +111,19 @@ export async function POST(request: Request) {
   }
   if (row.status !== "published") {
     return Response.json({ error: "Only a published campaign can be updated" }, { status: 400 });
+  }
+  if (addition && row.event_id !== addition.eventId) {
+    return Response.json({ error: "This campaign is not on that event" }, { status: 400 });
+  }
+  if (addition && (action !== "add" || direction !== "include")) {
+    return Response.json({ error: "The campaign tree only adds an included audience" }, { status: 400 });
+  }
+  if (addition && commit) {
+    // RC12: a tree run that can't be logged doesn't start.
+    const probe = await supabase.from("campaign_additions").select("id").limit(1);
+    if (probe.error) {
+      return Response.json({ error: "This run couldn't be logged", code: "log_unavailable" }, { status: 503 });
+    }
   }
   const draftJson = row.draft_json as { metaCampaignId?: unknown } | null;
   const campaignId =
@@ -168,7 +197,7 @@ export async function POST(request: Request) {
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : "Write ledger is unavailable";
-    return Response.json({ error: message }, { status: 503 });
+    return Response.json({ error: message, code: "log_unavailable" }, { status: 503 });
   }
 
   const results = await applyAdSetAudienceChanges({
@@ -176,5 +205,27 @@ export async function POST(request: Request) {
     writesEnabled: true,
     ledger,
   });
+
+  if (addition) {
+    // "noop" here means an earlier try of the same write is already on the ledger: the audience is on that ad set.
+    const landed = results.filter((r) => r.outcome === "written" || r.outcome === "noop").map((r) => r.adSetId);
+    const logged = await logCampaignAddition(supabase as unknown as AdditionsDb, {
+      userId: user.id,
+      eventId: addition.eventId,
+      stage: addition.stage,
+      metaCampaignId: campaignId,
+      metaAdSetIds: landed,
+      kind: "audience",
+      detail: {
+        runId: addition.runId,
+        audienceId,
+        audienceName,
+        direction: "include",
+        who: additionWho(user.user_metadata),
+        source: "campaign_tree",
+      },
+    });
+    if (!logged.ok) console.error(`[adset-audience] campaign_additions log failed for ${campaignId}: ${logged.error}`);
+  }
   return Response.json({ results });
 }

@@ -24,17 +24,25 @@ export const RATE_LIMIT_PER_MINUTE = 60;
 export const RATE_LIMIT_PER_HOUR = 600;
 
 /**
- * Scopes. M1 grants `mcp:read` only. `mcp:draft` (M2) is for operators;
- * `mcp:meta` (M3) and setting client spend ceilings are Matas only
- * (MATAS_USER_IDS, Matas's answer 24 Nov). Unknown scopes are refused;
+ * Scopes. `mcp:read` (M1) reads; `mcp:draft` (M2) changes campaign drafts in
+ * the app database only. Both are for OPERATOR_USER_IDS. `mcp:meta` (M3) and
+ * setting client spend ceilings are Matas only (MATAS_USER_IDS, Matas's
+ * answer 24 Nov) and are not issued yet. Unknown scopes are refused;
  * `offline_access` is accepted and ignored (refresh tokens are always issued).
+ *
+ * A grant made before M2 holds `mcp:read` only: its reads keep working, and
+ * a draft tool answers 403 insufficient_scope with
+ * `scope="mcp:read mcp:draft"`, which sends Claude to a fresh consent.
  *
  * M1 records no approvals: mcp_actions.approval_source ('claude_prompt' |
  * 'today') means nothing yet. M3's write tools are request-then-confirm on
  * the server, approved on Today; the design record before M3 decides it.
  */
 export const SCOPE_READ = "mcp:read";
-export const SCOPES_SUPPORTED: readonly string[] = [SCOPE_READ];
+export const SCOPE_DRAFT = "mcp:draft";
+export const SCOPES_SUPPORTED: readonly string[] = [SCOPE_READ, SCOPE_DRAFT];
+/** What the 401 challenge and the step-up 403 ask for: everything an operator may hold. */
+export const CHALLENGE_SCOPE = `${SCOPE_READ} ${SCOPE_DRAFT}`;
 export const IGNORED_SCOPES: readonly string[] = ["offline_access"];
 
 /** The one hosted callback Claude uses (claude.ai web, desktop, mobile, Cowork). */

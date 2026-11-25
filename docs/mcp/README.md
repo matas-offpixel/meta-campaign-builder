@@ -2,7 +2,7 @@
 
 The Off/Pixel MCP lets Claude read the app on your behalf, from the web or your phone. It uses the app's own Meta, TikTok and Google logins, so it also covers ad accounts the public Meta connector refuses.
 
-**M1 is read-only.** It never writes to Meta, TikTok, Google, Slack or D2C, and every call is logged.
+**M1 reads; M2 changes drafts.** Neither writes to Meta, TikTok, Google, Slack or D2C, and every call is logged. M2's draft tools change campaign drafts in the app (status draft only); nothing launches or spends.
 
 Plan: `scratch/mcp/mcp-v1-plan.md`.
 
@@ -22,7 +22,7 @@ You need all three of these:
 4. Press **Add**, then **Connect**. A window opens on `app.offpixel.co.uk/oauth/authorize`:
    - **If it asks you to sign in:** sign in to Off/Pixel (the password login works in that window). Then go back to Claude and press **Connect** again.
    - **Otherwise:** check it says **Connect Claude to Off/Pixel** with your email, then press **Allow**.
-5. You're back in Claude, and the connector shows as connected. Its eight tools are all marked read-only:
+5. You're back in Claude, and the connector shows as connected. Its eight read tools are marked read-only (the eight draft tools are below):
    - `morning_topline`
    - `list_events`
    - `get_event`
@@ -31,6 +31,25 @@ You need all three of these:
    - `get_drafts`
    - `get_draft`
    - `run_launch_checks` (says "not available yet" until #1361 merges)
+
+## Draft tools (M2)
+
+A connection made after M2 asks to **use** Off/Pixel, and the consent page says it can make, change and archive drafts that aren't published. A connection made before M2 can still read. The first time Claude calls a draft tool on it, the server answers `403 insufficient_scope` and Claude asks you to connect again: the page reads **Let Claude change drafts in Off/Pixel**. Cancelling keeps the read-only access. Allowing replaces it: once the new connection is issued, the read-only one is revoked, so the connector has one live grant. If that fails part way, the new connection is undone and Claude asks you to connect again.
+
+The eight draft tools (scope `mcp:draft`, operators):
+
+| Tool | What it does |
+|---|---|
+| `replicate_to_event` | Copies a draft (draft or published) to an upcoming event of the same client, as a new draft, re-deriving the event's account, pixel, link, dates and audiences. |
+| `set_draft_link` | Sets every ad's link (or some ads'). https only; warns when it isn't the event's signup page or ticket link. |
+| `set_draft_locations` | Adds a searched place, a pin or the Leeds preset; removes locations; tags tiers. Warns on Meta key 811209 (Leeds, Kent). The search is a Meta read. |
+| `set_draft_budget` | Daily or lifetime in GBP, start and end. Refuses a past start or an end before the start. Returns the per-day equivalent. |
+| `apply_audience_template` | Not available yet (waits on #1363). It will show Reused or Will be created and never create audiences. |
+| `list_drive_creatives` | One folder of the event's Drive tree: files with kind, aspect, size and whether each can be an ad. Reads only. |
+| `attach_drive_creatives` | Copies 9:16 Drive files into Storage and adds one ad each (the client's page by default). No Meta upload until launch. Refuses artist-voice copy until caption approvals exist. |
+| `archive_draft` | Moves a draft to the library's Archived tab. Unarchive there brings it back; nothing is deleted. |
+
+Every draft tool except `replicate_to_event` and `list_drive_creatives` takes the draft's `updated_at` from `get_draft`; a draft changed since then is refused. Published and archived drafts are read-only here. Each answer carries the launch checks ("not available yet" until #1361 merges).
 
 ## On your phone
 
@@ -78,8 +97,8 @@ Any one of these stops it:
 
 Every tool call is one `mcp_actions` row: the tool, its arguments with secrets stripped, the user, the duration, the result size and any error. No token is ever logged.
 
-**Later scopes:**
-- `mcp:draft` (M2) will be for operators.
+**Scopes:**
+- `mcp:read` (M1) and `mcp:draft` (M2) are for operators.
 - `mcp:meta` (M3: Meta writes) and setting client spend ceilings will be for `MATAS_USER_IDS` only.
 - M3 writes run request-then-confirm on the server: a write is stored as `requested` and runs only after you approve it on Today. The Claude prompt is never the record.
 
