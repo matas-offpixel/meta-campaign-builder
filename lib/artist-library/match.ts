@@ -13,13 +13,11 @@
  *   2. Otherwise the ad set name, unless it is only the campaign's own name
  *      (Ads Manager's quick create copies it down), which labels the
  *      campaign, not the creative.
- *   3. Otherwise no artist: on a one-act show it is that act's (backfill.ts
- *      oneActShows, matched_by event_artists); on a show with two or more
- *      acts it is the show's own (the general bucket).
+ *   3. Otherwise no artist: the ad is the show's own (the general bucket).
  *
  * A name inside a longer name of another artist on the roster gives way to
- * the longer one. The campaign name and tag assignments never make an ad an
- * artist's, and neither does a shared bill. Lab clips and renders keep their
+ * the longer one. The campaign name, tag assignments and "the artist is on
+ * the bill" never make an ad an artist's. Lab clips and renders keep their
  * own owner link (backfill.ts).
  *
  * Stage is the tree's (RC14, stageOfCampaign over the campaign name and

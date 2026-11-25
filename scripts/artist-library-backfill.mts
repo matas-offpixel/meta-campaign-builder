@@ -25,8 +25,8 @@
  * suggested owner (suggest.ts; proposals only, never written), and prints
  * them grouped by client × suggested owner. --compare-held PATH (an older
  * held TSV, artist in column 1) prints held files before → after per artist.
- * The general bucket (ads naming no artist on a show with two or more
- * linked acts) is printed per show; on a one-act show they are the act's.
+ * The general bucket (ads on a billed show that name no artist) is printed
+ * per show.
  */
 import { readFileSync, writeFileSync } from "node:fs";
 
@@ -149,7 +149,7 @@ console.log(`\n${plans.length} artists · ${totalRows} rows planned`);
 
 // ─── The general bucket: ads on a billed show that name no artist ──────────
 const general = planGeneral(inputs);
-console.log(`\ngeneral bucket (ads naming no artist, on shows with two or more acts; a one-act show's go to its act): ${general.reduce((s, g) => s + g.ads, 0)} ads on ${general.length} shows`);
+console.log(`\ngeneral bucket (ads naming no artist, on shows with a bill): ${general.reduce((s, g) => s + g.ads, 0)} ads on ${general.length} shows`);
 for (const g of general.slice(0, only.length ? general.length : 15)) {
   if (only.length && !plans.some((p) => inputs.links.some((l) => l.artist_id === p.artist.id && l.event_id === g.eventId))) continue;
   const top = [...g.files].sort((a, b) => b[1] - a[1]).slice(0, 4).map(([f, n]) => `${f} (${n})`).join(" · ");
@@ -174,12 +174,6 @@ if (only.length) {
     const byName = new Map<string, number>();
     for (const r of removals) byName.set(`${(r.name ?? r.asset_key).trim()} · ${r.kind}${r.shareable ? " · shareable" : ""}`, (byName.get(`${(r.name ?? r.asset_key).trim()} · ${r.kind}${r.shareable ? " · shareable" : ""}`) ?? 0) + 1);
     for (const [name, n] of [...byName].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))) console.log(`    − ${name} × ${n}`);
-    const added = new Map<string, number>();
-    for (const r of plan.rows.filter((row) => !storedKeys.has(row.asset_key))) {
-      const k = `${(r.name ?? r.asset_key).trim()} · ${r.kind} · ${r.matched_by}${r.shareable ? " · shareable" : ""}`;
-      added.set(k, (added.get(k) ?? 0) + 1);
-    }
-    for (const [name, n] of [...added].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))) console.log(`    + ${name} × ${n}`);
   }
 }
 

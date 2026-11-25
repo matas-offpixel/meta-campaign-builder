@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { ALIASES, type AliasEntry } from "../aliases.ts";
-import { adEvent, campaignEvents, oneActShows, planArtistAssets, planGeneral, planRemovals, summariseAds, type BackfillInputs, type StoredAsset } from "../backfill.ts";
+import { adEvent, campaignEvents, planArtistAssets, planGeneral, planRemovals, summariseAds, type BackfillInputs, type StoredAsset } from "../backfill.ts";
 import { artistsNamedIn, artistsOfAd, buildRoster, codeInName, hasFullName, isClipIdentity, kindFromAd, rankedStageOf } from "../match.ts";
 import { SOURCE_MAP, type SourceEntry } from "../source-map.ts";
 import { creativeName, heldNoSourceFiles, suggestOwner } from "../suggest.ts";
@@ -235,44 +235,12 @@ describe("shared shows (Matas, 25 Nov)", () => {
     for (const key of luke) if (key.startsWith("ad:")) assert.ok(!enzo.has(key), key);
   });
 
-  it("an ad naming another act in an ad set named for the headliner is the act's, even on the headliner's one-act show", () => {
+  it("an ad naming another act in an ad set named for the headliner is the act's", () => {
     const i = inputs();
     const enzo = new Set(planArtistAssets(i, ENZO).rows.map((r) => r.asset_key));
-    assert.ok(!enzo.has("ad:ad-banana"));
+    assert.ok(!enzo.has("ad:ad-banana") && !enzo.has("ad:ad-lili"));
     assert.ok(planArtistAssets(i, { id: "lib-banana", name: "Dr Banana" }).rows.some((r) => r.asset_key === "ad:ad-banana"));
-  });
-
-  it("on a one-act show an ad naming no artist is that act's (event_artists, held); on a two-act show it stays general", () => {
-    const i = inputs();
-    assert.deepEqual([...oneActShows(i.links)], [["e-nx", "lib-enzo"]]);
-    const lili = planArtistAssets(i, ENZO).rows.find((r) => r.asset_key === "ad:ad-lili")!;
-    assert.deepEqual([lili.matched_by, lili.owner_kind, lili.shareable, lili.held_reason, lili.source_client_id], ["event_artists", "promoter", false, "filmed", "c-electric"]);
-    assert.ok(!planGeneral(i).some((g) => g.code === "NX26-ENZO"), "a one-act show has no general bucket");
-    const luke = new Set(planArtistAssets(i, { id: "lib-luke", name: "Luke Dean" }).rows.map((r) => r.asset_key));
-    assert.ok(!luke.has("ad:ad-lili"), "another artist never gets a one-act show's ads");
-    assert.ok(!luke.has("ad:ad-general") && !planArtistAssets(i, ENZO).rows.some((r) => r.asset_key === "ad:ad-general"), "P26-BDAY has two acts");
-    assert.equal(planGeneral(i).find((g) => g.code === "P26-BDAY")!.files.get("Puzzle - Lineup Video"), 1);
-  });
-
-  it("a second act linked later takes the show's unnamed ads off the first, back to the general bucket", () => {
-    const i = inputs();
-    i.links = [...i.links, { event_id: "e-nx", artist_id: "lib-banana" }];
-    assert.ok(!oneActShows(i.links).has("e-nx"));
-    assert.ok(!planArtistAssets(i, ENZO).rows.some((r) => r.asset_key === "ad:ad-lili"));
-    assert.ok(!planArtistAssets(i, { id: "lib-banana", name: "Dr Banana" }).rows.some((r) => r.asset_key === "ad:ad-lili"));
-    assert.equal(planGeneral(i).find((g) => g.code === "NX26-ENZO")!.files.get("LILI"), 1);
-    const stored: StoredAsset = { id: "s-lili", artist_id: ENZO.id, asset_key: "ad:ad-lili", name: "LILI", kind: "clip", shareable: false, drive_file_id: null };
-    assert.deepEqual(planRemovals([stored], planArtistAssets(i, ENZO), i.sources).map((r) => r.asset_key), ["ad:ad-lili"], "a re-apply removes it");
-  });
-
-  it("the one-act rule leaves Lab ads and source-map ads as they were", () => {
-    const one = planArtistAssets(inputs([MAPPED]), ENZO).rows;
-    const i = inputs([MAPPED]);
-    i.links = [...i.links, { event_id: "e-nx", artist_id: "lib-banana" }];
-    const two = planArtistAssets(i, ENZO).rows;
-    const pick = (rows: typeof one) => JSON.stringify(rows.filter((r) => r.matched_by === "lab" || r.matched_by === "drive" || r.drive_file_id).sort((a, b) => a.asset_key.localeCompare(b.asset_key)));
-    assert.equal(pick(one), pick(two));
-    assert.equal(one.find((r) => r.asset_key === "ad:ad-map")!.matched_by, "ad_name");
+    assert.equal(planGeneral(i).find((g) => g.code === "NX26-ENZO")!.files.get("LILI"), 1, "LILI names no one on the roster");
   });
 
   it("without the recorded alias, 'Enzo - …' ads are the show's own", () => {
@@ -288,7 +256,7 @@ describe("re-applying for an artist (planRemovals)", () => {
   it("removes the rows the new plan no longer gives the artist, and only those", () => {
     const plan = planArtistAssets(inputs([MAPPED]), ENZO);
     const rows = [stored("ad:ad-ugc"), stored("ad:ad-banana"), stored("ad:ad-lili"), stored("ad:ad-other"), stored("clip:clip-gone"), stored("render:r-gone")];
-    assert.deepEqual(planRemovals(rows, plan, [MAPPED]).map((r) => r.asset_key).sort(), ["ad:ad-banana", "ad:ad-other", "clip:clip-gone", "render:r-gone"], "LILI stays: unnamed, on Enzo's one-act show");
+    assert.deepEqual(planRemovals(rows, plan, [MAPPED]).map((r) => r.asset_key).sort(), ["ad:ad-banana", "ad:ad-lili", "ad:ad-other", "clip:clip-gone", "render:r-gone"]);
   });
 
   it("never removes a row of a file the source map makes shareable, a Drive drop, or another artist's row", () => {

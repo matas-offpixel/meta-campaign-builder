@@ -10,11 +10,8 @@
  *     ads keep their own show and client;
  *   - ads matched to the artist (match.ts): a Lab render's ads take its
  *     rights; an ad whose ad name (or ad set name) names the artist is the
- *     client's (held). An ad naming no artist goes to the act of a one-act
- *     show (exactly one artist in event_artists, any source; matched_by
- *     event_artists, held like any client ad). On a show with two or more
- *     acts it is the show's own (the general bucket, planGeneral), never
- *     every artist on the bill.
+ *     client's (held). An ad naming no artist is its show's own (the
+ *     general bucket, planGeneral), never every artist on the bill.
  * Spend and results are never stored: readers take them from
  * ad_daily_insights by meta_ad_id. Archived clients are left out.
  *
@@ -109,20 +106,6 @@ export function adNamesIndex(inputs: BackfillInputs) {
     rosterCache.set(inputs, hit);
   }
   return hit;
-}
-
-/**
- * One-act shows: the event's only linked artist (event_artists, every
- * source counted). Matas, 25 Nov: on such a show an ad naming no artist is
- * that act's. A second linked artist ends it: the show's unnamed ads go
- * back to the general bucket.
- */
-export function oneActShows(links: readonly { event_id: string; artist_id: string }[]): Map<string, string> {
-  const acts = new Map<string, Set<string>>();
-  for (const l of links) (acts.get(l.event_id) ?? acts.set(l.event_id, new Set()).get(l.event_id)!).add(l.artist_id);
-  const out = new Map<string, string>();
-  for (const [eventId, ids] of acts) if (ids.size === 1) out.set(eventId, [...ids][0]!);
-  return out;
 }
 
 /** The Meta ads a Lab round launched, by render: these keep the render's owner link. */
@@ -267,7 +250,6 @@ export function planArtistAssets(inputs: BackfillInputs, artist: { id: string; n
   const { byAd } = adNamesIndex(inputs);
   const clientNameOf = new Map(inputs.clients.map((c) => [c.id, c.name]));
   const names = artistNames(inputs, artist);
-  const oneAct = oneActShows(inputs.links);
   for (const ad of inputs.ads) {
     const context = adEvent(ad, inputs.context, linkedCampaigns, eventById);
     const renderId = renderOfAd.get(ad.meta_ad_id);
@@ -291,7 +273,7 @@ export function planArtistAssets(inputs: BackfillInputs, artist: { id: string; n
       continue;
     }
     const named = byAd.get(ad.meta_ad_id);
-    const byName: MatchedBy | null = named?.artistIds.includes(artist.id) ? "ad_name" : null;
+    const how: MatchedBy | null = named?.artistIds.includes(artist.id) ? "ad_name" : null;
     // An ad that ran a confirmed file: the footage's rights, the ad's own show and client.
     const code = context.eventId ? eventById.get(context.eventId)?.event_code ?? null : null;
     const ranFile = sourceOfAd(sources, ad, code, context.clientId ? clientNameOf.get(context.clientId) ?? null : null, () => names);
@@ -306,15 +288,13 @@ export function planArtistAssets(inputs: BackfillInputs, artist: { id: string; n
         meta_ad_id: ad.meta_ad_id,
         launched_ad_id: ledger?.id ?? null,
         material_at: ad.last_date,
-        matched_by: byName ?? "drive",
+        matched_by: how ?? "drive",
         ...withRights({ ownerKind: ranFile.ownerKind, shareable: true, heldReason: null, clientId: context.clientId }),
       });
       continue;
     }
-    // Naming no one on a one-act show: that act's (Matas, 25 Nov).
-    const how: MatchedBy | null = byName ?? (!named?.artistIds.length && context.eventId && oneAct.get(context.eventId) === artist.id ? "event_artists" : null);
     if (!how) continue;
-    if (byName && named?.field) namedIn.set(`ad:${ad.meta_ad_id}`, named.field);
+    if (named?.field) namedIn.set(`ad:${ad.meta_ad_id}`, named.field);
     const clientId = context.clientId;
     const kind = kindFromAd(ledger?.media_type, ad.ad_name);
     keep({
@@ -346,17 +326,15 @@ export interface GeneralBucket {
 }
 
 /**
- * The general bucket per show: every ad on a show with two or more linked
- * acts that names no artist in its ad or ad set name. Before this they went
- * to every artist on the bill; a one-act show's go to its act
- * (oneActShows). Not stored (artist_assets is per artist): the dry run
- * prints it.
+ * The general bucket per show: every ad on a show with a bill that names no
+ * artist in its ad or ad set name. Before this they went to every artist on
+ * the bill. Not stored (artist_assets is per artist): the dry run prints it.
  */
 export function planGeneral(inputs: BackfillInputs): GeneralBucket[] {
   const archived = new Set(inputs.clients.filter((c) => isArchivedClientStatus(c.status)).map((c) => c.id));
   const eventById = new Map(inputs.events.map((e) => [e.id, e]));
   const bill = new Map<string, number>();
-  for (const l of dedupeLinks(inputs.links)) bill.set(l.event_id, (bill.get(l.event_id) ?? 0) + 1);
+  for (const l of inputs.links) bill.set(l.event_id, (bill.get(l.event_id) ?? 0) + 1);
   const renderOfAd = labAdRenders(inputs);
   const linkedCampaigns = campaignEvents(inputs.events);
   const { byAd } = adNamesIndex(inputs);
@@ -367,7 +345,7 @@ export function planGeneral(inputs: BackfillInputs): GeneralBucket[] {
   for (const ad of inputs.ads) {
     if (renderOfAd.has(ad.meta_ad_id) || byAd.get(ad.meta_ad_id)?.artistIds.length) continue;
     const context = adEvent(ad, inputs.context, linkedCampaigns, eventById);
-    if (!context.eventId || (bill.get(context.eventId) ?? 0) < 2) continue;
+    if (!context.eventId || !bill.has(context.eventId)) continue;
     if (context.clientId && archived.has(context.clientId)) continue;
     const code = eventById.get(context.eventId)?.event_code ?? null;
     if (sourceOfAd(inputs.sources, ad, code, context.clientId ? clientNameOf.get(context.clientId) ?? null : null, namesOf)) continue;
@@ -378,10 +356,6 @@ export function planGeneral(inputs: BackfillInputs): GeneralBucket[] {
     b.files.set(file, (b.files.get(file) ?? 0) + 1);
   }
   return [...out.values()].sort((a, b) => b.ads - a.ads || String(a.code).localeCompare(String(b.code)));
-}
-
-function dedupeLinks<T extends { event_id: string; artist_id: string }>(links: readonly T[]): T[] {
-  return [...new Map(links.map((l) => [`${l.event_id}\u0000${l.artist_id}`, l])).values()];
 }
 
 /** A stored artist_assets row, as much as a removal needs. */
