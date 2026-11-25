@@ -2,17 +2,16 @@
  * lib/mcp/draft-deps.ts
  *
  * The real McpDraftDeps for the route. Not imported by tests (they pass
- * spies).
+ * spies; the network test runs lib/mcp/graph-reads.ts with a fetch spy).
  *
- *   - geoSearch: GET /api/meta/location-search's own logic, as a read: the
- *     operator's token through resolveServerMetaToken, the query through
- *     locationSearchQuery, Meta's answer through parseLocationSearchHits.
- *     One GET to Graph /search per call; nothing else on Meta.
+ *   - geoSearch / interestSearch / pagesForAccount: the location search,
+ *     the interest picker's search and the page picker's promote_pages list,
+ *     each a GET through lib/mcp/graph-reads.ts with the operator's token
+ *     (resolveServerMetaToken). Nothing else reaches Meta.
  *   - drive: the export Drive (driveFromEnv), reads and the picker's
  *     downloads only.
  *   - uploadFile / copyObject: the Drive picker copy route's Storage writes
  *     (campaign-assets bucket).
- *   - launchChecks / audienceTemplates: lib/mcp/pending-seams.ts.
  */
 import "server-only";
 import { randomUUID } from "node:crypto";
@@ -20,28 +19,24 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { uploadFileToStorageBucket } from "@/lib/clients/asset-queue/storage-upload";
 import { driveFromEnv } from "@/lib/drive/client";
 import { PICKER_BUCKET } from "@/lib/drive/picker";
-import { locationSearchQuery, parseLocationSearchHits } from "@/lib/meta/location-search";
 import { resolveServerMetaToken } from "@/lib/meta/server-token";
-import { PENDING_SEAMS } from "./pending-seams";
+import { listPromotePages, searchInterests, searchLocations, type FetchLike } from "./graph-reads";
 import type { McpDraftDeps } from "./tool-types";
 
 const API_VERSION = process.env.META_API_VERSION ?? "v21.0";
+const getOnly: FetchLike = (url, init) => globalThis.fetch(url, init);
 
 export function realDraftDeps(db: SupabaseClient): McpDraftDeps {
+  const token = async (userId: string) => (await resolveServerMetaToken(db, userId)).token;
   return {
     async geoSearch({ userId, query, types }) {
-      const { token } = await resolveServerMetaToken(db, userId);
-      const search = locationSearchQuery(query, types);
-      const url = new URL(`https://graph.facebook.com/${API_VERSION}/search`);
-      url.searchParams.set("access_token", token);
-      url.searchParams.set("type", search.type);
-      url.searchParams.set("q", search.q);
-      url.searchParams.set("location_types", search.location_types);
-      url.searchParams.set("limit", "15");
-      const res = await fetch(url.toString(), { method: "GET", cache: "no-store" });
-      const json = (await res.json().catch(() => ({}))) as { data?: unknown; error?: unknown };
-      if (!res.ok || json.error) throw new Error(`location search ${res.status}`);
-      return { hits: parseLocationSearchHits(json.data), metaGets: 1 };
+      return searchLocations(getOnly, API_VERSION, await token(userId), query, types);
+    },
+    async interestSearch({ userId, query }) {
+      return searchInterests(getOnly, API_VERSION, await token(userId), query);
+    },
+    async pagesForAccount({ userId, adAccountId }) {
+      return listPromotePages(getOnly, API_VERSION, await token(userId), adAccountId);
     },
     drive() {
       return driveFromEnv().drive;
@@ -54,8 +49,6 @@ export function realDraftDeps(db: SupabaseClient): McpDraftDeps {
       const copied = await db.storage.from(PICKER_BUCKET).copy(from, to);
       if (copied.error) throw new Error(copied.error.message);
     },
-    launchChecks: PENDING_SEAMS.launchChecks,
-    audienceTemplates: PENDING_SEAMS.audienceTemplates,
     newId: () => randomUUID(),
   };
 }

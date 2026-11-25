@@ -57,7 +57,7 @@ const INSTRUCTIONS = [
   "Shows are identified by event codes such as NX26-DOD. Start with morning_topline for the day, list_events to find a code, get_event for one show.",
   "Money is GBP. Phases: teaser, announced, presale, general sale (on sale), show week.",
   "The read tools only read. The draft tools change campaign drafts in the app (status draft only) and never Meta: nothing launches or spends.",
-  "Before a draft tool, call get_draft and pass its updatedAt as updated_at; every draft tool answers with the new updated_at and the launch checks.",
+  "Before a draft tool, call get_draft and pass its updatedAt as updated_at; every draft tool answers with the new updated_at and the launch checks. get_draft gives the ids the draft tools take (ads, ad sets, audience groups).",
 ].join(" ");
 
 function failedText(tool: McpTool): string {

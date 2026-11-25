@@ -64,10 +64,17 @@ export function summariseDraft(row: DraftRow, draft: Obj) {
     account: str(settings.adAccountId) ?? str(settings.metaAdAccountId) ?? row.ad_account_id,
     pixel: str(settings.pixelId) ?? str(settings.metaPixelId),
     page: str(settings.metaPageId),
+    instagram: str(settings.metaIGAccountId),
     campaignCode: str(settings.campaignCode),
     optimisationGoal: str(settings.optimisationGoal),
     links: links.map(hostOf),
     audiences: {
+      /** Every page, custom and interest group with its id, for set_draft_audiences and add_broad. */
+      groups: [
+        ...arr(audiences.pageGroups).map((g) => ({ kind: "page", id: str(g.id), name: str(g.name), size: countOf(g.pageIds) })),
+        ...arr(audiences.customAudienceGroups).map((g) => ({ kind: "custom", id: str(g.id), name: str(g.name), size: countOf(g.audienceIds) })),
+        ...arr(audiences.interestGroups).map((g) => ({ kind: "interest", id: str(g.id), name: str(g.name), size: countOf(g.interests) })),
+      ],
       pageGroups: names(arr(audiences.pageGroups)),
       customAudienceGroups: names(arr(audiences.customAudienceGroups)),
       interestGroups: names(arr(audiences.interestGroups)),
@@ -78,7 +85,11 @@ export function summariseDraft(row: DraftRow, draft: Obj) {
     creatives: {
       count: creatives.length,
       items: creatives.slice(0, 30).map((c) => ({
+        id: str(c.id),
         name: str(c.name),
+        page: str(obj(c.identity).pageId),
+        instagram: str(obj(c.identity).instagramAccountId),
+        primaryTexts: countOf(c.captions),
         mediaType: str(c.mediaType),
         headline: str(c.headline)?.slice(0, 120) ?? null,
         cta: str(c.cta),
@@ -111,7 +122,11 @@ export function summariseDraft(row: DraftRow, draft: Obj) {
       count: adSets.length,
       enabled: enabled.length,
       items: adSets.slice(0, 40).map((a) => ({
+        id: str(a.id),
         name: str(a.name),
+        sourceType: str(a.sourceType),
+        sourceGroupId: str(a.sourceId),
+        advantagePlus: a.advantagePlus === true,
         enabled: a.enabled !== false,
         dailyBudget: numOrNull(a.budgetPerDay),
         lifetimeBudget: numOrNull(a.budgetLifetime),

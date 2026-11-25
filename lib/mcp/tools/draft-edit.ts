@@ -4,8 +4,8 @@
  *
  * Each one is what the wizard does on the same field, through the same
  * helpers, saved with lib/mcp/drafts/write.ts (status draft only, guarded
- * on updated_at). After the write the launch checks run (#1361; "not
- * available yet" until it merges) and come back with the answer.
+ * on updated_at). After the write the launch checks run (runLaunchGuard)
+ * and come back with the answer.
  *
  *   - set_draft_link: every ad's destinationUrl, as the creative step's
  *     Link field sets it. https only. link_not_event's words (RC3) when the
@@ -22,6 +22,8 @@
  *     convertAdSetBudgetsOnTypeChange, as the Daily / Lifetime switch),
  *     amount, then Distribute's even split over enabled ad sets when budgets
  *     are on the ad sets; start and end as typed dates (source "operator").
+ *   - apply_audience_template: the Audience templates tab's Add to this
+ *     draft, Reused audiences only (lib/mcp/drafts/templates.ts).
  *   - archive_draft: the library's Archive (status column only); the
  *     library's Unarchive brings it back. Never deletes.
  */
@@ -36,10 +38,12 @@ import type { CampaignDraft, LocationSelection, LocationTargetingGroup, Location
 import { addLocationToEveryAdSet, adSetsTargetingLocation, convertAdSetBudgetsOnTypeChange, followLocationTiers } from "../../wizard/adset-suggestions.ts";
 import { mapExcludedLocations, mapLocationGroups, patchBudgetSchedule } from "../../wizard/budget-schedule-update.ts";
 import { ToolInputError, type McpTool, type ToolContext } from "../tool-types.ts";
-import { NOT_YET, changes, checksSummary, launchChecksFor, linkKey, requireDraftScope } from "../drafts/common.ts";
+import { changes, checksSummary, launchChecksFor, linkKey, requireDraftScope } from "../drafts/common.ts";
+import { APPLY_WORDS, addReusedToDraft, applySentences, loadTemplatesFor, templateGroupId } from "../drafts/templates.ts";
+import { followAudienceGroups, groupKey } from "../../wizard/follow-audience-groups.ts";
 import { archiveDraftRow, loadWritableDraft, saveDraft, type WritableDraft } from "../drafts/write.ts";
 
-const draftArgs = {
+export const draftArgs = {
   draft_id: z.string().uuid().describe("The draft's id (a UUID), from get_drafts."),
   updated_at: z.string().min(10).max(40).describe("The draft's updatedAt exactly as get_draft returned it. A draft changed since then is refused."),
 };
@@ -68,7 +72,7 @@ async function eventLinks(ctx: ToolContext, eventId: string | null | undefined):
   return res.data as EventLinks;
 }
 
-async function finish(
+export async function finish(
   ctx: ToolContext,
   loaded: WritableDraft,
   next: CampaignDraft,
@@ -355,14 +359,14 @@ const DAY = /^\d{4}-\d{2}-\d{2}$/;
 const DAY_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
 
 /** "2026-12-01" → "2026-12-01T00:00" (start) or "…T23:59" (end); "YYYY-MM-DDTHH:mm" as given. */
-function localOf(value: unknown, edge: "start" | "end"): string | null {
+export function localOf(value: unknown, edge: "start" | "end"): string | null {
   const s = typeof value === "string" ? value.trim() : "";
   if (DAY_TIME.test(s)) return s;
   if (DAY.test(s)) return `${s}T${edge === "start" ? "00:00" : "23:59"}`;
   return null;
 }
 
-const round2 = (n: number) => Math.round(n * 100) / 100;
+export const round2 = (n: number) => Math.round(n * 100) / 100;
 
 export const setDraftBudgetTool: McpTool = {
   name: "set_draft_budget",
@@ -462,15 +466,19 @@ export const setDraftBudgetTool: McpTool = {
 
 // ─── apply_audience_template ────────────────────────────────────────────────
 
+// SWITCH(#1375): once #1375 merges, replace addReusedToDraft below with its apply
+// (lib/audience-templates/apply.ts addTemplateToDraft) so this is the tab's own "Add to this draft".
+const addTemplate = addReusedToDraft;
+
 export const applyAudienceTemplateTool: McpTool = {
   name: "apply_audience_template",
-  title: "Apply an audience template to a draft",
+  title: "Add an audience template to a draft",
   kind: "draft",
   readOnly: false,
   idempotent: true,
   description: [
-    "Applies one of the client's audience templates to a draft, showing each audience as Reused (already in the ad account) or Will be created. It never creates audiences: that's Meta, at launch.",
-    `Not available yet: it answers "${NOT_YET}" until the audience templates (PR #1363) are merged, and changes nothing.`,
+    "Adds one of the client's audience templates to a draft, as the Audience templates tab's Add to this draft: the audiences already made in the draft's ad account go in by their Meta ids (one custom audience group and one interest group, both named after the template). Nothing is created and Meta isn't called.",
+    "The rest are left out and counted, in Meta audiences: not made yet, held in another account, or video viewers that need this show's videos. Ad sets for the template's groups are added at the + Blank ad set budget; set them with set_draft_ad_sets. A template Matas hasn't confirmed is refused. Adding twice changes nothing.",
     'Example: apply_audience_template({ draft_id: "3f2c…-uuid", updated_at: "2026-11-24T10:00:00.123+00:00", template: "Techno" }).',
   ].join(" "),
   inputSchema: {
@@ -478,22 +486,50 @@ export const applyAudienceTemplateTool: McpTool = {
     template: z.string().min(1).max(80).describe('The template\'s name, e.g. "Techno" or "House & disco".'),
   },
   async run(ctx, args) {
-    const deps = requireDraftScope(ctx);
+    requireDraftScope(ctx);
     const loaded = await loadWritableDraft(ctx, args.draft_id, args.updated_at);
+    const { draft } = loaded;
     const template = String(args.template ?? "").trim();
-    if (!deps.audienceTemplates) {
-      return {
-        data: { draft_id: loaded.row.id, updated_at: loaded.row.updated_at, available: false, status: NOT_YET, waitingOn: "PR #1363 (audience templates)", changed: false },
-        eventId: loaded.row.event_id,
-        clientId: loaded.row.client_id,
-        summary: { draftId: loaded.row.id, template, available: false, fieldsChanged: [] },
-      };
+    const clientId = draft.settings.clientId || loaded.row.client_id;
+    if (!clientId) throw new ToolInputError("This draft has no client, so it has no templates.", { draftId: loaded.row.id, refused: "no_client" });
+    const account = draft.settings.metaAdAccountId || draft.settings.adAccountId || loaded.row.ad_account_id || "";
+    const pixel = draft.settings.metaPixelId || draft.settings.pixelId || null;
+    const found = await loadTemplatesFor(ctx.db, { clientId, adAccount: account, pixelId: pixel });
+    const t = found.templates.find((x) => x.name.trim().toLowerCase() === template.toLowerCase());
+    if (!t) {
+      throw new ToolInputError(`No template called "${template}" for this client. Its templates: ${found.templates.map((x) => x.name).join(", ") || "none"}.`, {
+        draftId: loaded.row.id,
+        template,
+        refused: "unknown_template",
+      });
     }
-    const applied = await deps.audienceTemplates.apply(ctx.db, { draft: loaded.draft as unknown as Record<string, unknown>, template, userId: ctx.userId });
-    if ("error" in applied) throw new ToolInputError(applied.error, { draftId: loaded.row.id, template, refused: "template" });
-    return finish(ctx, loaded, applied.draft as unknown as CampaignDraft, () => ({
-      data: { template, reused: applied.reused, willBeCreated: applied.willBeCreated, note: "Audiences marked Will be created are made at launch, never here." },
-      summary: { template, fieldsChanged: ["audiences"], reused: applied.reused.length, willBeCreated: applied.willBeCreated.length },
+    if (!(t.confirmedBy && t.confirmedAt)) {
+      throw new ToolInputError(`${t.name}: ${APPLY_WORDS["templates.unconfirmed"]}. ${APPLY_WORDS["templates.unconfirmed.line"]}`, { draftId: loaded.row.id, template: t.name, refused: "unconfirmed" });
+    }
+    const resolved = found.resolve(t.name)!;
+    const out = addTemplate(draft.audiences, t.name, resolved);
+    const touched = new Set([groupKey("custom", templateGroupId(t.name)), groupKey("interest", templateGroupId(t.name))]);
+    const follow = followAudienceGroups(draft.adSetSuggestions, out.audiences, draft.budgetSchedule.locationGroups ?? [], draft.budgetSchedule, touched);
+    const next: CampaignDraft = { ...draft, audiences: out.audiences, adSetSuggestions: follow.adSets };
+    const draftName = draft.settings.campaignName || "this draft";
+    return finish(ctx, loaded, next, () => ({
+      data: {
+        template: t.name,
+        sentences: applySentences(out, t.name, draftName, found.accountName),
+        added: out.added,
+        newAudienceIds: out.newIds,
+        leftOut: out.leftOut,
+        adSetsAdded: follow.added.map((a) => ({ id: a.id, name: a.name, budget: a.budgetLifetime ?? a.budgetPerDay })),
+      },
+      summary: {
+        template: t.name,
+        fieldsChanged: out.newIds.length || out.newInterests ? ["audiences", ...(follow.added.length ? ["adSetSuggestions"] : [])] : [],
+        before: { customGroups: draft.audiences.customAudienceGroups.length, interestGroups: draft.audiences.interestGroups.length, adSets: draft.adSetSuggestions.length },
+        after: { customGroups: out.audiences.customAudienceGroups.length, interestGroups: out.audiences.interestGroups.length, adSets: follow.adSets.length },
+        added: out.added,
+        newAudienceIds: out.newIds,
+        leftOut: { notMade: out.leftOut.notMade, held: out.leftOut.held.reduce((s, h) => s + h.n, 0), needVideos: out.leftOut.needVideos },
+      },
     }));
   },
 };

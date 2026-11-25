@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef } from "react";
+import { assignAllCreatives } from "@/lib/wizard/assignments";
 import { Card, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -104,13 +105,8 @@ function AssignCreativesBody({
     onChange({ ...assignments, [adSetId]: next });
   };
 
-  const assignAll = () => {
-    const next: CreativeAssignmentMatrix = {};
-    enabledSets.forEach((s) => {
-      next[s.id] = creatives.map((c) => c.id);
-    });
-    onChange(next);
-  };
+  // The same matrix set_draft_ad_sets' assign_all writes (lib/wizard/assignments.ts).
+  const assignAll = () => onChange(assignAllCreatives(enabledSets, creatives));
 
   const clearAll = () => {
     const next: CreativeAssignmentMatrix = {};

@@ -33,7 +33,7 @@ import type {
   OptimisationStrategySettings,
   WizardMode,
 } from "@/lib/types";
-import { inferRulesObjectiveFromRules } from "@/lib/optimisation-rules";
+import { OBJECTIVE_LABELS, objectiveChangePatch, stampRulesObjective, suggestCampaignName } from "@/lib/wizard/objective-change";
 import type { MetaImportMeta } from "@/lib/meta/import/types";
 import { IMPORT_OBJECTIVE_NEW_CAMPAIGN_NOTICE } from "@/lib/wizard/import-edits";
 import { ATTACH_CAMPAIGN_CAP, CROSS_CAMPAIGN_ADSET_CAP } from "@/lib/types";
@@ -88,19 +88,6 @@ const OBJECTIVES: {
   { value: "engagement", label: "Engagement", sublabel: "Boost an existing post", icon: MessageSquare },
 ];
 
-const OBJECTIVE_LABELS: Record<CampaignObjective, string> = {
-  purchase: "Purchase",
-  initiate_checkout: "Initiate checkout",
-  registration: "Registration",
-  traffic: "Traffic",
-  awareness: "Awareness",
-  engagement: "Engagement",
-};
-
-function suggestCampaignName(code: string, objective: CampaignObjective): string {
-  if (!code) return "";
-  return `[${code}] ${OBJECTIVE_LABELS[objective]}`;
-}
 
 function pickerRowFromContext(event: EventWithClient): EventPickerRow {
   return {
@@ -245,30 +232,17 @@ export function CampaignSetup({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settings.objective]);
 
+  // The same change set_draft_objective makes (lib/wizard/objective-change.ts).
   const handleObjectiveChange = (objective: CampaignObjective) => {
-    const goals = OPTIMISATION_GOALS_BY_OBJECTIVE[objective];
-    const newGoal = goals[0]?.value ?? settings.optimisationGoal;
-    const patch: Partial<CampaignSettings> = { objective, optimisationGoal: newGoal };
-
-    if (settings.campaignCode && settings.campaignName === suggestCampaignName(settings.campaignCode, settings.objective)) {
-      patch.campaignName = suggestCampaignName(settings.campaignCode, objective);
-    }
-    update(patch);
+    update(objectiveChangePatch(settings, objective));
 
     // Record which objective the stored rules belong to. Do not regenerate
     // here — a custom ladder must not be overwritten, and the Optimisation
     // step is the place that offers to rebuild. The wizard ladder never
     // mounts both steps at once, so this is the only chance to stamp.
-    if (optimisationStrategy && onOptimisationStrategyChange) {
-      if (optimisationStrategy.rulesObjective == null) {
-        const writtenFor = inferRulesObjectiveFromRules(optimisationStrategy.rules);
-        if (writtenFor) {
-          onOptimisationStrategyChange({
-            ...optimisationStrategy,
-            rulesObjective: writtenFor,
-          });
-        }
-      }
+    if (onOptimisationStrategyChange) {
+      const stamped = stampRulesObjective(optimisationStrategy);
+      if (stamped) onOptimisationStrategyChange(stamped);
     }
   };
 

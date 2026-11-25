@@ -123,10 +123,10 @@ export const listDriveCreativesTool: McpTool = {
 
 // ─── attach_drive_creatives ─────────────────────────────────────────────────
 
-const norm = (s: string) => s.replace(/\s+/g, " ").trim().toLowerCase();
+export const norm = (s: string) => s.replace(/\s+/g, " ").trim().toLowerCase();
 
 /** The event's artist-voice captions (creative_lab_captions.style = 'artist_first_person'), normalised. */
-async function artistVoiceCaptions(ctx: ToolContext, eventId: string): Promise<string[]> {
+export async function artistVoiceCaptions(ctx: ToolContext, eventId: string): Promise<string[]> {
   const res = await ctx.db.from("creative_lab_captions").select("text, primary_text, style").eq("event_id", eventId).eq("style", "artist_first_person");
   if (res.error) throw new ToolInputError("The artist-voice captions couldn't be read, so copy can't be checked. Nothing was saved.", { refused: "voice_unreadable" });
   const out: string[] = [];

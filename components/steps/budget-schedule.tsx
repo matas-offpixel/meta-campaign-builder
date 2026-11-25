@@ -121,8 +121,8 @@ import {
   withLifetimeAdSetBudgets,
 } from "@/lib/wizard/import-edits";
 import {
-  createBlankAdSetSuggestion,
-  defaultBlankAdSetBudget,
+  appendBlankAdSet,
+  UK_NATIONWIDE_FALLBACK,
   findAdSetsExceedingBudgetShare,
   duplicateAdSetSuggestion,
   deleteAdSetSuggestion,
@@ -190,19 +190,7 @@ const PRESET_CONFIGS: LocationPresetConfig[] = [
 ];
 
 /** UK nationwide fallback (country-level, no API call needed) */
-const FALLBACK_UK_NATIONWIDE: LocationTargetingGroup = {
-  id: "preset_gb_nationwide",
-  label: "UK (nationwide)",
-  source: "preset",
-  selections: [{
-    id: "gb_nationwide_include",
-    source: "preset",
-    label: "United Kingdom",
-    mode: "include",
-    locationType: "country",
-    countryCode: "GB",
-  }],
-};
+const FALLBACK_UK_NATIONWIDE: LocationTargetingGroup = UK_NATIONWIDE_FALLBACK;
 
 // ─── Build a LocationSelection from a Meta search result ─────────────────────
 // This single function is used by BOTH manual search and preset resolution,
@@ -1439,19 +1427,9 @@ export function BudgetSchedule({
   const addBlankAdSet = () => {
     // task #122 (FIX 3) — never let a blank ad set default to a 0 daily
     // budget; Meta rejects ad set creation outright (subcode 1885272) if it
-    // does. See defaultBlankAdSetBudget's doc comment.
-    const budgetRows =
-      bs.budgetType === "lifetime"
-        ? adSetSuggestions.map((row) => ({ ...row, budgetPerDay: row.budgetLifetime ?? 0 }))
-        : adSetSuggestions;
-    const defaultBudget = defaultBlankAdSetBudget(budgetRows, bs.budgetAmount);
-    const blank = createBlankAdSetSuggestion(locationGroups, FALLBACK_UK_NATIONWIDE, defaultBudget);
-    onSuggestionsChange([
-      ...adSetSuggestions,
-      bs.budgetType === "lifetime"
-        ? { ...blank, budgetLifetime: blank.budgetPerDay, budgetPerDay: 0 }
-        : blank,
-    ]);
+    // does. See defaultBlankAdSetBudget's doc comment. Shared with the MCP's
+    // add_broad (appendBlankAdSet).
+    onSuggestionsChange(appendBlankAdSet(adSetSuggestions, bs, locationGroups));
   };
 
   // task #126 — objective-gated. Awareness still can't run Advantage+

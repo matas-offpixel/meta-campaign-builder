@@ -10,6 +10,7 @@ import type { DriveApi, DriveFile, DriveMediaFile } from "../../drive/client.ts"
 import type { LocationSearchHit } from "../../meta/location-search.ts";
 import type { CampaignDraft } from "../../types.ts";
 import type { McpDraftDeps, ToolContext } from "../tool-types.ts";
+import type { AccountPage, InterestHit } from "../graph-reads.ts";
 import { fakeDb } from "./fake-db.ts";
 import { CLIENT_NX, NOW, TODAY, fakeReaders, tables } from "./fixtures.ts";
 import { OPERATOR, STAFF } from "./helpers.ts";
@@ -141,6 +142,14 @@ export function draftTables() {
     ],
     event_artists: [],
     mcp_actions: [] as Array<Record<string, unknown>>,
+    // runLaunchGuard's reads (lib/launch-guard/load.ts).
+    artists: [] as Array<Record<string, unknown>>,
+    bm_ig_accounts: [] as Array<Record<string, unknown>>,
+    client_business_managers: [] as Array<Record<string, unknown>>,
+    campaign_plan_meta_launch: [] as Array<Record<string, unknown>>,
+    // apply_audience_template's reads.
+    audience_templates: [] as Array<Record<string, unknown>>,
+    audience_template_items: [] as Array<Record<string, unknown>>,
   };
 }
 
@@ -148,10 +157,35 @@ export function draftTables() {
 
 export interface Spies {
   geo: string[];
+  interests: string[];
+  pageLists: string[];
   drive: string[];
   uploads: string[];
   copies: Array<[string, string]>;
 }
+
+/** Meta's interest search, as the fake answers it. */
+export const INTEREST_HITS: Record<string, InterestHit[]> = {
+  "tech house": [
+    { id: "6003000000001", name: "Tech house", audienceSize: 9_000_000, path: ["Interests", "Music", "Tech house"] },
+    { id: "6003000000009", name: "Tech house music festivals" },
+  ],
+  disco: [{ id: "6003000000002", name: "Disco", audienceSize: 40_000_000 }],
+  "defected records": [{ id: "6003000000003", name: "Defected Records" }],
+  house: [
+    { id: "6003000000004", name: "House music" },
+    { id: "6003000000005", name: "House (TV series)" },
+  ],
+};
+
+export const EL_PAGE = "769954239540040";
+export const EL_IG = "17841400000000077";
+/** The pages NX_ACCOUNT can run ads from (promote_pages), as the fake answers it. */
+export const ACCOUNT_PAGES: AccountPage[] = [
+  { id: NX_PAGE, name: "NX Newcastle", instagramId: NX_IG },
+  { id: EL_PAGE, name: "Electric Studios", instagramId: EL_IG },
+  { id: "100064000000099", name: "No IG page", instagramId: null },
+];
 
 const HITS: Record<string, LocationSearchHit[]> = {
   leeds: [
@@ -234,6 +268,14 @@ export function fakeDraftDeps(spies: Spies, over: Partial<McpDraftDeps> = {}): M
       spies.geo.push(query);
       return { hits: HITS[query.trim().toLowerCase().split(",")[0]!] ?? [], metaGets: 1 };
     },
+    async interestSearch({ query }) {
+      spies.interests.push(query);
+      return { hits: INTEREST_HITS[query.trim().toLowerCase()] ?? [], metaGets: 1 };
+    },
+    async pagesForAccount({ adAccountId }) {
+      spies.pageLists.push(adAccountId);
+      return { pages: ACCOUNT_PAGES, metaGets: 1, truncated: false };
+    },
     drive: () => fakeDrive(spies),
     async uploadFile(storagePath) {
       spies.uploads.push(storagePath);
@@ -241,15 +283,13 @@ export function fakeDraftDeps(spies: Spies, over: Partial<McpDraftDeps> = {}): M
     async copyObject(from, to) {
       spies.copies.push([from, to]);
     },
-    launchChecks: null,
-    audienceTemplates: null,
     newId: () => `00000000-0000-4000-8000-${String(++seq).padStart(12, "0")}`,
     ...over,
   };
 }
 
 export function newSpies(): Spies {
-  return { geo: [], drive: [], uploads: [], copies: [] };
+  return { geo: [], interests: [], pageLists: [], drive: [], uploads: [], copies: [] };
 }
 
 export function draftCtx(over: Partial<ToolContext> = {}, spies = newSpies()) {
