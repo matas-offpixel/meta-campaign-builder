@@ -295,7 +295,7 @@ test("set_draft_audiences: an unclear interest lists its hits and saves nothing;
   const e = await refused(run(setDraftAudiencesTool, ctx, { changes: [{ add_interests: { group_id: "ig-c", interests: [{ search: "House" }] } }] }), /didn't give one clear interest/);
   assert.equal((e.data!.choices as Array<{ hits: unknown[] }>)[0]!.hits.length, 2);
   await refused(run(setDraftAudiencesTool, ctx, { changes: [{ add_custom: { audience_ids: ["238000000000999"], name: "X" } }] }), /aren't recorded as ready/);
-  await refused(run(setDraftAudiencesTool, ctx, { changes: [{ merge: { group_ids: ["ig-a", "pg-tech"], name: "X" } }] }), /Only interest groups merge/);
+  await refused(run(setDraftAudiencesTool, ctx, { changes: [{ merge: { group_ids: ["ig-a", "pg-tech"], name: "X" } }] }), /Only groups of one kind merge/);
   await refused(run(setDraftAudiencesTool, ctx, { changes: [{ remove: "nope" }] }), /no audience group nope/);
   assert.deepEqual(draftWrites(db), []);
   // With the id, the hit is picked.
@@ -481,3 +481,39 @@ test("the M2b tools reach out only through the interest search and the page list
 });
 
 void NX_IG;
+
+test("set_draft_audiences: custom groups merge into one (audience ids deduped); the first keeps its ad set, the others' go", async () => {
+  const { ctx, db } = draftCtx();
+  await shape(db, (d) => {
+    const audiences: AudienceSettings = {
+      ...AUDIENCES,
+      customAudienceGroups: [
+        { id: "custom:1", name: "Tech House", audienceIds: ["238000000000001", "238000000000002"], audienceNames: { "238000000000001": "TH FB" } },
+        { id: "custom:2", name: "Disco", audienceIds: ["238000000000002", "238000000000003"], audienceNames: { "238000000000003": "Disco IG" } },
+      ],
+    };
+    const rows = generateSuggestions(audiences, 0, d.budgetSchedule.locationGroups ?? [], UK_NATIONWIDE_FALLBACK).map((r) => ({ ...r, budgetPerDay: 9 }));
+    return { ...d, audiences, adSetSuggestions: rows };
+  });
+  const out = await run(setDraftAudiencesTool, ctx, { changes: [{ merge: { group_ids: ["custom:1", "custom:2"], name: "Crossover pages" } }] });
+  const after = await saved(db);
+  assert.deepEqual(after.audiences.customAudienceGroups.map((g) => [g.id, g.name, g.audienceIds]), [["custom:1", "Crossover pages", ["238000000000001", "238000000000002", "238000000000003"]]]);
+  assert.deepEqual(after.audiences.customAudienceGroups[0]!.audienceNames, { "238000000000001": "TH FB", "238000000000003": "Disco IG" });
+  assert.deepEqual(after.adSetSuggestions.filter((r) => r.sourceType === "custom_group").map((r) => r.sourceId), ["custom:1"]);
+  assert.match((out.data.done as string[])[0]!, /3 audiences \(1 duplicates dropped\)/);
+});
+
+test("set_draft_budget level: a campaign (CBO) lifetime draft moves to daily budgets on the ad sets, split evenly, as the card's switch", async () => {
+  const { setDraftBudgetTool } = await import("../tools/draft-edit.ts");
+  const { ctx, db } = draftCtx();
+  await shape(db, (d) => ({ ...d, budgetSchedule: { ...d.budgetSchedule, budgetLevel: "campaign", budgetType: "lifetime", budgetAmount: 1000 }, adSetSuggestions: d.adSetSuggestions.map((r) => ({ ...r, budgetPerDay: 0, budgetLifetime: 89.5 })) }));
+  const out = await run(setDraftBudgetTool, ctx, { level: "ad_set", type: "daily", amount_gbp: 60, start: "2026-11-25T18:00", end: "2026-11-30T16:59" });
+  const after = await saved(db);
+  assert.deepEqual([after.budgetSchedule.budgetLevel, after.budgetSchedule.budgetType, after.budgetSchedule.budgetAmount], ["ad_set", "daily", 60]);
+  assert.deepEqual(after.adSetSuggestions.map((r) => r.budgetPerDay), [30, 30]);
+  assert.equal(out.data.budgetsOn, "ad sets");
+  assert.deepEqual((out.summary.before as { level: string }).level, "campaign");
+  // Then the ad sets take their own budgets, checked against the floor.
+  const next = await run(setDraftAdSetsTool, ctx, { updated_at: String((await readRow(db, D_DRAFT))!.updated_at), changes: [{ ad_set_id: "as-1", budget_per_day: 9 }, { ad_set_id: "as-2", budget_per_day: 15 }] });
+  assert.equal(next.data.totalPerDayGbp, 24);
+});

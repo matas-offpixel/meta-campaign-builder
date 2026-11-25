@@ -376,7 +376,7 @@ export const setDraftBudgetTool: McpTool = {
   idempotent: true,
   description: [
     "Sets a draft's budget (daily or lifetime, in GBP) and its start and end, as the Budget and Schedule cards do. Nothing spends: the draft isn't launched.",
-    "When budgets sit on the ad sets, the amount is split evenly over the enabled ad sets (the card's Distribute). Dates are London time: YYYY-MM-DD or YYYY-MM-DDTHH:mm; a day alone starts at 00:00 and ends at 23:59.",
+    "level moves the budget between the ad sets and the campaign (CBO), as the card's level switch. When budgets sit on the ad sets, the amount is split evenly over the enabled ad sets (the card's Distribute); set each one after with set_draft_ad_sets. Dates are London time: YYYY-MM-DD or YYYY-MM-DDTHH:mm; a day alone starts at 00:00 and ends at 23:59.",
     "A start in the past and an end before the start are refused. Leave end out to keep the draft's current end; a lifetime budget needs an end. Returns the per-day equivalent.",
     'Example: set_draft_budget({ draft_id: "3f2c…-uuid", updated_at: "2026-11-24T10:00:00.123+00:00", type: "lifetime", amount_gbp: 300, start: "2026-12-01", end: "2026-12-14" }).',
   ].join(" "),
@@ -386,6 +386,7 @@ export const setDraftBudgetTool: McpTool = {
     amount_gbp: z.number().positive().max(100_000).describe("The budget in GBP: per day for daily, the whole run for lifetime."),
     start: z.string().min(10).max(16).describe("YYYY-MM-DD or YYYY-MM-DDTHH:mm, London time, not in the past."),
     end: z.string().min(10).max(16).optional().describe("YYYY-MM-DD or YYYY-MM-DDTHH:mm, after the start. Leave out to keep the current end."),
+    level: z.enum(["ad_set", "campaign"]).optional().describe("Where the budget sits, the Budget card's level switch: ad_set (each ad set its own) or campaign (CBO). Leave out to keep it."),
   },
   async run(ctx, args) {
     requireDraftScope(ctx);
@@ -415,16 +416,19 @@ export const setDraftBudgetTool: McpTool = {
 
     // The Schedule card's Duration (components/steps/budget-schedule.tsx).
     const days = endAt ? Math.ceil((endAt.getTime() - startAt.getTime()) / (1000 * 60 * 60 * 24)) : 0;
+    // The Budget card's level switch is the field alone (updateBs({ budgetLevel })).
+    const level = args.level === "ad_set" || args.level === "campaign" ? args.level : bs.budgetLevel;
     let adSets = draft.adSetSuggestions;
     if (type !== bs.budgetType) adSets = convertAdSetBudgetsOnTypeChange(adSets, type, bs.budgetAmount, days > 0 ? days : 0);
     const enabled = adSets.filter((s) => s.enabled);
-    const onAdSets = bs.budgetLevel !== "campaign" && enabled.length > 0;
+    const onAdSets = level !== "campaign" && enabled.length > 0;
     if (onAdSets) {
       // Distribute (the card's button): an even split over enabled ad sets.
       const perSet = Math.round((amount / enabled.length) * 100) / 100;
       adSets = adSets.map((s) => (!s.enabled ? s : type === "lifetime" ? { ...s, budgetLifetime: perSet } : { ...s, budgetPerDay: perSet }));
     }
     const nextBs = patchBudgetSchedule(bs, {
+      budgetLevel: level,
       budgetType: type,
       budgetAmount: amount,
       startDate: start,
@@ -436,6 +440,7 @@ export const setDraftBudgetTool: McpTool = {
     const perDay = type === "daily" ? round2(amount) : days > 0 ? round2(amount / days) : null;
     const total = type === "lifetime" ? round2(amount) : days > 0 ? round2(amount * days) : null;
     const fieldDiff = changes([
+      ["budgetLevel", bs.budgetLevel, level],
       ["budgetType", bs.budgetType, type],
       ["budgetAmount", bs.budgetAmount, amount],
       ["startDate", bs.startDate, start],
@@ -451,14 +456,14 @@ export const setDraftBudgetTool: McpTool = {
         days: days || null,
         perDayGbp: perDay,
         totalGbp: total,
-        budgetsOn: bs.budgetLevel === "campaign" ? "campaign" : "ad sets",
+        budgetsOn: level === "campaign" ? "campaign" : "ad sets",
         adSetsSplit: onAdSets ? { adSets: enabled.length, eachGbp: Math.round((amount / enabled.length) * 100) / 100 } : null,
         changes: fieldDiff,
       },
       summary: {
         fieldsChanged: fieldDiff.map((c) => c.field).concat(onAdSets ? ["adSetSuggestions.budgets"] : []),
-        before: { type: bs.budgetType, amount: bs.budgetAmount, start: bs.startDate || null, end: bs.endDate || null },
-        after: { type, amount: round2(amount), start, end: end || null, perDay, days: days || null },
+        before: { level: bs.budgetLevel, type: bs.budgetType, amount: bs.budgetAmount, start: bs.startDate || null, end: bs.endDate || null },
+        after: { level, type, amount: round2(amount), start, end: end || null, perDay, days: days || null },
       },
     }));
   },

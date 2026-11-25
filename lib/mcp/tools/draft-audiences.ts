@@ -6,8 +6,9 @@
  *
  *   - remove: the panels' removeGroup (a page, custom or interest group);
  *   - rename: the group's name (nameSource "operator" for interest groups);
- *   - merge: interest groups into one, named; the first group keeps its id
- *     and takes the others' interests, deduped by Meta id, in order;
+ *   - merge: interest groups (or custom groups) into one, named; the first
+ *     group keeps its id and takes the others' interests (or audience ids),
+ *     deduped, in order;
  *   - add_interests: the interest picker's search (Meta's interest search, a
  *     GET through ctx.draft.interestSearch) and its addInterest (deduped,
  *     enrichWithTargetability), into a group or a new one;
@@ -39,7 +40,7 @@ const change = z
   .object({
     remove: z.string().min(1).max(160).optional().describe("A group id (get_draft audiences.groups) to remove."),
     rename: z.object({ group_id: z.string().min(1).max(160), name: z.string().min(1).max(80) }).optional(),
-    merge: z.object({ group_ids: z.array(z.string().min(1).max(160)).min(2).max(20), name: z.string().min(1).max(80) }).optional().describe("Interest groups into one, named."),
+    merge: z.object({ group_ids: z.array(z.string().min(1).max(160)).min(2).max(20), name: z.string().min(1).max(80) }).optional().describe("Groups of one kind (interest, or custom) into one, named; the first keeps its id."),
     add_interests: z
       .object({
         group_id: z.string().min(1).max(160).optional().describe("The interest group to add to."),
@@ -91,7 +92,7 @@ export const setDraftAudiencesTool: McpTool = {
   readOnly: false,
   idempotent: false,
   description: [
-    "Edits a draft's audience groups as the Audiences step does, in order, saved together: remove a page, custom or interest group; rename one; merge interest groups into one named group (interests deduped); add interests to a group or a new one (Meta's interest search, a read); add custom audiences that already exist in the draft's ad account (by Meta id, as the app recorded them) as a new group.",
+    "Edits a draft's audience groups as the Audiences step does, in order, saved together: remove a page, custom or interest group; rename one; merge interest groups, or custom groups, into one named group (deduped; the first group's ad sets stay, the others' go); add interests to a group or a new one (Meta's interest search, a read); add custom audiences that already exist in the draft's ad account (by Meta id, as the app recorded them) as a new group.",
     "An interest search with no exact single match saves nothing and lists the hits with interest_id: call again with the one you mean.",
     "Ad sets follow: a removed or merged-away group's ad sets go; a new group gets its ad sets at the + Blank ad set budget (set them with set_draft_ad_sets); other ad sets keep their budgets and names. Group ids are in get_draft's audiences.groups.",
     'Example: set_draft_audiences({ draft_id: "3f2c…-uuid", updated_at: "2026-11-24T10:00:00.123+00:00", changes: [{ remove: "pg_old" }, { merge: { group_ids: ["ig_a", "ig_b"], name: "House & tech house" } }, { add_interests: { group_id: "ig_a", interests: [{ search: "Defected Records" }] } }] }).',
@@ -145,24 +146,46 @@ export const setDraftAudiencesTool: McpTool = {
       }
       if (c.merge) {
         const ids = [...new Set(c.merge.group_ids)];
-        const groups = ids.map((id) => a.interestGroups.find((g) => g.id === id));
-        const missing = ids.filter((_, i) => !groups[i]);
-        if (missing.length) throw refuse(`These aren't interest groups on this draft: ${missing.join(", ")}. Only interest groups merge.`, "unknown_group");
-        const seen = new Set<string>();
-        const interests: InterestSuggestion[] = [];
-        for (const g of groups as InterestGroup[]) {
-          for (const i of g.interests) {
-            if (seen.has(i.id)) continue;
-            seen.add(i.id);
-            interests.push(i);
+        const kinds = ids.map((id) => kindOf(a, id));
+        const missing = ids.filter((_, i) => !kinds[i]);
+        if (missing.length) throw refuse(`There's no audience group ${missing.join(", ")} on this draft.`, "unknown_group");
+        const kind = kinds[0]!;
+        if (kind === "page" || kinds.some((k) => k !== kind)) throw refuse("Only groups of one kind merge: interest groups with interest groups, custom groups with custom groups.", "mixed_merge");
+        const name = c.merge.name.trim();
+        if (kind === "interest") {
+          const groups = ids.map((id) => a.interestGroups.find((g) => g.id === id)!) as InterestGroup[];
+          const seen = new Set<string>();
+          const interests: InterestSuggestion[] = [];
+          for (const g of groups) {
+            for (const i of g.interests) {
+              if (seen.has(i.id)) continue;
+              seen.add(i.id);
+              interests.push(i);
+            }
           }
+          const keep = groups[0]!;
+          const total = groups.reduce((s, g) => s + g.interests.length, 0);
+          log.push(`merged ${ids.length} interest groups into ${name}: ${interests.length} interests (${total - interests.length} duplicates dropped)`);
+          const merged: InterestGroup = { ...keep, name, nameSource: "operator", interests };
+          a = { ...a, interestGroups: a.interestGroups.filter((g) => !ids.slice(1).includes(g.id)).map((g) => (g.id === keep.id ? merged : g)) };
+          touched.add(groupKey("interest", keep.id));
+        } else {
+          const groups = ids.map((id) => a.customAudienceGroups.find((g) => g.id === id)!) as CustomAudienceGroup[];
+          const keep = groups[0]!;
+          const audienceIds = [...new Set(groups.flatMap((g) => g.audienceIds))];
+          const total = groups.reduce((s, g) => s + g.audienceIds.length, 0);
+          const merged: CustomAudienceGroup = {
+            ...keep,
+            name,
+            audienceIds,
+            audienceNames: Object.assign({}, ...groups.map((g) => g.audienceNames ?? {})),
+            foreignAccountById: Object.assign({}, ...groups.map((g) => g.foreignAccountById ?? {})),
+            populatingAudienceIds: [...new Set(groups.flatMap((g) => g.populatingAudienceIds ?? []))],
+          };
+          log.push(`merged ${ids.length} custom groups into ${name}: ${audienceIds.length} audiences (${total - audienceIds.length} duplicates dropped)`);
+          a = { ...a, customAudienceGroups: a.customAudienceGroups.filter((g) => !ids.slice(1).includes(g.id)).map((g) => (g.id === keep.id ? merged : g)) };
+          touched.add(groupKey("custom", keep.id));
         }
-        const keep = groups[0]!;
-        const merged: InterestGroup = { ...keep, name: c.merge.name.trim(), nameSource: "operator", interests };
-        const total = (groups as InterestGroup[]).reduce((s, g) => s + g.interests.length, 0);
-        log.push(`merged ${ids.length} interest groups into ${merged.name}: ${interests.length} interests (${total - interests.length} duplicates dropped)`);
-        a = { ...a, interestGroups: a.interestGroups.filter((g) => !ids.slice(1).includes(g.id)).map((g) => (g.id === keep.id ? merged : g)) };
-        touched.add(groupKey("interest", keep.id));
         continue;
       }
       if (c.add_interests) {
