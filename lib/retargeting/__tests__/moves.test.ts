@@ -70,13 +70,20 @@ describe("RT5: moves, holds and cuts", () => {
     assert.deepEqual(read.holds, [], "no move, no hold beside a cut");
   });
 
-  it("a cut with no tier that could receive goes back to the plan", () => {
+  it("a cut with no tier that could receive goes back to the plan, titled \"{tier} → the plan\" (design, 25 Nov)", () => {
     const rows = RC.map((row) => (row.tier === "mid_bottom" ? { ...row, frequency: 4.1 } : row));
     const line = planBudget(rows).line!;
-    assert.equal(line.title, "Bottom");
+    assert.equal(line.title, "Bottom → the plan");
     assert.equal(line.detail, "Frequency 6.4 on 3,900–4,600 · £12.00 → £7.50 a day, back to frequency 4 · £4.50 a day back to the plan");
     assert.equal(line.writeText, "Ad-set budget write");
     assert.equal(line.write.toAdsetId, null);
+  });
+
+  it("Meta's estimate unread: the sentences leave \"on {pool}\" out, never \"on —\" (design, 25 Nov)", () => {
+    const rows = RC.map((row) => (row.tier === "mid_bottom" ? { ...row, frequency: 4.1 } : row)).map((row) => ({ ...row, pool: null }));
+    const line = planBudget(rows).line!;
+    assert.equal(line.detail, "Frequency 6.4 · £12.00 → £7.50 a day, back to frequency 4 · £4.50 a day back to the plan");
+    assert.equal(/—/.test(line.detail), false);
   });
 
   it("a cut never takes a tier under £1.00", () => {

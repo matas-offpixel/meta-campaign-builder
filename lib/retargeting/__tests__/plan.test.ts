@@ -327,16 +327,19 @@ describe("RT8: buyers lists and their age", () => {
     assert.deepEqual(rows("2026-11-07T10:00:00Z"), [["Buyers list uploaded 7 Nov · 10 days old: upload it again so new buyers drop out", 0]]);
   });
 
-  it("the age line is muted until the list is 7 days old, then brick (design, 17 Nov): the 6- and 7-day boundary", () => {
+  it("the age line is muted until the list is 30 days old, then brick (design, 25 Nov): it says to upload again from 7 days, and the 29- and 30-day boundary", () => {
     const note = (uploadedAt: string) => tierRows({ sources: { ...SET, lists: [{ metaAudienceId: "buy", name: "Buyers", role: "buyers", uploadedAt }] }, today: "2026-11-17" }, { bottom: 100, mid_bottom: 100, mid: 100 }).notes[0]!;
     assert.deepEqual([note("2026-11-14T10:00:00Z").text, note("2026-11-14T10:00:00Z").muted], ["Buyers list uploaded 14 Nov · 3 days old", true]);
     assert.deepEqual([note("2026-11-11T10:00:00Z").text, note("2026-11-11T10:00:00Z").muted], ["Buyers list uploaded 11 Nov · 6 days old", true]);
-    assert.deepEqual([note("2026-11-10T10:00:00Z").text, note("2026-11-10T10:00:00Z").muted], ["Buyers list uploaded 10 Nov · 7 days old: upload it again so new buyers drop out", false]);
+    assert.deepEqual([note("2026-11-10T10:00:00Z").text, note("2026-11-10T10:00:00Z").muted], ["Buyers list uploaded 10 Nov · 7 days old: upload it again so new buyers drop out", true]);
+    assert.deepEqual([note("2026-10-19T10:00:00Z").text, note("2026-10-19T10:00:00Z").muted], ["Buyers list uploaded 19 Oct · 29 days old: upload it again so new buyers drop out", true]);
+    assert.deepEqual([note("2026-10-18T10:00:00Z").text, note("2026-10-18T10:00:00Z").muted], ["Buyers list uploaded 18 Oct · 30 days old: upload it again so new buyers drop out", false]);
     // No buyers list stays brick.
     assert.equal(tierRows({ sources: { ...SET, lists: [] }, today: "2026-11-17" }, { bottom: 100, mid_bottom: 100, mid: 100 }).notes[0]!.muted, undefined);
     // The panel draws a muted line in the muted colour, brick otherwise.
     const panel = readFileSync("components/dashboard/events/retargeting-panel.tsx", "utf8");
     assert.match(panel, /line\.muted \? "text-muted-foreground" : "text-destructive"/);
+    assert.match(panel, /line\.ochre \? "text-amber-700 dark:text-amber-300"/);
   });
 
   it("no Buyers list: one line, ticketing connected or not, and \"buyers\" drops out of Leaves out (Bottom reads \"—\")", () => {
@@ -369,6 +372,16 @@ describe("RT8 acceptance (revised 17 Nov): no \"Connect ticketing\" anywhere on 
     assert.equal(words.POOL_BEFORE_CREATE, "Known after create");
     assert.equal(words.POOL_BEFORE_CREATE_NARROW, "Pool known after create");
     const panel = readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../components/dashboard/events/retargeting-panel.tsx"), "utf8");
-    assert.match(panel, /created \? figure\(row\.pool\) : POOL_BEFORE_CREATE/);
+    // Design (25 Nov): a created tier whose estimate Meta didn't give today reads "Not read today", never "—".
+    assert.equal(words.NOT_READ_TODAY, "Not read today");
+    assert.match(panel, /created \? \(row\.pool \?\? NOT_READ_TODAY\) : POOL_BEFORE_CREATE/);
+    assert.match(panel, /`Pool \$\{\(row\.pool \?\? NOT_READ_TODAY\)\.replace\(\/\^\(Below\|Not\)\//);
+  });
+
+  it("design (25 Nov): the next-step footer is one muted line at every width, never hidden at 393", () => {
+    const panel = readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../components/dashboard/events/retargeting-panel.tsx"), "utf8");
+    const footer = panel.split("\n").find((line) => line.includes("data-next-step"))!;
+    assert.match(footer, /text-xs text-muted-foreground/);
+    assert.equal(/\bhidden\b|sm:block/.test(footer), false);
   });
 });

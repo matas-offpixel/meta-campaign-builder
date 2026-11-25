@@ -28,6 +28,8 @@ import { committedGbpOf, type PcBudgets } from "../onsale-refresh/purchase-campa
 import { moveGuard } from "../onsale-refresh/plan-guard.ts";
 import { RETARGETING } from "../onsale-refresh/rules.ts";
 import { addDaysIso, planRun, todayLondon } from "../onsale-refresh/schedule.ts";
+import { CIRQLIN_HASHES_SECRET_ENV } from "../customer-lists/cirqlin-hashed.ts";
+import { customerListWritesEnabled, listTriggerAt, londonDate } from "../customer-lists/rules.ts";
 import { pixelRules, ruleChanges, tierSpecs, type SourceList, type SourcePage, type SourceSet } from "./audiences.ts";
 import { readRunning, type RunningRead } from "./delivery.ts";
 import { linksFallback, linksFromPages, otherLandingHosts, type PixelHosts, type ShowLink } from "./links.ts";
@@ -171,6 +173,7 @@ export function retargetingInput(args: {
   campaignStatus?: string | null;
   otherLandingHosts?: string[];
   linkSizes?: RetargetingInput["linkSizes"];
+  signups?: RetargetingInput["signups"];
 }): RetargetingInput {
   const { event, day } = args;
   const code = event.event_code ?? event.id;
@@ -235,7 +238,36 @@ export function retargetingInput(args: {
     pixelHosts: args.pixelHosts ?? null,
     otherLandingHosts: args.otherLandingHosts ?? [],
     linkSizes: args.linkSizes,
+    signups: args.signups ?? null,
   };
+}
+
+/** SU1: a show's customer_list_syncs rows (migration 267), as the panel reads them. */
+export type SignupsSyncRow = { event_id: string; enabled: boolean; meta_audience_id: string | null; sent_total: number; removed_total: number; last_sent_at: string | null; last_replaced_at: string | null; created_at: string | null; updated_at?: string | null };
+
+/**
+ * SU1's state from what the sync stores: no enabled row is "not switched
+ * on" (RT15); enabled with no list yet is "made on" presale day (general
+ * sale with no presale); a list is "on Meta" with what it holds now (sent
+ * less removed), the last send and the last full rebuild (else the day it
+ * was made). The CIRQLIN read unset is "not set up"; the writes switch off
+ * adds the ochre line. A failed read or send and an unknown tag aren't
+ * stored on the row, so they aren't drawn here.
+ */
+export function signupsSyncOf(rows: readonly SignupsSyncRow[], event: { presale_at?: string | null; general_sale_at: string | null; event_date: string | null }, env: Record<string, string | undefined> = process.env): RetargetingInput["signups"] {
+  const row = rows.filter((r) => r.enabled).sort((a, b) => ((a.updated_at ?? a.created_at ?? "") < (b.updated_at ?? b.created_at ?? "") ? 1 : -1))[0];
+  if (!row) return { state: "not_on" };
+  const writesOff = !customerListWritesEnabled(env);
+  if (!env[CIRQLIN_HASHES_SECRET_ENV]) return { state: "not_configured", writesOff };
+  if (!row.meta_audience_id) {
+    const at = listTriggerAt({ presale_at: event.presale_at ?? null, general_sale_at: event.general_sale_at, event_date: event.event_date });
+    return at ? { state: "waiting", madeOn: londonDate(at), writesOff } : { state: "not_on" };
+  }
+  const made = row.created_at ?? row.last_sent_at;
+  const lastSent = row.last_sent_at ?? made;
+  if (!lastSent) return { state: "not_on" };
+  const rebuilt = row.last_replaced_at ?? made ?? lastSent;
+  return { state: "on", count: Math.max(0, row.sent_total - row.removed_total), lastSentAt: lastSent, rebuiltOn: londonDate(new Date(rebuilt)), writesOff };
 }
 
 /** RT3 / RT5: each tier's 7 days from ad_daily_insights (spend, attributed purchases), joined to Meta's read. */
@@ -341,6 +373,8 @@ export async function runRetargetingRead(input: {
   if (!events.length) return { ok: true, dryRun, day, events: 0, records: [], skipped, metaCalls: 0, errors };
   const clientIds = [...new Set(events.map((event) => event.client_id).filter((id): id is string => Boolean(id)))];
   const [raw, aux, sourceRows] = await Promise.all([loadInsights(input.db), loadAux(input.db, events.map((event) => event.id), clientIds), loadSourceRows(input.db, events.map((event) => event.id), clientIds)]);
+  // SU1: each show's Signups list into Meta. A failed read draws RT15's line, as before SU1.
+  const syncRows = await loadAll<SignupsSyncRow & { id: string }>(input.db, "customer_list_syncs", "id, event_id, enabled, meta_audience_id, sent_total, removed_total, last_sent_at, last_replaced_at, created_at, updated_at", ["id"], (q) => q.in("event_id", events.map((event) => event.id)).eq("enabled", true)).catch(() => [] as (SignupsSyncRow & { id: string })[]);
   const purchases = await loadPurchaseReads({
     db: input.db,
     events: events.map((event) => ({ id: event.id, event_code: event.event_code, client_id: event.client_id, event_date: event.event_date, signup_url: event.signup_url ?? null, ticket_url: event.ticket_url ?? null, presale_at: event.presale_at ?? null, general_sale_at: event.general_sale_at })),
@@ -412,7 +446,7 @@ export async function runRetargetingRead(input: {
         metaCalls += sized.calls;
         linkSizes = sized.sizes;
       }
-      const plan = planRetargeting(retargetingInput({ event, day, rows, campaigns: inputs.campaigns, read, budgets: purchases.budgets, sources, appliedLine, minDailyMinor: account ? (minDaily.get(account) ?? null) : null, running, linksRead: links.linksRead, pixelHosts: pixelId ? (hostsByPixel.get(pixelId) ?? null) : null, campaignStatus, otherLandingHosts: [...otherLandingHosts(landingByShow, event.id)], linkSizes }));
+      const plan = planRetargeting(retargetingInput({ event, day, rows, campaigns: inputs.campaigns, read, budgets: purchases.budgets, sources, appliedLine, minDailyMinor: account ? (minDaily.get(account) ?? null) : null, running, linksRead: links.linksRead, pixelHosts: pixelId ? (hostsByPixel.get(pixelId) ?? null) : null, campaignStatus, otherLandingHosts: [...otherLandingHosts(landingByShow, event.id)], linkSizes, signups: signupsSyncOf(syncRows.filter((row) => row.event_id === event.id), event) }));
       const record: RetargetingRecord = { eventId: event.id, eventCode: event.event_code, plan, proposalId: null };
       // RT13: a running campaign's rules against today's links. A failed read keeps the last rules, so nothing is compared.
       const storedRules = ((appliedLine?.applied_result?.retargeting ?? null) as { rules?: Record<string, string[]> } | null)?.rules;

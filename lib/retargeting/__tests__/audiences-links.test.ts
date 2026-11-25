@@ -189,7 +189,8 @@ describe("RT13: the show's links from CIRQLIN", () => {
     assert.equal(words.BY_LINK_BEFORE_CREATE, "By link: known after create");
     assert.equal(words.sizesLine([{ name: "Skiddle", band: words.sizeBand(2100, 2500) }, { name: "RA", band: words.sizeBand(1000, 1200) }, { name: "Fixr", band: words.sizeBand(300, 800) }]), "Skiddle 2,100–2,500 · RA 1,000–1,200 · Fixr below 1,000");
     assert.equal(words.sizesLine([{ name: "xmpl-whse.com", band: words.sizeBand(7000, 8200) }]), "xmpl-whse.com 7,000–8,200");
-    assert.equal(words.sizesLine([{ name: "DICE", band: null }]), "DICE —");
+    // Design (25 Nov): a size Meta didn't give today reads "not read today", never "—"; "below 1,000" stays.
+    assert.equal(words.sizesLine([{ name: "DICE", band: null }]), "DICE not read today");
   });
 
   it("reads page-links with the partner bearer and the Robbie Doherty body", async () => {

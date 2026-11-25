@@ -8,7 +8,7 @@ import { REJECT_REASONS, appliesNow, panelText, rejectReasonsFor, stateText, typ
 import type { PanelApply, PanelLine } from "@/lib/onsale-refresh/read";
 import type { BudgetNote } from "@/lib/retargeting/moves";
 import type { MissingLine, RetargetingView, RunningView, TierRow } from "@/lib/retargeting/plan";
-import { BUDGET_KIND_LABEL, budgetHeader, createHead, endsLine, LAST_7_DAYS, NO_FIGURE, NO_PURCHASE_YET, pence, POOL_BEFORE_CREATE, POOL_BEFORE_CREATE_NARROW, runningLine, spentText, tierBudget } from "@/lib/retargeting/words";
+import { BUDGET_KIND_LABEL, budgetHeader, createHead, endsLine, LAST_7_DAYS, NO_FIGURE, NO_PURCHASE_YET, NOT_READ_TODAY, pence, POOL_BEFORE_CREATE, POOL_BEFORE_CREATE_NARROW, runningLine, spentText, tierBudget } from "@/lib/retargeting/words";
 
 /**
  * The Retargeting panel (docs/design-record/2026-11-17-retargeting-campaign.html,
@@ -42,7 +42,7 @@ export function wizardHref(clientId: string | null, eventId: string | null, role
 
 function Missing({ line, clientId, eventId, narrow = false }: { line: MissingLine; clientId: string | null; eventId: string | null; narrow?: boolean }) {
   return (
-    <p className={`mt-0.5 text-xs ${line.muted ? "text-muted-foreground" : "text-destructive"}`} data-missing data-tone={line.muted ? "muted" : "brick"}>
+    <p className={`mt-0.5 text-xs ${line.ochre ? "text-amber-700 dark:text-amber-300" : line.muted ? "text-muted-foreground" : "text-destructive"}`} data-missing data-tone={line.ochre ? "ochre" : line.muted ? "muted" : "brick"}>
       {k(narrow ? line.narrow : line.text)}
       {line.actions.map((action, index) => (
         <span key={action.label}>
@@ -103,7 +103,7 @@ function TierTable({ rows, budgets, clientId, eventId, created, total }: { rows:
                 <Missing key={line.text} line={line} clientId={clientId} eventId={eventId} />
               ))}
             </td>
-            <td className="py-2 pr-2 tabular-nums" data-pool>{created ? figure(row.pool) : POOL_BEFORE_CREATE}</td>
+            <td className="py-2 pr-2 tabular-nums" data-pool>{created ? (row.pool ?? NOT_READ_TODAY) : POOL_BEFORE_CREATE}</td>
             <td className={`py-2 pr-2 tabular-nums ${row.frequency != null && row.frequency >= 4 ? "text-destructive" : ""}`}>{figure(row.frequency, (v) => v.toFixed(1))}</td>
             <td className="py-2 pr-2">{row.leavesOut || NO_FIGURE}</td>
             <td className="py-2 pr-2 tabular-nums">{k(tierBudget(budgets(row)))}</td>
@@ -133,7 +133,7 @@ function TierCards({ rows, budgets, clientId, eventId, created }: { rows: TierRo
     <ul className="mt-3 space-y-2 sm:hidden" data-tier-cards>
       {rows.map((row) => {
         const running = row.cost != null || row.frequency != null;
-        const pool = created ? `Pool ${row.pool == null ? NO_FIGURE : row.pool.replace(/^Below/, "below")}` : POOL_BEFORE_CREATE_NARROW;
+        const pool = created ? `Pool ${(row.pool ?? NOT_READ_TODAY).replace(/^(Below|Not)/, (word) => word.toLowerCase())}` : POOL_BEFORE_CREATE_NARROW;
         return (
           <li key={row.tier} className="rounded border border-border/70 p-3 text-xs" data-tier={row.tier}>
             <p className="flex items-baseline justify-between gap-2">
@@ -417,7 +417,7 @@ export function RetargetingPanelView({ view, line = null, budgetLines = [], clie
         </p>
       ) : null}
       {running?.nextStep ? (
-        <p className="mt-3 hidden border-t border-border pt-2 text-xs text-muted-foreground sm:block" data-next-step>
+        <p className="mt-3 border-t border-border pt-2 text-xs text-muted-foreground" data-next-step>
           {k(running.nextStep)}
         </p>
       ) : null}
