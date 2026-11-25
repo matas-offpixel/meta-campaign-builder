@@ -121,3 +121,22 @@ today.mcp.undo.render	Log row, in place of Undo, on a render package (muted)	No 
 today.mcp.row.refused.cap	Log row, state (brick)	Refused · over the {c}-file cap
 today.mcp.row.refused.promoter	Log row, state (brick)	Refused · {client}’s footage in the picks
 today.mcp.row.refused.voice	Log row, state (brick)	Refused · artist-voice copy with no approved caption
+m4.mcp.refused.busy	Told to Claude, cost guard: a package for the event is running	Refused: a package for {code} is already rendering. Wait until it finishes; get_render_package shows its progress. Nothing was rendered.
+m4.mcp.refused.too_soon	Told to Claude, cost guard: under 60 s since the last package for this event and recipe	Refused: a {recipe} package for {code} started under a minute ago. Try again in {s} seconds. Nothing was rendered.
+m4.mcp.refused.too_soon.one	Told to Claude (1 second)	Refused: a {recipe} package for {code} started under a minute ago. Try again in 1 second. Nothing was rendered.
+m4.mcp.refused.scope	Told to Claude, a connection without mcp:render	Refused: this connection can’t render. Only Matas’s can, once he reconnects Off/Pixel in Claude and allows renders. Nothing was rendered.
+m4.mcp.refused.unknown_event	Told to Claude	Refused: no event with code {code}. Nothing was rendered.
+m4.mcp.refused.not_built	Told to Claude; {built} is the built recipes’ words joined with “, ”	Refused: {recipe} isn’t built yet. {built} can be rendered now. Nothing was rendered.
+m4.mcp.refused.bad_recipe	Told to Claude, a recipe that doesn’t exist	Refused: {recipe} isn’t a recipe. The recipes are montage, roll-call, top tracks and artist card. Nothing was rendered.
+m4.mcp.refused.approval_long	Told to Claude, asked or answer over 1,000 characters	Refused: the question or the answer is over 1,000 characters. Ask Matas a shorter question, then send it and his answer word for word. Nothing was rendered.
+m4.mcp.start_failed	Told to Claude, the package couldn’t start (in place of the server’s message)	The package couldn’t start. Try again. Nothing was rendered.
+m4.mcp.none	Told to Claude, get_render_package with no package	No render package for {code} yet.
+m4.render.busy	Template card, under Render (brick): cost guard	A package is already rendering for this show. Render again once it finishes.
+m4.render.too_soon	Template card, under Render (brick): cost guard	A {recipe} package started under a minute ago. Try again in {s} seconds.
+m4.render.too_soon.one	Template card, under Render (1 second)	A {recipe} package started under a minute ago. Try again in 1 second.
+m4.row.not_filed	Render row (ochre): rendered, but the Drive copy failed; no Drive ↗	Rendered, but not in Drive yet: the copy didn’t finish.
+m4.row.copy_again	Render row, button	Copy to Drive
+consent.line3.render	Consent page, after line 2, when the scope includes mcp:render (Matas only; straight apostrophes, as the page’s other lines)	It can render videos in the Creative Lab too, and file them in the show's Drive folder, each only after you say yes in Claude.
+consent.title.upgrade.render	Consent page, title, when a grant is adding mcp:render	Let Claude render videos in Off/Pixel
+consent.title.upgrade.render.loopback	Consent page, title, the same for an app on this computer	Let an app on this computer render videos in Off/Pixel
+consent.upgrade.cancel_note.render	Consent page, above the buttons, when a grant is adding mcp:render	If you cancel, it keeps the access it has now.

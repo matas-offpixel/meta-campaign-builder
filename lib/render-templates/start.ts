@@ -18,7 +18,7 @@ import { driveIdFromLink, foreignPicks, loadPackageState, type Db, type LoadDeps
 import { isRefusal, planMontage, type MontageText } from "./montage-plan.ts";
 import { packageFiles, packageOwner, pickedClips, pickedTrack, refusalFor, requestLines, type Picks, type Refusal } from "./package-view.ts";
 import { costGuard, saveBeatGrid, startPackage } from "./store.ts";
-import { candidate, filesWord, m4, type Recipe } from "./words.ts";
+import { filesWord, m4, type Recipe } from "./words.ts";
 
 export type StartDeps = LoadDeps & {
   /** The track's low-passed mono PCM (readEnvelopes' `low`), from its Storage copy. */
@@ -39,6 +39,8 @@ export type RequestInput = {
   /** Re-render: just these files, at this round. */
   only?: readonly { variant: MontageVariant; ratio: Ratio }[];
   round?: number;
+  /** The local runner's start: files begin as rendering, for it alone (store.ts). */
+  hold?: boolean;
 };
 
 export type RequestResult =
@@ -92,7 +94,7 @@ function resolvePicks(loaded: LoadedPackage, picks: RequestInput["picks"]): Pick
 
 export async function requestPackage(db: Db, deps: StartDeps, input: RequestInput): Promise<RequestResult> {
   const loaded = await loadPackageState(db, input.eventId, deps, input.now, input.today);
-  if (!loaded) return { ok: false, refusal: { refused: "needs", text: candidate("noEvent", { code: input.eventId }), recipe: "montage", needs: "" }, loaded: null };
+  if (!loaded) return { ok: false, refusal: { refused: "needs", text: m4("m4.mcp.refused.unknown_event", { code: input.eventId }), recipe: "montage", needs: "" }, loaded: null };
   const picks = resolvePicks(loaded, input.picks);
   const voice = input.picks?.copy?.voice ?? "promoter";
   const lead = loaded.state.lineup.find((a) => a.isHeadliner)?.name ?? loaded.state.lineup[0]?.name ?? null;
@@ -107,7 +109,7 @@ export async function requestPackage(db: Db, deps: StartDeps, input: RequestInpu
   if (refusal) return { ok: false, refusal, loaded };
   const recipe = input.recipes[0]!;
   const guarded = await costGuard(db, { eventId: loaded.facts.id, eventCode: loaded.facts.code, recipe, now: input.now });
-  if (guarded && !guarded.ok) return { ok: false, refusal: { refused: guarded.refused, text: guarded.text }, loaded };
+  if (guarded && !guarded.ok) return { ok: false, refusal: { refused: guarded.refused, text: guarded.text, lab: guarded.lab }, loaded };
 
   const track = pickedTrack(loaded.state, picks)!;
   const trackRow = loaded.tracks.find((t) => t.id === track.id)!;
@@ -145,8 +147,9 @@ export async function requestPackage(db: Db, deps: StartDeps, input: RequestInpu
     approval: input.approval,
     now: input.now,
     round: input.round,
+    hold: input.hold,
   });
-  if (!started.ok) return { ok: false, refusal: { refused: started.refused, text: started.text }, loaded };
+  if (!started.ok) return { ok: false, refusal: { refused: started.refused, text: started.text, lab: started.lab }, loaded };
   const n = files.length;
   const startedLine =
     input.source === "claude"

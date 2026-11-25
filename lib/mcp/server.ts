@@ -27,6 +27,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { SCOPE_DRAFT, SCOPE_META, SCOPE_RENDER, isMcpEnabled, mcpUrls } from "./config.ts";
 import { parseApproval } from "./meta/approval.ts";
+import { m4 } from "../render-templates/words.ts";
 import { checkBearer, scopeIncludes, wwwAuthenticate, type FlowDeps } from "./oauth/flow.ts";
 import type { ActionLogger } from "./action-log.ts";
 import { checkRateLimit } from "./rate-limit.ts";
@@ -74,7 +75,7 @@ const INSTRUCTIONS = [
 ].join(" ");
 
 function failedText(tool: McpTool): string {
-  if (tool.kind === "render") return "The render tool failed. Read the package with get_render_package before trying again.";
+  if (tool.kind === "render") return m4("m4.mcp.start_failed");
   if (tool.kind === "meta") return "The Meta tool failed partway. Read the draft again with get_draft (or get_campaign_tree) to see what was sent before trying again.";
   return tool.kind === "draft"
     ? "The draft tool failed and nothing was saved. Try again, or read the draft again with get_draft."

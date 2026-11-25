@@ -16,7 +16,7 @@
 import { MONTAGE_VARIANTS, RATIOS, type MontageVariant, type Ratio } from "./file-name.ts";
 import { MONTAGE } from "./montage-plan.ts";
 import { montageOwner, ownerLabel, type RenderOwner } from "./rights.ts";
-import { M4_WORDS, candidate, filesWord, m4, recipeWord, recipesWord, stageWord, type Recipe, type Stage } from "./words.ts";
+import { M4_WORDS, filesWord, m4, recipeWord, recipesWord, stageWord, type Recipe, type Stage } from "./words.ts";
 
 /** Files per recipe: montage 3 versions × 3 ratios; roll-call and top tracks CTA / No CTA × 3; artist card 3 versions × (3 statics + 1 video). */
 export const RECIPE_FILES: Record<Recipe, number> = { montage: 9, "roll-call": 6, "top-tracks": 6, "artist-card": 12 };
@@ -344,7 +344,7 @@ export type Refusal =
   | { refused: "promoter"; text: string; count: number; clientName: string }
   | { refused: "voice"; text: string; artist: string }
   | { refused: "needs"; text: string; recipe: Recipe; needs: string }
-  | { refused: "busy" | "too_soon"; text: string };
+  | { refused: "busy" | "too_soon"; text: string; lab: string };
 
 export type PickedFromElsewhere = { clientName: string; count: number };
 
@@ -367,7 +367,7 @@ export function refusalFor(input: {
   const files = input.recipes.reduce((s, r) => s + RECIPE_FILES[r], 0);
   if (files > MAX_PACKAGE_FILES) return { refused: "cap", text: m4("m4.mcp.refused.cap", { n: files, c: MAX_PACKAGE_FILES }), files };
   const unbuilt = input.recipes.find((r) => !BUILT_RECIPES.includes(r));
-  if (unbuilt) return { refused: "not_built", text: candidate("notBuilt", { recipe: recipeWord(unbuilt) }), recipe: unbuilt };
+  if (unbuilt) return { refused: "not_built", text: m4("m4.mcp.refused.not_built", { recipe: recipeWord(unbuilt), built: BUILT_RECIPES.map(recipeWord).join(", ") }), recipe: unbuilt };
   const foreign = [...input.foreignPromoter].sort((a, b) => b.count - a.count)[0];
   if (foreign && foreign.count > 0) {
     const text =

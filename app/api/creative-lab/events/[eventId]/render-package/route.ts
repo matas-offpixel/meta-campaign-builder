@@ -6,6 +6,8 @@
  *   picked track's beat grid once and cache it (migration 270), so the card
  *   can say where the drop lands.
  * POST { action }:
+ *   copy      "Copy to Drive" on a file that rendered but isn't in Drive yet:
+ *             filed again from its Storage copy; nothing renders.
  *   render    starts the montage package (no approval: Matas starts it
  *             himself, RT1); the render tick renders and files each file.
  *   retry     "Try again" on a file that didn't render.
@@ -104,13 +106,20 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ eventId: s
   const deps = startDeps(scope.db);
   if (body.action === "render") {
     const result = await requestPackage(scope.db, deps, { userId: scope.userId, eventId, recipes: ["montage"], source: "lab", approval: null, now, today: londonToday(now) });
-    if (!result.ok) return NextResponse.json({ error: result.refusal.text, refused: result.refusal.refused }, { status: 409 });
+    if (!result.ok) return NextResponse.json({ error: "lab" in result.refusal ? result.refusal.lab : result.refusal.text, refused: result.refusal.refused }, { status: 409 });
     return NextResponse.json({ ok: true, started: result.started, files: result.files });
   }
   if (body.action === "retry" && body.renderId) {
     const code = (await scope.db.from("events").select("event_code").eq("id", eventId).maybeSingle()).data?.event_code ?? "";
     const out = await retryFile(scope.db, { renderId: body.renderId, userId: scope.userId, eventCode: String(code) });
     return out.ok ? NextResponse.json({ ok: true }) : NextResponse.json({ error: out.text }, { status: 409 });
+  }
+  if (body.action === "copy" && body.renderId) {
+    const { driveFromEnv } = await import("@/lib/drive/client");
+    const { copyToDriveAgain } = await import("@/lib/render-templates/worker");
+    const { workerDeps } = await import("@/lib/render-templates/server-deps");
+    const ok = await copyToDriveAgain(scope.db, workerDeps(scope.db, driveFromEnv().drive), { renderId: body.renderId, userId: scope.userId });
+    return ok ? NextResponse.json({ ok: true }) : NextResponse.json({ error: "" }, { status: 409 });
   }
   if (body.action === "rerender" && body.renderId) {
     const r = await scope.db.from("creative_lab_renders").select("id, user_id, package_id, variant, aspect, round_no, status, checks").eq("id", body.renderId).maybeSingle();
@@ -132,7 +141,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ eventId: s
       only: [{ variant: String(row.variant) as MontageVariant, ratio: String(row.aspect) as Ratio }],
       round: Number(row.round_no ?? 1) + 1,
     });
-    if (!result.ok) return NextResponse.json({ error: result.refusal.text, refused: result.refusal.refused }, { status: 409 });
+    if (!result.ok) return NextResponse.json({ error: "lab" in result.refusal ? result.refusal.lab : result.refusal.text, refused: result.refusal.refused }, { status: 409 });
     return NextResponse.json({ ok: true, started: result.started, files: result.files });
   }
   return NextResponse.json({ error: "Unknown action" }, { status: 400 });

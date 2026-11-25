@@ -77,3 +77,22 @@ test("with the yes: one row, kind render, the yes whole with approval_source cla
   assert.equal(rows[1]!.approved_by, OPERATOR);
   assert.equal(db.writes.filter((w) => w.table === "creative_lab_renders").length, 1, "nine queued files in one insert");
 });
+
+test("consent: line 3 when the grant includes mcp:render; the render upgrade title and cancel note when a grant adds it", async () => {
+  const { consentContent, isRenderUpgrade } = await import("../../mcp/oauth/consent-words.ts");
+  const { CLAUDE_CALLBACK } = await import("../../mcp/config.ts");
+  const base = { redirectUri: CLAUDE_CALLBACK, clientName: "Claude", email: null, returnHost: "claude.ai" };
+  const plain = consentContent({ ...base, scope: "mcp:read mcp:draft mcp:meta" });
+  assert.equal(plain.lines.length, 4);
+  const render = consentContent({ ...base, scope: "mcp:read mcp:draft mcp:meta mcp:render" });
+  assert.equal(render.lines[2], "It can render videos in the Creative Lab too, and file them in the show's Drive folder, each only after you say yes in Claude.");
+  assert.equal(render.title, "Connect Claude to Off/Pixel");
+  const live = [{ client_id: "c1", scope: "mcp:read mcp:draft mcp:meta", revoked_at: null }];
+  assert.equal(isRenderUpgrade(live, "c1", "mcp:read mcp:draft mcp:meta mcp:render"), true);
+  assert.equal(isRenderUpgrade(live, "c2", "mcp:read mcp:draft mcp:meta mcp:render"), false);
+  const up = consentContent({ ...base, scope: "mcp:read mcp:draft mcp:meta mcp:render", addsRender: true });
+  assert.equal(up.title, "Let Claude render videos in Off/Pixel");
+  assert.equal(up.cancelNote, "If you cancel, it keeps the access it has now.");
+  const loop = consentContent({ ...base, redirectUri: "http://127.0.0.1:5555/callback", scope: "mcp:read mcp:render", addsRender: true });
+  assert.equal(loop.title, "Let an app on this computer render videos in Off/Pixel");
+});

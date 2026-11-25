@@ -12,7 +12,7 @@
 
 import { nameBreakParts, rowMeta } from "./file-name.ts";
 import { badgeLine } from "./rights.ts";
-import { M4_WORDS, checksWord, filesWord, m4, recipeWord, recipesWord, today, type CheckKey, type Recipe } from "./words.ts";
+import { checksWord, filesWord, m4, recipeWord, recipesWord, today, type CheckKey, type Recipe } from "./words.ts";
 import { londonDateTime } from "./package-view.ts";
 
 export type RenderFileRow = {
@@ -55,6 +55,8 @@ export function renderRowView(row: RenderFileRow, clientName: string) {
     rendering: row.status === "queued" || row.status === "rendering" ? m4("m4.row.rendering") : null,
     renderFailed: row.status === "failed" ? m4("m4.row.render_failed") : null,
     retry: row.status === "failed" ? m4("m4.row.retry") : null,
+    notFiled: row.status === "done" && !row.driveFileId ? m4("m4.row.not_filed") : null,
+    copyAgain: row.status === "done" && !row.driveFileId ? m4("m4.row.copy_again") : null,
     rerender: row.status === "done" && row.checks && !row.checks.passed ? m4("m4.row.rerender", { round: row.round + 1 }) : null,
     drive: row.driveFileId ? { text: m4("m4.row.drive"), href: driveLink(row.driveFileId) } : null,
   };
@@ -73,7 +75,6 @@ function failedChecksUnion(rows: readonly RenderFileRow[]): CheckKey[] {
 
 /** RT3 when the package finishes: the counts, one line per file, the upload line. */
 export function doneLines(code: string, rows: readonly RenderFileRow[], clientName: string): string[] {
-  const settled = rows.filter((r) => r.status === "done" || r.status === "failed");
   const done = rows.filter((r) => r.status === "done");
   const passed = done.filter((r) => r.checks?.passed);
   const failed = done.filter((r) => r.checks && !r.checks.passed);
@@ -86,10 +87,10 @@ export function doneLines(code: string, rows: readonly RenderFileRow[], clientNa
   for (const r of done) {
     const result = r.checks?.passed ? m4("m4.mcp.file.passed") : m4("m4.mcp.file.failed", { checks: checksWord(r.checks?.failed ?? []) });
     const badge = badgeLine({ shareable: r.shareable, heldReason: r.heldReason }, clientName).badge;
-    lines.push(m4("m4.mcp.file", { "file name": r.fileName, result, badge, link: r.driveFileId ? driveLink(r.driveFileId) : "" }));
+    const line = m4("m4.mcp.file", { "file name": r.fileName, result, badge, link: r.driveFileId ? driveLink(r.driveFileId) : "" });
+    // A file not in Drive yet has no link: the line ends at its badge.
+    lines.push(r.driveFileId ? line : line.replace(/ · $/, ""));
   }
-  // A file that didn't render is named with RT2's words.
-  for (const r of settled.filter((x) => x.status === "failed")) lines.push(`- ${r.fileName} · ${M4_WORDS["m4.row.render_failed"]}`);
   lines.push(
     failed.length === 0 && done.length > 0 && done.length === rows.length
       ? m4("m4.mcp.upload.all", { p: passed.length })

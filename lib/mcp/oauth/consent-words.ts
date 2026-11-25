@@ -17,7 +17,7 @@
  * control characters are dropped, it is capped at CLIENT_NAME_MAX characters
  * inside the curly quotes (59 and "…" when longer), and React escapes it.
  */
-import { CLAUDE_CALLBACK, SCOPE_DRAFT, SCOPE_META, SCOPE_READ } from "../config.ts";
+import { CLAUDE_CALLBACK, SCOPE_DRAFT, SCOPE_META, SCOPE_READ, SCOPE_RENDER } from "../config.ts";
 
 export const CLIENT_NAME_MAX = 60;
 
@@ -43,6 +43,14 @@ export const CONSENT_WORDS = {
   titleUpgradeLoopback: "Let an app on this computer change drafts in Off/Pixel",
   /** consent.upgrade.cancel_note */
   upgradeCancelNote: "If you cancel, it keeps the read-only access it has now.",
+  /** consent.line3.render (M4a, words-m4-render): after line 2 when the scope includes mcp:render. */
+  render: "It can render videos in the Creative Lab too, and file them in the show's Drive folder, each only after you say yes in Claude.",
+  /** consent.title.upgrade.render */
+  titleUpgradeRender: "Let Claude render videos in Off/Pixel",
+  /** consent.title.upgrade.render.loopback */
+  titleUpgradeRenderLoopback: "Let an app on this computer render videos in Off/Pixel",
+  /** consent.upgrade.cancel_note.render */
+  upgradeCancelNoteRender: "If you cancel, it keeps the access it has now.",
   stays: "It stays connected until you disconnect it in Claude, or after 30 days without use.",
   allow: "Allow",
   cancel: "Cancel",
@@ -73,7 +81,8 @@ export function displayClientName(name: string | null | undefined): string | nul
 export interface ConsentContent {
   kind: ReturnKind;
   title: string;
-  lines: [string, string, string, string];
+  /** Four lines; a fifth (line 3, the render line) when the scope includes mcp:render. */
+  lines: string[];
   /** Above the buttons, when an existing read-only grant is adding drafts. */
   cancelNote?: string;
 }
@@ -86,6 +95,25 @@ export function asksForDrafts(scope: string | null | undefined): boolean {
 /** Whether the scope the user will get includes mcp:meta (line 2's Meta wording). */
 export function asksForMeta(scope: string | null | undefined): boolean {
   return (scope ?? "").split(/\s+/).includes(SCOPE_META);
+}
+
+/** Whether the scope the user will get includes mcp:render (line 3, M4a). */
+export function asksForRender(scope: string | null | undefined): boolean {
+  return (scope ?? "").split(/\s+/).includes(SCOPE_RENDER);
+}
+
+/**
+ * M4a's render upgrade: the request includes mcp:render and the signed-in
+ * operator already holds a live grant from the same client without it.
+ * Cancelling leaves that grant as it is.
+ */
+export function isRenderUpgrade(
+  liveGrants: ReadonlyArray<{ client_id: string; scope: string; revoked_at?: string | null }>,
+  clientId: string,
+  requestedScope: string | null | undefined,
+): boolean {
+  if (!asksForRender(requestedScope)) return false;
+  return liveGrants.some((g) => !g.revoked_at && g.client_id === clientId && !g.scope.split(/\s+/).includes(SCOPE_RENDER));
 }
 
 /**
@@ -118,6 +146,8 @@ export function consentContent(input: {
   scope?: string | null;
   /** The signed-in operator already holds a live read-only grant (the upgrade wording). */
   hasReadOnlyGrant?: boolean;
+  /** M4a: a live grant from this client is adding mcp:render (isRenderUpgrade). */
+  addsRender?: boolean;
 }): ConsentContent {
   const kind = returnKindOf(input.redirectUri);
   const drafts = asksForDrafts(input.scope);
@@ -131,7 +161,12 @@ export function consentContent(input: {
         ? `An app on this computer, calling itself “${name}”, is asking to ${verb} Off/Pixel${as}.`
         : `An app on this computer is asking to ${verb} Off/Pixel${as}.`;
   const upgrade = drafts && input.hasReadOnlyGrant === true;
-  const title = upgrade
+  const renderUpgrade = !upgrade && input.addsRender === true && asksForRender(input.scope);
+  const title = renderUpgrade
+    ? kind === "claude"
+      ? CONSENT_WORDS.titleUpgradeRender
+      : CONSENT_WORDS.titleUpgradeRenderLoopback
+    : upgrade
     ? kind === "claude"
       ? CONSENT_WORDS.titleUpgrade
       : CONSENT_WORDS.titleUpgradeLoopback
@@ -144,9 +179,10 @@ export function consentContent(input: {
     lines: [
       first,
       asksForMeta(input.scope) ? CONSENT_WORDS.meta : drafts ? CONSENT_WORDS.drafts : CONSENT_WORDS.readOnly,
+      ...(asksForRender(input.scope) ? [CONSENT_WORDS.render] : []),
       CONSENT_WORDS.stays,
       `After you allow it, you go back to ${input.returnHost}.`,
     ],
-    ...(upgrade ? { cancelNote: CONSENT_WORDS.upgradeCancelNote } : {}),
+    ...(upgrade ? { cancelNote: CONSENT_WORDS.upgradeCancelNote } : renderUpgrade ? { cancelNote: CONSENT_WORDS.upgradeCancelNoteRender } : {}),
   };
 }

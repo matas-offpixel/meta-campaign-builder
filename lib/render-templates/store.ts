@@ -17,7 +17,7 @@ import { buildRenderFileName, ctaSlugForStage, NO_CTA, type MontageVariant, type
 import type { Db } from "./load.ts";
 import type { MontagePlan } from "./montage-plan.ts";
 import { fileRights, type RenderOwner } from "./rights.ts";
-import { candidate, recipeWord, type Recipe, type Stage } from "./words.ts";
+import { m4, recipeWord, type Recipe, type Stage } from "./words.ts";
 
 export const LOOP_GUARD_MS = 60_000;
 export const MONTAGE_STYLE_VERSION = "m4-montage-v1";
@@ -38,11 +38,30 @@ export type StartInput = {
   now: Date;
   /** The round, when re-rendering; otherwise the event's next round for this recipe. */
   round?: number;
+  /**
+   * The local runner (scripts/render-package.mts) renders its own files: they
+   * start as rendering, so neither the render tick's package step nor an
+   * older caption tick ever claims them.
+   */
+  hold?: boolean;
 };
 
 export type StartResult =
   | { ok: true; packageId: string; round: number; fileNames: string[] }
-  | { ok: false; refused: "busy" | "too_soon"; text: string };
+  /** `text` is told to Claude; `lab` is the card's line under Render. */
+  | { ok: false; refused: "busy" | "too_soon"; text: string; lab: string };
+
+export function busyRefusal(eventCode: string): Extract<StartResult, { ok: false }> {
+  return { ok: false, refused: "busy", text: m4("m4.mcp.refused.busy", { code: eventCode }), lab: m4("m4.render.busy") };
+}
+
+export function tooSoonRefusal(eventCode: string, recipe: Recipe, seconds: number): Extract<StartResult, { ok: false }> {
+  const s = Math.max(1, Math.ceil(seconds));
+  const r = recipeWord(recipe);
+  return s === 1
+    ? { ok: false, refused: "too_soon", text: m4("m4.mcp.refused.too_soon.one", { recipe: r, code: eventCode }), lab: m4("m4.render.too_soon.one", { recipe: r }) }
+    : { ok: false, refused: "too_soon", text: m4("m4.mcp.refused.too_soon", { recipe: r, code: eventCode, s }), lab: m4("m4.render.too_soon", { recipe: r, s }) };
+}
 
 type Row = Record<string, unknown>;
 
@@ -50,7 +69,7 @@ type Row = Record<string, unknown>;
 export async function costGuard(db: Db, input: { eventId: string; eventCode: string; recipe: Recipe; now: Date }): Promise<StartResult | null> {
   const running = await db.from("creative_lab_render_packages").select("id").eq("event_id", input.eventId).eq("status", "rendering").limit(1);
   if (running.error) throw new Error(`creative_lab_render_packages: ${running.error.message}`);
-  if ((running.data ?? []).length) return { ok: false, refused: "busy", text: candidate("busy", { code: input.eventCode }) };
+  if ((running.data ?? []).length) return busyRefusal(input.eventCode);
   const last = await db
     .from("creative_lab_render_packages")
     .select("created_at")
@@ -60,9 +79,8 @@ export async function costGuard(db: Db, input: { eventId: string; eventCode: str
     .limit(1);
   if (last.error) throw new Error(`creative_lab_render_packages: ${last.error.message}`);
   const at = (last.data?.[0] as Row | undefined)?.created_at;
-  if (at && input.now.getTime() - Date.parse(String(at)) < LOOP_GUARD_MS) {
-    return { ok: false, refused: "too_soon", text: candidate("tooSoon", { code: input.eventCode, recipe: recipeWord(input.recipe) }) };
-  }
+  const since = at ? input.now.getTime() - Date.parse(String(at)) : Infinity;
+  if (since < LOOP_GUARD_MS) return tooSoonRefusal(input.eventCode, input.recipe, (LOOP_GUARD_MS - since) / 1000);
   return null;
 }
 
@@ -113,7 +131,7 @@ export async function startPackage(db: Db, input: StartInput): Promise<StartResu
     .single();
   if (insert.error) {
     // The one-running index: another start won the race.
-    if (/duplicate key|unique/i.test(insert.error.message)) return { ok: false, refused: "busy", text: candidate("busy", { code: input.eventCode }) };
+    if (/duplicate key|unique/i.test(insert.error.message)) return busyRefusal(input.eventCode);
     throw new Error(`creative_lab_render_packages: ${insert.error.message}`);
   }
   const packageId = String((insert.data as Row).id);
@@ -135,7 +153,7 @@ export async function startPackage(db: Db, input: StartInput): Promise<StartResu
       rights_held_reason: rights.heldReason,
       kind: "video",
       style_version: MONTAGE_STYLE_VERSION,
-      status: "queued",
+      status: input.hold ? "rendering" : "queued",
       attempt: 1,
     };
   });
@@ -160,7 +178,7 @@ export async function retryFile(db: Db, input: { renderId: string; userId: strin
   if (p.status !== "rendering") {
     const other = await db.from("creative_lab_render_packages").select("id").eq("event_id", String(p.event_id)).eq("status", "rendering").limit(1);
     if (other.error) throw new Error(`creative_lab_render_packages: ${other.error.message}`);
-    if ((other.data ?? []).length) return { ok: false, text: candidate("busy", { code: input.eventCode }) };
+    if ((other.data ?? []).length) return { ok: false, text: m4("m4.render.busy") };
     const reopen = await db.from("creative_lab_render_packages").update({ status: "rendering", finished_at: null }).eq("id", String(p.id)).eq("status", "done");
     if (reopen.error) throw new Error(`creative_lab_render_packages: ${reopen.error.message}`);
   }

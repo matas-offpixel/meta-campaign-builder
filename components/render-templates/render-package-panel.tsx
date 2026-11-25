@@ -61,7 +61,7 @@ export function RenderPackagePanel({ eventId }: { eventId: string }) {
     }
   }
 
-  async function rowAction(action: "retry" | "rerender", renderId: string) {
+  async function rowAction(action: "retry" | "rerender" | "copy", renderId: string) {
     setBusyId(renderId);
     setError(null);
     try {
@@ -78,7 +78,7 @@ export function RenderPackagePanel({ eventId }: { eventId: string }) {
   return (
     <div className="space-y-6">
       <RenderPackagePicker header={view.header} cards={view.cards} busy={busy || view.running} started={started} error={error} onRender={render} />
-      {view.rows.length ? <RenderRowsList rows={view.rows} busyId={busyId} onRetry={(id) => rowAction("retry", id)} onRerender={(id) => rowAction("rerender", id)} /> : null}
+      {view.rows.length ? <RenderRowsList rows={view.rows} busyId={busyId} onRetry={(id) => rowAction("retry", id)} onRerender={(id) => rowAction("rerender", id)} onCopy={(id) => rowAction("copy", id)} /> : null}
     </div>
   );
 }

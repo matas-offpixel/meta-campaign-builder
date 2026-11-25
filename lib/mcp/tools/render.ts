@@ -26,11 +26,11 @@ import { loadEventByCode, normaliseCode } from "./shared.ts";
 import { MAX_PACKAGE_FILES, RECIPE_FILES, refusalRowLine } from "../../render-templates/package-view.ts";
 import { doneLines, type RenderFileRow } from "../../render-templates/report.ts";
 import { requestPackage } from "../../render-templates/start.ts";
-import { RECIPES, candidate, m4, type CheckKey, type Recipe } from "../../render-templates/words.ts";
+import { RECIPES, m4, type CheckKey, type Recipe } from "../../render-templates/words.ts";
 
 function requireRender(ctx: ToolContext) {
   if (!scopeIncludes(ctx.scope ?? "", SCOPE_RENDER) || ctx.isMatas !== true) {
-    throw new ToolInputError(candidate("notRender"), { refused: "insufficient_scope" });
+    throw new ToolInputError(m4("m4.mcp.refused.scope"), { refused: "insufficient_scope" });
   }
   return ctx.render;
 }
@@ -39,7 +39,7 @@ function recipesOf(args: Record<string, unknown>): Recipe[] {
   const list = Array.isArray(args.recipes) ? args.recipes : args.recipe != null ? [args.recipe] : ["montage"];
   const out = [...new Set(list.map((r) => String(r)))];
   const bad = out.find((r) => !(RECIPES as readonly string[]).includes(r));
-  if (bad) throw new ToolInputError(`recipe is one of ${RECIPES.join(", ")}. Nothing was rendered.`, { refused: "bad_recipe" });
+  if (bad) throw new ToolInputError(m4("m4.mcp.refused.bad_recipe", { recipe: bad }), { refused: "bad_recipe" });
   return out as Recipe[];
 }
 
@@ -83,7 +83,7 @@ export const renderPackageTool: McpTool = {
     try {
       approval = parseApproval(args.approval);
     } catch {
-      throw new ToolInputError(candidate("approvalTooLong"), { refused: "approval_too_long" });
+      throw new ToolInputError(m4("m4.mcp.refused.approval_long"), { refused: "approval_too_long" });
     }
     const code = normaliseCode(args.event);
     const files = recipes.reduce((s, r) => s + RECIPE_FILES[r], 0);
@@ -94,7 +94,7 @@ export const renderPackageTool: McpTool = {
       throw new ToolInputError(m4("m4.mcp.refused.cap", { n: files, c: MAX_PACKAGE_FILES }), { ...base, refused: "cap", line: m4("today.mcp.row.refused.cap", { c: MAX_PACKAGE_FILES }) });
     }
     const found = await loadEventByCode(ctx.db, code);
-    if (!found) throw new ToolInputError(candidate("noEvent", { code }), { ...base, refused: "no_event" });
+    if (!found) throw new ToolInputError(m4("m4.mcp.refused.unknown_event", { code }), { ...base, refused: "no_event" });
     if (!deps) throw new Error("render deps are not wired");
     const picks = args.picks && typeof args.picks === "object" ? (args.picks as { clips?: string[]; track?: string; copy?: { hook?: string; voice?: "promoter" | "artist" } }) : undefined;
     const result = await requestPackage(ctx.db as never, deps, {
@@ -158,11 +158,11 @@ export const getRenderPackageTool: McpTool = {
   async run(ctx, args) {
     const code = normaliseCode(args.event);
     const found = await loadEventByCode(ctx.db, code);
-    if (!found) throw new ToolInputError(candidate("noEvent", { code }).replace(/ Nothing was rendered\.$/, ""), { refused: "no_event" });
+    if (!found) throw new ToolInputError(m4("m4.mcp.refused.unknown_event", { code }), { refused: "no_event" });
     const pkgRes = await ctx.db.from("creative_lab_render_packages").select("id, status, file_count").eq("event_id", found.primary.id).order("created_at", { ascending: false }).limit(1);
     if (pkgRes.error) throw new Error(`creative_lab_render_packages: ${pkgRes.error.message}`);
     const pkg = (pkgRes.data?.[0] as Row | undefined) ?? null;
-    if (!pkg) return { data: candidate("noPackage", { code }), eventId: found.primary.id, summary: { found: false } };
+    if (!pkg) return { data: m4("m4.mcp.none", { code }), eventId: found.primary.id, summary: { found: false } };
     const filesRes = await ctx.db.from("creative_lab_renders").select("id, file_name, status, round_no, recipe, rights_shareable, rights_held_reason, checks, drive_file_id").eq("package_id", String(pkg.id)).order("file_name", { ascending: true });
     if (filesRes.error) throw new Error(`creative_lab_renders: ${filesRes.error.message}`);
     const rows = ((filesRes.data ?? []) as Row[]).map(fileRowOf);

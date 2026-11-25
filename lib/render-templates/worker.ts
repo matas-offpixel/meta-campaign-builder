@@ -45,6 +45,7 @@ type Row = Record<string, unknown>;
 export type WorkerDeps = LoadDeps & {
   signUrl(bucket: string, path: string): Promise<string>;
   upload(bucket: string, path: string, bytes: Uint8Array, contentType: string): Promise<void>;
+  download(bucket: string, path: string): Promise<Uint8Array>;
   render(req: CompositionRender): Promise<{ bytes: Uint8Array; renderMs: number }>;
   probe(bytes: Uint8Array): Probe;
   /** The variant's text blocks as master PNGs in Storage (layers.ts), signed. */
@@ -182,61 +183,8 @@ export async function renderPackageFile(db: Db, deps: WorkerDeps, row: Row): Pro
         })
       : { passed: false, failed: ["cta_naming_art"] as CheckKey[], notes: ["the file name isn't the 25 Nov convention"] };
 
-    // Drive: {stage} / {owner} / Videos, the file as named; the cut sheet once per package.
-    let driveFileId: string | null = null;
-    let driveError: string | null = null;
-    let shortcutId: string | null = null;
-    if (deps.drive && event.drive_folder_id) {
-      try {
-        const owner = await driveOwnerFor(db, pkg, plan, String(row.owner_kind), client, event);
-        if (!owner) throw new Error("no owner folder");
-        const route = routeRender({ stage: String(pkg.stage) === "signup" ? "signup" : "on-sale", today: deps.today, eventDate: event.event_date == null ? null : String(event.event_date), owner, kind: "video" });
-        const folderId = await ensureRouteFolder(db as unknown as DriveDb, deps.drive, event as RowOf<"events">, client as RowOf<"clients">, route, emptyLog());
-        const file = await deps.drive.uploadFile({ parentId: folderId, name: fileName, mimeType: "video/mp4", bytes: rendered.bytes, appProperties: { [APP_TAG_KEY]: PACKAGE_FILE_TAG, [APP_ID_KEY]: id } });
-        driveFileId = file.id;
-        if (!pkg.cut_sheet_drive_file_id) {
-          const sheet = (["no-text", "teaser", "announcement"] as const).map((v) => cutSheetText(plan.sheet, v)).join("\n");
-          const sheetName = `${fileName.split("__").slice(0, 3).join("__")}__cut-sheet__r${String(row.round_no)}.txt`;
-          const sheetFile = await deps.drive.uploadFile({ parentId: folderId, name: sheetName, mimeType: "text/plain", bytes: new TextEncoder().encode(sheet), appProperties: { [APP_TAG_KEY]: CUT_SHEET_TAG, [APP_ID_KEY]: String(pkg.id) } });
-          await db.from("creative_lab_render_packages").update({ cut_sheet_drive_file_id: sheetFile.id }).eq("id", String(pkg.id)).is("cut_sheet_drive_file_id", null);
-        }
-        // AL1: only a shareable file (No text, artist material only) that passed every check joins the library's Renders.
-        if (row.rights_shareable === true && checks.passed && owner.kind === "artist") {
-          const lab = await one(db, "creative_lab_artists", owner.artistId);
-          const libraryId = lab?.artist_id ? String(lab.artist_id) : null;
-          if (libraryId) {
-            const renders = await deps.libraryRenders({ id: libraryId, name: owner.name });
-            if (renders) {
-              const sc = await deps.drive.createShortcut({ parentId: renders, name: fileName, targetId: file.id, appProperties: { [APP_TAG_KEY]: LIBRARY_RENDER_TAG, [APP_ID_KEY]: id } });
-              shortcutId = sc.id;
-              await db.from("artist_assets").upsert(
-                {
-                  artist_id: libraryId,
-                  asset_key: `m4_render:${id}`,
-                  kind: "render",
-                  name: fileName,
-                  drive_file_id: file.id,
-                  storage_path: storagePath,
-                  source_event_id: String(event.id),
-                  source_client_id: String(event.client_id),
-                  owner_kind: "offpixel",
-                  shareable: true,
-                  held_reason: null,
-                  lab_render_id: id,
-                  matched_by: "lab",
-                  material_at: deps.now().toISOString(),
-                },
-                { onConflict: "artist_id,asset_key" },
-              );
-            }
-          }
-        }
-      } catch (err) {
-        driveError = shortError(err);
-      }
-    } else {
-      driveError = deps.drive ? "no event folder" : "drive off";
-    }
+    const filed = await fileOnDrive(db, deps, { row, pkg, event, client, plan, bytes: rendered.bytes, passed: checks.passed, storagePath });
+    const { driveFileId, driveError, shortcutId } = filed;
 
     const update = await db
       .from("creative_lab_renders")
@@ -261,6 +209,104 @@ export async function renderPackageFile(db: Db, deps: WorkerDeps, row: Row): Pro
     await db.from("creative_lab_renders").update({ status: "failed", error: shortError(err) }).eq("id", id);
     return "failed";
   }
+}
+
+type Filed = { driveFileId: string | null; driveError: string | null; shortcutId: string | null };
+
+/**
+ * Drive: {stage} / {owner} / Videos, the file under its own name; the cut
+ * sheet once per package; and, for a shareable file that passed every check,
+ * the library's Renders shortcut and its artist_assets row (AL1). Never
+ * throws: a failure is the row's drive_error.
+ */
+async function fileOnDrive(
+  db: Db,
+  deps: WorkerDeps,
+  input: { row: Row; pkg: Row; event: Row; client: Row; plan: MontagePlan; bytes: Uint8Array; passed: boolean; storagePath: string },
+): Promise<Filed> {
+  const { row, pkg, event, client, plan } = input;
+  const id = String(row.id);
+  const fileName = String(row.file_name);
+  if (!deps.drive || !event.drive_folder_id) return { driveFileId: null, driveError: deps.drive ? "no event folder" : "drive off", shortcutId: null };
+  let driveFileId: string | null = null;
+  let shortcutId: string | null = null;
+  try {
+    const owner = await driveOwnerFor(db, pkg, plan, String(row.owner_kind), client, event);
+    if (!owner) throw new Error("no owner folder");
+    const route = routeRender({ stage: String(pkg.stage) === "signup" ? "signup" : "on-sale", today: deps.today, eventDate: event.event_date == null ? null : String(event.event_date), owner, kind: "video" });
+    const folderId = await ensureRouteFolder(db as unknown as DriveDb, deps.drive, event as RowOf<"events">, client as RowOf<"clients">, route, emptyLog());
+    const file = await deps.drive.uploadFile({ parentId: folderId, name: fileName, mimeType: "video/mp4", bytes: input.bytes, appProperties: { [APP_TAG_KEY]: PACKAGE_FILE_TAG, [APP_ID_KEY]: id } });
+    driveFileId = file.id;
+    const fresh = await one(db, "creative_lab_render_packages", String(pkg.id));
+    if (!fresh?.cut_sheet_drive_file_id) {
+      const sheet = (["no-text", "teaser", "announcement"] as const).map((v) => cutSheetText(plan.sheet, v)).join("\n");
+      const sheetName = `${fileName.split("__").slice(0, 3).join("__")}__cut-sheet__r${String(row.round_no)}.txt`;
+      const sheetFile = await deps.drive.uploadFile({ parentId: folderId, name: sheetName, mimeType: "text/plain", bytes: new TextEncoder().encode(sheet), appProperties: { [APP_TAG_KEY]: CUT_SHEET_TAG, [APP_ID_KEY]: String(pkg.id) } });
+      await db.from("creative_lab_render_packages").update({ cut_sheet_drive_file_id: sheetFile.id }).eq("id", String(pkg.id)).is("cut_sheet_drive_file_id", null);
+    }
+    // AL1: only a shareable file (No text, artist material only) that passed every check joins the library's Renders.
+    if (row.rights_shareable === true && input.passed && owner.kind === "artist") {
+      const lab = await one(db, "creative_lab_artists", owner.artistId);
+      const libraryId = lab?.artist_id ? String(lab.artist_id) : null;
+      const renders = libraryId ? await deps.libraryRenders({ id: libraryId, name: owner.name }) : null;
+      if (libraryId && renders) {
+        const sc = await deps.drive.createShortcut({ parentId: renders, name: fileName, targetId: file.id, appProperties: { [APP_TAG_KEY]: LIBRARY_RENDER_TAG, [APP_ID_KEY]: id } });
+        shortcutId = sc.id;
+        await db.from("artist_assets").upsert(
+          {
+            artist_id: libraryId,
+            asset_key: `m4_render:${id}`,
+            kind: "render",
+            name: fileName,
+            drive_file_id: file.id,
+            storage_path: input.storagePath,
+            source_event_id: String(event.id),
+            source_client_id: String(event.client_id),
+            owner_kind: "offpixel",
+            shareable: true,
+            held_reason: null,
+            lab_render_id: id,
+            matched_by: "lab",
+            material_at: deps.now().toISOString(),
+          },
+          { onConflict: "artist_id,asset_key" },
+        );
+      }
+    }
+    return { driveFileId, driveError: null, shortcutId };
+  } catch (err) {
+    return { driveFileId, driveError: shortError(err), shortcutId };
+  }
+}
+
+/**
+ * "Copy to Drive" (m4.row.copy_again): a file that rendered but whose Drive
+ * copy didn't finish is filed again from its Storage copy. Nothing renders.
+ * Only the owner's done, unfiled files.
+ */
+export async function copyToDriveAgain(db: Db, deps: WorkerDeps, input: { renderId: string; userId: string }): Promise<boolean> {
+  const row = await one(db, "creative_lab_renders", input.renderId);
+  if (!row || String(row.user_id) !== input.userId || row.recipe == null || row.status !== "done" || row.drive_file_id || !row.storage_path) return false;
+  const pkg = await one(db, "creative_lab_render_packages", String(row.package_id));
+  const event = pkg ? await one(db, "events", String(pkg.event_id)) : null;
+  const client = event ? await one(db, "clients", String(event.client_id)) : null;
+  if (!pkg || !event || !client) return false;
+  const bytes = await deps.download(PACKAGE_BUCKET, String(row.storage_path));
+  const passed = (row.checks as { passed?: boolean } | null)?.passed === true;
+  const filed = await fileOnDrive(db, deps, { row, pkg, event, client, plan: pkg.plan as MontagePlan, bytes, passed, storagePath: String(row.storage_path) });
+  const update = await db
+    .from("creative_lab_renders")
+    .update({
+      drive_status: filed.driveFileId ? "copied" : "failed",
+      drive_file_id: filed.driveFileId,
+      drive_file_name: filed.driveFileId ? String(row.file_name) : null,
+      drive_error: filed.driveError,
+      drive_copied_at: filed.driveFileId ? deps.now().toISOString() : null,
+      library_shortcut_id: filed.shortcutId,
+    })
+    .eq("id", input.renderId);
+  if (update.error) throw new Error(`creative_lab_renders: ${update.error.message}`);
+  return Boolean(filed.driveFileId);
 }
 
 /** One tick: claim queued package files into the free Lambda slots, render them side by side, settle packages. */

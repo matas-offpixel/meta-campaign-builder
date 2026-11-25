@@ -9,10 +9,10 @@ const M4 = new URL("./fixtures/words-m4-render-2026-11-25.tsv", import.meta.url)
 const TD = new URL("./fixtures/words-mcp-today-2026-11-25.tsv", import.meta.url);
 const rows = (u: URL) => readFileSync(u, "utf8").trimEnd().split("\n").slice(1).map((l) => l.split("\t"));
 
-test("the fixture is the M4 word list as briefed: 122 rows, sha256 c86c2fbd…5085", () => {
+test("the fixture is the M4 word list with design's 19 rows: 141 rows, sha256 35aa880c…8600", () => {
   const bytes = readFileSync(M4);
-  assert.equal(createHash("sha256").update(bytes).digest("hex"), "c86c2fbd660ac915a591275a581b469d35cf63337e19ab61f732261592f85066");
-  assert.equal(rows(M4).length, 122);
+  assert.equal(createHash("sha256").update(bytes).digest("hex"), "35aa880ccc3327d1e1fa57e0e3d2acac67a756c0102954a4b866490ac6878600");
+  assert.equal(rows(M4).length, 141);
 });
 
 test("M4_WORDS holds every row exactly, in order, and nothing else", () => {

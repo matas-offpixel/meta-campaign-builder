@@ -4,7 +4,7 @@ import { test } from "node:test";
 import { fakeDrive } from "../../drive/__tests__/fake-drive.ts";
 import type { CompositionRender } from "../../creative-lab/lambda.ts";
 import { requestPackage } from "../start.ts";
-import { runPackageTick, type WorkerDeps } from "../worker.ts";
+import { copyToDriveAgain, runPackageTick, type WorkerDeps } from "../worker.ts";
 import { EVENT, MATAS, NOW, TODAY, fakeStartDeps, fixtureTables } from "./fixtures.ts";
 import { fakeDb } from "../../mcp/__tests__/fake-db.ts";
 
@@ -15,11 +15,16 @@ function setup(opts: { failRatio?: string; wrong45?: boolean } = {}) {
   const drive = fakeDrive();
   const renders: CompositionRender[] = [];
   const uploads: string[] = [];
+  const downloads: string[] = [];
   let libraryFolder: string | null = null;
   const deps: WorkerDeps = {
     ...fakeStartDeps(),
     signUrl: async (bucket, p) => `https://signed.example/${bucket}/${p}`,
     upload: async (_b, p) => void uploads.push(p),
+    download: async (_b, p) => {
+      downloads.push(p);
+      return new TextEncoder().encode("mp4:9:16");
+    },
     render: async (req) => {
       renders.push(req);
       const ratio = String(req.inputProps.ratio);
@@ -41,7 +46,7 @@ function setup(opts: { failRatio?: string; wrong45?: boolean } = {}) {
     now: () => NOW,
     today: TODAY,
   };
-  return { db, drive, deps, renders, uploads };
+  return { db, drive, deps, renders, uploads, downloads };
 }
 
 async function startAndRun(s: ReturnType<typeof setup>) {
@@ -100,4 +105,25 @@ test("a render that doesn't finish: the row reads Didn't render, the tick carrie
   assert.equal(tick.failed, 3);
   assert.equal(rows.filter((r) => r.status === "failed").length, 3);
   assert.equal(pkg.status, "done");
+});
+
+test("Drive off: the file renders and is checked, reads Rendered, but not in Drive yet; Copy to Drive files it from the Storage copy without rendering", async () => {
+  const s = setup();
+  const noDrive = { ...s, deps: { ...s.deps, drive: null } };
+  const { rows } = await startAndRun(noDrive);
+  assert.ok(rows.every((r) => r.status === "done" && r.drive_file_id == null && r.drive_status === "failed"));
+  const { renderRowView } = await import("../report.ts");
+  const { fileRowOf } = await import("../../mcp/tools/render.ts");
+  const view = renderRowView(fileRowOf(rows[0]!), "Puzzle");
+  assert.equal(view.notFiled, "Rendered, but not in Drive yet: the copy didn’t finish.");
+  assert.equal(view.copyAgain, "Copy to Drive");
+  assert.equal(view.drive, null);
+  const before = s.renders.length;
+  assert.equal(await copyToDriveAgain(s.db, s.deps, { renderId: String(rows[0]!.id), userId: MATAS }), true);
+  assert.equal(s.renders.length, before, "nothing rendered again");
+  assert.equal(s.downloads.length, 1);
+  const after = ((await s.db.from("creative_lab_renders").select("*").eq("id", String(rows[0]!.id))).data as Record<string, unknown>[])[0]!;
+  assert.equal(after.drive_status, "copied");
+  assert.ok(after.drive_file_id);
+  assert.equal(await copyToDriveAgain(s.db, s.deps, { renderId: String(rows[0]!.id), userId: MATAS }), false, "an already filed file isn't copied twice");
 });

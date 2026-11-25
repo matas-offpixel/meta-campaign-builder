@@ -78,7 +78,11 @@ export function startDeps(db: Service): StartDeps {
   };
 }
 
-export function workerDeps(db: Service, drive: DriveApi | null, now: () => Date = () => new Date()): WorkerDeps {
+/**
+ * `serveUrl`: the local runner passes the separate montage site's URL here;
+ * the cron leaves it out and renders from REMOTION_LAMBDA_SERVE_URL.
+ */
+export function workerDeps(db: Service, drive: DriveApi | null, now: () => Date = () => new Date(), serveUrl?: string): WorkerDeps {
   const base = startDeps(db);
   const layerCache = new Map<string, Promise<{ url: string; fromFrame: number; toFrame: number }[]>>();
   return {
@@ -88,8 +92,13 @@ export function workerDeps(db: Service, drive: DriveApi | null, now: () => Date 
       const res = await db.storage.from(bucket).upload(p, bytes, { contentType, upsert: true });
       if (res.error) throw new Error(`storage upload: ${res.error.message}`);
     },
+    async download(bucket, p) {
+      const { data, error } = await db.storage.from(bucket).download(p);
+      if (error || !data) throw new Error(`storage download: ${error?.message ?? "no file"}`);
+      return new Uint8Array(await data.arrayBuffer());
+    },
     async render(req) {
-      const out = await renderCompositionViaLambda(req, requireLambdaServeUrl());
+      const out = await renderCompositionViaLambda(req, serveUrl ?? requireLambdaServeUrl());
       return { bytes: out.bytes, renderMs: out.renderMs };
     },
     probe: (bytes) => probeMp4Bytes(bytes),

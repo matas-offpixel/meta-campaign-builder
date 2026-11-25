@@ -26,7 +26,7 @@ const tone = {
   missing: "text-destructive",
 } as const;
 
-export function RecipeCardView({ card, busy, started, onRender }: { card: RecipeCard; busy?: boolean; started?: string | null; onRender?: () => void }) {
+export function RecipeCardView({ card, busy, started, refused, onRender }: { card: RecipeCard; busy?: boolean; started?: string | null; refused?: string | null; onRender?: () => void }) {
   const muted = !card.built;
   return (
     <section className={`rounded-lg border border-border p-4 ${muted ? "bg-muted/40 opacity-70" : "bg-card"}`}>
@@ -70,6 +70,7 @@ export function RecipeCardView({ card, busy, started, onRender }: { card: Recipe
           </button>
           <p className="mt-1 text-xs text-muted-foreground">{card.under}</p>
           {!card.ready ? <p className="mt-1 text-xs text-warning-foreground">{M4_WORDS["m4.render.blocked"]}</p> : null}
+          {refused ? <p className="mt-1 text-xs text-destructive">{refused}</p> : null}
           {started ? <p className="mt-1 text-xs">{started}</p> : null}
         </div>
       ) : null}
@@ -99,17 +100,16 @@ export function RenderPackagePicker({
         <p className="text-sm">{header.forLine}</p>
         <p className="text-xs text-muted-foreground">{header.rights}</p>
       </div>
-      {error ? <p className="text-sm text-destructive">{error}</p> : null}
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
         {cards.map((card) => (
-          <RecipeCardView key={card.recipe} card={card} busy={busy} started={card.built ? started : null} onRender={card.built ? onRender : undefined} />
+          <RecipeCardView key={card.recipe} card={card} busy={busy} started={card.built ? started : null} refused={card.built ? error : null} onRender={card.built ? onRender : undefined} />
         ))}
       </div>
     </div>
   );
 }
 
-export function RenderRowsList({ rows, onRetry, onRerender, busyId }: { rows: RowView[]; onRetry?: (id: string) => void; onRerender?: (id: string) => void; busyId?: string | null }) {
+export function RenderRowsList({ rows, onRetry, onRerender, onCopy, busyId }: { rows: RowView[]; onRetry?: (id: string) => void; onRerender?: (id: string) => void; onCopy?: (id: string) => void; busyId?: string | null }) {
   return (
     <div className="space-y-2" id="lab-renders">
       <h3 className="text-lg font-semibold">{M4_WORDS["m4.rows.title"]}</h3>
@@ -132,10 +132,16 @@ export function RenderRowsList({ rows, onRetry, onRerender, busyId }: { rows: Ro
             {row.checks ? <p className={`text-xs ${row.checks.tone === "olive" ? "text-success" : "text-destructive"}`}>{row.checks.text}</p> : null}
             {row.rendering ? <p className="text-xs text-muted-foreground">{row.rendering}</p> : null}
             {row.renderFailed ? <p className="text-xs text-destructive">{row.renderFailed}</p> : null}
+            {row.notFiled ? <p className="text-xs text-warning-foreground">{row.notFiled}</p> : null}
             <div className="flex flex-wrap items-center gap-3 pt-1 text-xs">
               {row.rerender ? (
                 <button type="button" className="rounded-md border border-border-strong px-2 py-1" disabled={busyId === row.id} onClick={() => onRerender?.(row.id)}>
                   {row.rerender}
+                </button>
+              ) : null}
+              {row.copyAgain ? (
+                <button type="button" className="rounded-md border border-border-strong px-2 py-1" disabled={busyId === row.id} onClick={() => onCopy?.(row.id)}>
+                  {row.copyAgain}
                 </button>
               ) : null}
               {row.retry ? (

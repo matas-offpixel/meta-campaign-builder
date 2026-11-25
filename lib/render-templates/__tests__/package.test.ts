@@ -88,6 +88,22 @@ test("artist-voice copy with no approved caption: refused with the two ways out"
   assert.deepEqual(rendered(db), []);
 });
 
+test("design's refusal rows: not built, a bad recipe, an approval over 1,000 characters, an unknown event, no package yet", async () => {
+  const db = fixtureDb();
+  const notBuilt = await refusal(renderPackageTool.run(ctxFor(db), { event: "P26-BDAY", recipe: "roll-call", approval: YES }));
+  assert.equal(notBuilt.message, "Refused: Roll-call isn’t built yet. Montage (15 s) can be rendered now. Nothing was rendered.");
+  const bad = await refusal(renderPackageTool.run(ctxFor(db), { event: "P26-BDAY", recipe: "reel", approval: YES }));
+  assert.equal(bad.message, "Refused: reel isn’t a recipe. The recipes are montage, roll-call, top tracks and artist card. Nothing was rendered.");
+  const long = await refusal(renderPackageTool.run(ctxFor(db), { event: "P26-BDAY", approval: { asked: "x".repeat(1001), answer: "yes" } }));
+  assert.equal(long.message, "Refused: the question or the answer is over 1,000 characters. Ask Matas a shorter question, then send it and his answer word for word. Nothing was rendered.");
+  const unknown = await refusal(renderPackageTool.run(ctxFor(db), { event: "NOPE-1", approval: YES }));
+  assert.equal(unknown.message, "Refused: no event with code NOPE-1. Nothing was rendered.");
+  const scope = await refusal(renderPackageTool.run(ctxFor(db, { isMatas: false }), { event: "P26-BDAY", approval: YES }));
+  assert.equal(scope.message, "Refused: this connection can’t render. Only Matas’s can, once he reconnects Off/Pixel in Claude and allows renders. Nothing was rendered.");
+  assert.equal((await getRenderPackageTool.run(ctxFor(db, { scope: "mcp:read" }), { event: "P26-BDAY" })).data, "No render package for P26-BDAY yet.");
+  assert.deepEqual(rendered(db), []);
+});
+
 test("needs missing: RT3's line, ending Nothing was rendered", async () => {
   const db = fixtureDb({ puzzleClips: 0, enzoClips: 5, claim: false, track: false });
   const e = await refusal(renderPackageTool.run(ctxFor(db, { render: fakeStartDeps(false) }), { event: "P26-BDAY", approval: YES }));
@@ -127,12 +143,17 @@ test("cost guard: one package at a time per event, and none within 60 s of the l
   await renderPackageTool.run(ctxFor(db), { event: "P26-BDAY", approval: YES });
   const busy = await refusal(renderPackageTool.run(ctxFor(db), { event: "P26-BDAY", approval: YES }));
   assert.equal(busy.summary?.refused, "busy");
-  assert.match(busy.message, /Nothing was rendered\.$/);
+  assert.equal(busy.message, "Refused: a package for P26-BDAY is already rendering. Wait until it finishes; get_render_package shows its progress. Nothing was rendered.");
+  const lab = await requestPackage(db, fakeStartDeps(), { userId: MATAS, eventId: EVENT, recipes: ["montage"], source: "lab", approval: null, now: NOW, today: TODAY });
+  assert.ok(!lab.ok && "lab" in lab.refusal && lab.refusal.lab === "A package is already rendering for this show. Render again once it finishes.");
   // The first finishes; a loop tries again 30 s after it started.
   const pkgRow = (await db.from("creative_lab_render_packages").select("*")).data as Record<string, unknown>[];
   await db.from("creative_lab_render_packages").update({ status: "done", finished_at: NOW.toISOString(), created_at: new Date(NOW.getTime() - 30_000).toISOString() }).eq("id", String(pkgRow[0]!.id));
   const soon = await refusal(renderPackageTool.run(ctxFor(db), { event: "P26-BDAY", approval: YES }));
   assert.equal(soon.summary?.refused, "too_soon");
+  assert.equal(soon.message, "Refused: a Montage (15 s) package for P26-BDAY started under a minute ago. Try again in 30 seconds. Nothing was rendered.");
+  const labSoon = await requestPackage(db, fakeStartDeps(), { userId: MATAS, eventId: EVENT, recipes: ["montage"], source: "lab", approval: null, now: new Date(NOW.getTime() + 29_500), today: TODAY });
+  assert.ok(!labSoon.ok && "lab" in labSoon.refusal && labSoon.refusal.lab === "A Montage (15 s) package started under a minute ago. Try again in 1 second.");
   await db.from("creative_lab_render_packages").update({ created_at: new Date(NOW.getTime() - LOOP_GUARD_MS - 1).toISOString() }).eq("id", String(pkgRow[0]!.id));
   const again = await renderPackageTool.run(ctxFor(db), { event: "P26-BDAY", approval: YES });
   assert.equal(again.summary.files, 9);

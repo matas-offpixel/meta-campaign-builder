@@ -2,13 +2,13 @@
  * lib/render-templates/words.ts — M4's words, and the TD rows Today's log row uses.
  *
  * M4_WORDS is every row of scratch/mcp/words-m4-render-2026-11-25.tsv
- * (122 rows, sha256 c86c2fbd…5085; records 2026-11-25-m4-render-templates and
- * its re-ruling 2026-11-25-m4-renders-on-yes), exactly. TODAY_WORDS is the
+ * (141 rows, sha256 35aa880c…8600: the records' 122 and design's 19 for the
+ * cost guard, the refusals, the Drive copy and the consent page; records
+ * 2026-11-25-m4-render-templates and 2026-11-25-m4-renders-on-yes), exactly. TODAY_WORDS is the
  * nine rows of TD's list (scratch/mcp/words-mcp-today-2026-11-25.tsv) that
  * FC1's log row needs for a render package. The tests compare both with the
  * copied fixtures row by row. Nothing on a screen or told to Claude about a
- * render package is written anywhere else, except CLAUDE_CANDIDATES below:
- * Claude-facing lines no record has, each listed for design in the PR.
+ * render package is written anywhere else.
  *
  * Relative imports only (node:test).
  */
@@ -138,6 +138,25 @@ export const M4_WORDS = {
   "today.mcp.row.refused.cap": "Refused · over the {c}-file cap",
   "today.mcp.row.refused.promoter": "Refused · {client}’s footage in the picks",
   "today.mcp.row.refused.voice": "Refused · artist-voice copy with no approved caption",
+  "m4.mcp.refused.busy": "Refused: a package for {code} is already rendering. Wait until it finishes; get_render_package shows its progress. Nothing was rendered.",
+  "m4.mcp.refused.too_soon": "Refused: a {recipe} package for {code} started under a minute ago. Try again in {s} seconds. Nothing was rendered.",
+  "m4.mcp.refused.too_soon.one": "Refused: a {recipe} package for {code} started under a minute ago. Try again in 1 second. Nothing was rendered.",
+  "m4.mcp.refused.scope": "Refused: this connection can’t render. Only Matas’s can, once he reconnects Off/Pixel in Claude and allows renders. Nothing was rendered.",
+  "m4.mcp.refused.unknown_event": "Refused: no event with code {code}. Nothing was rendered.",
+  "m4.mcp.refused.not_built": "Refused: {recipe} isn’t built yet. {built} can be rendered now. Nothing was rendered.",
+  "m4.mcp.refused.bad_recipe": "Refused: {recipe} isn’t a recipe. The recipes are montage, roll-call, top tracks and artist card. Nothing was rendered.",
+  "m4.mcp.refused.approval_long": "Refused: the question or the answer is over 1,000 characters. Ask Matas a shorter question, then send it and his answer word for word. Nothing was rendered.",
+  "m4.mcp.start_failed": "The package couldn’t start. Try again. Nothing was rendered.",
+  "m4.mcp.none": "No render package for {code} yet.",
+  "m4.render.busy": "A package is already rendering for this show. Render again once it finishes.",
+  "m4.render.too_soon": "A {recipe} package started under a minute ago. Try again in {s} seconds.",
+  "m4.render.too_soon.one": "A {recipe} package started under a minute ago. Try again in 1 second.",
+  "m4.row.not_filed": "Rendered, but not in Drive yet: the copy didn’t finish.",
+  "m4.row.copy_again": "Copy to Drive",
+  "consent.line3.render": "It can render videos in the Creative Lab too, and file them in the show's Drive folder, each only after you say yes in Claude.",
+  "consent.title.upgrade.render": "Let Claude render videos in Off/Pixel",
+  "consent.title.upgrade.render.loopback": "Let an app on this computer render videos in Off/Pixel",
+  "consent.upgrade.cancel_note.render": "If you cancel, it keeps the access it has now.",
 } as const;
 
 export const TODAY_WORDS = {
@@ -163,32 +182,6 @@ export function m4(key: M4Key, values: WordFill = {}): string {
 /** One TD row, filled. */
 export function today(key: TodayKey, values: WordFill = {}): string {
   return fillWords(TODAY_WORDS[key], values);
-}
-
-/**
- * Builder's candidates for Claude-facing lines no record has (RY3 asks every
- * refusal to end "Nothing was rendered."). PENDING DESIGN: listed in the PR;
- * none is shown on a screen.
- */
-export const CLAUDE_CANDIDATES = {
-  /** One package at a time per event (cost guard). */
-  busy: "Refused: a package is already rendering for {code}. Wait for it to finish. Nothing was rendered.",
-  /** The 60 s loop guard (cost guard). */
-  tooSoon: "Refused: a {recipe} package for {code} started under a minute ago. Nothing was rendered.",
-  /** The grant has no mcp:render, or the user isn't Matas. */
-  notRender: "This connection can't render. Only Matas's connection can, after he reconnects Off/Pixel in Claude. Nothing was rendered.",
-  /** No event with that code, or an archived client's. */
-  noEvent: "No event with code {code}. Nothing was rendered.",
-  /** A recipe that isn't built yet. */
-  notBuilt: "{recipe} isn't built yet: only the montage renders. Nothing was rendered.",
-  /** asked or answer over 1,000 characters (M3a's limit). */
-  approvalTooLong: "asked and answer are at most 1000 characters each. Nothing was rendered.",
-  /** get_render_package with no package on the event. */
-  noPackage: "No render package for {code} yet.",
-} as const;
-
-export function candidate(key: keyof typeof CLAUDE_CANDIDATES, values: WordFill = {}): string {
-  return fillWords(CLAUDE_CANDIDATES[key], values);
 }
 
 /** {files}: "9 files" / "1 file" (today.mcp.count.files). */
