@@ -12,6 +12,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { clipRights, usableOn } from "../artist-library/rights.ts";
+import { isArchivedClientStatus } from "../db/client-status.ts";
 import { approvedClaim, type WarningRow } from "../creative-lab/claim-approval.ts";
 import { isOnSale } from "../onsale-refresh/on-sale.ts";
 import type { BeatGrid } from "./beats.ts";
@@ -117,7 +118,7 @@ export async function loadClips(db: Db, event: Pick<EventFacts, "clientId">, lin
   const clientIds = [...new Set([...labArtists.values()].map((r) => text(r, "client_id")))];
   const clients = await rowsIn(db, "clients", "id, name, status", "id", clientIds);
   const clientName = new Map(clients.map((c) => [text(c, "id"), text(c, "name")]));
-  const archived = new Set(clients.filter((c) => text(c, "status") === "archived").map((c) => text(c, "id")));
+  const archived = new Set(clients.filter((c) => isArchivedClientStatus(text(c, "status"))).map((c) => text(c, "id")));
   const clips = await rowsIn(
     db,
     "creative_lab_clips",
@@ -160,8 +161,12 @@ export async function loadClips(db: Db, event: Pick<EventFacts, "clientId">, lin
   }
   all.sort((a, b) => Number(b.isHeadliner) - Number(a.isHeadliner) || a.order - b.order || a.clipNo - b.clipNo);
   // A clip shorter than a cut isn't offered.
-  const strip = ({ order: _o, clipNo: _n, ...rest }: (typeof all)[number]) => rest;
-  return { usable: all.filter((c) => c.usable && c.outS - c.inS >= 0.5).map((c) => { const { usable: _u, ...r } = strip(c); return r; }), all: all.map(strip) };
+  const strip = (c: (typeof all)[number]): LoadedClips["all"][number] => ({
+    id: c.id, name: c.name, owner: c.owner, clientId: c.clientId, clientName: c.clientName, artistName: c.artistName,
+    isHeadliner: c.isHeadliner, inS: c.inS, outS: c.outS, driveFileId: c.driveFileId, usable: c.usable,
+  });
+  const allOut = all.map(strip);
+  return { usable: allOut.filter((c) => c.usable && c.outS - c.inS >= 0.5).map(({ usable, ...rest }) => (void usable, rest)), all: allOut };
 }
 
 /** Picked clips that are another client's promoter footage, counted by that client. */
@@ -229,6 +234,13 @@ export async function loadClaim(db: Db, eventId: string, now: Date): Promise<Cla
   return { state: warnings.length ? "none" : "missing", text: null, lines: [], readAt };
 }
 
+/** "Sun 27 Dec" from a stored date. */
+export function shortDay(date: string): string {
+  const parts = new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" }).formatToParts(new Date(`${date.slice(0, 10)}T12:00:00Z`));
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
+  return `${get("weekday")} ${get("day")} ${get("month")}`;
+}
+
 export type LoadDeps = {
   /** The client's kit for this event: a provided face and a stored logo piece. */
   kitReady(eventId: string, clientId: string): Promise<boolean>;
@@ -238,7 +250,7 @@ export type LoadedPackage = { facts: EventFacts; state: PackageState; clips: Loa
 
 export async function loadPackageState(db: Db, eventId: string, deps: LoadDeps, now: Date, today: string): Promise<LoadedPackage | null> {
   const facts = await loadEventFacts(db, eventId, today);
-  if (!facts || facts.clientStatus === "archived") return null;
+  if (!facts || isArchivedClientStatus(facts.clientStatus)) return null;
   const lineup = await loadLineup(db, eventId);
   const clips = await loadClips(db, facts, lineup);
   const tracks = await loadTracks(db, eventId, lineup);
@@ -259,8 +271,9 @@ export async function loadPackageState(db: Db, eventId: string, deps: LoadDeps, 
     rawClip: raw?.name ?? null,
     pressShot: null,
     tracks: tracks.filter((t) => t.dropS != null && !t.flagged).length,
+    snippets: 0,
     artwork: null,
-    details: lead && facts.eventDate && venue ? `${lead.name} · ${facts.eventDate.slice(0, 10)} · ${venue}` : null,
+    details: lead && facts.eventDate && venue ? `${lead.name} · ${shortDay(facts.eventDate)} · ${venue}` : null,
     artistName: lead?.name ?? null,
   };
   return { facts, state, clips, tracks, muted };

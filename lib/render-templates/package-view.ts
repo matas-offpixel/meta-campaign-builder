@@ -232,7 +232,10 @@ export function packageOwner(state: PackageState, picks: Picks = {}): RenderOwne
 export type MutedInputs = {
   rawClip: string | null;
   pressShot: string | null;
+  /** Top tracks: tracks with a drop picked. */
   tracks: number;
+  /** Artist card: track snippets picked. */
+  snippets: number;
   artwork: string | null;
   details: string | null;
   artistName: string | null;
@@ -248,7 +251,7 @@ export function mutedNeeds(recipe: Exclude<Recipe, "montage">, state: PackageSta
   if (recipe === "roll-call") return [simple("raw_clip", m4("m4.need.raw_clip"), Boolean(muted.rawClip), muted.rawClip, links.clips), kit, claim];
   const press = simple("press_shot", m4("m4.need.press_shot"), Boolean(muted.pressShot), muted.pressShot, links.clips);
   const count = (key: "tracks" | "snippets", m: number): Need => {
-    const n = Math.min(muted.tracks, m);
+    const n = Math.min(key === "tracks" ? muted.tracks : muted.snippets, m);
     const label = key === "tracks" ? (m === 1 ? m4("m4.need.tracks.one") : m4("m4.need.tracks", { m })) : m === 1 ? m4("m4.need.snippets.one") : m4("m4.need.snippets", { m });
     return { key, label, state: n >= m ? "ready" : n > 0 ? "short" : "none", n, m, detail: null, pick: n >= m ? null : links.track };
   };

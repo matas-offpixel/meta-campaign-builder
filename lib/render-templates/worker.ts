@@ -200,8 +200,8 @@ export async function renderPackageFile(db: Db, deps: WorkerDeps, row: Row): Pro
           const sheetFile = await deps.drive.uploadFile({ parentId: folderId, name: sheetName, mimeType: "text/plain", bytes: new TextEncoder().encode(sheet), appProperties: { [APP_TAG_KEY]: CUT_SHEET_TAG, [APP_ID_KEY]: String(pkg.id) } });
           await db.from("creative_lab_render_packages").update({ cut_sheet_drive_file_id: sheetFile.id }).eq("id", String(pkg.id)).is("cut_sheet_drive_file_id", null);
         }
-        // AL1: only a shareable file (No text, artist material only) joins the library's Renders.
-        if (row.rights_shareable === true && owner.kind === "artist") {
+        // AL1: only a shareable file (No text, artist material only) that passed every check joins the library's Renders.
+        if (row.rights_shareable === true && checks.passed && owner.kind === "artist") {
           const lab = await one(db, "creative_lab_artists", owner.artistId);
           const libraryId = lab?.artist_id ? String(lab.artist_id) : null;
           if (libraryId) {

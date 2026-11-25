@@ -178,6 +178,8 @@ describe("cross-client copy guard", () => {
       "lib/artist-library/load.ts", // get_artist's reads
       "lib/artist-library/view.ts", // the row's shape
       "lib/drive/pickup.ts", // says it files drops (through library-drive.ts)
+      "lib/render-templates/start.ts", // M4a: the approved captions an artist-voice hook must match (operator-only, mcp:render / the Lab)
+      "lib/render-templates/worker.ts", // M4a: a shareable, passed No text montage joins the library (cron, service role)
     ];
     const users = sourceFiles().filter((file) => {
       if (file.includes("__tests__")) return false;

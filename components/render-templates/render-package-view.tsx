@@ -1,3 +1,5 @@
+"use client";
+
 /**
  * M4a's Lab surfaces, presentational (RT1 picker, RT2 rows) and Today's log
  * rows (RY2). The live panel (render-package-panel.tsx), Today and the
@@ -27,7 +29,7 @@ const tone = {
 export function RecipeCardView({ card, busy, started, onRender }: { card: RecipeCard; busy?: boolean; started?: string | null; onRender?: () => void }) {
   const muted = !card.built;
   return (
-    <section className={`rounded-lg border border-border p-4 ${muted ? "bg-muted/40 opacity-70" : "bg-card"}`} aria-disabled={muted || undefined}>
+    <section className={`rounded-lg border border-border p-4 ${muted ? "bg-muted/40 opacity-70" : "bg-card"}`}>
       {card.muted ? <p className="mb-2 text-xs text-muted-foreground">{card.muted}</p> : null}
       <h4 className="text-base font-semibold">{card.title}</h4>
       <p className="mt-1 text-sm text-muted-foreground">{card.what}</p>

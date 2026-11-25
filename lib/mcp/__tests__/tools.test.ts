@@ -11,7 +11,7 @@ import { fakeDb } from "./fake-db.ts";
 
 const keys = (o: unknown) => Object.keys(o as object).sort();
 
-test("nine read tools, each read-only with a one-example description", () => {
+test("ten read tools (M4a's get_render_package with M1's eight and get_artist), each read-only with a one-example description", () => {
   assert.deepEqual(READ_TOOLS.map((t) => t.name).sort(), [
     "get_artist",
     "get_campaign_tree",
@@ -19,6 +19,7 @@ test("nine read tools, each read-only with a one-example description", () => {
     "get_drafts",
     "get_event",
     "get_learnings",
+    "get_render_package",
     "list_events",
     "morning_topline",
     "run_launch_checks",
