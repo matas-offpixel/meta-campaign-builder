@@ -204,7 +204,7 @@ export const setDraftLocationsTool: McpTool = {
   description: [
     "Adds or removes a draft's targeted locations, as Step 5's location picker does. Add a place by search (Meta's location search, a read), a pin (point + radius), or the Leeds preset.",
     "A search with more than one hit saves nothing and lists the hits with their city_key: call again with the one you mean. Meta key 811209 is Leeds in Kent, not West Yorkshire: the answer warns and points at the Leeds preset.",
-    "tier tags the added locations primary or secondary (tiered ad sets follow). add_to_every_ad_set puts the added locations on every enabled ad set. remove takes location ids, Meta keys or names from get_draft.",
+    "tier tags the added locations primary or secondary (tiered ad sets follow). add_to_every_ad_set puts the added locations on every enabled ad set; every_ad_set does the same for locations already on the draft. remove takes location ids, Meta keys or names from get_draft.",
     'Example: set_draft_locations({ draft_id: "3f2c…-uuid", updated_at: "2026-11-24T10:00:00.123+00:00", add: [{ preset: "leeds" }, { search: "Manchester", city_key: "2513419" }], tier: "primary" }).',
   ].join(" "),
   inputSchema: {
@@ -213,13 +213,15 @@ export const setDraftLocationsTool: McpTool = {
     remove: z.array(z.string().min(1).max(120)).max(50).optional().describe("Location ids, Meta keys or names to take off."),
     tier: z.enum(["primary", "secondary"]).optional().describe("Tag the added locations with this tier."),
     add_to_every_ad_set: z.boolean().optional().describe("Also put the added locations on every enabled ad set (Step 5's Add to every ad set)."),
+    every_ad_set: z.array(z.string().min(1).max(120)).max(30).optional().describe("Locations already on the draft (ids, Meta keys or names from get_draft) to put on every enabled ad set, as Step 5's Add to every ad set."),
   },
   async run(ctx, args) {
     const deps = requireDraftScope(ctx);
     const adds = (Array.isArray(args.add) ? args.add : []) as AddItem[];
     const removes = (Array.isArray(args.remove) ? args.remove : []).map((r) => String(r).trim()).filter(Boolean);
     const tier = (args.tier === "primary" || args.tier === "secondary" ? args.tier : undefined) as LocationTier | undefined;
-    if (adds.length === 0 && removes.length === 0) throw new ToolInputError("Give add or remove.", { refused: "nothing_to_do" });
+    const everyArg = (Array.isArray(args.every_ad_set) ? args.every_ad_set : []).map((r) => String(r).trim()).filter(Boolean);
+    if (adds.length === 0 && removes.length === 0 && everyArg.length === 0) throw new ToolInputError("Give add, remove or every_ad_set.", { refused: "nothing_to_do" });
     for (const a of adds) {
       const kinds = [a.search || a.city_key ? 1 : 0, a.pin ? 1 : 0, a.preset ? 1 : 0].reduce((s, x) => s + x, 0);
       if (kinds !== 1) throw new ToolInputError("Each added location is one of: search (with city_key), pin, or preset.", { refused: "bad_add" });
@@ -326,6 +328,10 @@ export const setDraftLocationsTool: McpTool = {
     if (args.add_to_every_ad_set === true) {
       for (const g of tiered) adSets = addLocationToEveryAdSet(adSets, g, groups, nextBs.excludedLocations ?? []);
     }
+    const everyGroups = everyArg.map((r) => groups.find((g) => matchGroup(g, r)));
+    const everyMissing = everyArg.filter((_, i) => !everyGroups[i]);
+    if (everyMissing.length) throw new ToolInputError(`These aren't on this draft: ${everyMissing.slice(0, 10).join(", ")}. Nothing was saved.`, { draftId: loaded.row.id, refused: "unknown_every" });
+    for (const g of everyGroups) adSets = addLocationToEveryAdSet(adSets, g!, groups, nextBs.excludedLocations ?? []);
     const next: CampaignDraft = { ...draft, budgetSchedule: nextBs, adSetSuggestions: adSets };
     const onNoAdSet = tiered.filter((g) => adSetsTargetingLocation(adSets, g.id).length === 0).map((g) => g.label);
 
@@ -341,6 +347,7 @@ export const setDraftLocationsTool: McpTool = {
         metaGets,
       },
       summary: {
+        everyAdSet: everyGroups.map((g) => g!.id),
         fieldsChanged: ["budgetSchedule.locationGroups", ...(addExcluded.length || removedExcluded.length ? ["budgetSchedule.excludedLocations"] : []), "adSetSuggestions.locations"],
         before: { locations: existing.length, excluded: pool.length },
         after: { locations: groups.length, excluded: (nextBs.excludedLocations ?? []).length },

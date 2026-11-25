@@ -517,3 +517,17 @@ test("set_draft_budget level: a campaign (CBO) lifetime draft moves to daily bud
   const next = await run(setDraftAdSetsTool, ctx, { updated_at: String((await readRow(db, D_DRAFT))!.updated_at), changes: [{ ad_set_id: "as-1", budget_per_day: 9 }, { ad_set_id: "as-2", budget_per_day: 15 }] });
   assert.equal(next.data.totalPerDayGbp, 24);
 });
+
+test("set_draft_locations every_ad_set: a location already on the draft goes on every enabled ad set (Step 5's Add to every ad set)", async () => {
+  const { setDraftLocationsTool } = await import("../tools/draft-edit.ts");
+  const { ctx, db } = draftCtx();
+  await shape(db, (d) => ({
+    ...d,
+    budgetSchedule: { ...d.budgetSchedule, locationGroups: [...(d.budgetSchedule.locationGroups ?? []), { id: "g2", label: "Nottingham (+80 km)", source: "manual", selections: [{ id: "s2", source: "search", label: "Nottingham", mode: "include", locationType: "city", locationKey: "2655603", radius: 80, distanceUnit: "kilometer" }] }] },
+    adSetSuggestions: d.adSetSuggestions.map((r) => ({ ...r, locationGroupIds: ["g1"] })),
+  }));
+  await run(setDraftLocationsTool, ctx, { every_ad_set: ["g2"] });
+  const after = await saved(db);
+  for (const r of after.adSetSuggestions) assert.deepEqual(r.locationGroupIds, ["g1", "g2"], r.id);
+  await refused(run(setDraftLocationsTool, ctx, { updated_at: String((await readRow(db, D_DRAFT))!.updated_at), every_ad_set: ["nowhere"] }), /aren't on this draft: nowhere/);
+});
