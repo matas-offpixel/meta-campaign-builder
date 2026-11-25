@@ -177,30 +177,59 @@ export function pickerPresetLine(template: string, threshold: number, days: numb
 }
 
 /**
+ * One part of the footer. `lead` is the count with its words ("1 needs
+ * videos picked", "6 will be created in") and never breaks; `account`, when
+ * the part ends on one ("Electric Studios Sheffield"), may wrap inside
+ * itself. Between parts the line wraps only at the space after " ·"
+ * (design, 25 Nov: never between a count and its words).
+ */
+export interface FooterPart {
+  lead: string;
+  account?: string;
+}
+
+/** A filled row as its lead and the account name it ends on. */
+function withAccount(text: string, account: string): FooterPart {
+  return text.endsWith(` ${account}`) ? { lead: text.slice(0, -(account.length + 1)), account } : { lead: text };
+}
+
+/**
  * The footer (RC5, and the 25 Nov rulings): "{n} reused · {m} will be
  * created in {account}", then each holding account's " · {h} held in
  * {account}", then " · {k} need videos picked" (the create part is dropped
  * when m is 0; a part with nothing in it never shows), then, with audience
  * writes off and something to create, the writes-off sentence (its one-form
- * for 1). Joined with ". " as the frames draw them. Counts are Meta
- * audiences (view.ts templateCounts).
+ * for 1) as `tail`. Counts are Meta audiences (view.ts templateCounts).
+ * Every place the footer prints takes these parts (footerLine joins them).
  */
-export function footerLine(
+export function footerParts(
   reused: number,
   toCreate: number,
   account: string,
   writesEnabled: boolean,
   needVideos = 0,
   held: ReadonlyArray<{ account: string; n: number }> = [],
-): string {
-  const full = tw("templates.footer", { n: reused, m: toCreate, account });
-  const [reusedPart] = full.split(" · ");
-  const parts = [toCreate === 0 && (needVideos > 0 || held.length > 0) ? reusedPart! : full];
+): { parts: FooterPart[]; tail: string | null } {
+  const reusedPart = tw("templates.footer", { n: reused, m: toCreate, account }).split(" · ")[0]!;
+  const createPart = tw("templates.footer", { n: reused, m: toCreate, account }).slice(reusedPart.length + fw("frame.sep").length);
+  const parts: FooterPart[] = [{ lead: reusedPart }];
+  if (!(toCreate === 0 && (needVideos > 0 || held.length > 0))) parts.push(withAccount(createPart, account));
   for (const h of held) {
-    if (h.n > 0) parts.push(h.n === 1 ? tw("templates.footer.held.one", { "Meta account name": h.account }) : tw("templates.footer.held", { h: h.n, "Meta account name": h.account }));
+    if (h.n === 0) continue;
+    const text = h.n === 1 ? tw("templates.footer.held.one", { "Meta account name": h.account }) : tw("templates.footer.held", { h: h.n, "Meta account name": h.account });
+    parts.push(withAccount(text, h.account));
   }
-  if (needVideos > 0) parts.push(needVideos === 1 ? tw("templates.footer.videos.one") : tw("templates.footer.videos", { k: needVideos }));
-  const first = parts.join(fw("frame.sep"));
-  if (writesEnabled || toCreate === 0) return first;
-  return `${first}. ${toCreate === 1 ? tw("templates.writes_off.one") : tw("templates.writes_off", { m: toCreate })}`;
+  if (needVideos > 0) parts.push({ lead: needVideos === 1 ? tw("templates.footer.videos.one") : tw("templates.footer.videos", { k: needVideos }) });
+  const tail = writesEnabled || toCreate === 0 ? null : toCreate === 1 ? tw("templates.writes_off.one") : tw("templates.writes_off", { m: toCreate });
+  return { parts, tail };
+}
+
+/** The footer as one string: the parts joined with " · ", then ". " and the tail. */
+export function footerText(footer: { parts: FooterPart[]; tail: string | null }): string {
+  const first = footer.parts.map((p) => (p.account ? `${p.lead} ${p.account}` : p.lead)).join(fw("frame.sep"));
+  return footer.tail ? `${first}. ${footer.tail}` : first;
+}
+
+export function footerLine(...args: Parameters<typeof footerParts>): string {
+  return footerText(footerParts(...args));
 }

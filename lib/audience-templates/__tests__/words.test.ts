@@ -20,6 +20,8 @@ import {
   createButtonLabel,
   createdLines,
   footerLine,
+  footerParts,
+  footerText,
   fw,
   heldLine,
   madeOnLine,
@@ -161,5 +163,44 @@ describe("audience template words", () => {
       "1 reused · 6 will be created in Electric Studios Sheffield · 3 held in NX Promoter · 1 needs videos picked. Creating audiences is switched off, so these 6 wait.",
     );
     assert.equal(footerLine(0, 0, "NX Promoter", true, 0, [{ account: "Electric Bristol Live", n: 1 }]), "0 reused · 1 held in Electric Bristol Live");
+  });
+
+  describe("the footer's parts (design, 25 Nov: a count never parts from its words)", () => {
+    const held = footerParts(1, 6, "Electric Studios Sheffield", false, 1, [{ account: "NX Promoter", n: 3 }]);
+
+    it("SU-C-held: each count stays with its words; only account names stand apart", () => {
+      assert.deepEqual(held.parts, [
+        { lead: "1 reused" },
+        { lead: "6 will be created in", account: "Electric Studios Sheffield" },
+        { lead: "3 held in", account: "NX Promoter" },
+        { lead: "1 needs videos picked" },
+      ]);
+      assert.equal(held.tail, "Creating audiences is switched off, so these 6 wait.");
+    });
+
+    it("every lead starts with its count, and joining the parts gives the footer line", () => {
+      const cases: Array<Parameters<typeof footerParts>> = [
+        [1, 6, "Electric Studios Sheffield", false, 1, [{ account: "NX Promoter", n: 3 }]],
+        [9, 2, "NX Promoter", false, 1],
+        [9, 3, "NX Promoter", false],
+        [10, 0, "NX Promoter", false, 1],
+        [0, 0, "NX Promoter", true, 0, [{ account: "Electric Bristol Live", n: 1 }]],
+      ];
+      for (const args of cases) {
+        const f = footerParts(...args);
+        for (const p of f.parts) assert.match(p.lead, /^\d[\d,]* \S/, p.lead);
+        assert.equal(footerText(f), footerLine(...args));
+      }
+      assert.equal(footerText(held), "1 reused · 6 will be created in Electric Studios Sheffield · 3 held in NX Promoter · 1 needs videos picked. Creating audiences is switched off, so these 6 wait.");
+      assert.equal(footerText(footerParts(10, 0, "NX Promoter", false, 1)), "10 reused · 1 needs videos picked");
+    });
+
+    it("the panel draws the parts, never the joined string", async () => {
+      const { readFileSync: read } = await import("node:fs");
+      const panel = read(new URL("../../../components/audience-templates/audience-templates-panel.tsx", import.meta.url), "utf8");
+      assert.match(panel, /<FooterLine footer=\{view\.footerParts\} \/>/);
+      assert.doesNotMatch(panel, /\{view\.footer\}/);
+      assert.match(panel, /<span className="whitespace-nowrap">\s*\{p\.lead\}/);
+    });
   });
 });

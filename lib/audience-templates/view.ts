@@ -6,7 +6,7 @@
  * Pure. No `@/` imports, so node --test can load it.
  */
 
-import { TEMPLATE_NAMES, GROUP_LABEL, changedLine, footerLine, fw, heldLine, madeOnLine, pickedLine, signupsLine, tw } from "./words.ts";
+import { TEMPLATE_NAMES, GROUP_LABEL, changedLine, footerParts, footerText, fw, type FooterPart, heldLine, madeOnLine, pickedLine, signupsLine, tw } from "./words.ts";
 import { createTargets, type PickLookup } from "./create.ts";
 import { isUsablePick, isVideoViewers, itemThreshold } from "./videos.ts";
 import { PAGE_ENGAGER_SUBTYPES, normalizeAccount, resolveTemplate, type ResolvedTemplate, type AudienceTemplate, type KnownAudience, type ResolvedItem, type TemplateItem, type TemplateItemKind } from "./resolve.ts";
@@ -53,6 +53,8 @@ export interface TemplateView {
   header: TemplateHeader;
   groups: TemplateGroup[];
   footer: string;
+  /** The footer as the panel draws it: parts that never split a count from its words (footerParts). */
+  footerParts: { parts: FooterPart[]; tail: string | null };
   reused: number;
   /** The footer's "{m} will be created": the audiences Create makes (willBeCreated), the same number as createCount. */
   toCreate: number;
@@ -294,10 +296,12 @@ export function buildTemplateView(
   });
   const c = templateCounts(resolved, ctx);
   const heldParts = c.held.map((h) => ({ account: ctx.accountLabel?.(h.account) ?? h.account, n: h.n }));
+  const footer = footerParts(c.reused, c.toCreate, ctx.accountName, ctx.writesEnabled, c.needVideos, heldParts);
   return {
     header: headerFor(t, ctx),
     groups,
-    footer: footerLine(c.reused, c.toCreate, ctx.accountName, ctx.writesEnabled, c.needVideos, heldParts),
+    footer: footerText(footer),
+    footerParts: footer,
     reused: c.reused,
     toCreate: c.toCreate,
     held: c.held.reduce((n, h) => n + h.n, 0),
