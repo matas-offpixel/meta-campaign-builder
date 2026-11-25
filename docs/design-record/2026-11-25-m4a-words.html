@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>M4a words — 25 Nov 2026</title>
+<style>
+:root{
+  --sand:#F0C9A8; --card:#e8d4c0; --edit:#f6ebe0; --paper:#fff8f0; --ink:#1e1810; --ink-2:#4a3d30; --ink-3:#6f6052;
+  --border:rgba(30,24,16,.10); --border-strong:rgba(30,24,16,.18); --muted:rgba(30,24,16,.06);
+  --olive:#4f5a1f; --ochre:#8a560c; --brick:#8f3424;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--sand);color:var(--ink);font:14px/1.5 var(--sans);font-feature-settings:"calt" 0}
+.wrap{max-width:1360px;margin:0 auto;padding:40px 24px 120px}
+h1{font-size:24px;font-weight:600;margin:0 0 6px}
+h2{font-size:20px;font-weight:600;margin:56px 0 8px}
+h3{font-size:13px;font-weight:600;margin:20px 0 6px}
+p{margin:0 0 10px;max-width:86ch}
+.lead{font-size:13px;color:var(--ink-2)}
+.k{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+code{font:12px var(--mono);background:var(--muted);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+figure{margin:0;min-width:0;max-width:100%}
+figcaption{font:700 9px/1.5 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+table.t{border-collapse:collapse;width:100%;font-size:12.5px;margin:10px 0 22px;background:var(--card);border-radius:8px;overflow:hidden;table-layout:fixed}
+table.t th,table.t td{text-align:left;vertical-align:top;padding:8px 12px;border-bottom:1px solid var(--border);overflow-wrap:anywhere}
+table.t th{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.t td:first-child{font-weight:600;width:190px}
+table.t ul{margin:4px 0 0 16px;padding:0}table.t li{margin:0 0 4px}
+.open{background:#f3e3c8;border:1px dashed var(--ochre);border-radius:8px;padding:10px 14px;font-size:12.5px;margin:10px 0 16px}
+.notes{font-size:12.5px;color:var(--ink-2)}.notes li{margin:0 0 6px;max-width:96ch}
+.frame{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start;margin:12px 0 24px}
+.vp{background:var(--paper);border:1px solid var(--border-strong);border-radius:8px;overflow:hidden;max-width:100%;padding:16px;font-size:13px}
+.vp.wide{width:760px}.vp.w393{width:393px}
+.ph{font:700 9px/1.4 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+.h{font-weight:600;font-size:14px;margin:0 0 4px}
+.sub{font-size:12px;color:var(--ink-2);margin:0 0 10px}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 10px}
+.chip{border:1px solid var(--border-strong);border-radius:999px;padding:3px 10px;font-size:12px;background:#fff}
+.chip.on{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.mono{font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase}
+.row{display:grid;grid-template-columns:22px 26px 1fr auto;gap:8px;align-items:center;padding:7px 0;border-top:1px solid var(--border)}
+.row .n{color:var(--ink-3);font:12px var(--mono)}
+.box{width:16px;height:16px;border:1.5px solid var(--ink);border-radius:3px;display:inline-block}
+.box.on{background:var(--ink)}
+.box.off{border-color:var(--ink-3);opacity:.45}
+.fs{font-size:11.5px;color:var(--ink-2)}
+.fs.warn{color:var(--brick)}
+.ok{color:var(--olive)}
+.btn{display:inline-block;border:1px solid var(--ink);border-radius:4px;padding:5px 10px;font:700 10px var(--mono);letter-spacing:.1em;text-transform:uppercase;background:var(--ink);color:var(--paper)}
+.btn.ghost{background:transparent;color:var(--ink)}
+.btn.dis{opacity:.4}
+.wave{position:relative;height:64px;background:repeating-linear-gradient(90deg,var(--ink-3) 0 2px,transparent 2px 5px);border-radius:4px;margin:26px 0 4px;opacity:.9}
+.wave .win{position:absolute;top:-4px;bottom:-4px;border:2px solid var(--ink);background:rgba(232,212,192,.55);border-radius:4px}
+.wave .drop{position:absolute;top:-10px;bottom:-10px;width:2px;background:var(--brick)}
+.wave .drop span{position:absolute;top:-16px;left:-20px;font:700 9px var(--mono);letter-spacing:.1em;color:var(--brick);white-space:nowrap}
+.tl{display:flex;justify-content:space-between;font:11px var(--mono);color:var(--ink-3)}
+.pv{width:150px;height:267px;background:#222;border-radius:6px;position:relative;flex:none;display:flex;align-items:center;justify-content:center;color:#fff;font:700 9px var(--mono);letter-spacing:.12em}
+.pv .play{position:absolute;bottom:10px;left:10px;width:28px;height:28px;border-radius:50%;background:#fff}
+.split{display:flex;gap:16px;align-items:flex-start}
+table.v{border-collapse:collapse;width:100%;font-size:12px;margin:6px 0}
+table.v th{font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);text-align:left;padding:4px 6px;border-bottom:1px solid var(--border-strong)}
+table.v td{padding:6px;border-bottom:1px solid var(--border)}
+table.v td.r,table.v th.r{text-align:right}
+.st{display:inline-block;border:1px solid var(--border-strong);border-radius:10px;padding:2px 8px;font:700 9px/1.5 var(--mono);letter-spacing:.1em;text-transform:uppercase}
+.st.run{border-style:dashed}
+.st.win{background:var(--olive);color:#fff;border-color:var(--olive)}
+.test{border:1px solid var(--border);border-radius:6px;padding:10px 12px;margin:8px 0;background:#fff}
+.test.dim{opacity:.55}
+.line{background:var(--card);border-radius:6px;padding:8px 10px;margin:6px 0;font-size:12px}
+.inv{text-decoration:underline dotted var(--brick);text-decoration-thickness:1.5px;text-underline-offset:3px}
+table.t table.t td:first-child{width:auto;font-weight:400}
+@media (max-width:560px){table.t th[style]{width:100px!important}table.t td:first-child{width:100px}}
+.st.fail{border-color:var(--brick);color:var(--brick)}
+.line .acts{float:right;font:700 9px var(--mono);letter-spacing:.1em;text-transform:uppercase}
+.line.wait{opacity:.6}
+.line.failed{border:1px solid var(--brick);background:#f6e3dc}
+.tick{display:inline-block;width:11px;height:11px;border:1.5px solid var(--ink);border-radius:2px;margin-right:6px;vertical-align:-1px}
+.tick.on{background:var(--ink)}
+.bar{display:inline-block;height:8px;background:var(--ink-3);border-radius:2px;vertical-align:middle;margin-right:6px}
+.sbar{position:relative;display:inline-block;width:100px;height:8px;background:var(--muted);border-radius:2px;vertical-align:middle;margin-right:8px}
+.sbar i{position:absolute;left:0;top:0;bottom:0;background:var(--ink-3);border-radius:2px}
+.sbar i.lead{background:var(--olive)}
+.sbar b{position:absolute;left:60px;top:-3px;bottom:-3px;width:1px;background:var(--ink)}
+.sbar s{position:absolute;left:10px;top:-3px;bottom:-3px;width:1px;background:var(--ink-3);opacity:.6}
+
+/* ---------- campaign creator: replicate record ---------- */
+.scrollx{overflow-x:auto;max-width:100%}
+.vp.w1280{width:1280px;padding:0}
+.vp.w393{padding:0}
+.bar1{display:flex;justify-content:space-between;align-items:center;padding:12px 18px;border-bottom:1px solid var(--border);background:#fff}
+.bar1 .bc{font:700 9px var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3)}
+.bar1 .bc b{color:var(--ink)}
+.body1{padding:18px}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.g3{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.g4{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.card2{background:#fff;border:1px solid var(--border-strong);border-radius:8px;padding:14px 16px;min-width:0}
+.card2 .ttl{font-weight:600;font-size:14px;margin:0 0 2px}
+.card2 .s{font-size:12px;color:var(--ink-2)}
+.menu{width:260px;background:#fff;border:1px solid var(--border-strong);border-radius:8px;box-shadow:0 8px 28px rgba(30,24,16,.14);padding:6px 0}
+.menu .mi{padding:8px 14px;font-size:13px}
+.menu .mi small{display:block;font-size:11.5px;color:var(--ink-2)}
+.menu .mi.hi{background:var(--edit)}
+.menu hr{border:0;border-top:1px solid var(--border);margin:4px 0}
+.dlg{background:#fff;border:1px solid var(--border-strong);border-radius:10px;box-shadow:0 12px 40px rgba(30,24,16,.18);overflow:hidden}
+.dlg .dh{padding:14px 18px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}
+.dlg .dh b{font-size:15px}
+.dlg .db{padding:14px 18px}
+.dlg .df{padding:12px 18px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:8px;align-items:center;background:var(--paper)}
+.dlg .df .fs{margin-right:auto}
+.ev{display:grid;grid-template-columns:1fr auto;gap:2px 10px;padding:9px 10px;border:1px solid var(--border);border-radius:6px;margin:0 0 6px;font-size:13px;background:#fff}
+.ev.on{border:1.5px solid var(--ink);background:var(--edit)}
+.ev small{grid-column:1/-1;font-size:11.5px;color:var(--ink-2)}
+.ev .code{font:700 10px var(--mono);letter-spacing:.08em}
+.search{border:1px solid var(--border-strong);border-radius:6px;padding:8px 10px;font-size:13px;color:var(--ink-3);margin:0 0 10px;background:#fff}
+.chg{display:grid;grid-template-columns:96px 1fr;gap:4px 12px;padding:8px 0;border-top:1px solid var(--border);font-size:13px;align-items:baseline}
+.chg .l{font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3)}
+.chg .was{color:var(--ink-3)}
+.chg.amb{background:#f3e3c8;margin:0 -10px;padding:8px 10px;border-radius:6px;border-top:0}
+.sec2{font:700 9px var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin:14px 0 4px}
+.ask{border:1.5px solid var(--ink);border-radius:8px;padding:10px 12px;margin:10px 0 0;font-size:13px}
+.ask .btns{display:flex;gap:8px;margin-top:8px}
+.chk{border:1px solid var(--border-strong);border-left:4px solid var(--brick);border-radius:6px;padding:10px 12px;margin:0 0 8px;background:#fff;font-size:13px}
+.chk.warn{border-left-color:var(--ochre)}
+.chk .key{font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--brick);margin:0 0 3px}
+.chk.warn .key{color:var(--ochre)}
+.chk .ev2{font-size:11.5px;color:var(--ink-2);margin:4px 0 6px}
+.chk .acts{display:flex;gap:8px;flex-wrap:wrap}
+.sum{display:flex;gap:10px;align-items:center;font:700 10px var(--mono);letter-spacing:.1em;text-transform:uppercase;margin:0 0 10px}
+.sum .r{color:var(--brick)}.sum .a{color:var(--ochre)}
+.vc{background:#fff;border:1px solid var(--border-strong);border-radius:8px;padding:12px 14px}
+.vc .ttl{font-weight:600}
+.kv2{display:grid;grid-template-columns:90px 1fr;gap:6px 10px;font-size:12.5px;margin-top:8px;align-items:baseline}
+.kv2 .l{font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3)}
+.sel{display:inline-block;border:1px solid var(--border-strong);border-radius:6px;padding:4px 8px;background:var(--paper);font-size:12.5px}
+.ovr{border:1px dashed var(--ochre);background:#f7ecda}
+.tabs2{display:flex;gap:2px;border-bottom:1px solid var(--border-strong);margin:0 0 12px}
+.tabs2>span{padding:8px 14px;font:700 10px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3)}
+.tabs2>span.on{color:var(--ink);box-shadow:inset 0 -2px 0 var(--ink)}
+.beta{font:700 8px var(--mono);letter-spacing:.12em;border:1px solid var(--ochre);color:var(--ochre);border-radius:8px;padding:1px 5px;margin-left:5px;vertical-align:1px}
+.ti{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:7px 0;border-top:1px solid var(--border);font-size:13px}
+.ti small{display:block;font-size:11.5px;color:var(--ink-2)}
+.st.reuse{background:var(--olive);color:#fff;border-color:var(--olive)}
+.st.make{border-style:dashed;color:var(--ink-2)}
+.st.amb{border-color:var(--ochre);color:var(--ochre);background:#f7ecda}
+.st.ok2{border-color:var(--olive);color:var(--olive)}
+.tree{font-size:13px}
+.tree .stg{display:flex;justify-content:space-between;align-items:center;padding:10px 0 6px;border-top:1px solid var(--border-strong)}
+.tree .stg b{font:700 10px var(--mono);letter-spacing:.14em;text-transform:uppercase}
+.tree .cmp{margin-left:14px;padding:7px 0 7px 12px;border-left:2px solid var(--border-strong)}
+.tree .cmp .nm{font-weight:600}
+.tree .add{margin-left:30px;padding:4px 0 4px 12px;border-left:2px dashed var(--border-strong);font-size:12px;color:var(--ink-2)}
+.tree .add b{color:var(--ink);font-weight:600}
+.tk{display:flex;align-items:center;gap:8px;padding:6px 0;border-top:1px solid var(--border);font-size:13px}
+.tk.sub{padding-left:22px;font-size:12.5px;color:var(--ink-2)}
+.cap{border:1px solid var(--border-strong);border-radius:8px;padding:10px 12px;margin:0 0 8px;background:#fff;font-size:13px}
+.cap .meta{display:flex;justify-content:space-between;align-items:center;gap:8px;margin:0 0 6px}
+.cap .lock{background:var(--card);border-radius:3px;padding:0 3px}
+.form3{display:grid;grid-template-columns:80px 1fr;gap:8px;align-items:center;font-size:12.5px;margin:8px 0}
+.form3 .l{font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3)}
+.seg{display:inline-flex;border:1px solid var(--ink);border-radius:4px;overflow:hidden}
+.seg span{padding:3px 8px;font-size:12px}.seg span.on{background:var(--ink);color:#fff}
+table.w{border-collapse:collapse;width:100%;min-width:900px;font-size:12px;background:var(--card);table-layout:fixed}
+table.w th,table.w td{text-align:left;vertical-align:top;padding:6px 10px;border-bottom:1px solid var(--border);overflow-wrap:anywhere}
+table.w th{font:700 9px var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.w td:first-child{font:11px var(--mono)}
+.cap .meta{flex-wrap:wrap}.cap .meta .st{white-space:nowrap}
+.seg{flex-wrap:wrap}.seg span{white-space:nowrap}
+</style>
+</head><body>
+<div class="wrap">
+
+<p class="k">Off/Pixel · design record · M4a · the words still missing · 25 November 2026 · under 2026-11-25-m4-render-templates (RT) and 2026-11-25-m4-renders-on-yes (RY)</p>
+<h1>M4a’s last words: the cost guard, render access, and the builder’s choices</h1>
+<p class="lead">This rules the strings M4a (#1385, head 67991c3) listed as candidates with no row:</p>
+<ul class="notes">
+<li>the cost guard’s two refusals, which the Lab also shows;</li>
+<li>no render access, unknown event, recipe not built or not a recipe, approval too long, a start that failed, and no package yet;</li>
+<li>the consent page’s line for <code>mcp:render</code>.</li>
+</ul>
+<p class="lead">It also rules the builder’s own choices from the PR body, and the file cap. The review of #1385’s frames is in the thread, not here.</p>
+
+<h2>Rulings</h2>
+<table class="t">
+<tr><th style="width:190px">#</th><th>Ruling</th></tr>
+<tr><td>MA1 · The cost guard</td><td>
+<ul>
+<li><b>Told to Claude</b> (RY3’s form, ending “Nothing was rendered.”):
+<ul>
+<li>busy: a package for the event is already rendering, and get_render_package shows its progress;</li>
+<li>too soon: “Try again in {s} seconds”, with a one-form.</li>
+</ul></li>
+<li><b>In the Lab:</b> the same two show under Render, in brick, in place of “Pick what’s missing first.” Render stays off while either holds. These lines don’t mention get_render_package.</li>
+<li>The other refusals don’t show in the Lab, because the Lab can’t cause them.</li>
+</ul></td></tr>
+<tr><td>MA2 · Other answers</td><td>
+<ul>
+<li>These follow RY3’s order and form:
+<ul>
+<li>no render access;</li>
+<li>unknown event;</li>
+<li>recipe not built, which names the recipes that are;</li>
+<li>not a recipe;</li>
+<li>approval over 1,000 characters;</li>
+<li>a start that failed, in place of the server’s message.</li>
+</ul></li>
+<li>get_render_package with no package answers “No render package for {code} yet.”</li>
+</ul></td></tr>
+<tr><td>MA3 · Consent, with renders</td><td>
+<ul>
+<li>When the scope includes <code>mcp:render</code> (Matas only), a line follows line 2: “It can render videos in the Creative Lab too, and file them in the show's Drive folder, each only after you say yes in Claude.”</li>
+<li><b>A grant adding renders:</b>
+<ul>
+<li>the title is “Let Claude render videos in Off/Pixel”;</li>
+<li>above the buttons: “If you cancel, it keeps the access it has now.”</li>
+</ul></li>
+<li>The page’s apostrophes stay straight.</li>
+</ul></td></tr>
+<tr><td>MA4 · The builder’s choices</td><td>
+<ul>
+<li><b>cta-slugs:</b> <code>signup</code>, <code>presale</code> and <code>tickets</code> (on sale), with <code>no-cta</code> for No text. Accepted.</li>
+<li><b>Teaser and announcement:</b> the teaser keeps the lineup back (hook, then date and venue on the drop, then the close), and the announcement puts one name on each cut. Accepted.</li>
+<li><b>Default hook:</b> the event’s name as stored, never its code. <code>picks.copy.hook</code> overrides it. Artist-voice copy needs an approved caption, word for word. Accepted.</li>
+<li><b>Track:</b> the headliner’s track that has a drop on the Snippet tab, until “best-performing” is measured. Accepted.</li>
+<li><b>Hands-up moments:</b> the machine part is accepted. Matas judges the rest when he says yes.</li>
+<li><b>A file whose Drive copy failed:</b> its row reads “Rendered, but not in Drive yet: the copy didn’t finish.” in ochre, with “Copy to Drive” and no Drive ↗. It can’t be uploaded from Drive until it’s there.</li>
+<li><b>File cap: 24 per package,</b> as proposed. One yes can carry the montage, roll-call and top tracks (21), refuses all four (33), and can never start more than 24 Lambda renders.</li>
+</ul></td></tr>
+</table>
+<h2>Frames</h2><h3>MA-A · The cost guard in the Lab (MA1), and a file not in Drive (MA4)</h3><div class="frame"><figure><figcaption>MA-A · 1280</figcaption><div class="scrollx"><div class="vp w1280"><div class="bar1"><span class="bc">Events › <span style="white-space:nowrap">P26-BDAY</span> › Creative Lab</span><span class="bc">OFF/PIXEL</span></div><div class="body1"><div style="font-weight:700;font-size:15px">Render a package</div><div class="fs" style="margin-bottom:10px">P26-BDAY · On sale</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:22px;align-items:start"><div><div class="fs" style="font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase;margin:0 0 6px">A package is running</div><div class="card2"><div class="ttl">Montage (15&nbsp;s)</div><div class="s" style="margin-bottom:6px">16 clips cut to the drop, with the date, venue and lineup landing on the kicks.</div><div style="font-size:12.5px;margin-bottom:6px"><span class="fs">Owner</span> · Puzzle</div><div class="sec2" style="margin:8px 0 2px">Needs</div><div style="display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-top:1px solid var(--border);font-size:12.5px"><div style="min-width:0">16 clips<div class="fs" style="font-size:11.5px">11 filmed by Puzzle · 5 Enzo Siragusa’s</div></div><div style="white-space:nowrap"><span style="color:var(--olive)">ready</span></div></div><div style="display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-top:1px solid var(--border);font-size:12.5px"><div style="min-width:0">Track and drop<div class="fs" style="font-size:11.5px">drop at 3.8&nbsp;s</div></div><div style="white-space:nowrap"><span style="color:var(--olive)">ready</span></div></div><div style="display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-top:1px solid var(--border);font-size:12.5px"><div style="min-width:0">Lineup<div class="fs" style="font-size:11.5px">6 names, from the event</div></div><div style="white-space:nowrap"><span style="color:var(--olive)">ready</span></div></div><div style="display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-top:1px solid var(--border);font-size:12.5px"><div style="min-width:0">Overlay kit<div class="fs" style="font-size:11.5px">Puzzle’s kit</div></div><div style="white-space:nowrap"><span style="color:var(--olive)">ready</span></div></div><div style="display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-top:1px solid var(--border);font-size:12.5px"><div style="min-width:0">Claim<div class="fs" style="font-size:11.5px">3rd release live · tiers read Wed 25 Nov, 09:00</div></div><div style="white-space:nowrap"><span style="color:var(--olive)">ready</span></div></div><div style="margin-top:10px"><span class="btn dis">Render 9 files</span></div><div class="fs" style="font-size:11.5px;margin-top:4px">No text, teaser, announcement × 9:16, 4:5, 1:1</div><div style="font-size:12px;color:var(--brick);margin-top:2px">A package is already rendering for this show. Render again once it finishes.</div></div></div><div><div class="fs" style="font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase;margin:0 0 6px">Under a minute since the last</div><div class="card2"><div class="ttl">Montage (15&nbsp;s)</div><div class="s" style="margin-bottom:6px">16 clips cut to the drop, with the date, venue and lineup landing on the kicks.</div><div style="font-size:12.5px;margin-bottom:6px"><span class="fs">Owner</span> · Puzzle</div><div class="sec2" style="margin:8px 0 2px">Needs</div><div style="display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-top:1px solid var(--border);font-size:12.5px"><div style="min-width:0">16 clips<div class="fs" style="font-size:11.5px">11 filmed by Puzzle · 5 Enzo Siragusa’s</div></div><div style="white-space:nowrap"><span style="color:var(--olive)">ready</span></div></div><div style="display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-top:1px solid var(--border);font-size:12.5px"><div style="min-width:0">Track and drop<div class="fs" style="font-size:11.5px">drop at 3.8&nbsp;s</div></div><div style="white-space:nowrap"><span style="color:var(--olive)">ready</span></div></div><div style="display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-top:1px solid var(--border);font-size:12.5px"><div style="min-width:0">Lineup<div class="fs" style="font-size:11.5px">6 names, from the event</div></div><div style="white-space:nowrap"><span style="color:var(--olive)">ready</span></div></div><div style="display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-top:1px solid var(--border);font-size:12.5px"><div style="min-width:0">Overlay kit<div class="fs" style="font-size:11.5px">Puzzle’s kit</div></div><div style="white-space:nowrap"><span style="color:var(--olive)">ready</span></div></div><div style="display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-top:1px solid var(--border);font-size:12.5px"><div style="min-width:0">Claim<div class="fs" style="font-size:11.5px">3rd release live · tiers read Wed 25 Nov, 09:00</div></div><div style="white-space:nowrap"><span style="color:var(--olive)">ready</span></div></div><div style="margin-top:10px"><span class="btn dis">Render 9 files</span></div><div class="fs" style="font-size:11.5px;margin-top:4px">No text, teaser, announcement × 9:16, 4:5, 1:1</div><div style="font-size:12px;color:var(--brick);margin-top:2px">A Montage (15&nbsp;s) package started under a minute ago. Try again in 42 seconds.</div></div><div style="height:14px"></div><div class="fs" style="font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase;margin:0 0 6px">Renders · a file not in Drive</div><div style="border-top:1px solid var(--border);padding:10px 0"><span style="font:600 12px var(--mono)"><span style="white-space:nowrap">P26-BDAY</span>__<wbr><span style="white-space:nowrap">promoter-puzzle</span>__<wbr><span style="white-space:nowrap">montage</span>__<wbr><span style="white-space:nowrap">teaser</span>__<wbr><span style="white-space:nowrap">tickets</span>__<wbr><span style="white-space:nowrap">r1</span>__<wbr><span style="white-space:nowrap">4x5.mp4</span></span><div class="fs" style="font-size:12px;margin-top:3px">Montage (15&nbsp;s) · Teaser · tickets · 4:5 · round 1</div><div style="margin-top:4px;font-size:11.5px"><b style="color:var(--brick)">■ This client only · Puzzle</b> <span class="fs">· Filmed by Puzzle</span></div><div style="font-size:12.5px;margin-top:4px"><span style="color:var(--olive)">Passed every check and the Montage (15&nbsp;s) list</span></div><div style="font-size:12.5px;margin-top:2px;color:#7a4a08">Rendered, but not in Drive yet: the copy didn’t finish.</div><div style="margin-top:6px"><span class="btn ghost">Copy to Drive</span></div></div></div></div></div></div></div><p class="fs" style="max-width:640px;margin-top:8px">Render stays off while either line holds. The not-in-Drive row has no Drive ↗. Figures invented.</p></figure><figure><figcaption>MA-A · 393 · the two cost-guard lines</figcaption><div class="vp w393"><div class="bar1"><span class="bc">P26-BDAY › Creative Lab</span></div><div class="body1" style="padding:14px"><div style="font-weight:700;font-size:15px">Render a package</div><div class="fs" style="margin-bottom:10px">P26-BDAY · On sale</div><div class="fs" style="font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase;margin:0 0 6px">A package is running</div><div class="card2"><div class="ttl">Montage (15&nbsp;s)</div><div class="s" style="margin-bottom:6px">16 clips cut to the drop, with the date, venue and lineup landing on the kicks.</div><div style="font-size:12.5px;margin-bottom:6px"><span class="fs">Owner</span> · Puzzle</div><div class="sec2" style="margin:8px 0 2px">Needs</div><div style="display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-top:1px solid var(--border);font-size:12.5px"><div style="min-width:0">16 clips<div class="fs" style="font-size:11.5px">11 filmed by Puzzle · 5 Enzo Siragusa’s</div></div><div style="white-space:nowrap"><span style="color:var(--olive)">ready</span></div></div><div style="display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-top:1px solid var(--border);font-size:12.5px"><div style="min-width:0">Track and drop<div class="fs" style="font-size:11.5px">drop at 3.8&nbsp;s</div></div><div style="white-space:nowrap"><span style="color:var(--olive)">ready</span></div></div><div style="display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-top:1px solid var(--border);font-size:12.5px"><div style="min-width:0">Lineup<div class="fs" style="font-size:11.5px">6 names, from the event</div></div><div style="white-space:nowrap"><span style="color:var(--olive)">ready</span></div></div><div style="display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-top:1px solid var(--border);font-size:12.5px"><div style="min-width:0">Overlay kit<div class="fs" style="font-size:11.5px">Puzzle’s kit</div></div><div style="white-space:nowrap"><span style="color:var(--olive)">ready</span></div></div><div style="display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-top:1px solid var(--border);font-size:12.5px"><div style="min-width:0">Claim<div class="fs" style="font-size:11.5px">3rd release live · tiers read Wed 25 Nov, 09:00</div></div><div style="white-space:nowrap"><span style="color:var(--olive)">ready</span></div></div><div style="margin-top:10px"><span class="btn dis">Render 9 files</span></div><div class="fs" style="font-size:11.5px;margin-top:4px">No text, teaser, announcement × 9:16, 4:5, 1:1</div><div style="font-size:12px;color:var(--brick);margin-top:2px">A package is already rendering for this show. Render again once it finishes.</div></div><div style="height:12px"></div><div class="fs" style="font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase;margin:0 0 6px">Under a minute since the last</div><div class="card2"><div class="ttl">Montage (15&nbsp;s)</div><div class="s" style="margin-bottom:6px">16 clips cut to the drop, with the date, venue and lineup landing on the kicks.</div><div style="font-size:12.5px;margin-bottom:6px"><span class="fs">Owner</span> · Puzzle</div><div class="sec2" style="margin:8px 0 2px">Needs</div><div style="display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-top:1px solid var(--border);font-size:12.5px"><div style="min-width:0">16 clips<div class="fs" style="font-size:11.5px">11 filmed by Puzzle · 5 Enzo Siragusa’s</div></div><div style="white-space:nowrap"><span style="color:var(--olive)">ready</span></div></div><div style="display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-top:1px solid var(--border);font-size:12.5px"><div style="min-width:0">Track and drop<div class="fs" style="font-size:11.5px">drop at 3.8&nbsp;s</div></div><div style="white-space:nowrap"><span style="color:var(--olive)">ready</span></div></div><div style="display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-top:1px solid var(--border);font-size:12.5px"><div style="min-width:0">Lineup<div class="fs" style="font-size:11.5px">6 names, from the event</div></div><div style="white-space:nowrap"><span style="color:var(--olive)">ready</span></div></div><div style="display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-top:1px solid var(--border);font-size:12.5px"><div style="min-width:0">Overlay kit<div class="fs" style="font-size:11.5px">Puzzle’s kit</div></div><div style="white-space:nowrap"><span style="color:var(--olive)">ready</span></div></div><div style="display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-top:1px solid var(--border);font-size:12.5px"><div style="min-width:0">Claim<div class="fs" style="font-size:11.5px">3rd release live · tiers read Wed 25 Nov, 09:00</div></div><div style="white-space:nowrap"><span style="color:var(--olive)">ready</span></div></div><div style="margin-top:10px"><span class="btn dis">Render 9 files</span></div><div class="fs" style="font-size:11.5px;margin-top:4px">No text, teaser, announcement × 9:16, 4:5, 1:1</div><div style="font-size:12px;color:var(--brick);margin-top:2px">A Montage (15&nbsp;s) package started under a minute ago. Try again in 42 seconds.</div></div></div></div></figure><figure><figcaption>MA-A · 393 · a file not in Drive</figcaption><div class="vp w393"><div class="bar1"><span class="bc">P26-BDAY › Renders</span></div><div class="body1" style="padding:14px"><div class="fs" style="font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase;margin:0 0 6px">Renders · a file not in Drive</div><div style="border-top:1px solid var(--border);padding:10px 0"><span style="font:600 12px var(--mono)"><span style="white-space:nowrap">P26-BDAY</span>__<wbr><span style="white-space:nowrap">promoter-puzzle</span>__<wbr><span style="white-space:nowrap">montage</span>__<wbr><span style="white-space:nowrap">teaser</span>__<wbr><span style="white-space:nowrap">tickets</span>__<wbr><span style="white-space:nowrap">r1</span>__<wbr><span style="white-space:nowrap">4x5.mp4</span></span><div class="fs" style="font-size:12px;margin-top:3px">Montage (15&nbsp;s) · Teaser · tickets · 4:5 · round 1</div><div style="margin-top:4px;font-size:11.5px"><b style="color:var(--brick)">■ This client only · Puzzle</b> <span class="fs">· Filmed by Puzzle</span></div><div style="font-size:12.5px;margin-top:4px"><span style="color:var(--olive)">Passed every check and the Montage (15&nbsp;s) list</span></div><div style="font-size:12.5px;margin-top:2px;color:#7a4a08">Rendered, but not in Drive yet: the copy didn’t finish.</div><div style="margin-top:6px"><span class="btn ghost">Copy to Drive</span></div></div></div></div></figure></div><h3>MA-B · The consent page with renders (MA3)</h3><div class="frame"><figure><figcaption>MA-B · 1280 · a grant adding renders</figcaption><div class="scrollx"><div class="vp" style="width:1280px;padding:0"><div style="background:var(--sand);padding:100px 0"><div style="max-width:414px;margin:0 auto;padding:0 16px;font-size:14.5px;line-height:1.6;color:var(--ink)"><div style="font-weight:700;font-size:21px;margin:0 0 16px">Let Claude render videos in Off/Pixel</div><p style="margin:0 0 14px">Claude is asking to use Off/Pixel as <span style="overflow-wrap:anywhere">matas.offpixel.operator@offpixel.co.uk</span>.</p><p style="margin:0 0 14px">It can read every client's events, spend, signup and ticket counts, drafts and learnings, and make, change and archive campaign drafts. It can also send files to Meta, launch drafts paused or live, change live campaigns, and change an event's dates and links, each only after you say yes in Claude. It can't start or raise spend past a client's daily ceiling, and every change is listed on Today.</p><p style="margin:0 0 14px">It can render videos in the Creative Lab too, and file them in the show's Drive folder, each only after you say yes in Claude.</p><p style="margin:0 0 14px">It stays connected until you disconnect it in Claude, or after 30 days without use.</p><p style="margin:0 0 14px">After you allow it, you go back to claude.ai.</p><p style="margin:0 0 14px">If you cancel, it keeps the access it has now.</p><div style="display:flex;gap:12px"><span style="border:1px solid var(--ink);background:#c4a98a;border-radius:4px;padding:7px 16px">Allow</span><span style="border:1px solid var(--border-strong);background:#f3d6bd;border-radius:4px;padding:7px 16px">Cancel</span></div></div></div></div></div><p class="fs" style="max-width:640px;margin-top:8px">The render line follows MW1’s Meta line. The title and the note are the upgrade’s.</p></figure><figure><figcaption>MA-B · 393 · a new connection</figcaption><div class="vp w393" style="padding:0"><div style="background:var(--sand);padding:60px 0"><div style="max-width:414px;margin:0 auto;padding:0 16px;font-size:14.5px;line-height:1.6;color:var(--ink)"><div style="font-weight:700;font-size:21px;margin:0 0 16px">Connect Claude to Off/Pixel</div><p style="margin:0 0 14px">Claude is asking to use Off/Pixel as <span style="overflow-wrap:anywhere">matas.offpixel.operator@offpixel.co.uk</span>.</p><p style="margin:0 0 14px">It can read every client's events, spend, signup and ticket counts, drafts and learnings, and make, change and archive campaign drafts. It can also send files to Meta, launch drafts paused or live, change live campaigns, and change an event's dates and links, each only after you say yes in Claude. It can't start or raise spend past a client's daily ceiling, and every change is listed on Today.</p><p style="margin:0 0 14px">It can render videos in the Creative Lab too, and file them in the show's Drive folder, each only after you say yes in Claude.</p><p style="margin:0 0 14px">It stays connected until you disconnect it in Claude, or after 30 days without use.</p><p style="margin:0 0 14px">After you allow it, you go back to claude.ai.</p><div style="display:flex;gap:12px"><span style="border:1px solid var(--ink);background:#c4a98a;border-radius:4px;padding:7px 16px">Allow</span><span style="border:1px solid var(--border-strong);background:#f3d6bd;border-radius:4px;padding:7px 16px">Cancel</span></div></div></div></div></figure><figure><figcaption>MA-B · 393 · a grant adding renders</figcaption><div class="vp w393" style="padding:0"><div style="background:var(--sand);padding:60px 0"><div style="max-width:414px;margin:0 auto;padding:0 16px;font-size:14.5px;line-height:1.6;color:var(--ink)"><div style="font-weight:700;font-size:21px;margin:0 0 16px">Let Claude render videos in Off/Pixel</div><p style="margin:0 0 14px">Claude is asking to use Off/Pixel as <span style="overflow-wrap:anywhere">matas.offpixel.operator@offpixel.co.uk</span>.</p><p style="margin:0 0 14px">It can read every client's events, spend, signup and ticket counts, drafts and learnings, and make, change and archive campaign drafts. It can also send files to Meta, launch drafts paused or live, change live campaigns, and change an event's dates and links, each only after you say yes in Claude. It can't start or raise spend past a client's daily ceiling, and every change is listed on Today.</p><p style="margin:0 0 14px">It can render videos in the Creative Lab too, and file them in the show's Drive folder, each only after you say yes in Claude.</p><p style="margin:0 0 14px">It stays connected until you disconnect it in Claude, or after 30 days without use.</p><p style="margin:0 0 14px">After you allow it, you go back to claude.ai.</p><p style="margin:0 0 14px">If you cancel, it keeps the access it has now.</p><div style="display:flex;gap:12px"><span style="border:1px solid var(--ink);background:#c4a98a;border-radius:4px;padding:7px 16px">Allow</span><span style="border:1px solid var(--border-strong);background:#f3d6bd;border-radius:4px;padding:7px 16px">Cancel</span></div></div></div></div></figure></div>
+<h2>The words</h2>
+<p class="lead">These rows are appended to <code>scratch/mcp/words-m4-render-2026-11-25.tsv</code>. Every existing row stays word for word. The builder’s “failure line” is named <code>m4.mcp.start_failed</code>, because <code>m4.mcp.failed</code> already holds RT3’s count.</p>
+<h3>Told to Claude (10)</h3><div class="scrollx"><table class="w"><tr><th style="width:280px">Key</th><th style="width:240px">Where</th><th>Words</th></tr><tr><td>m4.mcp.refused.busy</td><td>Told to Claude, cost guard: a package for the event is running</td><td>Refused: a package for {code} is already rendering. Wait until it finishes; get_render_package shows its progress. Nothing was rendered.</td></tr><tr><td>m4.mcp.refused.too_soon</td><td>Told to Claude, cost guard: under 60 s since the last package for this event and recipe</td><td>Refused: a {recipe} package for {code} started under a minute ago. Try again in {s} seconds. Nothing was rendered.</td></tr><tr><td>m4.mcp.refused.too_soon.one</td><td>Told to Claude (1 second)</td><td>Refused: a {recipe} package for {code} started under a minute ago. Try again in 1 second. Nothing was rendered.</td></tr><tr><td>m4.mcp.refused.scope</td><td>Told to Claude, a connection without mcp:render</td><td>Refused: this connection can’t render. Only Matas’s can, once he reconnects Off/Pixel in Claude and allows renders. Nothing was rendered.</td></tr><tr><td>m4.mcp.refused.unknown_event</td><td>Told to Claude</td><td>Refused: no event with code {code}. Nothing was rendered.</td></tr><tr><td>m4.mcp.refused.not_built</td><td>Told to Claude; {built} is the built recipes’ words joined with “, ”</td><td>Refused: {recipe} isn’t built yet. {built} can be rendered now. Nothing was rendered.</td></tr><tr><td>m4.mcp.refused.bad_recipe</td><td>Told to Claude, a recipe that doesn’t exist</td><td>Refused: {recipe} isn’t a recipe. The recipes are montage, roll-call, top tracks and artist card. Nothing was rendered.</td></tr><tr><td>m4.mcp.refused.approval_long</td><td>Told to Claude, asked or answer over 1,000 characters</td><td>Refused: the question or the answer is over 1,000 characters. Ask Matas a shorter question, then send it and his answer word for word. Nothing was rendered.</td></tr><tr><td>m4.mcp.start_failed</td><td>Told to Claude, the package couldn’t start (in place of the server’s message)</td><td>The package couldn’t start. Try again. Nothing was rendered.</td></tr><tr><td>m4.mcp.none</td><td>Told to Claude, get_render_package with no package</td><td>No render package for {code} yet.</td></tr></table></div><h3>In the Lab (5)</h3><div class="scrollx"><table class="w"><tr><th style="width:280px">Key</th><th style="width:240px">Where</th><th>Words</th></tr><tr><td>m4.render.busy</td><td>Template card, under Render (brick): cost guard</td><td>A package is already rendering for this show. Render again once it finishes.</td></tr><tr><td>m4.render.too_soon</td><td>Template card, under Render (brick): cost guard</td><td>A {recipe} package started under a minute ago. Try again in {s} seconds.</td></tr><tr><td>m4.render.too_soon.one</td><td>Template card, under Render (1 second)</td><td>A {recipe} package started under a minute ago. Try again in 1 second.</td></tr><tr><td>m4.row.not_filed</td><td>Render row (ochre): rendered, but the Drive copy failed; no Drive ↗</td><td>Rendered, but not in Drive yet: the copy didn’t finish.</td></tr><tr><td>m4.row.copy_again</td><td>Render row, button</td><td>Copy to Drive</td></tr></table></div><h3>Consent page (4)</h3><div class="scrollx"><table class="w"><tr><th style="width:280px">Key</th><th style="width:240px">Where</th><th>Words</th></tr><tr><td>consent.line3.render</td><td>Consent page, after line 2, when the scope includes mcp:render (Matas only; straight apostrophes, as the page’s other lines)</td><td>It can render videos in the Creative Lab too, and file them in the show's Drive folder, each only after you say yes in Claude.</td></tr><tr><td>consent.title.upgrade.render</td><td>Consent page, title, when a grant is adding mcp:render</td><td>Let Claude render videos in Off/Pixel</td></tr><tr><td>consent.title.upgrade.render.loopback</td><td>Consent page, title, the same for an app on this computer</td><td>Let an app on this computer render videos in Off/Pixel</td></tr><tr><td>consent.upgrade.cancel_note.render</td><td>Consent page, above the buttons, when a grant is adding mcp:render</td><td>If you cancel, it keeps the access it has now.</td></tr></table></div>
+
+<h2>Acceptance</h2>
+<ul class="notes">
+<li><b>Cost guard:</b> tested both server-side (as built) and in the Lab, where the line shows and Render stays off.</li>
+<li><b>Consent:</b> shoot MCP-consent-claude-render and MCP-consent-claude-render-upgrade at 1280 and 393.</li>
+<li><b>Lab:</b> shoot RT-A with the busy line and the too-soon line, and RT-B with a not-in-Drive row.</li>
+<li><b>Words:</b> every string M4a returns or shows is a row, exactly.</li>
+</ul>
+
+<h2>Invented here</h2>
+<ul class="notes">
+<li>Every word.</li>
+<li>The not-in-Drive row and its button.</li>
+<li>The figures in the frames.</li>
+</ul>
+
+<h2>Hand-back</h2>
+<table class="t">
+<tr><th style="width:190px">To</th><th>What</th></tr>
+<tr><td>M4a builder (#1385)</td><td>Swap in the rows, add the not-in-Drive row, and shoot the frames above.</td></tr>
+</table>
+
+</div>
+</body>
+</html>
