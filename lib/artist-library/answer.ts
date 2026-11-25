@@ -8,29 +8,12 @@
  * Pure.
  */
 import { londonToday } from "../drive/tree.ts";
-import type { Phase } from "../learning/findings/phase.ts";
 import { badgeWords } from "./rights.ts";
 import { forEvent, isStale, type ArtistView, type ShowRow } from "./view.ts";
-import { AL_WORDS, alWord, costWords, countWords, dayWords, monthSpan, monthWords, spendFigure, STAGE_LABEL, RANKED_STAGES } from "./words.ts";
+import { AL_WORDS, KIND_WORDS, PHASE_WORDS, alWord, costWords, countWords, dayWords, monthSpan, monthWords, spendFigure, STAGE_LABEL, RANKED_STAGES } from "./words.ts";
 
 /** How many ranked files get_artist lists per stage: the library's top five. */
 export const ANSWER_PER_STAGE = 5;
-
-/**
- * {phase} in al.mcp.show. The record's frames print "Teaser" and "General
- * sale"; the word list has no phase rows. Proposed to ops 25 Nov; pending.
- */
-export const PHASE_WORDS: Readonly<Record<Exclude<Phase, "unknown">, string>> = {
-  teaser: "Teaser",
-  announced: "Announced",
-  presale: "Presale",
-  general_sale: "General sale",
-};
-
-/** {kind} in al.mcp.asset / al.mcp.other.row: the tile's word, lower case as AL-E prints it. */
-export function kindWord(kind: "clip" | "static" | "render"): string {
-  return AL_WORDS[`al.tile.${kind}`].toLowerCase();
-}
 
 export function driveFileLink(id: string): string {
   return `https://drive.google.com/file/d/${id}`;
@@ -113,7 +96,7 @@ export function artistAnswer(input: AnswerInput): string {
               ...common,
               venue: show.venue ?? "",
               date: show.date ? dayWords(show.date, today, true) : "",
-              phase: show.phase && show.phase !== "unknown" ? PHASE_WORDS[show.phase] : "",
+              phase: show.phase ? PHASE_WORDS[show.phase] : "",
             }),
           ),
         );
@@ -131,7 +114,7 @@ export function artistAnswer(input: AnswerInput): string {
       const link = r.group.driveFileId ? driveFileLink(r.group.driveFileId) : null;
       out.push(
         withLink(
-          alWord("al.mcp.asset", { rank: i + 1, name: r.group.name, kind: kindWord(r.group.kind), code: r.group.code ?? "", cost: costWords(stage, r.cost), badge: badge(r.group), link: link ?? "" }),
+          alWord("al.mcp.asset", { rank: i + 1, name: r.group.name, kind: KIND_WORDS[r.group.kind], code: r.group.code ?? "", cost: costWords(stage, r.cost), badge: badge(r.group), link: link ?? "" }),
           link,
         ),
       );
@@ -142,7 +125,7 @@ export function artistAnswer(input: AnswerInput): string {
     out.push("", AL_WORDS["al.mcp.other"]);
     for (const g of use.other) {
       const link = g.driveFileId ? driveFileLink(g.driveFileId) : null;
-      out.push(withLink(alWord("al.mcp.other.row", { name: g.name, kind: kindWord(g.kind), badge: badge(g), link: link ?? "" }), link));
+      out.push(withLink(alWord("al.mcp.other.row", { name: g.name, kind: KIND_WORDS[g.kind], badge: badge(g), link: link ?? "" }), link));
     }
   }
 

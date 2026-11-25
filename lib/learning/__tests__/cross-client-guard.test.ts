@@ -144,7 +144,6 @@ describe("cross-client copy guard", () => {
       "app/api/cron/learning-digest/route.ts", // E8: the Monday digest to ads_ops (operator Slack), off by default
       "app/api/cron/learning-findings/route.ts",
       // The artist library (AL2, AL5): phaseOf for a show's phase only; operator-only, never on a public surface (checked above).
-      "lib/artist-library/answer.ts",
       "lib/artist-library/view.ts",
       "lib/learning/findings/digest.ts",
       "lib/learning/findings/load-observed-tests.ts",

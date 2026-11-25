@@ -130,6 +130,32 @@ export const AL_WORDS = {
 
 export type AlWordKey = keyof typeof AL_WORDS;
 
+// ─── Pending design ─────────────────────────────────────────────────────────
+// Two fill-ins get_artist needs that have no row in the AL word list yet.
+// Ops asked design for the rows on 25 Nov. When they arrive, swap these
+// values one for one; no other code changes. The record's frames confirm
+// only "Teaser" and "General sale". A test covers every key, so a missing
+// value fails it instead of printing blank.
+
+/** A show's phase: phaseOf's four phases, with show week on top (as the MCP's stageOf). */
+export type ShowPhase = "teaser" | "announced" | "presale" | "general_sale" | "show_week";
+
+/** {phase} in al.mcp.show. PENDING DESIGN: not rows yet. */
+export const PHASE_WORDS: Readonly<Record<ShowPhase, string>> = {
+  teaser: "Teaser",
+  announced: "Announced",
+  presale: "Presale",
+  general_sale: "General sale",
+  show_week: "Show week",
+};
+
+/** {kind} in al.mcp.asset and al.mcp.other.row, as AL-E prints them. PENDING DESIGN: not rows yet. */
+export const KIND_WORDS: Readonly<Record<"clip" | "static" | "render", string>> = {
+  clip: "clip",
+  static: "static",
+  render: "render",
+};
+
 export { STAGE_LABEL };
 
 /** One row, with its `{fill-ins}` replaced. */

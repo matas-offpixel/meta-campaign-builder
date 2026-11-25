@@ -80,7 +80,7 @@ for (const artist of [...wanted].sort((a, b) => a.name.localeCompare(b.name))) {
   console.log(`  files: ${view.groups.length} · shareable ${shareableFiles} · held ${view.groups.length - shareableFiles} · skipped: archived ${plan.skipped.archived}, no client ${plan.skipped.noClient}`);
   console.log(`  shows with spend on the artist's ads: ${view.counted.shows} for ${view.counted.clients} clients`);
   for (const s of view.shows) {
-    const where = s.adsOnly ? `ads only ${s.adsOnly.first}–${s.adsOnly.last}` : `${s.date ?? "no date"} · ${s.phase ?? ""}`;
+    const where = s.adsOnly ? `ads only ${s.adsOnly.first}–${s.adsOnly.last}` : `${s.date ?? "no date"} · ${s.phase ?? "no phase"}`;
     console.log(`    ${s.code} · ${clientName.get(s.clientId ?? "") ?? "?"} · ${where} · £${Math.round(s.spend)} · ${s.signups} signups · ${s.purchases} purchases${s.comingUp ? " · coming up" : ""}`);
   }
   const shortcutInput = {} as Record<RankedStage, RankedRender[]>;

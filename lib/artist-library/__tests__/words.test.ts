@@ -3,7 +3,9 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
-import { AL_WORDS, costWords, countWords, dayWords, monthSpan } from "../words.ts";
+import { PHASES } from "../../learning/findings/phase.ts";
+import { showPhase } from "../view.ts";
+import { AL_WORDS, KIND_WORDS, PHASE_WORDS, costWords, countWords, dayWords, monthSpan } from "../words.ts";
 
 const FIXTURE = new URL("./fixtures/words-al-2026-11-25.tsv", import.meta.url);
 
@@ -36,5 +38,23 @@ describe("AL words", () => {
     assert.equal(dayWords("2027-02-19", "2026-11-25"), "Fri 19 Feb 2027");
     assert.deepEqual(monthSpan("2026-08-03", "2026-10-31"), { first: "Aug", last: "Oct 2026" });
     assert.deepEqual(monthSpan("2025-12-03", "2026-01-31"), { first: "Dec 2025", last: "Jan 2026" });
+  });
+
+  it("pending design: every phase and every kind has a word, and the record's two confirmed phases match", () => {
+    for (const phase of [...PHASES, "show_week" as const]) assert.ok(PHASE_WORDS[phase]?.trim(), phase);
+    assert.deepEqual(Object.keys(PHASE_WORDS).sort(), [...PHASES, "show_week"].sort(), "no extra keys");
+    for (const kind of ["clip", "static", "render"] as const) assert.ok(KIND_WORDS[kind]?.trim(), kind);
+    assert.deepEqual(Object.keys(KIND_WORDS).sort(), ["clip", "render", "static"]);
+    assert.equal(PHASE_WORDS.teaser, "Teaser");
+    assert.equal(PHASE_WORDS.general_sale, "General sale");
+  });
+
+  it("a show's phase: show week on top of phaseOf, null when no date says", () => {
+    const base = { id: "e", name: null, event_code: "X", client_id: null, venue_name: null, venue_city: null, status: null };
+    const dated = { ...base, announcement_at: "2026-10-01T17:00:00Z", presale_at: "2026-10-08T09:00:00Z", general_sale_at: "2026-10-10T09:00:00Z" };
+    assert.equal(showPhase({ ...dated, event_date: "2026-12-27" }, "2026-11-25"), "general_sale");
+    assert.equal(showPhase({ ...dated, event_date: "2026-11-27" }, "2026-11-25"), "show_week");
+    assert.equal(showPhase({ ...dated, event_date: "2026-11-24" }, "2026-11-25"), "general_sale", "a show that's been isn't in show week");
+    assert.equal(showPhase({ ...base, event_date: "2026-12-27", announcement_at: null, presale_at: null, general_sale_at: null }, "2026-11-25"), null);
   });
 });

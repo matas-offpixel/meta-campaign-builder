@@ -8,10 +8,11 @@
  *
  * Pure: the rows come in, nothing goes out.
  */
-import { phaseOf, type Phase } from "../learning/findings/phase.ts";
+import { phaseOf } from "../learning/findings/phase.ts";
+import { isShowWeek } from "../onsale-refresh/on-sale.ts";
 import { codeInName, rankedStageOf, stageResult } from "./match.ts";
 import { usableOn, type AssetKind, type HeldReason, type OwnerKind } from "./rights.ts";
-import { RANKED_STAGES, type RankedStage } from "./words.ts";
+import { RANKED_STAGES, type RankedStage, type ShowPhase } from "./words.ts";
 
 /** An artist_assets row (migration 269), or one the backfill plans. */
 export interface AssetRow {
@@ -108,7 +109,8 @@ export interface ShowRow {
   clientId: string | null;
   venue: string | null;
   date: string | null;
-  phase: Phase | null;
+  /** Null when no phase is known (no dates), or for a code with no event. */
+  phase: ShowPhase | null;
   spend: number;
   signups: number;
   purchases: number;
@@ -138,6 +140,14 @@ export interface ArtistView {
 }
 
 const num = (v: unknown) => (v == null || v === "" ? 0 : Number(v) || 0);
+
+/** phaseOf, with show week on top of it from the show's Monday to the show itself; null when unknown. */
+export function showPhase(event: EventLite, today: string): ShowPhase | null {
+  const day = event.event_date?.slice(0, 10);
+  if (day && day >= today && isShowWeek(day, today)) return "show_week";
+  const phase = phaseOf(event, today);
+  return phase === "unknown" ? null : phase;
+}
 
 /** Which group a row belongs to: a render and its ads are one file; a client ad is one per show and name. */
 function groupKey(row: AssetRow): string {
@@ -259,7 +269,7 @@ export function buildArtistView(input: {
         clientId: event?.client_id ?? clientId,
         venue: event ? [event.venue_name, event.venue_city].filter(Boolean).join(", ") || null : null,
         date: event?.event_date ?? null,
-        phase: event ? phaseOf(event, input.today) : null,
+        phase: event ? showPhase(event, input.today) : null,
         spend: 0,
         signups: 0,
         purchases: 0,
