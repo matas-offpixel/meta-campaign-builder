@@ -79,6 +79,7 @@ jobs:
       # @playwright/test@1.63.0 pins Chromium r1243. Do not loosen 0.2%.
       - run: npx playwright install --with-deps chromium
       - name: Build frames app
+        id: frames_build
         run: ENABLE_PLAN_FRAMES=1 npm run build
       # Writes frames-evidence/: shots/<id>.png for every shot (the Ubuntu
       # rasters), diff/<id>/{expected,actual,diff}.png for each shot over
@@ -92,9 +93,12 @@ jobs:
       # MB1 (dashboard v2 on a phone): fails when a dashboard v2 page is
       # wider than the phone at 320, 375, 390 or 430 px, on the internal
       # page and the share link (live-like fixture). Runs even when the
-      # diff fails; writes frames-evidence/overflow-guard.md.
+      # diff fails; writes frames-evidence/overflow-guard.md. It needs the
+      # frames app built (and Playwright installed): when an earlier step
+      # failed first (npm ci, the install, the build), the job is already
+      # red and the guard has nothing to run against, so it doesn't start.
       - name: Overflow guard (dashboard v2, 320–430 px)
-        if: success() || failure()
+        if: (success() || failure()) && steps.frames_build.outcome == 'success'
         run: ENABLE_PLAN_FRAMES=1 node scripts/plan-frames/overflow-guard.mjs
       - name: Upload plan-frames evidence
         if: always()
