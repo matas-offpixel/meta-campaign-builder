@@ -19,7 +19,9 @@ import {
 import { handleUploadAsset } from "../meta/upload-asset-handler.ts";
 import { createServiceRoleClient } from "../supabase/server.ts";
 import { META_UPLOAD_BUCKET, type MetaUploadStorage } from "./creative-intake-meta.ts";
-import { sendStoredDraftAssets, uploadMmlDraftAssets, type StoredSendOutcome } from "./stored-assets-meta.ts";
+import { sendStoredDraftAssets, uploadMmlDraftAssets, waitForStoredVideos, type StoredSendOutcome } from "./stored-assets-meta.ts";
+import { resolveServerMetaToken } from "../meta/server-token.ts";
+import { fetchVideoStatus } from "../meta/storage-video-by-url.ts";
 import { upsertPlanAssetRoute, loadPlanAssetRoutes } from "./asset-routing-db.ts";
 import { runPlanTikTokAssetFanout } from "./asset-routing-server.ts";
 import { tikTokLaunchIsLive } from "./asset-routing-execute.ts";
@@ -598,6 +600,22 @@ export async function sendStoredDraftAssetsToMeta(input: {
     upload: input.upload ?? ((request) => handleUploadAsset(request)),
     onUpload: input.onUpload,
   });
+}
+
+/**
+ * FC4's second step, for the wizard's launch and the connector's: waits for
+ * each sent video to be ready on Meta with the operator's own token
+ * (resolveServerMetaToken), as the upload handler's file_url path waits.
+ */
+export async function waitForStoredVideosAs(input: {
+  supabase: unknown;
+  userId: string;
+  videoIds: readonly string[];
+}): Promise<{ ready: string[]; errored: string[]; timedOut: string[] }> {
+  if (input.videoIds.length === 0) return { ready: [], errored: [], timedOut: [] };
+  const { token } = await resolveServerMetaToken(input.supabase as never, input.userId);
+  if (!token) return { ready: [], errored: [], timedOut: [...input.videoIds] };
+  return waitForStoredVideos({ videoIds: input.videoIds, getStatus: (id) => fetchVideoStatus(id, token) });
 }
 
 function serviceRoleStorage(): MetaUploadStorage {

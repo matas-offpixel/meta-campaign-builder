@@ -92,7 +92,10 @@ async function makeLaunchable(db: ReturnType<typeof draftCtx>["db"], opts: { sto
 interface MetaSpy {
   uploads: Array<Record<string, unknown>>;
   launches: Array<{ draft: CampaignDraft; createPaused: boolean }>;
+  waited: string[][];
   failUpload: boolean;
+  /** Videos Meta reports as video_status error. */
+  erroredVideos: string[];
 }
 
 function metaDeps(db: ReturnType<typeof draftCtx>["db"], spy: MetaSpy): McpMetaDeps {
@@ -113,6 +116,11 @@ function metaDeps(db: ReturnType<typeof draftCtx>["db"], spy: MetaSpy): McpMetaD
           return Response.json({ videoId: `vid-${String(body.contentHash)}` });
         },
       }),
+    async waitVideos({ videoIds }) {
+      spy.waited.push([...videoIds]);
+      const errored = videoIds.filter((id) => spy.erroredVideos.includes(id));
+      return { ready: videoIds.filter((id) => !errored.includes(id)), errored, timedOut: [] };
+    },
     async launch({ draft, createPaused }) {
       spy.launches.push({ draft, createPaused });
       return { status: 200, body: LAUNCHED };
@@ -126,7 +134,7 @@ async function metaCtx(opts: { storage?: boolean; ceiling?: number | null; scope
   await makeLaunchable(db, { storage: opts.storage });
   if (opts.ceiling != null) await db.from("client_spend_ceilings").insert({ client_id: CLIENT_NX, daily_gbp: opts.ceiling, set_by: OPERATOR, set_at: "2026-11-25T10:00:00Z" });
   db.writes.length = 0;
-  const spy: MetaSpy = { uploads: [], launches: [], failUpload: false };
+  const spy: MetaSpy = { uploads: [], launches: [], waited: [], failUpload: false, erroredVideos: [] };
   (ctx as ToolContext).meta = metaDeps(db, spy);
   (ctx as ToolContext).isMatas = opts.isMatas ?? true;
   return { ...made, spy };
@@ -160,7 +168,7 @@ test("no approval, an empty one or one over 1,000 characters: every meta tool re
   ];
   for (const [tool, args] of calls) {
     for (const approval of bad) {
-      const e = await refused(run(tool, ctx, { ...args, approval }), /No approval given|at most 1000 characters/);
+      const e = await refused(run(tool, ctx, { ...args, approval }), /^Refused: there’s no approval with this\. Ask Matas in chat, then send his exact question and answer with it\. Nothing was sent to Meta\.$/);
       assert.match(String(e.summary?.refused), /^(no_approval|approval_too_long)$/);
     }
   }
@@ -200,6 +208,10 @@ test("launch_draft paused: the stored files go first (no drop), then the launch 
   assert.equal(out.data.adsManager, "https://adsmanager.facebook.com/adsmanager/manage/campaigns?act=606252931141334&selected_campaign_ids=120200000000000001");
   assert.equal(out.summary.metaCampaignId, "120200000000000001");
   assert.equal(out.data.ceiling, undefined, "a paused launch reads no ceiling");
+  // FC2: "Done: {result}." and, a paused campaign Claude made having an Undo (FC1), the undo note.
+  assert.equal(out.data.message, "Done: 1 campaign launched · 120200000000000001. Matas can undo this on Today.");
+  // FC4's second step: the sent videos waited for before the launch.
+  assert.deepEqual(spy.waited, [["vid-h-a", "vid-h-b"]]);
 });
 
 test("paused creates PAUSED in each Graph create payload the route builds: campaign, ad set and ad", () => {
@@ -227,14 +239,14 @@ test("paused creates PAUSED in each Graph create payload the route builds: campa
 test("launch_draft live: refused with no ceiling and over the ceiling (nothing sent); within it the route creates active", async () => {
   {
     const { ctx, db, spy } = await metaCtx({ ceiling: null });
-    const e = await refused(run(launchDraftTool, ctx, { draft_id: D_DRAFT, mode: "live", approval: YES }), /has no daily ceiling set, so a live launch for it isn't allowed\. Nothing was sent to Meta/);
+    const e = await refused(run(launchDraftTool, ctx, { draft_id: D_DRAFT, mode: "live", approval: YES }), /^Refused: NX Live has no daily ceiling, so nothing that starts spend can run\. Matas sets one in Settings › Claude\. Nothing was sent to Meta\.$/);
     assert.equal(e.summary?.refused, "no_ceiling");
     assert.deepEqual([spy.uploads.length, spy.launches.length, db.writes.length], [0, 0, 0]);
   }
   {
     // £20 + £30 a day.
     const { ctx, spy } = await metaCtx({ ceiling: 40 });
-    const e = await refused(run(launchDraftTool, ctx, { draft_id: D_DRAFT, mode: "live", approval: YES }), /this launch is £50\.00 a day, over NX Live's £40\.00 daily ceiling/);
+    const e = await refused(run(launchDraftTool, ctx, { draft_id: D_DRAFT, mode: "live", approval: YES }), /^Refused: this would take NX Live to £50\.00 a day, over its £40\.00 daily ceiling\. Nothing was sent to Meta\.$/);
     assert.deepEqual([e.summary?.refused, e.summary?.moneyGbp, e.summary?.ceilingGbp], ["over_ceiling", 50, 40]);
     assert.deepEqual([spy.uploads.length, spy.launches.length], [0, 0]);
   }
@@ -243,6 +255,8 @@ test("launch_draft live: refused with no ceiling and over the ceiling (nothing s
     const out = await run(launchDraftTool, ctx, { draft_id: D_DRAFT, mode: "live", approval: YES });
     assert.equal(spy.launches[0]!.createPaused, false);
     assert.deepEqual([out.data.status, out.data.moneyADay, out.data.ceiling], ["ACTIVE", 50, 50]);
+    // A live launch has no Undo (today.mcp.undo.live), so no undo note.
+    assert.equal(out.data.message, "Done: 1 campaign launched · 120200000000000001.");
   }
 });
 
@@ -259,7 +273,7 @@ test("the draft's money a day: daily ad sets summed, a campaign budget, a lifeti
 
 test("a pending slot without a Storage copy still blocks: launch_draft refuses on the wizard's check and sends nothing", async () => {
   const { ctx, spy } = await metaCtx({ storage: false });
-  const e = await refused(run(launchDraftTool, ctx, { draft_id: D_DRAFT, mode: "paused", approval: YES }), /launch checks have 2 blockers, so nothing was sent to Meta/);
+  const e = await refused(run(launchDraftTool, ctx, { draft_id: D_DRAFT, mode: "paused", approval: YES }), /^Refused: 2 launch checks to fix\. Nothing was sent to Meta\.$/);
   const checks = e.data?.launchChecks as { wizard: { blockers: string[] } };
   assert.deepEqual(checks.wizard.blockers, ['"Teaser 1" › "Variation 1" › 9:16: Asset not yet uploaded', '"Teaser 2" › "Variation 1" › 9:16: Asset not yet uploaded']);
   assert.deepEqual([spy.uploads.length, spy.launches.length], [0, 0]);
@@ -278,6 +292,18 @@ test("a failed upload stops the launch: nothing is created, and each slot is sav
   spy.failUpload = false;
   const out = await run(uploadDraftAssetsTool, ctx, { draft_id: D_DRAFT, approval: YES });
   assert.deepEqual([out.data.files, out.data.sent], [2, 2]);
+});
+
+test("a video Meta reports as failed stops the launch like a failed upload: nothing created, the slot saved as \"Upload failed — retry or remove\"", async () => {
+  const { ctx, db, spy } = await metaCtx();
+  spy.erroredVideos = ["vid-h-b"];
+  const e = await refused(run(launchDraftTool, ctx, { draft_id: D_DRAFT, mode: "paused", approval: YES }), /1 of 2 files didn't go to Meta, so nothing was launched/);
+  assert.equal(spy.launches.length, 0);
+  const json = (await readRow(db, D_DRAFT))!.draft_json as CampaignDraft;
+  const slots = json.creatives.map((c) => c.assetVariations[0]!.assets[0]!);
+  assert.deepEqual(slots.map((x) => x.uploadStatus), ["uploaded", "error"]);
+  assert.ok(validateStep(7, json).errors.includes('"Teaser 2" › "Variation 1" › 9:16: Upload failed — retry or remove'));
+  assert.equal(e.summary?.refused, "upload_failed");
 });
 
 test("a launch route refusal comes back as a refusal, with the files already sent kept", async () => {
@@ -300,6 +326,7 @@ test("upload_draft_assets: the send step only (no launch, no ceiling), saved; a 
   const { ctx, db, spy } = await metaCtx({ ceiling: null });
   const out = await run(uploadDraftAssetsTool, ctx, { draft_id: D_DRAFT, approval: YES });
   assert.deepEqual([out.data.files, out.data.sent, spy.launches.length], [2, 2, 0]);
+  assert.equal(out.data.message, "Done: 2 files added · vid-h-a, vid-h-b.");
   const checks = out.data.launchChecks as { wizard: { blockers: string[]; sendAtLaunch?: number } };
   assert.equal(checks.wizard.sendAtLaunch, undefined, "nothing left to send");
   const again = await run(uploadDraftAssetsTool, ctx, { draft_id: D_DRAFT, approval: YES });
@@ -325,6 +352,8 @@ test("the launch checks in every answer follow the same rule: stored files are c
   const checks = out.data.launchChecks as { wizard: { blockers: string[]; sendAtLaunch?: number } };
   assert.deepEqual(checks.wizard.blockers, []);
   assert.equal(checks.wizard.sendAtLaunch, 2);
+  // FC4: Review's line where the blocker was, in the wizard's warnings.
+  assert.ok((checks.wizard as unknown as { warnings: string[] }).warnings.includes("2 files go to Meta when you launch."));
 });
 
 // ── set_draft_name ──────────────────────────────────────────────────────────
@@ -354,6 +383,7 @@ test("update_event: only the fields given, times as the form saves them, links h
   assert.equal(ev.presale_at, "2027-01-15T10:00:00Z", "a field not given is left as it was");
   assert.deepEqual((out.data.changed as Array<{ field: string }>).map((c) => c.field), ["announcement_at", "ticket_url"]);
   assert.deepEqual([...new Set(db.writes.map((w) => w.table))], ["events"]);
+  assert.equal(out.data.message, `Done: 1 event changed · ${EV_TGT}.`);
   await refused(run(updateEventTool, ctx, { event_code: "NX27-GLITTERBOX", changes: { presale_at: "2027-01-15 10:00" }, approval: YES }), /a time with its zone/);
   await refused(run(updateEventTool, ctx, { event_code: "NX27-GLITTERBOX", changes: { signup_url: "http://crqln.com/l/x" }, approval: YES }), /must start with https/);
   await refused(run(updateEventTool, ctx, { event_code: "NX27-GLITTERBOX", changes: {}, approval: YES }), /Give at least one/);

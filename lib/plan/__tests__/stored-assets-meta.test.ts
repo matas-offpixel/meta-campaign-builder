@@ -17,7 +17,7 @@ import type { CampaignDraft } from "../../types.ts";
 import { validateStep } from "../../validation.ts";
 import { validateCreativeAssetCompleteness } from "../../validation/asset-completeness.ts";
 import { fakeDb } from "../../mcp/__tests__/fake-db.ts";
-import { sendStoredDraftAssets } from "../stored-assets-meta.ts";
+import { failVideos, sendStoredDraftAssets, sentVideoIds, waitForStoredVideos } from "../stored-assets-meta.ts";
 
 const USER = "b3ee4e5c-44e6-4684-acf6-efefbecd5858";
 const ACCOUNT = "act_606252931141334";
@@ -87,6 +87,8 @@ test("validateStep: a pending slot with its file in Storage goes at launch; with
   const stored = draftWith();
   assert.equal(sendsAtLaunch(stored.creatives[0]!.assetVariations[0]!.assets[0]!), true);
   assert.ok(!validateStep(7, stored).errors.some((e) => /Asset not yet uploaded/.test(e)));
+  // FC4: Review says it goes at launch, where the blocker was.
+  assert.ok(validateStep(7, stored).warnings?.includes("1 file goes to Meta when you launch."));
 
   const noCopy = draftWith({ storagePath: null });
   assert.ok(validateStep(7, noCopy).errors.includes('"ugc-caption-2" › "Variation 1" › 9:16: Asset not yet uploaded'));
@@ -174,4 +176,22 @@ test("someone else's registry row is never read: the slot fails and nothing is s
   assert.equal(s.calls.length, 0);
   assert.equal(s.copies.length, 0);
   assert.equal(out.failed.length, 1);
+});
+
+test("FC4's video step: each sent video is read until ready; an error fails its slot, still processing goes on", async () => {
+  const db = fakeDb(tables());
+  const s = spies(db);
+  const out = await sendStoredDraftAssets({ supabase: db, draft: draftWith(), userId: USER, storage: s.storage, upload: s.upload });
+  assert.deepEqual(sentVideoIds(out), ["vid-h-one"]);
+  const reads: string[] = [];
+  const status = (answers: Record<string, unknown[]>) => async (id: string) => {
+    reads.push(id);
+    return answers[id]!.shift();
+  };
+  const ok = await waitForStoredVideos({ videoIds: ["v1", "v2", "v3"], delaysMs: [0, 0, 0], getStatus: status({ v1: [{ status: { video_status: "processing" } }, { status: { video_status: "ready" } }], v2: [{ status: { video_status: "error" } }], v3: [{}, {}, {}] }) });
+  assert.deepEqual([ok.ready, ok.errored, ok.timedOut], [["v1"], ["v2"], ["v3"]]);
+  const failed = failVideos(out.draft, ["vid-h-one"]);
+  const slot = failed.draft.creatives[0]!.assetVariations[0]!.assets[0]!;
+  assert.deepEqual([slot.uploadStatus, slot.videoId, failed.failed], ["error", undefined, ["slot-1"]]);
+  assert.ok(validateStep(7, failed.draft).errors.includes('"ugc-caption-2" › "Variation 1" › 9:16: Upload failed — retry or remove'));
 });

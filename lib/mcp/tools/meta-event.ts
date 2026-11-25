@@ -15,6 +15,7 @@ import { approvalInput, requireMetaApproval } from "../meta/approval.ts";
 import { EVENT_EDIT_COLUMNS, EVENT_EDIT_FIELDS, normaliseInstant, normaliseLink, updateEventFields, type EventEditRow, type EventPatch } from "../meta/event-write.ts";
 import { changes, linkKey } from "../drafts/common.ts";
 import { ToolInputError, type McpTool } from "../tool-types.ts";
+import { MCP_WORDS, RESULT_WORDS, THINGS } from "../meta/words.ts";
 import { loadEventByCode, normaliseCode } from "./shared.ts";
 
 const TIMES = new Set(["announcement_at", "presale_at", "general_sale_at"]);
@@ -69,7 +70,9 @@ export const updateEventTool: McpTool = {
       data: {
         event: code,
         changed,
-        ...(found.siblings.length ? { note: `${code} has ${found.siblings.length} sibling fixture${found.siblings.length === 1 ? "" : "s"}; only the first (the code's owner) changed.` } : {}),
+        ...(found.siblings.length ? { siblingsUnchanged: found.siblings.length } : {}),
+        // claude.mcp.done with today.mcp.result.one; no Undo exists for an event edit (FC1), so no undo note.
+        message: MCP_WORDS.done(RESULT_WORDS.changed(THINGS.event, [before.id])),
       },
       eventId: before.id,
       clientId: before.client_id,
