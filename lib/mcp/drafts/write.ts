@@ -143,6 +143,15 @@ export function keepUnmigratedFields(stored: unknown, edited: unknown): unknown 
   return edited;
 }
 
+/**
+ * Top-level draft maps an MCP edit always writes whole. keepUnmigratedFields
+ * keeps a stored key the edit left out, which is right for objects with
+ * fields migrateDraft doesn't know, and wrong for a map whose keys are ids:
+ * the Assign step's matrix (ad set id → creative ids) loses a row when its
+ * ad set goes.
+ */
+export const WHOLE_MAPS = ["creativeAssignments"] as const;
+
 /** The saveDraftToDb columns for a draft (empty strings become NULL, as there). */
 function columnsOf(draft: CampaignDraft) {
   return {
@@ -171,7 +180,9 @@ async function refusalAfterMiss(ctx: ToolContext, id: string): Promise<never> {
 export async function saveDraft(ctx: ToolContext, loaded: WritableDraft, next: CampaignDraft): Promise<{ updatedAt: string; draft: CampaignDraft }> {
   const updatedAt = ctx.now.toISOString();
   const draft: CampaignDraft = { ...next, id: loaded.row.id, status: "draft", updatedAt };
-  const stored = keepUnmigratedFields(loaded.row.draft_json ?? {}, draft);
+  const stored = keepUnmigratedFields(loaded.row.draft_json ?? {}, draft) as Record<string, unknown>;
+  // Maps the edit owns whole: a key it dropped (a removed ad set's row) must go, not be kept from storage.
+  for (const key of WHOLE_MAPS) if (key in draft) stored[key] = (draft as unknown as Record<string, unknown>)[key];
   const res = await ctx.db
     .from("campaign_drafts")
     .update({ ...columnsOf(draft), draft_json: stored, updated_at: updatedAt })

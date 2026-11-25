@@ -22,7 +22,7 @@ You need all three of these:
 4. Press **Add**, then **Connect**. A window opens on `app.offpixel.co.uk/oauth/authorize`:
    - **If it asks you to sign in:** sign in to Off/Pixel (the password login works in that window). Then go back to Claude and press **Connect** again.
    - **Otherwise:** check it says **Connect Claude to Off/Pixel** with your email, then press **Allow**.
-5. You're back in Claude, and the connector shows as connected. Its eight read tools are marked read-only (the eight draft tools are below):
+5. You're back in Claude, and the connector shows as connected. Its eight read tools are marked read-only (the sixteen draft tools are below):
    - `morning_topline`
    - `list_events`
    - `get_event`
@@ -30,13 +30,13 @@ You need all three of these:
    - `get_learnings`
    - `get_drafts`
    - `get_draft`
-   - `run_launch_checks` (says "not available yet" until #1361 merges)
+   - `run_launch_checks` (the launch checks Review & launch shows, in the app's words)
 
 ## Draft tools (M2)
 
 A connection made after M2 asks to **use** Off/Pixel, and the consent page says it can make, change and archive drafts that aren't published. A connection made before M2 can still read. The first time Claude calls a draft tool on it, the server answers `403 insufficient_scope` and Claude asks you to connect again: the page reads **Let Claude change drafts in Off/Pixel**. Cancelling keeps the read-only access. Allowing replaces it: once the new connection is issued, the read-only one is revoked, so the connector has one live grant. If that fails part way, the new connection is undone and Claude asks you to connect again.
 
-The eight draft tools (scope `mcp:draft`, operators):
+The sixteen draft tools (scope `mcp:draft`, operators). M2's eight:
 
 | Tool | What it does |
 |---|---|
@@ -44,12 +44,25 @@ The eight draft tools (scope `mcp:draft`, operators):
 | `set_draft_link` | Sets every ad's link (or some ads'). https only; warns when it isn't the event's signup page or ticket link. |
 | `set_draft_locations` | Adds a searched place, a pin or the Leeds preset; removes locations; tags tiers. Warns on Meta key 811209 (Leeds, Kent). The search is a Meta read. |
 | `set_draft_budget` | Daily or lifetime in GBP, start and end. Refuses a past start or an end before the start. Returns the per-day equivalent. |
-| `apply_audience_template` | Not available yet (waits on #1363). It will show Reused or Will be created and never create audiences. |
+| `apply_audience_template` | The Audience templates tab's Add to this draft: the template's audiences already made in the draft's account go in by Meta id; the rest are left out and counted. Never creates audiences. Refuses a template Matas hasn't confirmed. |
 | `list_drive_creatives` | One folder of the event's Drive tree: files with kind, aspect, size and whether each can be an ad. Reads only. |
 | `attach_drive_creatives` | Copies 9:16 Drive files into Storage and adds one ad each (the client's page by default). No Meta upload until launch. Refuses artist-voice copy until caption approvals exist. |
 | `archive_draft` | Moves a draft to the library's Archived tab. Unarchive there brings it back; nothing is deleted. |
 
-Every draft tool except `replicate_to_event` and `list_drive_creatives` takes the draft's `updated_at` from `get_draft`; a draft changed since then is refused. Published and archived drafts are read-only here. Each answer carries the launch checks ("not available yet" until #1361 merges).
+M2b's eight, so a whole campaign can be built as a draft:
+
+| Tool | What it does |
+|---|---|
+| `set_draft_objective` | The Campaign step's objective change: the goal, the suggested name (a hand-edited one is kept) and the pixel event follow; awareness clears Advantage+. |
+| `set_draft_ad_sets` | Step 5's row edits (on/off, budget, name, ages, Advantage+), `add_broad` (blank, or one group as Advantage+ suggestions) and `assign_all`. Refuses any enabled ad set under £8 a day unless `override` with `override_reason`, which is logged. |
+| `set_draft_audiences` | Remove, rename and merge groups (merged interests deduped); add interests by Meta's interest search (a read); add custom audiences the app recorded in the draft's account. Ad sets follow their groups. |
+| `set_draft_identity` | The page (and Instagram) on the settings and every ad. Refuses a page the ad account can't run ads from (the page list, a Meta read). |
+| `set_draft_copy` | Primary texts, headline, description and CTA on every ad or listed ones. Refuses artist-voice copy. |
+| `remove_draft_creatives` | Drops ads and their assignments. |
+| `set_draft_schedule` | Start and end (London) without touching budgets. Refuses a past start or an end before the start. |
+| `duplicate_draft` | The library's Duplicate: a new draft on the same event, for a test's second arm. |
+
+Every draft tool except `replicate_to_event`, `list_drive_creatives` and `duplicate_draft` takes the draft's `updated_at` from `get_draft`; a draft changed since then is refused. Published and archived drafts are read-only here. Each answer carries the launch checks (runLaunchGuard: blockers and warnings in the app's words). The only requests that leave the app are three Meta reads: the location search, the interest search and the account's page list.
 
 ## On your phone
 
