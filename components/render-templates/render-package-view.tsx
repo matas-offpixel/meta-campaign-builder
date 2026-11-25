@@ -182,9 +182,16 @@ export function RenderRowsList({ rows, onRetry, onRerender, onCopy, busyId }: { 
 }
 
 /** RY2: a package in Today's log (FC1's row: no Approve or Reject, the no-Undo line). */
+/**
+ * TD/FC1's log row: a card with a 4 px left edge for its state, olive once
+ * done, ink while it renders, the muted border on a refusal (which is also
+ * drawn at 70 %).
+ */
+const LOG_ROW = "space-y-1 rounded-lg border border-border-strong border-l-4 bg-card px-3 py-2.5";
+
 export function TodayRenderRow({ row, open = false }: { row: TodayRowView; open?: boolean }) {
   return (
-    <li className="space-y-1 p-3">
+    <li className={`${LOG_ROW} ${row.done ? "border-l-success" : "border-l-foreground"}`}>
       <p className="text-sm font-medium">{row.title}</p>
       <p className="text-sm">{row.change}</p>
       <details open={open} className="text-xs">
@@ -213,7 +220,7 @@ export function TodayRenderRow({ row, open = false }: { row: TodayRowView; open?
 
 export function TodayRefusedRow({ row }: { row: RefusedRowView }) {
   return (
-    <li className="space-y-1 p-3 opacity-70">
+    <li className={`${LOG_ROW} border-l-border-strong opacity-70`}>
       <p className="text-sm font-medium">{row.title}</p>
       <p className="text-sm">{row.change}</p>
       <p className="text-xs text-destructive">{row.refused}</p>
@@ -226,12 +233,12 @@ export type TodayLogEntry = { kind: "package"; row: TodayRowView; open?: boolean
 /** FC1's section, as far as M4a fills it: the render packages and their refusals, newest first. */
 export function TodayClaudeLog({ title, count, entries }: { title: string; count: string; entries: TodayLogEntry[] }) {
   return (
-    <section className="rounded-lg border border-border bg-card" id="claude-changes">
-      <header className="flex items-baseline justify-between gap-3 border-b border-border px-3 py-2">
+    <section className="space-y-2" id="claude-changes">
+      <header className="flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="text-base font-semibold">{title}</h2>
         <span className="text-xs text-muted-foreground">{count}</span>
       </header>
-      <ul className="divide-y divide-border">
+      <ul className="space-y-2">
         {entries.map((e) => (e.kind === "package" ? <TodayRenderRow key={e.row.id} row={e.row} open={e.open} /> : <TodayRefusedRow key={e.row.id} row={e.row} />))}
       </ul>
     </section>
