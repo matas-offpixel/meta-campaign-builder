@@ -14,9 +14,10 @@
  *      (Ads Manager's quick create copies it down), which labels the
  *      campaign, not the creative.
  *   3. Otherwise no artist: the ad is the show's own (a general ad). It goes
- *      to the show's headliner (headlinerOf: the one artist the show's code
- *      or name names) and to no one else; a show naming none, or two, keeps
- *      it in the general bucket. Supports never get general ads.
+ *      to the show's headliners (headlinerOf: the artist the show's code or
+ *      name names, or both co-headliners when it names two, as in "Azyr b2b
+ *      Partiboi69") and to no one else. A show naming none, or three or
+ *      more, keeps it in the general bucket. Supports never get general ads.
  *
  * Some names are narrower (aliases.ts): an AD_NAME_ONLY name matches only
  * in the ad name (never the ad set name or a show's code or name), and an
@@ -137,17 +138,24 @@ export function artistsOfAd(ad: AdNames, roster: Roster): { artistIds: string[];
   return { artistIds: [], field: null };
 }
 
+/** A show's headliners: one artist, two co-headliners, or none; `crowded` when it names three or more. */
+export interface Headliners {
+  artistIds: string[];
+  /** Three or more named: no headliner (Matas, 25 Nov: stop and list, don't guess). */
+  crowded: string[];
+}
+
 /**
- * A show's headliner: the one artist its code or name names (real artists
+ * A show's headliners: the artists its code or name names (real artists
  * only; AD_NAME_ONLY names, aliases marked not for shows and acts with no
  * row left out). "NX26-ENZO" holds Enzo Siragusa only through the confirmed
  * "Enzo" alias; its name ("Enzo Siragusa Halloween") holds the full name.
- * Two named: no headliner, and `ambiguous` lists them.
+ * Two named are co-headliners (Matas, 25 Nov): both get the general ads.
+ * Three or more: none, and `crowded` lists them.
  */
-export function headlinerOf(event: { event_code: string | null; name: string | null }, roster: Roster): { artistId: string | null; ambiguous: string[] } {
+export function headlinerOf(event: { event_code: string | null; name: string | null }, roster: Roster): Headliners {
   const ids = artistsNamedIn(`${event.event_code ?? ""} ${event.name ?? ""}`, roster, { adName: false, show: true }).filter((id) => !roster.noRow.has(id));
-  if (ids.length === 1) return { artistId: ids[0]!, ambiguous: [] };
-  return { artistId: null, ambiguous: ids.length > 1 ? ids : [] };
+  return ids.length <= 2 ? { artistIds: ids, crowded: [] } : { artistIds: [], crowded: ids };
 }
 
 /** "x – Copy", "x - Copy 2", "x – Copy – Copy": the duplicate suffixes Ads Manager adds, folded off. */

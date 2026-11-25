@@ -42,7 +42,9 @@ import { artistAnswer } from "../lib/artist-library/answer.ts";
 import { AD_NAME_ONLY, BRANDS } from "../lib/artist-library/aliases.ts";
 import {
   adNamesIndex,
-  ambiguousHeadliners,
+  coHeadlinedShows,
+  crowdedHeadliners,
+  isCoHeadline,
   deleteArtistAssets,
   loadBackfillInputs,
   loadStoredAssets,
@@ -56,7 +58,7 @@ import {
 import { planShortcuts, type RankedRender } from "../lib/artist-library/library-tree.ts";
 import { fold } from "../lib/artist-library/match.ts";
 import { heldNoSourceFiles, type HeldFile } from "../lib/artist-library/held.ts";
-import { buildArtistView } from "../lib/artist-library/view.ts";
+import { buildArtistView, showTotals } from "../lib/artist-library/view.ts";
 import { costWords, RANKED_STAGES, STAGE_LABEL, type RankedStage } from "../lib/artist-library/words.ts";
 import { londonToday } from "../lib/drive/tree.ts";
 
@@ -131,10 +133,13 @@ for (const artist of [...wanted].sort((a, b) => a.name.localeCompare(b.name))) {
   summary.push([artist.name, plan.rows.length, adRows, 0, heldFiles.length].join("\t"));
   const shareableFiles = view.groups.filter((g) => g.shareable).length;
   summary[summary.length - 1] = [artist.name, plan.rows.length, adRows, view.groups.length, heldFiles.length].join("\t");
-  const headlined = inputs.events.filter((e) => headliners.get(e.id)?.artistId === artist.id).map((e) => e.event_code ?? e.id);
+  const headlined = inputs.events
+    .filter((e) => headliners.get(e.id)?.artistIds.includes(artist.id))
+    .map((e) => `${e.event_code ?? e.id}${headliners.get(e.id)!.artistIds.length === 2 ? " (co-headline)" : ""}`);
+  const coRows = plan.rows.filter((r) => isCoHeadline(r, headliners)).length;
   console.log(`\n${artist.name} (${artist.id})`);
   if (headlined.length) console.log(`  headliner of: ${headlined.join(", ")}`);
-  console.log(`  rows: ${plan.rows.length} · ads ${adRows} · ${Object.entries(byKind).map(([k, n]) => `${k} ${n}`).join(" · ")} · matched by ${Object.entries(byMatch).map(([k, n]) => `${k} ${n}`).join(", ")} (named in the ad name ${byField.ad}, the ad set name ${byField.adset})`);
+  console.log(`  rows: ${plan.rows.length} · ads ${adRows} · ${Object.entries(byKind).map(([k, n]) => `${k} ${n}`).join(" · ")} · matched by ${Object.entries(byMatch).map(([k, n]) => `${k} ${n}`).join(", ")} (named in the ad name ${byField.ad}, the ad set name ${byField.adset})${coRows ? ` · co-headline ${coRows}` : ""}`);
   console.log(`  files: ${view.groups.length} · shareable ${shareableFiles} · held ${view.groups.length - shareableFiles} · skipped: archived ${plan.skipped.archived}, no client ${plan.skipped.noClient}`);
   console.log(`  shows with spend on the artist's ads: ${view.counted.shows} for ${view.counted.clients} clients`);
   for (const s of view.shows) {
@@ -203,11 +208,22 @@ if (only.length) {
   }
 }
 
-// ─── Shows whose code or name names two artists: no headliner ─────────────
-const ambiguous = ambiguousHeadliners(inputs);
+// ─── Co-headlined shows (two acts named) and crowded ones (three or more) ─
 const artistName = new Map(inputs.artists.map((a) => [a.id, a.name]));
-console.log(`\nshows whose code or name names two or more artists (no headliner): ${ambiguous.length}`);
-for (const a of ambiguous) console.log(`  ${a.code ?? a.eventId} · ${a.name ?? ""} · ${a.artistIds.map((id) => artistName.get(id) ?? id).join(" + ")}`);
+const totals = showTotals(plans.flatMap((p) => p.rows), inputs.insights);
+const money = (n: number) => `£${Math.round(n).toLocaleString("en-GB")}`;
+const co = coHeadlinedShows(inputs);
+console.log(`\nco-headlined shows (both acts get the general ads; a shared ad counts once in a show or client total): ${co.length}`);
+for (const a of co) {
+  const t = totals.byEvent.get(a.eventId);
+  const shown = t ? `show total ${money(t.spend)} over ${t.ads} ads (deduped) · ${money(t.spendPerRow)} without dedupe` : "no planned ads";
+  console.log(`  ${a.code ?? a.eventId} · ${a.name ?? ""} · ${a.artistIds.map((id) => artistName.get(id) ?? id).join(" + ")} · ${shown}`);
+}
+const crowded = crowdedHeadliners(inputs);
+console.log(`shows whose code or name names three or more artists (no headliner; not guessed): ${crowded.length}`);
+for (const a of crowded) console.log(`  ${a.code ?? a.eventId} · ${a.name ?? ""} · ${a.artistIds.map((id) => artistName.get(id) ?? id).join(" + ")}`);
+const all = [...totals.byClient.values()].reduce((s, t) => ({ spend: s.spend + t.spend, perRow: s.perRow + t.spendPerRow }), { spend: 0, perRow: 0 });
+console.log(`client totals across the artists printed: ${money(all.spend)} deduped · ${money(all.perRow)} without dedupe`);
 
 // ─── Each confirmed alias's pickup: the ad rows it adds ─────────────────────
 if (!only.length) {

@@ -349,3 +349,49 @@ export function isStale(newestAt: string | null, today: string): boolean {
   d.setUTCMonth(d.getUTCMonth() - STALE_MONTHS);
   return newestAt.slice(0, 10) < d.toISOString().slice(0, 10);
 }
+
+/** A show's or a client's total across artists. */
+export interface Total {
+  spend: number;
+  signups: number;
+  purchases: number;
+  /** Distinct ads counted. */
+  ads: number;
+  /** What the rows would add up to without dedupe (a co-headline ad once per artist). */
+  spendPerRow: number;
+}
+
+/**
+ * Show and client totals across every artist's rows. An ad two co-headliners
+ * share is a row for each of them; here it counts once (deduped on
+ * meta_ad_id), so a show or client total is the sum of its distinct ads.
+ * Per-artist figures (buildArtistView) still carry the full spend of every
+ * ad of that artist, shared ones included.
+ */
+export function showTotals(assets: readonly AssetRow[], insights: readonly InsightRow[]): { byEvent: Map<string, Total>; byClient: Map<string, Total> } {
+  const insightsByAd = new Map<string, InsightRow[]>();
+  for (const r of insights) (insightsByAd.get(r.meta_ad_id) ?? insightsByAd.set(r.meta_ad_id, []).get(r.meta_ad_id)!).push(r);
+  const blank = (): Total => ({ spend: 0, signups: 0, purchases: 0, ads: 0, spendPerRow: 0 });
+  const byEvent = new Map<string, Total>();
+  const byClient = new Map<string, Total>();
+  const seen = new Set<string>();
+  for (const row of assets) {
+    if (!row.meta_ad_id) continue;
+    const days = insightsByAd.get(row.meta_ad_id) ?? [];
+    const spend = days.reduce((s, d) => s + num(d.spend), 0);
+    const targets = [
+      row.source_event_id ? (byEvent.get(row.source_event_id) ?? byEvent.set(row.source_event_id, blank()).get(row.source_event_id)!) : null,
+      row.source_client_id ? (byClient.get(row.source_client_id) ?? byClient.set(row.source_client_id, blank()).get(row.source_client_id)!) : null,
+    ].filter((t): t is Total => t != null);
+    for (const t of targets) t.spendPerRow += spend;
+    if (seen.has(row.meta_ad_id)) continue;
+    seen.add(row.meta_ad_id);
+    for (const t of targets) {
+      t.ads += 1;
+      t.spend += spend;
+      t.signups += days.reduce((s, d) => s + num(d.registrations), 0);
+      t.purchases += days.reduce((s, d) => s + num(d.purchases), 0);
+    }
+  }
+  return { byEvent, byClient };
+}

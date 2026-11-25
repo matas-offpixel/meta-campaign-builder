@@ -7,7 +7,9 @@ import { AD_NAME_ONLY, ALIASES, BRANDS, OTHER_ACTS, PROPOSED_ALIASES, type Alias
 import {
   adNamesIndex,
   adEvent,
-  ambiguousHeadliners,
+  coHeadlinedShows,
+  crowdedHeadliners,
+  isCoHeadline,
   campaignEvents,
   NAME_MARKS,
   planArtistAssets,
@@ -20,6 +22,7 @@ import {
 import { creativeName, heldNoSourceFiles } from "../held.ts";
 import { artistsNamedIn, artistsOfAd, buildRoster, codeInName, hasFullName, headlinerOf, isClipIdentity, kindFromAd, rankedStageOf } from "../match.ts";
 import { SOURCE_MAP, type SourceEntry } from "../source-map.ts";
+import { showTotals } from "../view.ts";
 import { buildArtistView, forEvent } from "../view.ts";
 
 const ENZO = { id: "lib-enzo", name: "Enzo Siragusa" };
@@ -266,7 +269,7 @@ describe("shared shows (Matas, 25 Nov)", () => {
 describe("the headliner rule (Matas, 25 Nov)", () => {
   it("a show's general ads go to the artist its code or name names, as event_artists, held", () => {
     const i = inputs();
-    assert.equal(adNamesIndex(i).headliners.get("e-nx")!.artistId, ENZO.id, "NX26-ENZO / \"Enzo\" through the confirmed alias");
+    assert.deepEqual(adNamesIndex(i).headliners.get("e-nx")!.artistIds, [ENZO.id], "NX26-ENZO / \"Enzo\" through the confirmed alias");
     const row = planArtistAssets(i, ENZO).rows.find((r) => r.asset_key === "ad:ad-halloween")!;
     assert.deepEqual([row.matched_by, row.owner_kind, row.shareable, row.held_reason, row.source_client_id], ["event_artists", "promoter", false, "filmed", "c-electric"]);
     assert.ok(!planGeneral(i).some((g) => g.code === "NX26-ENZO"), "a headlined show has no general bucket");
@@ -279,20 +282,57 @@ describe("the headliner rule (Matas, 25 Nov)", () => {
     assert.ok(planArtistAssets(i, ENZO).rows.some((r) => r.asset_key === "ad:ad-halloween"));
   });
 
-  it("a show whose code or name names two artists gives its general ads to no one", () => {
+  it("a show named for two acts: both co-headline its general ads, marked co-headline (derived)", () => {
     const i = inputs();
     i.events = i.events.map((e) => (e.id === "e-nx" ? { ...e, name: "Enzo Siragusa b2b Luke Dean" } : e));
-    assert.deepEqual(ambiguousHeadliners(i).map((a) => [a.code, a.artistIds]), [["NX26-ENZO", ["lib-enzo", "lib-luke"]]]);
-    for (const artist of [ENZO, { id: "lib-luke", name: "Luke Dean" }]) assert.ok(!planArtistAssets(i, artist).rows.some((r) => r.asset_key === "ad:ad-halloween"), artist.name);
+    assert.deepEqual(coHeadlinedShows(i).map((a) => [a.code, a.artistIds]), [["NX26-ENZO", ["lib-enzo", "lib-luke"]]]);
+    const { headliners } = adNamesIndex(i);
+    for (const artist of [ENZO, { id: "lib-luke", name: "Luke Dean" }]) {
+      const row = planArtistAssets(i, artist).rows.find((r) => r.asset_key === "ad:ad-halloween")!;
+      assert.deepEqual([row.matched_by, row.shareable, row.owner_kind], ["event_artists", false, "promoter"], artist.name);
+      assert.ok(isCoHeadline(row, headliners), artist.name);
+    }
+    assert.ok(!planArtistAssets(i, { id: "lib-banana", name: "Dr Banana" }).rows.some((r) => r.asset_key === "ad:ad-halloween"), "a third act on the bill, not named, doesn't");
+    assert.ok(!isCoHeadline(planArtistAssets(inputs(), ENZO).rows.find((r) => r.asset_key === "ad:ad-halloween")!, adNamesIndex(inputs()).headliners), "a sole headliner's row isn't co-headline");
+    assert.ok(!planGeneral(i).some((g) => g.code === "NX26-ENZO"));
+  });
+
+  it("a shared co-headline ad counts once in a show or client total, fully in each artist's own figure", () => {
+    const i = inputs();
+    i.events = i.events.map((e) => (e.id === "e-nx" ? { ...e, name: "Enzo Siragusa b2b Luke Dean" } : e));
+    const enzo = planArtistAssets(i, ENZO).rows;
+    const luke = planArtistAssets(i, { id: "lib-luke", name: "Luke Dean" }).rows;
+    const nx = (rows: typeof enzo) => rows.filter((r) => r.source_event_id === "e-nx");
+    const { byEvent, byClient } = showTotals([...enzo, ...luke], i.insights);
+    const distinct = new Set([...nx(enzo), ...nx(luke)].map((r) => r.meta_ad_id));
+    const spendOf = (ids: Iterable<string | null>) => [...ids].reduce((s, id) => s + i.insights.filter((d) => d.meta_ad_id === id).reduce((t, d) => t + Number(d.spend), 0), 0);
+    assert.equal(byEvent.get("e-nx")!.ads, distinct.size);
+    assert.equal(Math.round(byEvent.get("e-nx")!.spend * 100), Math.round(spendOf(distinct) * 100), "the show total is the sum of its distinct ads");
+    assert.equal(Math.round(byEvent.get("e-nx")!.spendPerRow * 100), Math.round((spendOf(nx(enzo).map((r) => r.meta_ad_id)) + spendOf(nx(luke).map((r) => r.meta_ad_id))) * 100), "without dedupe the shared ad counts twice");
+    assert.ok(byEvent.get("e-nx")!.spendPerRow > byEvent.get("e-nx")!.spend);
+    assert.ok(byClient.get("c-electric")!.spend <= byClient.get("c-electric")!.spendPerRow);
+    for (const rows of [enzo, luke]) {
+      const view = buildArtistView({ assets: rows, insights: i.insights, events: i.events, linkedEventIds: [], today: "2026-11-25" });
+      const show = view.shows.find((s) => s.code === "NX26-ENZO")!;
+      assert.equal(Math.round(show.spend * 100), Math.round(spendOf(nx(rows).map((r) => r.meta_ad_id)) * 100), "each artist's figure includes the shared ad");
+      assert.ok(show.spend >= 40, "Halloween Video's £40 is in it");
+    }
+  });
+
+  it("a show whose code or name names three or more artists gives its general ads to no one, and is listed", () => {
+    const i = inputs();
+    i.events = i.events.map((e) => (e.id === "e-nx" ? { ...e, name: "Enzo Siragusa, Luke Dean and Dr Banana" } : e));
+    assert.deepEqual(crowdedHeadliners(i).map((a) => [a.code, a.artistIds]), [["NX26-ENZO", ["lib-banana", "lib-enzo", "lib-luke"]]]);
+    for (const artist of i.artists) assert.ok(!planArtistAssets(i, artist).rows.some((r) => r.asset_key === "ad:ad-halloween"), artist.name);
     assert.equal(planGeneral(i).find((g) => g.code === "NX26-ENZO")!.files.get("Halloween Video"), 1);
   });
 
   it("without the confirmed alias NX26-ENZO names no one, so it has no headliner", () => {
     const i = inputs([], []);
-    assert.equal(adNamesIndex(i).headliners.get("e-nx")!.artistId, null, "\"NX26-ENZO\" and \"Enzo\" hold only the alias");
+    assert.deepEqual(adNamesIndex(i).headliners.get("e-nx")!.artistIds, [], "\"NX26-ENZO\" and \"Enzo\" hold only the alias");
     assert.ok(!planArtistAssets(i, ENZO).rows.some((r) => r.asset_key === "ad:ad-halloween"));
     const named = { ...i, events: i.events.map((e) => (e.id === "e-nx" ? { ...e, name: "Enzo Siragusa: Halloween" } : e)) };
-    assert.equal(adNamesIndex(named).headliners.get("e-nx")!.artistId, ENZO.id, "the full name in the show's name does");
+    assert.deepEqual(adNamesIndex(named).headliners.get("e-nx")!.artistIds, [ENZO.id], "the full name in the show's name does");
   });
 
   it("another act named by Matas (LILI) is never a general ad: not the headliner's, not anyone's", () => {
@@ -335,14 +375,14 @@ describe("the name lists (aliases.ts)", () => {
   it("an alias that is also a word (AT) matches ads but never makes a show's headliner", () => {
     const r = buildRoster([{ id: "adam", names: ["Adam Ten", "AT"], notForShows: ["AT"] }]);
     assert.deepEqual(artistsOfAd({ ad_name: "AT - Motion 1", adset_name: null, campaign_name: "x" }, r).artistIds, ["adam"]);
-    assert.equal(headlinerOf({ event_code: "P26-CIRCUIT", name: "Puzzle at Circuit" }, r).artistId, null);
-    assert.equal(headlinerOf({ event_code: "IRW0002", name: "Adam Ten at Ironworks" }, r).artistId, "adam", "the full name still does");
+    assert.deepEqual(headlinerOf({ event_code: "P26-CIRCUIT", name: "Puzzle at Circuit" }, r).artistIds, []);
+    assert.deepEqual(headlinerOf({ event_code: "IRW0002", name: "Adam Ten at Ironworks" }, r).artistIds, ["adam"], "the full name still does");
     assert.deepEqual(ALIASES.filter((a) => a.notForShows).map((a) => a.alias), ["AT"]);
     assert.match(ALIASES.find((a) => a.alias === "AT")!.notForShows!, /AT counts in ad names only, Matas 25 Nov/);
     const i = inputs();
     const adam = { id: "lib-adam", name: "Adam Ten" };
     const at = { ...i, artists: [...i.artists, adam], aliases: [...i.aliases, { ...ALIASES.find((a) => a.alias === "AT")!, artistId: adam.id }], events: i.events.map((e) => (e.id === "e-bday" ? { ...e, name: "Puzzle at Circuit" } : e)) };
-    assert.equal(adNamesIndex(at).headliners.get("e-bday")!.artistId, null);
+    assert.deepEqual(adNamesIndex(at).headliners.get("e-bday")!.artistIds, []);
     assert.ok(!planArtistAssets(at, adam).rows.some((r) => r.asset_key === "ad:ad-general"));
   });
 
@@ -372,7 +412,7 @@ describe("the name lists (aliases.ts)", () => {
     i.ads = [...i.ads, { ...i.ads[0]!, meta_ad_id: "ad-glitter", ad_name: "Glitterbox - Static" }];
     i.events = i.events.map((e) => (e.id === "e-nx" ? { ...e, event_code: "GB26-IBIZA", name: "Glitterbox Ibiza" } : e));
     assert.equal(planArtistAssets(i, { id: "lib-glitter", name: "Glitterbox" }).rows.length, 0);
-    assert.equal(adNamesIndex(i).headliners.get("e-nx")!.artistId, null);
+    assert.deepEqual(adNamesIndex(i).headliners.get("e-nx")!.artistIds, []);
     assert.deepEqual(BRANDS.map((b) => b.name), ["Glitterbox", "Innervisions", "Appetite", "Hard", "Bridge", "Fragrance"]);
     for (const b of BRANDS.slice(3)) assert.equal(b.note, "Matas, 25 Nov: Junction 2 stage / genre names");
   });
@@ -382,7 +422,7 @@ describe("the name lists (aliases.ts)", () => {
     assert.deepEqual(artistsOfAd({ ad_name: "Hard - Static", adset_name: null, campaign_name: "x" }, r).artistIds, ["hard"]);
     assert.deepEqual(artistsOfAd({ ad_name: "Hardcore teaser", adset_name: null, campaign_name: "x" }, r).artistIds, []);
     assert.deepEqual(artistsOfAd({ ad_name: "Carousel", adset_name: "Hard techno fans", campaign_name: "x" }, r).artistIds, [], "never by the ad set name");
-    assert.equal(headlinerOf({ event_code: "HARD26", name: "Hard Night" }, r).artistId, null, "never as a headliner");
+    assert.deepEqual(headlinerOf({ event_code: "HARD26", name: "Hard Night" }, r).artistIds, [], "never as a headliner");
     assert.deepEqual(AD_NAME_ONLY, [], "Hard, Bridge and Fragrance are brands now");
   });
 });
