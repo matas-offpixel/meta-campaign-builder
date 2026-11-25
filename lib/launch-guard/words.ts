@@ -104,6 +104,8 @@ export const LAUNCH_GUARD_WORDS = {
   "identity_not_live.kept": "Page kept by {name}, {date, time}: {draft page}",
   // Review & launch, under the list
   "identity_not_live.instagram.kept": "Instagram kept by {name}, {date, time}: @{draft handle}",
+  // Any Instagram value Meta won’t give a username for, in place of @{handle}
+  "identity.instagram.unnamed": "account {id}",
   // Check, blocker (live ads’ page known, not another client’s)
   "page_other_client.fix.live": "Use the live ads’ page: {live page}",
   // Check, blocker (live ads’ Instagram known, not another client’s)

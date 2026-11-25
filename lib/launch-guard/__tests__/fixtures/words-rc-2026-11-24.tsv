@@ -212,3 +212,32 @@ location.region_mismatch.fix.none	Search result and Locations row (no pin preset
 location.region_mismatch.keep	Locations row	Keep {name}, {region}
 location.region_mismatch.kept	Locations row, muted	{name}, {region} kept by {who}, {date, time}
 templates.item.held	Item, list held in another account	held in {Meta account name}
+su.line.on	Retargeting panel, Bottom: the Signups list is on Meta	Signups list · {n} signups · last sent {date, time} · rebuilt in full {date}
+su.line.on.one	Retargeting panel, Bottom: the Signups list is on Meta (1 signup)	Signups list · 1 signup · last sent {date, time} · rebuilt in full {date}
+su.line.not_on	Retargeting panel, Bottom: the show isn’t switched on (RT15, unchanged)	No signup list yet, so Bottom runs on {sources} only.
+su.line.waiting	Retargeting panel, Bottom: switched on, before the list is made	No signup list yet: it’s made on {date}, 08:00, so until then Bottom runs on {sources} only.
+su.line.switch_off	Retargeting panel, Bottom, after the list line (ochre): sending is off	Sending signups to Meta is switched off, so this list isn’t kept current.
+su.line.switch_off.none	Retargeting panel, Bottom, after the waiting line (ochre): sending is off	Sending signups to Meta is switched off, so the list won’t be made until it’s on.
+su.line.not_linked	Retargeting panel, Bottom (brick): CIRQLIN has no page with the show’s tag	CIRQLIN has no page tagged {tag}, so this show’s signups can’t be sent.
+su.line.not_configured	Retargeting panel, Bottom (brick): CIRQLIN’s read isn’t set up	The CIRQLIN read isn’t set up, so no signups are sent.
+su.line.failed.read	Retargeting panel, Bottom (brick): the last run couldn’t read CIRQLIN	The last run couldn’t read CIRQLIN, so nothing new was sent. The next run tries again tomorrow at 08:00.
+su.line.failed.send	Retargeting panel, Bottom (brick): Meta didn’t take every signup	Meta took {n} of {m} signups in the last run. The next run sends the rest tomorrow at 08:00.
+su.line.failed.send.one	Retargeting panel, Bottom (brick): Meta didn’t take the one signup	Meta didn’t take the 1 signup in the last run. The next run sends it tomorrow at 08:00.
+templates.item.signups	Template tab, a show’s Signups list, the item’s own line	Customer list · role: signups · {code} · {n} signups
+templates.item.signups.one	Template tab, a show’s Signups list (1 signup)	Customer list · role: signups · {code} · 1 signup
+templates.item.signups.none	Template tab, a show’s Signups list before it’s made, the item’s own line	Customer list · role: signups · {code}
+templates.item.signups.waiting	Template tab, a show’s Signups list, status before it’s made	Made on {date}
+event.signups	Event page, one line under the Linked campaigns tree	Signups in Meta: {n} in {code} · Signups, last sent {date, time}.
+event.signups.one	Event page, under the tree (1 signup)	Signups in Meta: 1 in {code} · Signups, last sent {date, time}.
+identity.instagram.unnamed	Any Instagram value Meta won’t give a username for, in place of @{handle}	account {id}
+templates.apply	Template tab, button	Add to this draft
+templates.apply.done	Template tab, after Add	Added {template} to {draft}: {n} audiences.
+templates.apply.done.one	Template tab, after Add (1 audience)	Added {template} to {draft}: 1 audience.
+templates.apply.left_out	Template tab, after Add, when some aren’t made yet	{m} aren’t made yet, so they’re left out.
+templates.apply.left_out.one	Template tab, after Add (1 not made yet)	1 isn’t made yet, so it’s left out.
+templates.create_button	Template tab, button	Create {m} audiences in {Meta account name}
+templates.create_button.one	Template tab, button (1 to create)	Create 1 audience in {Meta account name}
+templates.created	Template tab, after Create	Created {m} in {Meta account name}.
+templates.created.one	Template tab, after Create (1)	Created 1 in {Meta account name}.
+templates.create_failed	Template tab, after Create, some failed	{n} weren’t created. Try again.
+templates.create_failed.one	Template tab, after Create (1 failed)	1 wasn’t created. Try again.

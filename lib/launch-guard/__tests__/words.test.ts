@@ -5,7 +5,7 @@ import { describe, it } from "node:test";
 import { LAUNCH_GUARD_WORDS } from "../words.ts";
 
 /**
- * Every launch.* row and every row of the nine checks in the record's word
+ * Every launch.* and identity.* row and every row of the nine checks in the record's word
  * list (fixtures/words-rc-2026-11-24.tsv, a copy of
  * scratch/campaign-replicate/words-rc-2026-11-24.tsv) is in words.ts with
  * the same text, and words.ts holds nothing else.
@@ -34,10 +34,10 @@ function tsvRows(): Array<{ key: string; words: string }> {
 
 describe("launch-guard words", () => {
   const rows = tsvRows();
-  const wanted = rows.filter((row) => row.key.startsWith("launch.") || CHECKS.includes(row.key.split(".")[0]!));
+  const wanted = rows.filter((row) => row.key.startsWith("launch.") || row.key.startsWith("identity.") || CHECKS.includes(row.key.split(".")[0]!));
 
-  it("the fixture is the 213-row record list", () => {
-    assert.equal(rows.length, 213);
+  it("the fixture is the 242-row record list", () => {
+    assert.equal(rows.length, 242);
   });
 
   it("every launch.* and check row is in words.ts with the same text", () => {

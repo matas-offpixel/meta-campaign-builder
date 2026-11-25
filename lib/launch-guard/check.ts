@@ -628,7 +628,11 @@ function checkPageOwner(
         liveField && liveName && !liveField.otherClient && adCount > 0 && use.ads >= adCount
           ? kind === "page"
             ? fill(W["page_other_client.evidence.live"], { n: adCount, "live page": liveName })
-            : fill(W["page_other_client.instagram.evidence.live"], { n: adCount, "live handle": liveName })
+            : fillInstagram(
+                W["page_other_client.instagram.evidence.live"],
+                { "live handle": { name: liveField.name, id: liveField.id } },
+                { n: adCount },
+              )
           : baseEvidence;
       const changeFix: LaunchCheckFix = {
         action: "change_identity",
@@ -642,17 +646,19 @@ function checkPageOwner(
             label:
               kind === "page"
                 ? fill(W["page_other_client.fix.live"], { "live page": answer.name ?? answer.id })
-                : fill(W["page_other_client.instagram.fix.live"], { "live handle": answer.name ?? answer.id }),
+                : fillInstagram(W["page_other_client.instagram.fix.live"], {
+                    "live handle": { name: answer.name, id: answer.id },
+                  }),
             field: kind,
             from: id,
             to: answer.id,
-            names: [kind === "page" ? (answer.name ?? answer.id) : `@${answer.name ?? answer.id}`],
+            names: [kind === "page" ? (answer.name ?? answer.id) : instagramShown(answer.name, answer.id)],
           }
         : null;
       const sentence =
         kind === "page"
           ? fill(W["page_other_client"], { page: owner.name ?? id, "other client": other, code, client })
-          : fill(W["page_other_client.instagram"], { handle: owner.name ?? id, "other client": other, code, client });
+          : fillInstagram(W["page_other_client.instagram"], { handle: { name: owner.name, id } }, { "other client": other, code, client });
       out.push({
         key: "page_other_client",
         severity: "blocker",
@@ -672,6 +678,29 @@ function checkPageOwner(
 }
 
 // ── 7. the live ads' page (warning, RC8) ───────────────────────────────
+
+/**
+ * An Instagram account as the checks show it: "@{handle}" when Meta gave a
+ * username, else "account {id}" (design ruling 25 Nov, identity.instagram.unnamed).
+ * A name that is only the id counts as no username.
+ */
+export function instagramShown(name: string | null | undefined, id: string): string {
+  const handle = name?.trim().replace(/^@/, "");
+  return handle && handle !== id ? `@${handle}` : fill(W["identity.instagram.unnamed"], { id });
+}
+
+/** Fills an Instagram row, putting instagramShown(...) where "@{slot}" stands. */
+function fillInstagram(
+  template: string,
+  accounts: Record<string, { name: string | null | undefined; id: string }>,
+  values: Record<string, string | number> = {},
+): string {
+  let out = template;
+  for (const [slot, account] of Object.entries(accounts)) {
+    out = out.split(`@{${slot}}`).join(instagramShown(account.name, account.id));
+  }
+  return fill(out, values);
+}
 
 /** The page and Instagram the draft would relaunch from: its settings, else its first ad's. */
 export function draftRunsFrom(draft: CampaignDraft): { page: string | null; instagram: string | null } {
@@ -715,6 +744,8 @@ function checkIdentityNotLive(
     const draftName =
       live.draftNames[draftId] ?? ownership?.owners.find((row) => row.kind === kind && row.id === draftId)?.name ?? draftId;
     const liveName = liveField.name ?? liveField.id;
+    const draftAccount = { name: draftName, id: draftId };
+    const liveAccount = { name: liveField.name, id: liveField.id };
     const at = keptAtLabel(live.readAt);
     const evidence =
       liveField.count === 1
@@ -727,11 +758,11 @@ function checkIdentityNotLive(
         label:
           kind === "page"
             ? fill(W["identity_not_live.fix"], { "live page": liveName })
-            : fill(W["identity_not_live.instagram.fix"], { "live handle": liveName }),
+            : fillInstagram(W["identity_not_live.instagram.fix"], { "live handle": liveAccount }),
         field: kind,
         from: draftId,
         to: liveField.id,
-        names: [kind === "page" ? liveName : `@${liveName}`],
+        names: [kind === "page" ? liveName : instagramShown(liveAccount.name, liveAccount.id)],
       });
     }
     fixes.push({
@@ -739,10 +770,10 @@ function checkIdentityNotLive(
       label:
         kind === "page"
           ? fill(W["identity_not_live.keep"], { "draft page": draftName })
-          : fill(W["identity_not_live.instagram.keep"], { "draft handle": draftName }),
+          : fillInstagram(W["identity_not_live.instagram.keep"], { "draft handle": draftAccount }),
       field: kind,
       id: draftId,
-      names: [kind === "page" ? draftName : `@${draftName}`],
+      names: [kind === "page" ? draftName : instagramShown(draftAccount.name, draftAccount.id)],
     });
     out.push({
       key: "identity_not_live",
@@ -751,7 +782,7 @@ function checkIdentityNotLive(
       sentence:
         kind === "page"
           ? fill(W["identity_not_live"], { "draft page": draftName, "live page": liveName })
-          : fill(W["identity_not_live.instagram"], { "draft handle": draftName, "live handle": liveName }),
+          : fillInstagram(W["identity_not_live.instagram"], { "draft handle": draftAccount, "live handle": liveAccount }),
       evidence,
       fixes,
       findings: [{ field: kind, adName: null, value: draftId }],
@@ -771,11 +802,11 @@ export function keptIdentityLines(draft: CampaignDraft): string[] {
     lines.push(
       kind === "page"
         ? fill(W["identity_not_live.kept"], { name: kept.keptBy, "date, time": keptAtLabel(kept.keptAt), "draft page": name })
-        : fill(W["identity_not_live.instagram.kept"], {
-            name: kept.keptBy,
-            "date, time": keptAtLabel(kept.keptAt),
-            "draft handle": name,
-          }),
+        : fillInstagram(
+            W["identity_not_live.instagram.kept"],
+            { "draft handle": { name: kept.name, id: kept.id } },
+            { name: kept.keptBy, "date, time": keptAtLabel(kept.keptAt) },
+          ),
     );
   }
   return lines;
@@ -1020,7 +1051,7 @@ export function applyLaunchCheckFix(
     case "use_live_identity":
       return takeIdentity(draft, fix.field, fix.from, fix.to);
     case "keep_identity":
-      return keepIdentity(draft, fix.field, fix.id, fix.names?.[0]?.replace(/^@/, "") ?? null, context.keptBy, context.now);
+      return keepIdentity(draft, fix.field, fix.id, keptNameOf(fix), context.keptBy, context.now);
     case "use_location_pin":
       return pinLocation(draft, fix.cityKey, fix.preset);
     case "keep_location":
@@ -1028,6 +1059,13 @@ export function applyLaunchCheckFix(
     default:
       return draft;
   }
+}
+
+/** The name Keep stores: a page's name, an Instagram username without "@", or null for "account {id}". */
+function keptNameOf(fix: Extract<LaunchCheckFix, { action: "keep_identity" }>): string | null {
+  const shown = fix.names?.[0] ?? null;
+  if (fix.field === "page") return shown;
+  return shown?.startsWith("@") ? shown.slice(1) : null;
 }
 
 /** Ruling (b): store who kept the link and when, in the draft's settings. */
