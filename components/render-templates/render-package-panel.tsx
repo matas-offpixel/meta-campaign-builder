@@ -17,6 +17,8 @@ type View = {
   header: { title: string; forLine: string; rights: string };
   cards: RecipeCard[];
   running: boolean;
+  /** MA1: the cost guard's line while it holds. */
+  guard: string | null;
   rows: ReturnType<typeof renderRowView>[];
 };
 
@@ -77,7 +79,7 @@ export function RenderPackagePanel({ eventId }: { eventId: string }) {
   if (!view) return null;
   return (
     <div className="space-y-6">
-      <RenderPackagePicker header={view.header} cards={view.cards} busy={busy || view.running} started={started} error={error} onRender={render} />
+      <RenderPackagePicker header={view.header} cards={view.cards} busy={busy || view.running} started={started} error={error ?? view.guard} onRender={render} />
       {view.rows.length ? <RenderRowsList rows={view.rows} busyId={busyId} onRetry={(id) => rowAction("retry", id)} onRerender={(id) => rowAction("rerender", id)} onCopy={(id) => rowAction("copy", id)} /> : null}
     </div>
   );

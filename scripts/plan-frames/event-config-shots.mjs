@@ -16,6 +16,7 @@ import { VARIANT_PAIR_SHOTS } from "./variant-pair-shots.mjs";
 
 import { MCP_CONSENT_SHOTS } from "./mcp-consent-shots.mjs";
 import { CAMPAIGN_TREE_SHOTS } from "./campaign-tree-shots.mjs";
+import { RENDER_PACKAGE_SHOTS } from "./render-package-shots.mjs";
 
 export const EVENT_CONFIG_FRAME_IDS = ["EC1", "EC2", "EC3", "EC4", "EC5", "EC6", "EC7"];
 export const EVENT_CONFIG_WIDTHS = [1280, 393];
@@ -25,6 +26,8 @@ export const EVENT_CONFIG_SHOTS = [
   ...MCP_CONSENT_SHOTS,
   // Campaign creator part 4: Replicate to event and the campaign tree (the RC-A … RC-G shots at 1280 and 393).
   ...CAMPAIGN_TREE_SHOTS,
+  // M4a: the render-package picker, rows, Today's log and the cost-guard / not-in-Drive frames (M4-*, 1280 and 393).
+  ...RENDER_PACKAGE_SHOTS,
   ...EVENT_CONFIG_FRAME_IDS.flatMap((frame) =>
     EVENT_CONFIG_WIDTHS.map((width) => ({
       id: `${frame}-${width}`,

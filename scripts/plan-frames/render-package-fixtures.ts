@@ -6,7 +6,7 @@
 import type { MutedInputs, PackageState } from "@/lib/render-templates/package-view";
 import type { RenderFileRow } from "@/lib/render-templates/report";
 
-export const RENDER_PACKAGE_FRAME_IDS = ["rt-a-p26", "rt-a-es27", "rt-b", "ry-a", "ry-a-open"] as const;
+export const RENDER_PACKAGE_FRAME_IDS = ["rt-a-p26", "rt-a-es27", "rt-b", "ry-a", "ry-a-open", "ma1-busy", "ma1-too-soon", "ma4-not-filed"] as const;
 export type RenderPackageFrameId = (typeof RENDER_PACKAGE_FRAME_IDS)[number];
 
 const LINEUP = ["Enzo Siragusa", "Luke Dean", "Rossi.", "Seb Zito", "Archie Hamilton", "Josh Baker"].map((name, i) => ({ name, isHeadliner: i < 2 }));
@@ -101,3 +101,6 @@ export const RY_A = {
     { id: "r3", eventCode: "P26-BDAY", recipes: ["montage" as const, "roll-call" as const, "top-tracks" as const, "artist-card" as const], files: 33, refused: "cap", line: "Refused · over the 24-file cap" },
   ],
 };
+
+/** MA4: a passed file whose Drive copy didn't finish. */
+export const MA4_ROWS: RenderFileRow[] = [row("P26-BDAY__promoter-puzzle__montage__teaser__tickets__r1__4x5.mp4", { driveFileId: null })];

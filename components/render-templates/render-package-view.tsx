@@ -62,15 +62,19 @@ export function RecipeCardView({ card, busy, started, refused, onRender }: { car
         <div className="mt-4">
           <button
             type="button"
-            disabled={!card.ready || busy}
+            disabled={!card.ready || busy || Boolean(refused)}
             onClick={onRender}
             className="w-full rounded-md bg-foreground px-4 py-2 text-sm font-medium text-background disabled:cursor-not-allowed disabled:opacity-40 sm:w-auto"
           >
             {card.button}
           </button>
           <p className="mt-1 text-xs text-muted-foreground">{card.under}</p>
-          {!card.ready ? <p className="mt-1 text-xs text-warning-foreground">{M4_WORDS["m4.render.blocked"]}</p> : null}
-          {refused ? <p className="mt-1 text-xs text-destructive">{refused}</p> : null}
+          {/* MA1: a cost-guard line, in brick, takes the place of "Pick what's missing first."; Render stays off while it holds. */}
+          {refused ? (
+            <p className="mt-1 text-xs text-destructive">{refused}</p>
+          ) : !card.ready ? (
+            <p className="mt-1 text-xs text-warning-foreground">{M4_WORDS["m4.render.blocked"]}</p>
+          ) : null}
           {started ? <p className="mt-1 text-xs">{started}</p> : null}
         </div>
       ) : null}

@@ -29,7 +29,7 @@ import { pickerHeader, pickedTrack, recipeCards } from "@/lib/render-templates/p
 import { renderRowView } from "@/lib/render-templates/report";
 import { startDeps } from "@/lib/render-templates/server-deps";
 import { requestPackage } from "@/lib/render-templates/start";
-import { retryFile, saveBeatGrid } from "@/lib/render-templates/store";
+import { costGuard, retryFile, saveBeatGrid } from "@/lib/render-templates/store";
 import { dropOffsetS } from "@/lib/render-templates/montage-plan";
 import type { MontageVariant, Ratio } from "@/lib/render-templates/file-name";
 import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
@@ -84,10 +84,13 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ eventId: s
       .sort((a, b) => (order.get(String(a.package_id)) ?? 0) - (order.get(String(b.package_id)) ?? 0) || String(a.file_name).localeCompare(String(b.file_name)))
       .map((r) => renderRowView(fileRowOf(r), loaded!.facts.clientName));
     const running = ((packages.data ?? []) as Row[]).some((p) => p.status === "rendering");
+    // MA1: while the cost guard holds, its line shows under Render and Render stays off.
+    const guarded = await costGuard(scope.db, { eventId, eventCode: loaded.facts.code, recipe: "montage", now });
     return NextResponse.json({
       header: pickerHeader(loaded.state),
       cards: recipeCards(loaded.state, loaded.muted),
       running,
+      guard: guarded && !guarded.ok ? guarded.lab : null,
       rows,
     });
   } catch (err) {
