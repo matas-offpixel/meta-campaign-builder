@@ -51,6 +51,7 @@ export function renderRowView(row: RenderFileRow, clientName: string) {
     meta: rowMeta(row.fileName),
     badge: badge.badge,
     why: badge.why,
+    shareable: row.shareable,
     checks,
     rendering: row.status === "queued" || row.status === "rendering" ? m4("m4.row.rendering") : null,
     renderFailed: row.status === "failed" ? m4("m4.row.render_failed") : null,

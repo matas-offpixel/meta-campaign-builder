@@ -113,6 +113,21 @@ export function RenderPackagePicker({
   );
 }
 
+/**
+ * AL1's badge (record 2026-11-25-artist-library; RT2): the words in olive
+ * ("Shareable") or brick ("This client only · {client}"), semibold, after a
+ * 7 px square mark in the same colour. Colour never carries it alone: the
+ * words are the AL rows.
+ */
+export function RightsBadge({ badge, shareable }: { badge: string; shareable: boolean }) {
+  return (
+    <span className={`text-[11.5px] font-semibold leading-snug ${shareable ? "text-success" : "text-destructive"}`}>
+      <span aria-hidden="true" className="mr-[5px] inline-block h-[7px] w-[7px] rounded-[2px] bg-current align-[1px]" />
+      {badge}
+    </span>
+  );
+}
+
 export function RenderRowsList({ rows, onRetry, onRerender, onCopy, busyId }: { rows: RowView[]; onRetry?: (id: string) => void; onRerender?: (id: string) => void; onCopy?: (id: string) => void; busyId?: string | null }) {
   return (
     <div className="space-y-2" id="lab-renders">
@@ -130,8 +145,8 @@ export function RenderRowsList({ rows, onRetry, onRerender, onCopy, busyId }: { 
             </p>
             {row.meta ? <p className="text-xs text-muted-foreground">{row.meta}</p> : null}
             <p className="text-xs">
-              <span className={`mr-1 inline-block rounded-full border px-2 py-0.5 ${row.why ? "border-border-strong" : "border-success text-success"}`}>{row.badge}</span>
-              {row.why ? <span className="text-muted-foreground">{row.why}</span> : null}
+              <RightsBadge badge={row.badge} shareable={row.shareable} />
+              {row.why ? <span className="text-muted-foreground"> · {row.why}</span> : null}
             </p>
             {row.checks ? <p className={`text-xs ${row.checks.tone === "olive" ? "text-success" : "text-destructive"}`}>{row.checks.text}</p> : null}
             {row.rendering ? <p className="text-xs text-muted-foreground">{row.rendering}</p> : null}
