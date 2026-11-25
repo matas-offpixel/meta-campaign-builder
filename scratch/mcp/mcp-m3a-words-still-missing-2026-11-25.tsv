@@ -1,0 +1,34 @@
+key	where	words now (unruled, in PR #1383)	file
+consent.line2.meta	ON SCREEN: consent page, line 2, grant with mcp:meta (Matas)	It can read every client's events, spend, signup and ticket counts, drafts and learnings, and make, change and archive campaign drafts. It can also send a draft's files to Meta and launch it, paused or live, and change an event's dates and links, each time after you say yes in Claude. A live launch can't go over the client's daily ceiling.	lib/mcp/oauth/consent-words.ts
+claude.mcp.refused.scope	Told to Claude: in-tool backstop, grant without mcp:meta (the server's 403 comes first)	This connection can't make Meta changes. Only Matas's connection can, after he reconnects Off/Pixel in Claude and allows Meta.	lib/mcp/meta/approval.ts
+claude.mcp.refused.no_client	Told to Claude: live launch, draft has no client	Refused: this draft has no client, so there's no daily ceiling to check a live launch against. Nothing was sent to Meta.	lib/mcp/meta/ceiling.ts
+claude.mcp.refused.not_gbp	Told to Claude: live launch, budget not in £	Refused: this draft's budget is in {currency}; client ceilings are in £. Nothing was sent to Meta.	lib/mcp/meta/ceiling.ts
+claude.mcp.refused.ceiling_unreadable	Told to Claude: the ceiling read failed	Refused: the client's daily ceiling couldn't be read. Nothing was sent to Meta.	lib/mcp/meta/ceiling.ts
+claude.mcp.refused.checks_failed	Told to Claude: the launch checks couldn't run	The launch checks couldn't run, so nothing was launched. Try again.	lib/mcp/tools/meta-launch.ts
+claude.mcp.refused.not_draft	Told to Claude: launch_draft / upload_draft_assets on a draft that isn't status draft	This draft is {status}, so it can't be launched or have files sent from here. Only drafts with status draft can.	lib/mcp/tools/meta-launch.ts
+claude.mcp.upload_failed	Told to Claude: files didn't reach Meta (launch_draft adds ", so nothing was launched"; upload_draft_assets doesn't). FC4's launch.upload.stopped is the launch panel's, so not used here	{n} of {m} files didn't go to Meta[, so nothing was launched]. Each is saved as "Upload failed — retry or remove": try upload_draft_assets again, or remove those ads.	lib/mcp/tools/meta-launch.ts
+claude.mcp.launch_failed	Told to Claude: the launch route refused	Meta didn't launch it: {reason}	lib/mcp/tools/meta-launch.ts
+claude.mcp.launch_failed.partial	Told to Claude: the route stopped after the campaign was made	The launch stopped after the campaign was made ({id}): {reason}	lib/mcp/tools/meta-launch.ts
+claude.mcp.bad_mode	Told to Claude: launch_draft input	mode is "paused" or "live".	lib/mcp/tools/meta-launch.ts
+claude.mcp.failed_partway	Told to Claude: a meta tool threw (server)	The Meta tool failed partway. Read the draft again with get_draft (or get_campaign_tree) to see what was sent before trying again.	lib/mcp/server.ts
+claude.mcp.instructions.meta	Told to Claude: the server's instructions (one sentence)	The Meta tools (launch_draft, upload_draft_assets, update_event) run only after Matas says yes in this chat: ask him exactly what will change, where, the money a day and paused or live, then pass approval with your question and his reply word for word. Never fill in approval yourself. A live launch is refused over the client's daily ceiling.	lib/mcp/server.ts
+claude.event.no_changes	Told to Claude: update_event	Give at least one of announcement_at, presale_at, general_sale_at, signup_url, ticket_url in changes.	lib/mcp/tools/meta-event.ts
+claude.event.not_owner	Told to Claude: update_event	This event belongs to another account, so it can't be changed from here.	lib/mcp/tools/meta-event.ts, lib/mcp/meta/event-write.ts
+claude.event.bad_time	Told to Claude: update_event	{field} is a time with its zone, e.g. "2026-11-27T18:00:00Z" (London in winter) or "2027-04-10T10:00:00+01:00" (London in summer), or null to clear it.	lib/mcp/meta/event-write.ts
+claude.event.bad_time.unreal	Told to Claude: update_event	{field} isn't a real time.	lib/mcp/meta/event-write.ts
+claude.event.bad_link	Told to Claude: update_event	{field} is an https link, or null to clear it.	lib/mcp/meta/event-write.ts
+claude.event.bad_link.https	Told to Claude: update_event	{field} must start with https://.	lib/mcp/meta/event-write.ts
+claude.drive.no_files	Told to Claude: attach_drive_creatives (mcp:draft)	Give file_ids or pairs from list_drive_creatives.	lib/mcp/tools/draft-drive.ts
+claude.drive.bad_pair	Told to Claude: attach_drive_creatives	A pair is two different files: the feed file and its 9:16.	lib/mcp/tools/draft-drive.ts
+claude.drive.single_not_916	Told to Claude: attach_drive_creatives	{file} is {aspect}. A file on its own must be 9:16: pass it in pairs as the feed file with its 9:16, or leave it out. Nothing was saved.	lib/mcp/tools/draft-drive.ts
+claude.drive.pair_feed	Told to Claude	{file} is {aspect}. A pair's feed file is 4:5 or 1:1. Nothing was saved.	lib/mcp/tools/draft-drive.ts
+claude.drive.pair_vertical	Told to Claude	{file} is {aspect}. A pair's vertical file is 9:16. Nothing was saved.	lib/mcp/tools/draft-drive.ts
+claude.drive.pair_mixed	Told to Claude	{a} and {b} are a {kind} and a {kind}. A pair is two videos or two statics. Nothing was saved.	lib/mcp/tools/draft-drive.ts
+claude.drive.not_in_drive	Told to Claude (list and attach)	That folder or file isn't in the Off/Pixel shared drive.	lib/mcp/tools/draft-drive.ts
+claude.drive.file_not_in_drive	Told to Claude	File {id} isn't in the Off/Pixel shared drive. Nothing was saved.	lib/mcp/tools/draft-drive.ts
+claude.drive.pair_note	Told to Claude: pairs while ENABLE_MULTI_PLACEMENT_ASSETS is off	Per-placement ads are switched off in Off/Pixel, so a paired ad launches as one asset in every placement until they're switched on.	lib/mcp/tools/draft-drive.ts
+claude.drive.attach_note	Told to Claude: after attach (was M2's "Each new ad's file is in the app's Storage, waiting: it goes to Meta at launch.", now plural + upload_draft_assets)	Each new ad's files are in the app's Storage, waiting: they go to Meta at launch (or with upload_draft_assets).	lib/mcp/tools/draft-drive.ts
+claude.drive.root_name	Told to Claude: list_drive_creatives "root" folder name fallback	Off / Pixel	lib/drive/picker.ts
+claude.draft.no_name	Told to Claude: set_draft_name	Give a name.	lib/mcp/tools/draft-edit.ts
+claude.draft.name_too_long	Told to Claude: set_draft_name	A name is at most 400 characters.	lib/mcp/tools/draft-edit.ts
+claude.draft.name_same	Told to Claude: set_draft_name, no change	The name was already this.	lib/mcp/tools/draft-edit.ts

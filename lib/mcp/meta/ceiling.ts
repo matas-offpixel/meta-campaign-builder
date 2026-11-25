@@ -25,6 +25,7 @@
  */
 import type { CampaignDraft } from "../../types.ts";
 import { ToolInputError, type Db } from "../tool-types.ts";
+import { MCP_WORDS } from "./words.ts";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -85,14 +86,14 @@ export async function loadCeiling(db: Db, clientId: string): Promise<Ceiling | n
   return { clientId: row.client_id, dailyGbp: daily, setAt: row.set_at };
 }
 
-const gbp = (n: number) => `£${n.toFixed(2)}`;
-
-/** Claude-facing (Matas reads them in chat). Listed for design in the M3a PR. */
+/**
+ * What a ceiling refusal tells Claude. `none` and `over` are design's rows
+ * (claude.mcp.refused.none, claude.mcp.refused). The other three have no
+ * FC2 row: they are listed for design in the M3a PR.
+ */
 export const CEILING_WORDS = {
-  none: (client: string) =>
-    `Refused: ${client} has no daily ceiling set, so a live launch for it isn't allowed. Nothing was sent to Meta. A paused launch needs no ceiling.`,
-  over: (client: string, x: number, c: number) =>
-    `Refused: this launch is ${gbp(x)} a day, over ${client}'s ${gbp(c)} daily ceiling. Nothing was sent to Meta.`,
+  none: (client: string) => MCP_WORDS.refusedNoCeiling(client),
+  over: (client: string, x: number, c: number) => MCP_WORDS.refusedOverCeiling(client, x, c),
   noClient: "Refused: this draft has no client, so there's no daily ceiling to check a live launch against. Nothing was sent to Meta.",
   notGbp: (currency: string) => `Refused: this draft's budget is in ${currency}; client ceilings are in £. Nothing was sent to Meta.`,
   unreadable: "Refused: the client's daily ceiling couldn't be read. Nothing was sent to Meta.",
@@ -108,7 +109,7 @@ export async function checkSpendCeiling(
 ): Promise<{ ceilingGbp: number; moneyGbp: number }> {
   if (!input.clientId) throw new ToolInputError(CEILING_WORDS.noClient, { refused: "no_client" });
   if (input.money.currency !== "GBP") throw new ToolInputError(CEILING_WORDS.notGbp(input.money.currency), { refused: "not_gbp", clientId: input.clientId });
-  const name = input.clientName || "This client";
+  const name = input.clientName || input.clientId;
   const ceiling = await loadCeiling(db, input.clientId);
   if (!ceiling) throw new ToolInputError(CEILING_WORDS.none(name), { refused: "no_ceiling", clientId: input.clientId, moneyGbp: input.money.gbp });
   if (input.money.gbp > ceiling.dailyGbp) {

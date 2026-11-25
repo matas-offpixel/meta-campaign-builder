@@ -6,7 +6,7 @@ import type { CampaignDraft, WizardStep } from "./types.ts";
 import { attachedAdSetKey, getVisibleSteps } from "./types.ts";
 import { findMultiIgPagesMissingOverride } from "./validation/page-instagram.ts";
 import { validateCreativeAssetCompleteness } from "./validation/asset-completeness.ts";
-import { sendsAtLaunch } from "./creatives/stored-at-launch.ts";
+import { LAUNCH_UPLOAD_WORDS, filesToSendAtLaunch, sendsAtLaunch } from "./creatives/stored-at-launch.ts";
 import { findAdSetLocationProblems, findAdSetLocationWarnings } from "./meta/location-targeting.ts";
 import { cityRadiusProblemInDraft } from "./meta/location-radius.ts";
 import {
@@ -473,6 +473,9 @@ function validateReview(draft: CampaignDraft): ValidationResult {
     allErrors.push(...result.errors);
     allWarnings.push(...(result.warnings ?? []));
   }
+  // FC4: where the pending-file blocker was, Review says how many files go to Meta at launch.
+  const atLaunch = filesToSendAtLaunch(draft).files;
+  if (atLaunch > 0) allWarnings.push(LAUNCH_UPLOAD_WORDS.review(atLaunch));
   return {
     valid: allErrors.length === 0,
     errors: allErrors,

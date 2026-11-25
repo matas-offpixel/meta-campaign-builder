@@ -48,7 +48,7 @@ const META_SEAM = "lib/mcp/meta-deps.ts";
 const META_SEAM_IMPORTS: Record<string, readonly string[]> = {
   "app/api/meta/launch-campaign/route.ts": ["launchCampaignAs"],
   "lib/meta/upload-asset-handler.ts": ["handleUploadAsset", "uploadAssetHooksForUser"],
-  "lib/plan/creative-intake-server.ts": ["sendStoredDraftAssetsToMeta"],
+  "lib/plan/creative-intake-server.ts": ["sendStoredDraftAssetsToMeta", "waitForStoredVideosAs"],
 };
 
 const ENTRIES = [
@@ -150,6 +150,8 @@ const EXTERNAL_READERS: Record<string, readonly string[]> = {
   "lib/drive/picker.ts": ["loadPickerView", "PICKER_BUCKET", "fileInSharedDrive", "fileInTree", "loadDriveFolderView"],
   // M3a: which slots go to Meta at launch (pure).
   "lib/creatives/stored-at-launch.ts": ["storedSlotsToSend"],
+  // M3a: the video step's slot helpers (pure); the send step itself is behind the Meta seam.
+  "lib/plan/stored-assets-meta.ts": ["failVideos", "sentVideoIds"],
   "lib/drive/picker-model.ts": ["PICKER_WORDS", "defaultBatchFields", "folderTiles", "formatBytes"],
   "lib/drive/picker-batch.ts": ["planPrepare"],
   "lib/drive/client.ts": ["driveFromEnv"],

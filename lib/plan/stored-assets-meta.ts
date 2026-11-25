@@ -18,6 +18,7 @@ import { findChannelId, loadAssetsByIds, type CreativeAssetRow } from "../creati
 import { storedSlotResults, storedSlotsToSend, type StoredSlotRef, type StoredSlotResult } from "../creatives/stored-at-launch.ts";
 import type { CampaignDraft } from "../types.ts";
 import { deliverIntakeAssetsToMeta, stampUploadedAssets, type MetaUploadStorage } from "./creative-intake-meta.ts";
+import { waitForVideoStatus } from "../meta/video-file-url.ts";
 
 export const NO_AD_ACCOUNT = "No Meta ad account on this draft";
 
@@ -224,4 +225,60 @@ function markFailed(draft: CampaignDraft, wanted: ReadonlySet<string>, fallback:
       })),
     })),
   };
+}
+
+// ─── FC4's second step: waiting for Meta to finish the videos ──────────────
+
+/** The video ids the send step left on a draft's taken slots (new uploads and hits). */
+export function sentVideoIds(out: Pick<StoredSendOutcome, "results">): string[] {
+  return [...new Set(out.results.filter((r) => r.uploadStatus === "uploaded" && r.videoId).map((r) => r.videoId!))];
+}
+
+/**
+ * Waits for each video to read `video_status: ready` (GET /{video}?fields=status,
+ * the upload handler's own wait: waitForVideoStatus, its delays). A video Meta
+ * reports as `error` is failed; one still processing after the wait goes on,
+ * as the upload handler's file_url path does.
+ */
+export async function waitForStoredVideos(input: {
+  videoIds: readonly string[];
+  getStatus: (videoId: string) => Promise<unknown>;
+  delaysMs?: readonly number[];
+}): Promise<{ ready: string[]; errored: string[]; timedOut: string[] }> {
+  const ready: string[] = [];
+  const errored: string[] = [];
+  const timedOut: string[] = [];
+  await Promise.all(
+    [...new Set(input.videoIds)].map(async (videoId) => {
+      const r = await waitForVideoStatus({ videoId, getStatus: input.getStatus, delaysMs: input.delaysMs });
+      (r === "ready" ? ready : r === "error" ? errored : timedOut).push(videoId);
+    }),
+  );
+  return { ready, errored, timedOut };
+}
+
+/**
+ * Slots whose video Meta failed become uploadStatus "error" (today's "Upload
+ * failed — retry or remove"), with the upload handler's own reason for it
+ * (lib/meta/storage-video-by-url.ts).
+ */
+export function failVideos(draft: CampaignDraft, videoIds: readonly string[]): { draft: CampaignDraft; failed: string[] } {
+  const bad = new Set(videoIds);
+  const failed: string[] = [];
+  if (bad.size === 0) return { draft, failed };
+  const next: CampaignDraft = {
+    ...draft,
+    creatives: draft.creatives.map((c) => ({
+      ...c,
+      assetVariations: c.assetVariations.map((v) => ({
+        ...v,
+        assets: v.assets.map((a) => {
+          if (!a.videoId || !bad.has(a.videoId)) return a;
+          failed.push(a.id);
+          return { ...a, uploadStatus: "error" as const, assetHash: undefined, videoId: undefined, error: `Meta reported video_status=error for ${a.videoId}` };
+        }),
+      })),
+    })),
+  };
+  return { draft: next, failed };
 }

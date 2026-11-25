@@ -38,12 +38,12 @@ const interestPick = z.object({
 
 const change = z
   .object({
-    remove: z.string().min(1).max(160).optional().describe("A group id (get_draft audiences.groups) to remove."),
-    rename: z.object({ group_id: z.string().min(1).max(160), name: z.string().min(1).max(80) }).optional(),
-    merge: z.object({ group_ids: z.array(z.string().min(1).max(160)).min(2).max(20), name: z.string().min(1).max(80) }).optional().describe("Groups of one kind (interest, or custom) into one, named; the first keeps its id."),
+    remove: z.string().min(1).max(2000).optional().describe("A group id (get_draft audiences.groups) to remove."),
+    rename: z.object({ group_id: z.string().min(1).max(2000), name: z.string().min(1).max(80) }).optional(),
+    merge: z.object({ group_ids: z.array(z.string().min(1).max(2000)).min(2).max(20), name: z.string().min(1).max(80) }).optional().describe("Groups of one kind (interest, or custom) into one, named; the first keeps its id."),
     add_interests: z
       .object({
-        group_id: z.string().min(1).max(160).optional().describe("The interest group to add to."),
+        group_id: z.string().min(1).max(2000).optional().describe("The interest group to add to."),
         new_group_name: z.string().min(1).max(80).optional().describe("Or a new interest group with this name."),
         interests: z.array(interestPick).min(1).max(30),
       })
@@ -52,7 +52,7 @@ const change = z
       .object({
         audience_ids: z.array(z.string().regex(/^\d{5,25}$/)).max(50).describe("Meta custom audience ids in the draft's ad account."),
         name: z.string().min(1).max(80),
-        include_group_ids: z.array(z.string().min(1).max(160)).max(10).optional().describe("Also every audience in these custom groups (deduped)."),
+        include_group_ids: z.array(z.string().min(1).max(2000)).max(10).optional().describe("Also every audience in these custom groups (deduped)."),
         suggestions_only: z.boolean().optional().describe("Advantage+ suggestions only: no ad set of its own, never direct targeting; use it as add_broad's suggestion_group_id."),
         unrecorded: z
           .object({ names: z.record(z.string(), z.string().min(1).max(120)), reason: z.string().min(5).max(300) })

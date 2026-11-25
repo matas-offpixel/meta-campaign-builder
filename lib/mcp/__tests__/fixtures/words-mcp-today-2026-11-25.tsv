@@ -1,0 +1,144 @@
+key	where	words
+today.mcp.title	Today, section	Claude’s changes
+today.mcp.count	Today, section header	{n} waiting for you
+today.mcp.count.one	Today, section header (1)	1 waiting for you
+today.mcp.empty	Today, section, nothing today	Nothing from Claude today.
+today.mcp.row.title	Request row, title	{action} · {code}
+today.mcp.row.change	Request row, what changes	{object}: {before} → {after}
+today.mcp.row.requested	Request row, state	Requested by Claude for {name} · {date, time}
+today.mcp.row.approved	Request row, state	Approved by {name} · {date, time}
+today.mcp.row.rejected	Request row, state	Rejected by {name} · {date, time}
+today.mcp.row.rejected.note	Request row, under Rejected	“{note}”
+today.mcp.row.done	Request row, result	Done · {result}
+today.mcp.row.failed	Request row, result (brick)	Failed · {result}
+today.mcp.row.expired	Request row, state (muted)	Expired · not approved within 24 hours, so nothing was sent
+today.mcp.row.refused	Request row, state (brick), refused before it reached you	Refused · it would take {client} to £{x} a day, over its £{c} ceiling
+today.mcp.row.refused.none	Log row, state (brick)	Refused · {client} has no daily ceiling, and this starts spend
+today.mcp.result	Result, counts and ids	{n} {things} changed · {ids}
+today.mcp.result.one	Result (1)	1 {thing} changed · {id}
+today.mcp.result.partial	Result, part taken	{n} of {m} {things} changed · {ids}
+today.mcp.approve	Request row, button	Approve
+today.mcp.reject	Request row, button	Reject
+today.mcp.reject.note	Reject, optional field	Why (Claude sees this)
+today.mcp.reject.confirm	Reject, button	Reject
+today.mcp.reject.cancel	Reject, button	Cancel
+today.mcp.ceiling	Today, section header, per client	{client}: £{s} of £{c} a day
+today.mcp.ceiling.none	Today, section header, per client	{client}: no daily ceiling, so Claude can’t start spend
+claude.mcp.waiting	Told to Claude, on request	Waiting for {name} to approve this on Today.
+claude.mcp.done	Told to Claude, when it ran	Done: {result}.
+claude.mcp.failed	Told to Claude, when Meta took part	Meta didn’t take it all: {result}.
+claude.mcp.rejected	Told to Claude, rejected	Rejected by {name} at {time}.
+claude.mcp.rejected.note	Told to Claude, rejected with a note	Rejected by {name} at {time}: “{note}”
+claude.mcp.expired	Told to Claude, expired	Not approved within 24 hours, so nothing was sent.
+claude.mcp.refused	Told to Claude, over the ceiling	Refused: this would take {client} to £{x} a day, over its £{c} daily ceiling. Nothing was sent to Meta.
+claude.mcp.refused.none	Told to Claude, no ceiling, for a change that starts spend	Refused: {client} has no daily ceiling, so nothing that starts spend can run. Matas sets one in Settings › Claude. Nothing was sent to Meta.
+settings.claude.title	Settings, section	Claude
+settings.claude.lead	Settings › Claude, under the title	Claude reaches Off/Pixel through a connector you add in Claude. A Meta change runs when you say yes in Claude, and each one is logged on Today.
+settings.claude.none	Settings, Claude, not connected	Not connected. In Claude, add a connector with this address:
+settings.claude.copy	Settings, Claude, button	Copy
+settings.claude.copied	Settings, Claude, after Copy	Copied
+settings.claude.connected	Settings, Claude, connected	Connected since {date} · last used {date, time}
+settings.claude.scope.read	Settings, Claude, scope row	Read · events, spend, signup and ticket counts, drafts and learnings
+settings.claude.scope.drafts	Settings, Claude, scope row	Drafts · make, change and archive drafts that aren’t published
+settings.claude.scope.meta	Settings › Claude, scope row	Meta · launch and change live campaigns, each after your yes in Claude
+settings.claude.scope.allowed	Settings, Claude, scope status	Allowed
+settings.claude.scope.not_allowed	Settings, Claude, scope status	Not allowed
+settings.claude.scope.later	Settings, Claude, scope status (Meta, before M3)	Not built yet
+settings.claude.upgraded	Settings, Claude, after drafts were added	Drafts allowed since {date}; the read-only connection it replaced is closed.
+settings.claude.disconnect	Settings, Claude, button	Disconnect
+settings.claude.disconnect.confirm	Settings, Claude, confirm	Disconnect Claude? It stops at once. Nothing it made is undone.
+settings.claude.disconnect.cancel	Settings, Claude, confirm button	Cancel
+settings.claude.disconnected	Settings, Claude, after Disconnect	Disconnected {date, time}.
+today.mcp.row.refused.checks	Request row, state (brick), launch_draft refused before Today: launch checks to fix	Refused · {n} launch checks to fix
+today.mcp.row.refused.checks.one	Request row, state (brick), 1 launch check to fix	Refused · 1 launch check to fix
+today.mcp.row.refused.switch	Request row, state (brick), the tool’s switch is off, refused before Today	Refused · this is switched off in Off/Pixel, so nothing was sent
+today.mcp.row.refused.test_cap	Request row, state (brick), create_audience_test over £10.00 a day, refused before Today	Refused · a test can’t spend over £10.00 a day
+today.mcp.result.created	Result, counts and ids, for creates	{n} {things} created · {ids}
+today.mcp.result.created.one	Result (1), for creates	1 {thing} created · {id}
+today.mcp.result.added	Result, counts and ids, for adds	{n} {things} added · {ids}
+today.mcp.result.added.one	Result (1), for adds	1 {thing} added · {id}
+today.mcp.result.launched	Result, counts and ids, for launches	{n} {things} launched · {ids}
+today.mcp.result.launched.one	Result (1), for launches	1 {thing} launched · {id}
+today.mcp.thing.campaign	{thing}	campaign
+today.mcp.thing.campaign.many	{things}	campaigns
+today.mcp.thing.ad	{thing}	ad
+today.mcp.thing.ad.many	{things}	ads
+today.mcp.thing.adset	{thing}	ad set
+today.mcp.thing.adset.many	{things}	ad sets
+today.mcp.count.ads	Change lines, {ads}	{n} ads
+today.mcp.count.ads.one	Change lines, {ads} (1)	1 ad
+today.mcp.count.adsets	Change lines, {adsets}	{n} ad sets
+today.mcp.count.adsets.one	Change lines, {adsets} (1)	1 ad set
+today.mcp.count.tiers	Change lines, {tiers}	{n} tiers
+today.mcp.count.tiers.one	Change lines, {tiers} (1)	1 tier
+today.mcp.action.launch_draft	Request row title, launch_draft (thing: campaign; result: launched)	Launch draft
+today.mcp.action.add_creatives	Request row title, add_creatives_to_stage (thing: ad; result: added)	Add creatives
+today.mcp.action.add_audiences	Request row title, add_audience_to_stage (thing: ad set; result: changed)	Add audiences
+today.mcp.action.create_retargeting	Request row title, create_retargeting (thing: ad set; result: created)	Create retargeting
+today.mcp.action.start_test	Request row title, create_audience_test (thing: ad set; result: created)	Start a test
+today.mcp.action.pause_ad	Request row title, pause on an ad (thing: ad; result: changed)	Pause ad
+today.mcp.action.pause_adset	Request row title, pause on an ad set (thing: ad set; result: changed)	Pause ad set
+today.mcp.action.resume_ad	Request row title, resume on an ad (thing: ad; result: changed)	Resume ad
+today.mcp.action.resume_adset	Request row title, resume on an ad set (thing: ad set; result: changed)	Resume ad set
+today.mcp.action.move_budget	Request row title, move_budget (thing: ad set; result: changed)	Move budget
+today.mcp.change.launch.paused	Request row, what changes, launch_draft (main campaigns’ default)	{draft}: draft → paused
+today.mcp.change.launch.live	Request row, what changes, launch_draft (test campaigns’ default, or live as Claude asked)	{draft}: draft → live
+today.mcp.change.add_creatives	Request row, what changes, add_creatives_to_stage	{stage}: {ads} into {adsets}
+today.mcp.change.add_audiences	Request row, what changes, add_audience_to_stage; audience names joined with “ · ”	{stage}: {audiences} into {adsets}
+today.mcp.change.retargeting	Request row, what changes, create_retargeting	[{code}] Retargeting: {tiers} · £{x} a day
+today.mcp.change.test	Request row, what changes, create_audience_test	[{code}] Test: {audience} · £{x} a day
+today.mcp.change.pause	Request row, what changes, pause	{name}: live → paused
+today.mcp.change.resume	Request row, what changes, resume	{name}: paused → live
+today.mcp.change.move_budget	Request row, what changes, move_budget	£{x} a day: {from} → {to}
+today.mcp.count.changes	Today, section header	{n} today
+today.mcp.count.changes.one	Today, section header (1)	1 today
+today.mcp.row.approved_in_claude	Log row, state	Approved in Claude · {date, time}
+today.mcp.row.asked	Log row, link that opens what was asked	What Claude asked
+today.mcp.row.asked.q	Log row, opened	Asked: “{asked}”
+today.mcp.row.asked.a	Log row, opened	Answer: “{answer}”
+today.mcp.row.refused.no_approval	Log row, state (brick)	Refused · no approval given
+today.mcp.undo	Log row, button	Undo
+today.mcp.undo.resume	Log row, beside Undo, on a pause	Undo resumes it.
+today.mcp.undo.pause	Log row, beside Undo, on a resume	Undo pauses it.
+today.mcp.undo.budget	Log row, beside Undo, on a budget change	Undo puts it back to £{x} a day.
+today.mcp.undo.move	Log row, beside Undo, on a budget move	Undo moves £{x} a day back to {from}.
+today.mcp.undo.delete	Log row, beside Undo, on paused objects Claude made	Undo deletes the {n} paused {things} Claude made.
+today.mcp.undo.delete.one	Log row, beside Undo (1)	Undo deletes the paused {thing} Claude made.
+today.mcp.undo.confirm	Undo on a delete, confirm once	Delete the {n} paused {things} Claude made? This can’t be undone.
+today.mcp.undo.confirm.one	Undo on a delete, confirm once (1)	Delete the paused {thing} Claude made? This can’t be undone.
+today.mcp.undo.confirm.button	Undo on a delete, button	Delete
+today.mcp.undo.cancel	Undo on a delete, button	Cancel
+today.mcp.undo.done	Log row, after Undo	Undone by {name} · {date, time}
+today.mcp.undo.off	Log row, in place of Undo, when the object changed since	Changed since, so Undo is off.
+today.mcp.undo.live	Log row, in place of Undo, on a live launch	It’s live, so Undo can’t delete it. Pause it in the campaign tree.
+today.mcp.undo.refused	Log row (brick), when Undo would start spend past the ceiling or with none	Undo refused · {reason}
+claude.mcp.undo_note	Told to Claude, after Done	Matas can undo this on Today.
+claude.mcp.refused.no_approval	Told to Claude, no approval with the call	Refused: there’s no approval with this. Ask Matas in chat, then send his exact question and answer with it. Nothing was sent to Meta.
+claude.mcp.refused.checks	Told to Claude, launch checks failing	Refused: {n} launch checks to fix. Nothing was sent to Meta.
+claude.mcp.refused.checks.one	Told to Claude (1)	Refused: 1 launch check to fix. Nothing was sent to Meta.
+claude.mcp.refused.switch	Told to Claude, the tool’s switch is off	Refused: this is switched off in Off/Pixel. Nothing was sent to Meta.
+claude.mcp.refused.test_cap	Told to Claude, a test over £10.00 a day	Refused: a test can’t spend over £10.00 a day, and this one asks for £{x}. Nothing was sent to Meta.
+settings.claude.ceilings	Settings › Claude, section	Daily ceilings
+settings.claude.ceilings.lead	Daily ceilings, under the title	Claude can’t start or raise spend past a client’s ceiling. With no ceiling, Claude can’t start spend for that client at all.
+settings.claude.ceilings.amount	Ceiling row	£{c} a day
+settings.claude.ceilings.running	Ceiling row, after the amount	£{s} a day running now
+settings.claude.ceilings.none	Ceiling row, none set (muted)	No ceiling
+settings.claude.ceilings.changed	Ceiling row	Changed {date} by {name}
+settings.claude.ceilings.set	Ceiling row, button, none set	Set
+settings.claude.ceilings.change	Ceiling row, button	Change
+settings.claude.ceilings.field	Ceiling row, editing, field	£ a day
+settings.claude.ceilings.save	Ceiling row, editing, button	Save
+settings.claude.ceilings.cancel	Ceiling row, editing, button	Cancel
+settings.claude.ceilings.remove	Ceiling row, editing, link	Remove ceiling
+settings.claude.ceilings.remove.confirm	Remove, confirm once	Remove {client}’s ceiling? Claude can’t start spend for {client} until one is set.
+settings.claude.ceilings.remove.button	Remove, button	Remove
+settings.claude.ceilings.matas_only	Daily ceilings, for anyone but Matas (no buttons)	Only Matas sets ceilings.
+launch.upload.review	Review & launch, where the pending-file blocker was	{n} files go to Meta when you launch.
+launch.upload.review.one	Review & launch (1)	1 file goes to Meta when you launch.
+launch.upload.progress	Launch progress, first step	Sending {n} files to Meta…
+launch.upload.progress.one	Launch progress, first step (1)	Sending 1 file to Meta…
+launch.upload.entity	Launch progress, the step’s entity	Files
+launch.upload.video	Launch progress, second step, when videos are sent	Waiting for Meta to finish {n} videos…
+launch.upload.video.one	Launch progress, second step (1)	Waiting for Meta to finish 1 video…
+launch.upload.stopped	Launch panel (brick), an upload failed	Launch stopped: {n} files didn’t reach Meta, so nothing was created.
+launch.upload.stopped.one	Launch panel (brick) (1)	Launch stopped: 1 file didn’t reach Meta, so nothing was created.

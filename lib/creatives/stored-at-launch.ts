@@ -111,3 +111,59 @@ export function storedSlotResults(draft: Pick<CampaignDraft, "creatives">, refs:
   }
   return out;
 }
+
+/**
+ * FC4's words (record 2026-11-25-mcp-full-control, word list
+ * scratch/mcp/words-mcp-today-2026-11-25.tsv, rows launch.upload.*), pinned
+ * by a test against the list. Review & launch reads `review` where the
+ * pending-file blocker was; the launch progress runs `progress` then, when
+ * any are videos, `video`, each a step whose entity is `entity`; a failed
+ * upload stops the launch with `stopped` in the launch panel, and the slot
+ * keeps today's "Upload failed — retry or remove".
+ */
+export const LAUNCH_UPLOAD_WORDS = {
+  review: (n: number) => (n === 1 ? "1 file goes to Meta when you launch." : `${n} files go to Meta when you launch.`),
+  progress: (n: number) => (n === 1 ? "Sending 1 file to Meta…" : `Sending ${n} files to Meta…`),
+  entity: "Files",
+  video: (n: number) => (n === 1 ? "Waiting for Meta to finish 1 video…" : `Waiting for Meta to finish ${n} videos…`),
+  stopped: (n: number) =>
+    n === 1 ? "Launch stopped: 1 file didn’t reach Meta, so nothing was created." : `Launch stopped: ${n} files didn’t reach Meta, so nothing was created.`,
+} as const;
+
+/** The slot's existing failure line (lib/validation.ts), which the launch panel lists under `stopped`. */
+export const UPLOAD_FAILED_SUFFIX = ": Upload failed — retry or remove";
+
+/** Pending files the launch will send (Review's line). Failed ones are blockers, not counted. */
+export function filesToSendAtLaunch(draft: Pick<CampaignDraft, "creatives">): { files: number; videos: number } {
+  let files = 0;
+  let videos = 0;
+  for (const c of draft.creatives ?? []) {
+    if ((c.sourceType ?? "new") !== "new") continue;
+    for (const v of c.assetVariations ?? []) {
+      for (const a of v.assets ?? []) {
+        if (!sendsAtLaunch(a)) continue;
+        files += 1;
+        if (c.mediaType === "video") videos += 1;
+      }
+    }
+  }
+  return { files, videos };
+}
+
+/** Where FC4's two launch steps are: sending the files, waiting for the videos, then the existing steps. */
+export interface StoredSendProgress {
+  phase: "files" | "videos" | "launch";
+  files: number;
+  videos: number;
+}
+
+/**
+ * FC4's steps ahead of the existing ones, in the launch progress: "Sending
+ * {n} files to Meta…", then, when any are videos, "Waiting for Meta to
+ * finish {n} videos…". A step behind the current phase is done.
+ */
+export function storedSendSteps(p: StoredSendProgress): Array<{ id: string; entity: string; label: string; done: boolean }> {
+  const steps = [{ id: "u-files", entity: LAUNCH_UPLOAD_WORDS.entity, label: LAUNCH_UPLOAD_WORDS.progress(p.files), done: p.phase !== "files" }];
+  if (p.videos > 0) steps.push({ id: "u-videos", entity: LAUNCH_UPLOAD_WORDS.entity, label: LAUNCH_UPLOAD_WORDS.video(p.videos), done: p.phase === "launch" });
+  return steps;
+}

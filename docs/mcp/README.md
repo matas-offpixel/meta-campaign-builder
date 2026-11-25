@@ -77,7 +77,7 @@ Matas ruled on 25 Nov that his typed yes in Claude is the approval for a Meta ch
 
 **Client ceilings** (`client_spend_ceilings`): a change that starts spend (a live launch now) is checked on the server against the client's daily £; no ceiling means refused. Paused launches, uploads, renames and event edits never read one. Until Settings › Claude ships, Matas sets them with `scripts/set-client-ceiling.mts` (`--list`; `--client <uuid|name> --daily <£>`, dry run unless `--apply`; `--remove`).
 
-**Files at launch, in the app too:** a pending slot whose file is in Storage (from Drive or the connector) is no longer a launch blocker. Standalone Launch on `/campaign/[id]` sends those files first (`POST /api/meta/draft-assets`, the same step), shows "Launching…" throughout, and stops if one fails, with that slot reading "Upload failed — retry or remove". A pending slot with no Storage copy still reads "Asset not yet uploaded".
+**Files at launch, in the app too:** a pending slot whose file is in Storage (from Drive or the connector) is no longer a launch blocker. Review & launch reads "{n} files go to Meta when you launch." where that blocker was. Standalone Launch on `/campaign/[id]` sends those files first (`POST /api/meta/draft-assets`, the same step): the launch progress runs "Sending {n} files to Meta…", then, when any are videos, "Waiting for Meta to finish {n} videos…", then the existing steps. If one fails, the launch stops before anything is made ("Launch stopped: {n} files didn’t reach Meta, so nothing was created.") and that slot reads "Upload failed — retry or remove". A pending slot with no Storage copy still reads "Asset not yet uploaded". Words: record `2026-11-25-mcp-full-control` (FC2, FC4).
 
 ## On your phone
 

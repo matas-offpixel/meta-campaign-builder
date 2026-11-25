@@ -25,7 +25,15 @@ import type {
 } from "@/lib/types";
 import { attachedAdSetKey, getVisibleSteps } from "@/lib/types";
 import { validateStep } from "@/lib/validation";
-import { applyStoredSlotResults, storedSlotsToSend, type StoredSlotResult } from "@/lib/creatives/stored-at-launch";
+import {
+  UPLOAD_FAILED_SUFFIX,
+  applyStoredSlotResults,
+  filesToSendAtLaunch,
+  storedSlotsToSend,
+  type StoredSendProgress,
+  type StoredSlotResult,
+} from "@/lib/creatives/stored-at-launch";
+import { failVideos } from "@/lib/plan/stored-assets-meta";
 import { saveDraftToStorage } from "@/lib/autosave";
 import { applyTemplate } from "@/lib/templates";
 import { loadTemplatesFromDb, saveTemplateToDb, deleteTemplateFromDb } from "@/lib/db/templates";
@@ -83,9 +91,10 @@ export function WizardShell({ draftId, linkedPlan = null }: WizardShellProps) {
   // Launch state
   const { mutate: launchCampaign, loading: launchRunning, error: launchError, errorSource: launchErrorSource, rateLimit: launchRateLimit, resetError: dismissLaunchError } = useLaunchCampaign();
   const [launchSummary, setLaunchSummary] = useState<LaunchSummary | null>(null);
-  // Launch's first step (M3a): files already in Storage go to Meta. The panel shows "Launching…" throughout.
-  const [sendingStoredAssets, setSendingStoredAssets] = useState(false);
-  const launching = launchRunning || sendingStoredAssets;
+  // FC4: files already in Storage go to Meta first, as two launch steps; the panel reads "Launching…" throughout.
+  const [storedSend, setStoredSend] = useState<StoredSendProgress | null>(null);
+  const [uploadStopped, setUploadStopped] = useState<{ files: number; lines: string[] } | null>(null);
+  const launching = launchRunning || storedSend != null;
   const launchAccountId = draft.settings.metaAdAccountId || draft.settings.adAccountId || null;
   const launchCooldown = useBucCooldown(launchAccountId, launchRateLimit);
 
@@ -256,37 +265,70 @@ export function WizardShell({ draftId, linkedPlan = null }: WizardShellProps) {
       return;
     }
 
-    // Files attached from Drive or through the connector are in Storage, not
-    // yet on Meta: send them first (the MML path), stamp their ids, then launch.
+    // FC4: files attached from Drive or through the connector are in Storage,
+    // not yet on Meta. Send them first (the MML path), wait for Meta to finish
+    // the videos, then launch. A file that doesn't reach Meta stops the launch.
     let launchDraft = draft;
-    if (storedSlotsToSend(draft).length > 0) {
-      setSendingStoredAssets(true);
+    const toSend = filesToSendAtLaunch(draft);
+    setUploadStopped(null);
+    if (toSend.files > 0) {
+      const stop = (stamped: CampaignDraft, failedFiles: number) => {
+        setUploadStopped({
+          files: failedFiles,
+          lines: validateStep(7, stamped).errors.filter((e) => e.endsWith(UPLOAD_FAILED_SUFFIX)),
+        });
+        setStoredSend(null);
+      };
+      setStoredSend({ phase: "files", ...toSend });
+      let videoIds: string[] = [];
       try {
         const res = await fetch("/api/meta/draft-assets", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ draft }),
         });
-        const json = (await res.json().catch(() => null)) as { results?: StoredSlotResult[]; error?: string } | null;
+        const json = (await res.json().catch(() => null)) as { results?: StoredSlotResult[]; videoIds?: string[] } | null;
         if (!res.ok || !json?.results) {
-          alert(`Cannot launch:\n${json?.error ?? `HTTP ${res.status}`}`);
+          stop(draft, toSend.files);
           return;
         }
         launchDraft = applyStoredSlotResults(draftRef.current, json.results);
+        videoIds = json.videoIds ?? [];
+      } catch {
+        stop(draft, toSend.files);
+        return;
+      }
+      const failedFiles = storedSlotsToSend(launchDraft).length;
+      if (failedFiles > 0) {
         setDraft(launchDraft);
         autosave(launchDraft);
-      } catch (err) {
-        alert(`Cannot launch:\n${err instanceof Error ? err.message : "Upload failed"}`);
-        return;
-      } finally {
-        setSendingStoredAssets(false);
-      }
-      // A file Meta didn't take is now "Upload failed — retry or remove": the launch stops.
-      const after = validateStep(7, launchDraft);
-      if (!after.valid) {
-        alert(`Cannot launch:\n${after.errors.join("\n")}`);
+        stop(launchDraft, failedFiles);
         return;
       }
+      if (toSend.videos > 0 && videoIds.length > 0) {
+        setStoredSend({ phase: "videos", ...toSend });
+        try {
+          const res = await fetch("/api/meta/draft-assets", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "wait_videos", videoIds }),
+          });
+          const json = (await res.json().catch(() => null)) as { errored?: string[] } | null;
+          if (json?.errored?.length) {
+            const marked = failVideos(launchDraft, json.errored);
+            launchDraft = marked.draft;
+            setDraft(launchDraft);
+            autosave(launchDraft);
+            stop(launchDraft, marked.failed.length);
+            return;
+          }
+        } catch {
+          // Still processing is not a failure: the upload handler's own wait goes on the same way.
+        }
+      }
+      setDraft(launchDraft);
+      autosave(launchDraft);
+      setStoredSend({ phase: "launch", ...toSend });
     }
 
     try {
@@ -346,6 +388,8 @@ export function WizardShell({ draftId, linkedPlan = null }: WizardShellProps) {
       // Supabase persistence is handled by the server route — no client-side save needed
     } catch {
       // Error is captured in launchError from the hook — ReviewLaunch renders the error modal
+    } finally {
+      setStoredSend(null);
     }
   };
 
@@ -641,6 +685,8 @@ export function WizardShell({ draftId, linkedPlan = null }: WizardShellProps) {
           <ReviewLaunch
             draft={draft}
             isLaunching={launching}
+            storedSend={storedSend}
+            uploadStopped={uploadStopped}
             launchError={launchError}
             launchErrorSource={launchErrorSource}
             launchRateLimit={launchRateLimit}

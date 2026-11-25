@@ -40,6 +40,10 @@ function setup() {
       sent.push("sendAssets");
       return { draft, slots: [], results: [], uploaded: 0, calls: 0, failed: [], changed: false };
     },
+    async waitVideos() {
+      sent.push("waitVideos");
+      return { ready: [], errored: [], timedOut: [] };
+    },
     async launch() {
       sent.push("launch");
       return { status: 200, body: {} };
@@ -109,7 +113,7 @@ test("a meta call's row: kind meta, the chat yes in args.approval whole, approve
   assert.equal(ok.result.isError, false, ok.result.content[0].text);
   const no = await (await handleMcpRequest(rpc("upload_draft_assets", { draft_id: D_DRAFT }, tokens.access_token), deps)).json();
   assert.equal(no.result.isError, true);
-  assert.match(JSON.parse(no.result.content[0].text).error, /No approval given/);
+  assert.match(JSON.parse(no.result.content[0].text).error, /^Refused: there’s no approval with this\./);
   assert.deepEqual(sent, ["sendAssets"], "only the approved call ran");
   const rows = db.writes.filter((w) => w.table === "mcp_actions").map((w) => (w.rows as Array<Record<string, unknown>>)[0]!);
   assert.deepEqual(rows.map((r) => [r.tool, r.kind, r.status]), [["upload_draft_assets", "meta", "done"], ["upload_draft_assets", "meta", "failed"]]);

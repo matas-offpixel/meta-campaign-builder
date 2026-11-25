@@ -112,6 +112,11 @@ export interface McpMetaDeps {
    */
   sendAssets(input: { userId: string; draft: CampaignDraft }): Promise<StoredSendOutcome>;
   /**
+   * FC4's second step: waits for each video to be ready on Meta
+   * (waitForStoredVideos, GETs only, the operator's token).
+   */
+  waitVideos(input: { userId: string; videoIds: readonly string[] }): Promise<{ ready: string[]; errored: string[]; timedOut: string[] }>;
+  /**
    * Review & Launch's route (POST /api/meta/launch-campaign through
    * launchCampaignAs) for this user. `createPaused` is the route's own flag:
    * campaign, ad sets and ads are created PAUSED.

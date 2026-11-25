@@ -28,7 +28,8 @@ import { DRAFT_REFUSALS, assertDraftId, migratedDraft, readDraftRow, saveDraft, 
 import { approvalInput, requireMetaApproval } from "../meta/approval.ts";
 import { checkSpendCeiling, draftMoneyADay } from "../meta/ceiling.ts";
 import { ToolInputError, type LaunchChecksOutcome, type McpMetaDeps, type McpTool, type ToolContext } from "../tool-types.ts";
-import type { StoredSendOutcome } from "../../plan/stored-assets-meta.ts";
+import { failVideos, sentVideoIds, type StoredSendOutcome } from "../../plan/stored-assets-meta.ts";
+import { MCP_WORDS, RESULT_WORDS, THINGS } from "../meta/words.ts";
 
 /** The draft a meta tool acts on: the caller's own, status draft. No updated_at: the tool reads it fresh. */
 async function loadOwnDraft(ctx: ToolContext, idArg: unknown): Promise<WritableDraft> {
@@ -66,6 +67,11 @@ function slotLine(f: { creativeName: string; variationName: string; aspectRatio:
   return `"${f.creativeName}" › "${f.variationName}" › ${f.aspectRatio}: ${f.error}`;
 }
 
+/** The Meta ids (video id or image hash) of the files now on the account. */
+function uploadedIds(out: StoredSendOutcome): string[] {
+  return out.results.filter((r) => r.uploadStatus === "uploaded").map((r) => r.videoId ?? r.assetHash ?? r.assetId);
+}
+
 function filesSummary(out: StoredSendOutcome) {
   return { taken: out.slots.length, uploaded: out.uploaded, calls: out.calls, failed: out.failed.length };
 }
@@ -75,8 +81,29 @@ function filesSummary(out: StoredSendOutcome) {
  * the draft before anything else happens, so a retry starts from them.
  */
 async function sendAndSave(ctx: ToolContext, meta: McpMetaDeps, loaded: WritableDraft): Promise<{ loaded: WritableDraft; out: StoredSendOutcome; updatedAt: string }> {
-  const out = await meta.sendAssets({ userId: ctx.userId, draft: loaded.draft });
+  let out = await meta.sendAssets({ userId: ctx.userId, draft: loaded.draft });
   if (out.slots.length === 0) return { loaded, out, updatedAt: loaded.row.updated_at };
+  // FC4's second step: wait for Meta to finish the videos. One Meta failed is a failed upload.
+  const videoIds = out.failed.length === 0 ? sentVideoIds(out) : [];
+  if (videoIds.length > 0) {
+    const waited = await meta.waitVideos({ userId: ctx.userId, videoIds });
+    if (waited.errored.length > 0) {
+      const marked = failVideos(out.draft, waited.errored);
+      const byId = new Map(out.slots.map((r) => [r.assetId, r]));
+      const results = out.results.map((r) => (marked.failed.includes(r.assetId) ? { ...r, uploadStatus: "error" as const, videoId: undefined, error: `Meta reported video_status=error for ${r.videoId}` } : r));
+      out = {
+        ...out,
+        draft: marked.draft,
+        results,
+        uploaded: results.filter((r) => r.uploadStatus === "uploaded").length,
+        failed: marked.failed.flatMap((id) => {
+          const ref = byId.get(id);
+          const r = results.find((x) => x.assetId === id);
+          return ref ? [{ ...ref, error: r?.error ?? "Upload failed" }] : [];
+        }),
+      };
+    }
+  }
   const saved = await saveDraft(ctx, loaded, out.draft);
   return {
     loaded: { row: { ...loaded.row, updated_at: saved.updatedAt, draft_json: saved.draft as unknown as Record<string, unknown> }, draft: saved.draft },
@@ -98,8 +125,9 @@ function checksRefusal(draftId: string, checks: LaunchChecksOutcome): ToolInputE
   if (!checks.ran) return new ToolInputError("The launch checks couldn't run, so nothing was launched. Try again.", { draftId, refused: "checks_failed", ...checksSummary(checks) });
   const blockers = checks.blockers + checks.wizard.blockers.length;
   if (blockers === 0) return null;
+  // claude.mcp.refused.checks / .checks.one; the checks themselves ride along in the wizard's and the record's words.
   return new ToolInputError(
-    `The launch checks have ${blockers} ${blockers === 1 ? "blocker" : "blockers"}, so nothing was sent to Meta. Fix them with the draft tools, then try again.`,
+    MCP_WORDS.refusedChecks(blockers),
     { draftId, refused: "launch_checks", ...checksSummary(checks) },
     { launchChecks: checks },
   );
@@ -145,8 +173,9 @@ export const uploadDraftAssetsTool: McpTool = {
         files: sent.out.slots.length,
         sent: sent.out.calls,
         alreadyOnMeta: sent.out.uploaded - sent.out.calls,
-        note: sent.out.slots.length === 0 ? "No file on this draft was waiting to go to Meta." : "Every file is on the draft's Meta ad account. Nothing was launched.",
         launchChecks: checks,
+        // claude.mcp.done with today.mcp.result.added; no Undo exists for an upload (FC1), so no undo note.
+        ...(sent.out.slots.length > 0 ? { message: MCP_WORDS.done(RESULT_WORDS.added(THINGS.file, uploadedIds(sent.out))) } : {}),
       },
       eventId,
       clientId,
@@ -245,10 +274,12 @@ export const launchDraftTool: McpTool = {
         moneyADay: money.gbp,
         ...(ceiling ? { ceiling: ceiling.ceilingGbp } : {}),
         files: { sent: sent.out.calls, alreadyOnMeta: sent.out.uploaded - sent.out.calls },
-        note:
+        // claude.mcp.done with today.mcp.result.launched.one; the undo note only where an Undo exists:
+        // a paused campaign Claude made (FC1), never a live launch (today.mcp.undo.live).
+        message:
           mode === "paused"
-            ? "Created paused: nothing spends until it's switched on."
-            : "Created active: spend starts once Meta approves the ads.",
+            ? `${MCP_WORDS.done(RESULT_WORDS.launched(THINGS.campaign, [campaignId]))} ${MCP_WORDS.undoNote}`
+            : MCP_WORDS.done(RESULT_WORDS.launched(THINGS.campaign, [campaignId])),
       },
       eventId,
       clientId,
