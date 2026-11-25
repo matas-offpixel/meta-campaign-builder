@@ -36,6 +36,7 @@ import type { DriveApi } from "../../drive/client.ts";
 import type { AssetRatio } from "../../types.ts";
 import type { AdCreativeDraft, CampaignDraft, CTAType } from "../../types.ts";
 import { ToolInputError, type McpTool, type ToolContext } from "../tool-types.ts";
+import { ATTACH_WORDS } from "../meta/words.ts";
 import { checksSummary, launchChecksFor, linkKey, requireDraftScope } from "../drafts/common.ts";
 import { loadWritableDraft, saveDraft } from "../drafts/write.ts";
 import { recipeNames, recipeOf } from "../drafts/ad-names.ts";
@@ -94,7 +95,7 @@ interface OpenFolder {
   sourcePath: string;
 }
 
-const NOT_IN_DRIVE = "That folder or file isn't in the Off/Pixel shared drive." as const;
+const NOT_IN_DRIVE = ATTACH_WORDS.outside;
 
 async function openFolder(ctx: ToolContext, drive: DriveApi | null, event: PickerEvent, folderArg: string | null): Promise<OpenFolder> {
   const folderId = folderArg === "root" ? drive?.driveId ?? null : folderArg;
@@ -198,8 +199,7 @@ export async function artistVoiceCaptions(ctx: ToolContext, eventId: string): Pr
 const FEED_RATIOS: readonly string[] = ["4:5", "1:1"];
 
 /** A single file that isn't 9:16, refused with its aspect (M3a). */
-export const notNineSixteenSingle = (name: string, ratio: string) =>
-  `${name} is ${ratio}. A file on its own must be 9:16: pass it in pairs as the feed file with its 9:16, or leave it out. Nothing was saved.`;
+export const notNineSixteenSingle = ATTACH_WORDS.singleRatio;
 
 type Planned = {
   name: string;
@@ -244,8 +244,8 @@ export const attachDriveCreativesTool: McpTool = {
     const pairs = (Array.isArray(args.pairs) ? args.pairs : [])
       .map((p) => (p && typeof p === "object" ? { feed: String((p as Record<string, unknown>).feed ?? "").trim(), vertical: String((p as Record<string, unknown>).vertical ?? "").trim() } : null))
       .filter((p): p is { feed: string; vertical: string } => Boolean(p?.feed && p.vertical));
-    if (fileIds.length === 0 && pairs.length === 0) throw new ToolInputError("Give file_ids or pairs from list_drive_creatives.", { refused: "no_files" });
-    if (pairs.some((p) => p.feed === p.vertical)) throw new ToolInputError("A pair is two different files: the feed file and its 9:16.", { refused: "bad_pair" });
+    if (fileIds.length === 0 && pairs.length === 0) throw new ToolInputError(ATTACH_WORDS.empty, { refused: "no_files" });
+    if (pairs.some((p) => p.feed === p.vertical)) throw new ToolInputError(ATTACH_WORDS.pairSame, { refused: "bad_pair" });
     const cta = args.cta == null ? null : (String(args.cta) as CTAType);
     if (cta && !CTAS.includes(cta)) throw new ToolInputError(`cta is one of ${CTAS.join(", ")}.`, { refused: "bad_cta" });
     const primaryText = typeof args.primary_text === "string" ? args.primary_text : null;
@@ -290,7 +290,7 @@ export const attachDriveCreativesTool: McpTool = {
       if (folderOf.has(id)) continue;
       const file = await drive.getMediaFile(id);
       const parent = file && !file.trashed ? file.parents?.[0] : null;
-      if (!parent) throw new ToolInputError(`File ${id} isn't in the Off/Pixel shared drive. Nothing was saved.`, { draftId: loaded.row.id, refused: "not_in_drive" });
+      if (!parent) throw new ToolInputError(ATTACH_WORDS.fileOutside(id), { draftId: loaded.row.id, refused: "not_in_drive" });
       folderOf.set(id, parent);
     }
     const opened = new Map<string, { open: OpenFolder; tiles: Tile[] }>();
@@ -299,7 +299,7 @@ export const attachDriveCreativesTool: McpTool = {
       try {
         open = await openFolder(ctx, drive, event, parent);
       } catch (e) {
-        if (e instanceof ToolInputError) throw new ToolInputError(`${e.message} Nothing was saved.`, { draftId: loaded.row.id, ...(e.summary ?? {}) });
+        if (e instanceof ToolInputError) throw new ToolInputError(e.message, { draftId: loaded.row.id, ...(e.summary ?? {}) });
         throw e;
       }
       opened.set(parent, { open, tiles: folderTiles(open.files, "single") });
@@ -307,13 +307,13 @@ export const attachDriveCreativesTool: McpTool = {
     const tileOf = (id: string): { tile: Tile; open: OpenFolder } => {
       const at = opened.get(folderOf.get(id)!)!;
       const tile = at.tiles.find((t) => t.file.id === id);
-      if (!tile) throw new ToolInputError(`File ${id} isn't a photo or video in its folder. Nothing was saved.`, { draftId: loaded.row.id, refused: "not_media" });
+      if (!tile) throw new ToolInputError(ATTACH_WORDS.notMedia(id), { draftId: loaded.row.id, refused: "not_media" });
       return { tile, open: at.open };
     };
     /** The picker's size refusal; aspect is checked by the caller. */
     const sizeRefusal = (tile: Tile) =>
       tile.reason === PICKER_WORDS.overVideo || tile.reason === PICKER_WORDS.overImage
-        ? new ToolInputError(`${tile.file.name}: ${tile.reason}. Nothing was saved.`, { draftId: loaded.row.id, refused: "not_usable" })
+        ? new ToolInputError(ATTACH_WORDS.pickerReason(tile.file.name, tile.reason ?? ""), { draftId: loaded.row.id, refused: "not_usable" })
         : null;
 
     const last = draft.creatives[draft.creatives.length - 1];
@@ -352,7 +352,7 @@ export const attachDriveCreativesTool: McpTool = {
       const size = sizeRefusal(tile);
       if (size) throw size;
       if (tile.ratio && tile.ratio !== "9:16") throw new ToolInputError(notNineSixteenSingle(tile.file.name, tile.ratio), { draftId: loaded.row.id, refused: "not_916", aspect: tile.ratio });
-      if (!tile.selectable) throw new ToolInputError(`${tile.file.name}: ${tile.reason}. Nothing was saved.`, { draftId: loaded.row.id, refused: "not_usable" });
+      if (!tile.selectable) throw new ToolInputError(ATTACH_WORDS.pickerReason(tile.file.name, tile.reason ?? ""), { draftId: loaded.row.id, refused: "not_usable" });
       if (existingDriveIds.has(id)) {
         skipped.push(`${tile.file.name.replace(/\.[^.]+$/, "")}: ${PICKER_WORDS.alreadyInDraft}`);
         continue;
@@ -371,13 +371,13 @@ export const attachDriveCreativesTool: McpTool = {
         if (size) throw size;
       }
       if (!feed.tile.ratio || !FEED_RATIOS.includes(feed.tile.ratio)) {
-        throw new ToolInputError(`${feed.tile.file.name} is ${feed.tile.ratio ?? "not measured"}. A pair's feed file is 4:5 or 1:1. Nothing was saved.`, { draftId: loaded.row.id, refused: "bad_feed_aspect", aspect: feed.tile.ratio });
+        throw new ToolInputError(ATTACH_WORDS.pairFeed(feed.tile.file.name, feed.tile.ratio ?? ATTACH_WORDS.ratioUnknown), { draftId: loaded.row.id, refused: "bad_feed_aspect", aspect: feed.tile.ratio });
       }
       if (vertical.tile.ratio && vertical.tile.ratio !== "9:16") {
-        throw new ToolInputError(`${vertical.tile.file.name} is ${vertical.tile.ratio}. A pair's vertical file is 9:16. Nothing was saved.`, { draftId: loaded.row.id, refused: "not_916", aspect: vertical.tile.ratio });
+        throw new ToolInputError(ATTACH_WORDS.pairVertical(vertical.tile.file.name, vertical.tile.ratio), { draftId: loaded.row.id, refused: "not_916", aspect: vertical.tile.ratio });
       }
       if (feed.tile.kind !== vertical.tile.kind) {
-        throw new ToolInputError(`${feed.tile.file.name} and ${vertical.tile.file.name} are a ${feed.tile.kind === "video" ? "video" : "static"} and a ${vertical.tile.kind === "video" ? "video" : "static"}. A pair is two videos or two statics. Nothing was saved.`, { draftId: loaded.row.id, refused: "mixed_pair" });
+        throw new ToolInputError(ATTACH_WORDS.pairKinds(feed.tile.file.name, ATTACH_WORDS.kind[feed.tile.kind]!, vertical.tile.file.name, ATTACH_WORDS.kind[vertical.tile.kind]!), { draftId: loaded.row.id, refused: "mixed_pair" });
       }
       if (existingDriveIds.has(pair.feed) || existingDriveIds.has(pair.vertical)) {
         skipped.push(`${vertical.tile.file.name.replace(/\.[^.]+$/, "")}: ${PICKER_WORDS.alreadyInDraft}`);
@@ -469,7 +469,7 @@ export const attachDriveCreativesTool: McpTool = {
     }
     if (ads.length === 0) {
       throw new ToolInputError(
-        failed.length ? `No ads were added: ${failed.map((f) => f.reason).join("; ")}.` : "No ads were added: every file is already in this draft.",
+        failed.length ? ATTACH_WORDS.failed : "No ads were added: every file is already in this draft.",
         { draftId: loaded.row.id, refused: failed.length ? "copy_failed" : "all_in_draft", failed: failed.length, skipped: skipped.length },
         { skipped, failed },
       );
@@ -491,9 +491,9 @@ export const attachDriveCreativesTool: McpTool = {
         link: linkKey(fields.url),
         cta: cta ?? fields.cta,
         ...(unparsed.length ? { namedByPicker: unparsed } : {}),
-        note: "Each new ad's files are in the app's Storage, waiting: they go to Meta at launch (or with upload_draft_assets).",
+        note: ATTACH_WORDS.waiting,
         ...(paired && process.env.ENABLE_MULTI_PLACEMENT_ASSETS !== "1"
-          ? { pairNote: "Per-placement ads are switched off in Off/Pixel, so a paired ad launches as one asset in every placement until they're switched on." }
+          ? { pairNote: ATTACH_WORDS.pairsOff }
           : {}),
         launchChecks: checks,
       },

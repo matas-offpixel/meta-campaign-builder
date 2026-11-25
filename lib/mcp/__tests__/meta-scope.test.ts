@@ -76,8 +76,8 @@ test("mcp:meta is Matas's only: another operator asking for it is issued read an
   // Without an isMatas check nobody gets it.
   assert.equal(scopeForUser("mcp:read mcp:draft mcp:meta", OPERATOR, {}), "mcp:read mcp:draft");
   const page = (scope: string) => consentContent({ redirectUri: CLAUDE_CALLBACK, clientName: "Claude", email: null, returnHost: "claude.ai", scope }).lines[1];
-  assert.match(page("mcp:read mcp:draft mcp:meta"), /launch it, paused or live/);
-  assert.doesNotMatch(page("mcp:read mcp:draft"), /launch it/);
+  assert.match(page("mcp:read mcp:draft mcp:meta"), /launch drafts paused or live/);
+  assert.doesNotMatch(page("mcp:read mcp:draft"), /launch drafts/);
 });
 
 test("read-only and draft grants get 403 insufficient_scope on every meta tool, logged, nothing run", async () => {

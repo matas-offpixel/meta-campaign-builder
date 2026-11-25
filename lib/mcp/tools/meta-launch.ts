@@ -29,7 +29,7 @@ import { approvalInput, requireMetaApproval } from "../meta/approval.ts";
 import { checkSpendCeiling, draftMoneyADay } from "../meta/ceiling.ts";
 import { ToolInputError, type LaunchChecksOutcome, type McpMetaDeps, type McpTool, type ToolContext } from "../tool-types.ts";
 import { failVideos, sentVideoIds, type StoredSendOutcome } from "../../plan/stored-assets-meta.ts";
-import { MCP_WORDS, RESULT_WORDS, THINGS } from "../meta/words.ts";
+import { LAUNCH_WORDS, MCP_WORDS, RESULT_WORDS, THINGS, UPLOAD_WORDS } from "../meta/words.ts";
 
 /** The draft a meta tool acts on: the caller's own, status draft. No updated_at: the tool reads it fresh. */
 async function loadOwnDraft(ctx: ToolContext, idArg: unknown): Promise<WritableDraft> {
@@ -39,7 +39,7 @@ async function loadOwnDraft(ctx: ToolContext, idArg: unknown): Promise<WritableD
   if (row.user_id !== ctx.userId) throw new ToolInputError(DRAFT_REFUSALS.notYours, { draftId: id, refused: "not_owner" });
   const status = row.status ?? "draft";
   if (status !== "draft") {
-    throw new ToolInputError(`This draft is ${status}, so it can't be launched or have files sent from here. Only drafts with status draft can.`, {
+    throw new ToolInputError(MCP_WORDS.refusedNotDraft(status), {
       draftId: id,
       refused: "not_draft",
       status,
@@ -63,13 +63,22 @@ async function clientOf(ctx: ToolContext, loaded: WritableDraft): Promise<{ clie
   return { clientId, clientName, eventId };
 }
 
-function slotLine(f: { creativeName: string; variationName: string; aspectRatio: string; error: string }): string {
-  return `"${f.creativeName}" › "${f.variationName}" › ${f.aspectRatio}: ${f.error}`;
+/** A failed file, by name (MW2): Meta didn't take it, or couldn't process the video. Never Meta's own message. */
+function failedLine(f: { fileName: string | null; creativeName: string; aspectRatio: string; videoFailed: boolean }): string {
+  const name = f.fileName ?? `${f.creativeName} ${f.aspectRatio}`;
+  return f.videoFailed ? UPLOAD_WORDS.videoFailed(name) : UPLOAD_WORDS.fileFailed(name);
 }
 
 /** The Meta ids (video id or image hash) of the files now on the account. */
 function uploadedIds(out: StoredSendOutcome): string[] {
   return out.results.filter((r) => r.uploadStatus === "uploaded").map((r) => r.videoId ?? r.assetHash ?? r.assetId);
+}
+
+/** upload_draft_assets' answer: what was sent, what was already there, and that nothing launched. */
+function uploadMessage(out: StoredSendOutcome): string {
+  if (out.slots.length === 0) return UPLOAD_WORDS.none;
+  const already = out.uploaded - out.calls;
+  return [...(out.calls > 0 ? [UPLOAD_WORDS.done(out.calls)] : []), ...(already > 0 ? [UPLOAD_WORDS.already(already)] : []), UPLOAD_WORDS.noLaunch].join("\n");
 }
 
 function filesSummary(out: StoredSendOutcome) {
@@ -80,15 +89,22 @@ function filesSummary(out: StoredSendOutcome) {
  * The send step and its save: the stamped (or failed) slots are written to
  * the draft before anything else happens, so a retry starts from them.
  */
-async function sendAndSave(ctx: ToolContext, meta: McpMetaDeps, loaded: WritableDraft): Promise<{ loaded: WritableDraft; out: StoredSendOutcome; updatedAt: string }> {
+async function sendAndSave(
+  ctx: ToolContext,
+  meta: McpMetaDeps,
+  loaded: WritableDraft,
+): Promise<{ loaded: WritableDraft; out: StoredSendOutcome; updatedAt: string; videoFailed: Set<string> }> {
+  const videoFailed = new Set<string>();
   let out = await meta.sendAssets({ userId: ctx.userId, draft: loaded.draft });
-  if (out.slots.length === 0) return { loaded, out, updatedAt: loaded.row.updated_at };
+  if (out.slots.length === 0) return { loaded, out, updatedAt: loaded.row.updated_at, videoFailed };
   // FC4's second step: wait for Meta to finish the videos. One Meta failed is a failed upload.
   const videoIds = out.failed.length === 0 ? sentVideoIds(out) : [];
   if (videoIds.length > 0) {
-    const waited = await meta.waitVideos({ userId: ctx.userId, videoIds });
+    // A status read that fails is not a failed video: it goes on, as the upload handler's own wait does.
+    const waited = await meta.waitVideos({ userId: ctx.userId, videoIds }).catch(() => ({ ready: [], errored: [] as string[], timedOut: videoIds }));
     if (waited.errored.length > 0) {
       const marked = failVideos(out.draft, waited.errored);
+      for (const id of marked.failed) videoFailed.add(id);
       const byId = new Map(out.slots.map((r) => [r.assetId, r]));
       const results = out.results.map((r) => (marked.failed.includes(r.assetId) ? { ...r, uploadStatus: "error" as const, videoId: undefined, error: `Meta reported video_status=error for ${r.videoId}` } : r));
       out = {
@@ -109,20 +125,24 @@ async function sendAndSave(ctx: ToolContext, meta: McpMetaDeps, loaded: Writable
     loaded: { row: { ...loaded.row, updated_at: saved.updatedAt, draft_json: saved.draft as unknown as Record<string, unknown> }, draft: saved.draft },
     out,
     updatedAt: saved.updatedAt,
+    videoFailed,
   };
 }
 
-function uploadRefusal(draftId: string, out: StoredSendOutcome, launching: boolean): ToolInputError {
-  const lines = out.failed.map(slotLine);
+function uploadRefusal(draftId: string, sent: { out: StoredSendOutcome; videoFailed: Set<string> }, launching: boolean): ToolInputError {
+  const { out } = sent;
+  const lines = out.failed.map((f) => failedLine({ ...f, videoFailed: sent.videoFailed.has(f.assetId) }));
+  const message = launching ? UPLOAD_WORDS.failedLaunch(out.failed.length, out.slots.length) : UPLOAD_WORDS.failed(out.failed.length, out.slots.length);
   return new ToolInputError(
-    `${out.failed.length} of ${out.slots.length} files didn't go to Meta${launching ? ", so nothing was launched" : ""}. Each is saved as "Upload failed — retry or remove": try upload_draft_assets again, or remove those ads.`,
-    { draftId, refused: "upload_failed", files: filesSummary(out) },
+    message,
+    // The raw reasons stay in the action log, never in the answer.
+    { draftId, refused: "upload_failed", files: filesSummary(out), reasons: out.failed.map((f) => f.error.slice(0, 200)) },
     { failed: lines },
   );
 }
 
 function checksRefusal(draftId: string, checks: LaunchChecksOutcome): ToolInputError | null {
-  if (!checks.ran) return new ToolInputError("The launch checks couldn't run, so nothing was launched. Try again.", { draftId, refused: "checks_failed", ...checksSummary(checks) });
+  if (!checks.ran) return new ToolInputError(MCP_WORDS.refusedChecksUnavailable, { draftId, refused: "checks_failed", ...checksSummary(checks) });
   const blockers = checks.blockers + checks.wizard.blockers.length;
   if (blockers === 0) return null;
   // claude.mcp.refused.checks / .checks.one; the checks themselves ride along in the wizard's and the record's words.
@@ -164,7 +184,7 @@ export const uploadDraftAssetsTool: McpTool = {
     const loaded = await loadOwnDraft(ctx, args.draft_id);
     const { clientId, eventId } = await clientOf(ctx, loaded);
     const sent = await sendAndSave(ctx, meta, loaded);
-    if (sent.out.failed.length > 0) throw uploadRefusal(loaded.row.id, sent.out, false);
+    if (sent.out.failed.length > 0) throw uploadRefusal(loaded.row.id, sent, false);
     const checks = await launchChecksFor(ctx, sent.loaded.draft);
     return {
       data: {
@@ -173,9 +193,10 @@ export const uploadDraftAssetsTool: McpTool = {
         files: sent.out.slots.length,
         sent: sent.out.calls,
         alreadyOnMeta: sent.out.uploaded - sent.out.calls,
+        metaIds: uploadedIds(sent.out),
         launchChecks: checks,
-        // claude.mcp.done with today.mcp.result.added; no Undo exists for an upload (FC1), so no undo note.
-        ...(sent.out.slots.length > 0 ? { message: MCP_WORDS.done(RESULT_WORDS.added(THINGS.file, uploadedIds(sent.out))) } : {}),
+        // MW2's upload rows; no Undo exists for an upload (FC1), so no undo note.
+        message: uploadMessage(sent.out),
       },
       eventId,
       clientId,
@@ -206,6 +227,7 @@ export const launchDraftTool: McpTool = {
   name: "launch_draft",
   title: "Launch a draft to Meta",
   kind: "meta",
+  failedText: LAUNCH_WORDS.failed,
   readOnly: false,
   idempotent: false,
   description: [
@@ -223,8 +245,8 @@ export const launchDraftTool: McpTool = {
   async run(ctx, args) {
     const { meta } = requireMetaApproval(ctx, args);
     if (!meta) throw new Error("meta deps missing");
-    const mode = args.mode === "live" ? "live" : args.mode === "paused" ? "paused" : null;
-    if (!mode) throw new ToolInputError('mode is "paused" or "live".', { refused: "bad_mode" });
+    // The input schema allows only "paused" or "live"; anything else would be paused, never live.
+    const mode: "paused" | "live" = args.mode === "live" ? "live" : "paused";
     const loaded = await loadOwnDraft(ctx, args.draft_id);
     const draftId = loaded.row.id;
     const { clientId, clientName, eventId } = await clientOf(ctx, loaded);
@@ -240,26 +262,47 @@ export const launchDraftTool: McpTool = {
 
     // Launch's first step: the files in Storage go to Meta, and the stamps are saved.
     const sent = await sendAndSave(ctx, meta, loaded);
-    if (sent.out.failed.length > 0) throw uploadRefusal(draftId, sent.out, true);
+    if (sent.out.failed.length > 0) throw uploadRefusal(draftId, sent, true);
     const after = await launchChecksFor(ctx, sent.loaded.draft);
     const refusedAfter = checksRefusal(draftId, after);
     if (refusedAfter) throw refusedAfter;
 
     const draft: CampaignDraft = sent.loaded.draft;
-    const res = await meta.launch({ userId: ctx.userId, draft, createPaused: mode === "paused" });
+    const adAccountId = draft.settings.adAccountId || draft.settings.metaAdAccountId;
+    const plannedAdSets = draft.adSetSuggestions.filter((a) => a.enabled !== false).length;
+    let res: { status: number; body: Record<string, unknown> };
+    try {
+      res = await meta.launch({ userId: ctx.userId, draft, createPaused: mode === "paused" });
+    } catch (e) {
+      // No raw error reaches Claude (MW2): the reason stays in the action log.
+      throw new ToolInputError(LAUNCH_WORDS.failed, { draftId, refused: "launch_failed", error: e instanceof Error ? e.message.slice(0, 200) : "error", files: filesSummary(sent.out) });
+    }
     const body = res.body as Partial<LaunchSummary> & { error?: string; source?: string };
     const campaignId = typeof body.metaCampaignId === "string" && body.metaCampaignId ? body.metaCampaignId : null;
-    if (res.status >= 400 || !campaignId) {
-      const reason = typeof body.error === "string" && body.error ? body.error.slice(0, 600) : `HTTP ${res.status}`;
+    const logged = { draftId, status: res.status, source: body.source ?? null, error: typeof body.error === "string" ? body.error.slice(0, 200) : null, files: filesSummary(sent.out) };
+    if (!campaignId) throw new ToolInputError(LAUNCH_WORDS.failed, { ...logged, refused: "launch_failed" });
+    const ids = launchedIds(body);
+    const link = adsManagerLink(adAccountId, campaignId);
+    const partway = res.status >= 400 || ids.failed.adSets > 0 || ids.failed.creatives > 0 || ids.failed.ads > 0;
+    if (partway) {
+      // MW2: how far it got, the campaign id and "{a} of {n} ad sets"; paused, Matas deletes it on Today; live, pause it.
+      const message =
+        mode === "paused"
+          ? LAUNCH_WORDS.partialPaused(campaignId, ids.adSets.length, plannedAdSets, link)
+          : LAUNCH_WORDS.partialLive(campaignId, ids.adSets.length, plannedAdSets, link);
       throw new ToolInputError(
-        campaignId
-          ? `The launch stopped after the campaign was made (${campaignId}): ${reason}`
-          : `Meta didn't launch it: ${reason}`,
-        { draftId, refused: "launch_failed", status: res.status, source: body.source ?? null, metaCampaignId: campaignId, files: filesSummary(sent.out) },
+        message,
+        { ...logged, refused: "launch_partial", metaCampaignId: campaignId, adSetIds: ids.adSets.map((a) => a.id), adIds: ids.ads.map((a) => a.id), failed: ids.failed },
+        { campaign: { id: campaignId }, adSets: ids.adSets, ads: ids.ads, creatives: ids.creatives, adsManager: link },
       );
     }
-    const ids = launchedIds(body);
-    const adAccountId = draft.settings.adAccountId || draft.settings.metaAdAccountId;
+    // MW2: Done; paused or live; the Ads Manager link; the undo note only for a paused launch (FC1: no Undo on a live one).
+    const message = [
+      MCP_WORDS.done(RESULT_WORDS.launched(THINGS.campaign, [campaignId])),
+      mode === "paused" ? LAUNCH_WORDS.paused : LAUNCH_WORDS.live(money.gbp),
+      LAUNCH_WORDS.link(link),
+      ...(mode === "paused" ? [MCP_WORDS.undoNote] : []),
+    ].join("\n");
     return {
       data: {
         draft_id: draftId,
@@ -269,17 +312,11 @@ export const launchDraftTool: McpTool = {
         adSets: ids.adSets,
         ads: ids.ads,
         creatives: ids.creatives,
-        failed: ids.failed,
-        adsManager: adsManagerLink(adAccountId, campaignId),
+        adsManager: link,
         moneyADay: money.gbp,
         ...(ceiling ? { ceiling: ceiling.ceilingGbp } : {}),
-        files: { sent: sent.out.calls, alreadyOnMeta: sent.out.uploaded - sent.out.calls },
-        // claude.mcp.done with today.mcp.result.launched.one; the undo note only where an Undo exists:
-        // a paused campaign Claude made (FC1), never a live launch (today.mcp.undo.live).
-        message:
-          mode === "paused"
-            ? `${MCP_WORDS.done(RESULT_WORDS.launched(THINGS.campaign, [campaignId]))} ${MCP_WORDS.undoNote}`
-            : MCP_WORDS.done(RESULT_WORDS.launched(THINGS.campaign, [campaignId])),
+        files: { sent: sent.out.calls, alreadyOnMeta: sent.out.uploaded - sent.out.calls, metaIds: uploadedIds(sent.out) },
+        message,
       },
       eventId,
       clientId,

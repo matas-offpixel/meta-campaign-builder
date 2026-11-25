@@ -62,6 +62,7 @@ export const renderPackageTool: McpTool = {
   kind: "render",
   readOnly: false,
   idempotent: false,
+  failedText: m4("m4.mcp.start_failed"),
   description: [
     "Renders a show's package on Remotion Lambda and files every file in the event's Drive folder: the 15 s montage, 9 files (no text, teaser, announcement × 9:16, 4:5, 1:1). Roll-call, top tracks and artist card aren't built yet.",
     "Only after Matas says yes in this chat: ask him the recipe and file count, whose clips they are, the claim and any text in the artist's voice, then pass approval with your question as asked and his reply word for word as answer. Never fill in approval yourself.",

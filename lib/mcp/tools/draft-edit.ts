@@ -42,6 +42,7 @@ import { changes, checksSummary, launchChecksFor, linkKey, requireDraftScope } f
 import { APPLY_WORDS, addReusedToDraft, applySentences, loadTemplatesFor, templateGroupId } from "../drafts/templates.ts";
 import { followAudienceGroups, groupKey } from "../../wizard/follow-audience-groups.ts";
 import { archiveDraftRow, loadWritableDraft, saveDraft, type WritableDraft } from "../drafts/write.ts";
+import { NAME_WORDS } from "../meta/words.ts";
 
 export const draftArgs = {
   draft_id: z.string().uuid().describe("The draft's id (a UUID), from get_drafts."),
@@ -596,19 +597,28 @@ export const setDraftNameTool: McpTool = {
   ].join(" "),
   inputSchema: {
     ...draftArgs,
-    name: z.string().min(1).max(MAX_CAMPAIGN_NAME_LENGTH).describe("The new name."),
+    // Trimmed by the input check, so an empty or blank name never reaches the tool.
+    name: z.string().trim().min(1).max(20_000).describe("The new name."),
   },
   async run(ctx, args) {
     requireDraftScope(ctx);
     const name = typeof args.name === "string" ? args.name.replace(/\s+/g, " ").trim() : "";
-    if (!name) throw new ToolInputError("Give a name.", { refused: "no_name" });
-    if (name.length > MAX_CAMPAIGN_NAME_LENGTH) throw new ToolInputError(`A name is at most ${MAX_CAMPAIGN_NAME_LENGTH} characters.`, { refused: "name_too_long" });
+    if (name.length > MAX_CAMPAIGN_NAME_LENGTH) throw new ToolInputError(NAME_WORDS.tooLong(MAX_CAMPAIGN_NAME_LENGTH), { refused: "name_too_long" });
     const loaded = await loadWritableDraft(ctx, args.draft_id, args.updated_at);
     const before = loaded.draft.settings.campaignName ?? "";
+    if (before === name) {
+      // claude.mcp.name.same: nothing is written.
+      return {
+        data: { draft_id: loaded.row.id, updated_at: loaded.row.updated_at, name, message: NAME_WORDS.same },
+        eventId: loaded.row.event_id,
+        clientId: loaded.row.client_id,
+        summary: { draftId: loaded.row.id, fieldsChanged: [] },
+      };
+    }
     const next: CampaignDraft = { ...loaded.draft, settings: { ...loaded.draft.settings, campaignName: name } };
     return finish(ctx, loaded, next, () => ({
-      data: { name, ...(before === name ? { note: "The name was already this." } : {}) },
-      summary: { fieldsChanged: before === name ? [] : ["campaignName"], changes: changes([["campaignName", before, name]]) },
+      data: { name, message: NAME_WORDS.done(before, name) },
+      summary: { fieldsChanged: ["campaignName"], changes: changes([["campaignName", before, name]]) },
     }));
   },
 };

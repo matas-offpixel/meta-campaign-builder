@@ -27,7 +27,6 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { SCOPE_DRAFT, SCOPE_META, SCOPE_RENDER, isMcpEnabled, mcpUrls } from "./config.ts";
 import { parseApproval } from "./meta/approval.ts";
-import { m4 } from "../render-templates/words.ts";
 import { checkBearer, scopeIncludes, wwwAuthenticate, type FlowDeps } from "./oauth/flow.ts";
 import type { ActionLogger } from "./action-log.ts";
 import { checkRateLimit } from "./rate-limit.ts";
@@ -75,11 +74,16 @@ const INSTRUCTIONS = [
 ].join(" ");
 
 function failedText(tool: McpTool): string {
-  if (tool.kind === "render") return m4("m4.mcp.start_failed");
+  if (tool.failedText) return tool.failedText;
   if (tool.kind === "meta") return "The Meta tool failed partway. Read the draft again with get_draft (or get_campaign_tree) to see what was sent before trying again.";
   return tool.kind === "draft"
     ? "The draft tool failed and nothing was saved. Try again, or read the draft again with get_draft."
     : "The read failed. Try again, or narrow the request.";
+}
+
+/** What Claude gets for a failed call: a refusal's own words and data, else the tool's failure row. Never the raw error. */
+export function errorAnswer(tool: McpTool, e: unknown): string {
+  return JSON.stringify(e instanceof ToolInputError ? { error: e.message, ...(e.data ?? {}) } : { error: failedText(tool) });
 }
 
 function buildServer(ctx: ToolContext, deps: McpHandlerDeps, grantId: string): McpServer {
@@ -127,7 +131,7 @@ function buildServer(ctx: ToolContext, deps: McpHandlerDeps, grantId: string): M
           const message = e instanceof Error ? e.message : String(e);
           error = message;
           if (e instanceof ToolInputError) result = e.summary;
-          text = JSON.stringify(e instanceof ToolInputError ? { error: message, ...(e.data ?? {}) } : { error: failedText(tool) });
+          text = errorAnswer(tool, e);
         }
         // A meta call's row carries the chat yes it ran on (approval_source claude_prompt).
         let approval: { asked: string; answer: string } | null = null;

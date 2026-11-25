@@ -142,3 +142,68 @@ launch.upload.video	Launch progress, second step, when videos are sent	Waiting f
 launch.upload.video.one	Launch progress, second step (1)	Waiting for Meta to finish 1 video…
 launch.upload.stopped	Launch panel (brick), an upload failed	Launch stopped: {n} files didn’t reach Meta, so nothing was created.
 launch.upload.stopped.one	Launch panel (brick) (1)	Launch stopped: 1 file didn’t reach Meta, so nothing was created.
+consent.line2.meta	Consent page, line 2, when the scope includes mcp:meta (straight apostrophes, as the page’s other lines)	It can read every client's events, spend, signup and ticket counts, drafts and learnings, and make, change and archive campaign drafts. It can also send files to Meta, launch drafts paused or live, change live campaigns, and change an event's dates and links, each only after you say yes in Claude. It can't start or raise spend past a client's daily ceiling, and every change is listed on Today.
+consent.title.upgrade.meta	Consent page, title, when a drafts grant is adding mcp:meta	Let Claude make Meta changes in Off/Pixel
+consent.title.upgrade.meta.loopback	Consent page, title, the same for an app on this computer	Let an app on this computer make Meta changes in Off/Pixel
+consent.upgrade.cancel_note.meta	Consent page, above the buttons, when a drafts grant is adding mcp:meta	If you cancel, it keeps the drafts access it has now.
+claude.mcp.refused.scope	Told to Claude, a connection without mcp:meta	Refused: this connection can’t make Meta changes. Only Matas’s can, once he reconnects Off/Pixel in Claude and allows Meta. Nothing was sent to Meta.
+claude.mcp.approval	Tool input description, approval	Matas’s yes, from this chat. Ask him first; never fill this in yourself.
+claude.mcp.approval.asked	Tool input description, approval.asked	The exact question you asked Matas in chat: what changes, where, the money a day, and paused or live.
+claude.mcp.approval.answer	Tool input description, approval.answer	Matas’s reply, word for word.
+claude.mcp.refused.no_client	Told to Claude, a live launch on a draft with no client	Refused: this draft has no client, so there’s no ceiling to check a live launch against. Nothing was sent to Meta.
+claude.mcp.refused.currency	Told to Claude, a budget not in £	Refused: this draft’s budget is in {currency}, and ceilings are in £. Nothing was sent to Meta.
+claude.mcp.refused.ceiling_unread	Told to Claude, the ceiling couldn’t be read	Refused: the client’s daily ceiling couldn’t be read. Try again. Nothing was sent to Meta.
+claude.mcp.refused.not_draft	Told to Claude; {status} prints as stored	Refused: this draft is {status}, and only a draft with status draft can be launched or have files sent. Nothing was sent to Meta.
+claude.mcp.refused.checks_unavailable	Told to Claude, the launch checks couldn’t run	Refused: the launch checks couldn’t run, so nothing was launched. Try again.
+claude.mcp.launch.mode.paused	Told to Claude, after Done, a paused launch	It’s paused: nothing spends until it’s switched on.
+claude.mcp.launch.mode.live	Told to Claude, after Done, a live launch	It’s live, up to £{x} a day.
+claude.mcp.launch.link	Told to Claude, last line of a launch	Ads Manager: {link}
+claude.mcp.launch.failed	Told to Claude, Meta made nothing (in place of Meta’s message)	Meta didn’t launch it, so nothing was created. Try again, or launch it in the app.
+claude.mcp.launch.partial.paused	Told to Claude, stopped after the campaign was made, paused; {adsets} is today.mcp.count.adsets	The launch stopped part way: campaign {id} was made with {a} of {adsets}. It’s paused, so nothing spends. Matas can delete it on Today, or finish it in Ads Manager: {link}
+claude.mcp.launch.partial.live	Told to Claude, stopped after the campaign was made, live	The launch stopped part way: campaign {id} was made with {a} of {adsets}, and it’s live. Pause it in the campaign tree or in Ads Manager: {link}
+claude.mcp.upload.failed.launch	Told to Claude, files failed during launch_draft; {files} is today.mcp.count.files	{f} of {files} didn’t go to Meta, so nothing was launched. Each is marked “Upload failed — retry or remove” on the draft: send them again with upload_draft_assets, or remove those ads.
+claude.mcp.upload.failed.launch.one	Told to Claude (1 failed)	1 of {files} didn’t go to Meta, so nothing was launched. It’s marked “Upload failed — retry or remove” on the draft: send it again with upload_draft_assets, or remove that ad.
+claude.mcp.upload.failed	Told to Claude, files failed during upload_draft_assets	{f} of {files} didn’t go to Meta. Each is marked “Upload failed — retry or remove” on the draft: send them again with upload_draft_assets, or remove those ads.
+claude.mcp.upload.failed.one	Told to Claude (1 failed)	1 of {files} didn’t go to Meta. It’s marked “Upload failed — retry or remove” on the draft: send it again with upload_draft_assets, or remove that ad.
+claude.mcp.upload.file_failed	Told to Claude, one line per failed file (in place of Meta’s message)	{file name}: Meta didn’t take it.
+claude.mcp.upload.video_failed	Told to Claude, a video Meta couldn’t process (in place of video_status)	{file name}: Meta couldn’t process the video.
+claude.mcp.upload.done	Told to Claude, upload_draft_assets	Done: {files} sent to Meta.
+claude.mcp.upload.already	Told to Claude, after Done	{n} files were already on the account, so they weren’t sent again.
+claude.mcp.upload.already.one	Told to Claude, after Done (1)	1 file was already on the account, so it wasn’t sent again.
+claude.mcp.upload.none	Told to Claude, nothing to send	Nothing to send: every file is already on Meta.
+claude.mcp.upload.no_launch	Told to Claude, last line of upload_draft_assets	Nothing was launched and nothing spends.
+claude.mcp.event.done	Told to Claude, update_event; changes joined with “ · ”	Done: {code} · {changes}. Only the app changed; nothing went to Meta.
+claude.mcp.event.change	{changes}, one field	{field}: {before} → {after}
+claude.mcp.event.cleared	{after} when a field is cleared	cleared
+claude.mcp.event.not_set	{before} when a field was empty	not set
+claude.mcp.event.field.announcement	{field}	Announcement
+claude.mcp.event.field.presale	{field}	Presale
+claude.mcp.event.field.general_sale	{field}	General sale
+claude.mcp.event.field.signup_url	{field}	Signup link
+claude.mcp.event.field.ticket_url	{field}	Ticket link
+claude.mcp.event.refused.empty	Told to Claude; {fields} are the field words joined with “, ”	Refused: give at least one of {fields}. Nothing changed.
+claude.mcp.event.refused.unknown	Told to Claude	Refused: no event with code {code}. Nothing changed.
+claude.mcp.event.refused.other_account	Told to Claude	Refused: this event belongs to another account, so it can’t be changed from here. Nothing changed.
+claude.mcp.event.refused.time_format	Told to Claude, a time without its zone	Refused: {field} needs a time with its zone, like 2026-11-27T18:00:00Z (London in winter) or 2027-04-10T10:00:00+01:00 (London in summer), or null to clear it. Nothing changed.
+claude.mcp.event.refused.time	Told to Claude	Refused: {field} isn’t a real time. Nothing changed.
+claude.mcp.event.refused.link	Told to Claude	Refused: {field} must be an https:// link, or null to clear it. Nothing changed.
+claude.mcp.event.failed	Told to Claude, the save failed (in place of the database’s message)	The event couldn’t be saved. Try again. Nothing changed.
+claude.mcp.name.done	Told to Claude, set_draft_name	Renamed: {old} → {new}.
+claude.mcp.name.same	Told to Claude	Nothing changed: the draft already has this name.
+claude.mcp.name.too_long	Told to Claude	Refused: a name is at most {max} characters. Nothing changed.
+claude.mcp.attach.outside	Told to Claude, a folder or file outside the shared drive	Refused: that folder or file isn’t in the Off/Pixel shared drive. Nothing was saved.
+claude.mcp.attach.file_outside	Told to Claude	Refused: file {id} isn’t in the Off/Pixel shared drive. Nothing was saved.
+claude.mcp.attach.not_media	Told to Claude	Refused: file {id} isn’t a photo or video. Nothing was saved.
+claude.mcp.attach.single_ratio	Told to Claude, a single file that isn’t 9:16	Refused: {name} is {ratio}. A file on its own must be 9:16: pass it in a pair as the feed file with its 9:16, or leave it out. Nothing was saved.
+claude.mcp.attach.pair.feed	Told to Claude	Refused: {name} is {ratio}. A pair’s feed file is 4:5 or 1:1. Nothing was saved.
+claude.mcp.attach.pair.vertical	Told to Claude	Refused: {name} is {ratio}. A pair’s vertical file is 9:16. Nothing was saved.
+claude.mcp.attach.pair.kinds	Told to Claude	Refused: {name a} is a {kind a} and {name b} is a {kind b}. A pair is two videos or two statics. Nothing was saved.
+claude.mcp.attach.kind.video	{kind}	video
+claude.mcp.attach.kind.static	{kind}	static
+claude.mcp.attach.pair.same	Told to Claude	Refused: a pair is two different files, the feed file and its 9:16. Nothing was saved.
+claude.mcp.attach.empty	Told to Claude	Refused: give file_ids or pairs. Nothing was saved.
+claude.mcp.attach.ratio_unknown	{ratio} when it couldn’t be measured	not measured
+claude.mcp.attach.picker_reason	Told to Claude; {reason} is the picker’s own word for the tile	Refused: {name}: {reason}. Nothing was saved.
+claude.mcp.attach.failed	Told to Claude, the copy failed (in place of the error’s message)	The files couldn’t be copied in. Try again. Nothing was saved.
+claude.mcp.attach.waiting	Told to Claude, after the ads are added	The new ads’ files wait in Off/Pixel and go to Meta at launch, or now with upload_draft_assets.
+claude.mcp.attach.pairs_off	Told to Claude, pairs while ENABLE_MULTI_PLACEMENT_ASSETS is off	Per-placement ads are switched off in Off/Pixel, so each pair launches as one file in every placement until they’re switched on.

@@ -40,6 +40,9 @@ export interface StoredSlotRef {
   assetId: string;
   aspectRatio: string;
   registryAssetId: string;
+  /** The file's own name (the picker's), else null. */
+  fileName: string | null;
+  mediaKind: "image" | "video";
 }
 
 /** Every slot the send step takes, in the draft's order. */
@@ -57,6 +60,8 @@ export function storedSlotsToSend(draft: Pick<CampaignDraft, "creatives">): Stor
           assetId: a.id,
           aspectRatio: a.aspectRatio,
           registryAssetId: a.registryAssetId!,
+          fileName: a.fileName?.trim() || null,
+          mediaKind: c.mediaType === "video" ? "video" : "image",
         });
       }
     }

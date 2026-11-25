@@ -86,17 +86,13 @@ export async function loadCeiling(db: Db, clientId: string): Promise<Ceiling | n
   return { clientId: row.client_id, dailyGbp: daily, setAt: row.set_at };
 }
 
-/**
- * What a ceiling refusal tells Claude. `none` and `over` are design's rows
- * (claude.mcp.refused.none, claude.mcp.refused). The other three have no
- * FC2 row: they are listed for design in the M3a PR.
- */
+/** What a ceiling refusal tells Claude: design's rows (claude.mcp.refused, .none, .no_client, .currency, .ceiling_unread). */
 export const CEILING_WORDS = {
   none: (client: string) => MCP_WORDS.refusedNoCeiling(client),
   over: (client: string, x: number, c: number) => MCP_WORDS.refusedOverCeiling(client, x, c),
-  noClient: "Refused: this draft has no client, so there's no daily ceiling to check a live launch against. Nothing was sent to Meta.",
-  notGbp: (currency: string) => `Refused: this draft's budget is in ${currency}; client ceilings are in £. Nothing was sent to Meta.`,
-  unreadable: "Refused: the client's daily ceiling couldn't be read. Nothing was sent to Meta.",
+  noClient: MCP_WORDS.refusedNoClient,
+  notGbp: (currency: string) => MCP_WORDS.refusedCurrency(currency),
+  unreadable: MCP_WORDS.refusedCeilingUnread,
 } as const;
 
 /**

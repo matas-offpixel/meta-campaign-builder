@@ -174,6 +174,8 @@ export interface McpTool {
   /** MCP idempotentHint. Defaults to kind === "read". */
   idempotent?: boolean;
   inputSchema: ZodRawShape;
+  /** What Claude is told when the tool throws something unexpected (a row; MW2: no raw error reaches Claude). */
+  failedText?: string;
   run(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolOutcome>;
 }
 

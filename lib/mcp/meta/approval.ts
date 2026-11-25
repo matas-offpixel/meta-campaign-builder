@@ -22,7 +22,7 @@ import { z } from "zod";
 import { SCOPE_META } from "../config.ts";
 import { scopeIncludes } from "../oauth/flow.ts";
 import { ToolInputError, type McpMetaDeps, type ToolContext } from "../tool-types.ts";
-import { MCP_WORDS } from "./words.ts";
+import { APPROVAL_FIELD_WORDS, MCP_WORDS } from "./words.ts";
 
 export const APPROVAL_MAX_CHARS = 1000;
 
@@ -38,22 +38,18 @@ export interface Approval {
  */
 export const approvalInput = z
   .object({
-    asked: z.string().max(20_000).optional().describe("The exact question you asked Matas in chat: what changes, where, money a day, paused or live."),
-    answer: z.string().max(20_000).optional().describe("Matas's reply, word for word."),
+    asked: z.string().max(20_000).optional().describe(APPROVAL_FIELD_WORDS.asked),
+    answer: z.string().max(20_000).optional().describe(APPROVAL_FIELD_WORDS.answer),
   })
   .optional()
-  .describe("Matas's yes, from this chat. Ask him first; never fill this in yourself.");
+  .describe(APPROVAL_FIELD_WORDS.approval);
 
 export const APPROVAL_WORDS = {
   /** claude.mcp.refused.no_approval: missing, empty, or over the limit (an approval that can't be stored isn't one). */
   missing: MCP_WORDS.refusedNoApproval,
   tooLong: MCP_WORDS.refusedNoApproval,
-  /**
-   * Not in the list (no FC2 row): the in-tool backstop for a grant without
-   * mcp:meta. The server answers 403 insufficient_scope before a tool runs,
-   * so Claude normally never sees this.
-   */
-  notMeta: "This connection can't make Meta changes. Only Matas's connection can, after he reconnects Off/Pixel in Claude and allows Meta.",
+  /** claude.mcp.refused.scope: the in-tool backstop (the server answers 403 insufficient_scope first). */
+  notMeta: MCP_WORDS.refusedScope,
 } as const;
 
 /** The approval, or null when it is missing or empty. Throws on a value over the limit. */
