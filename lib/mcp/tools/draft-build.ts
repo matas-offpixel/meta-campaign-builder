@@ -133,9 +133,13 @@ export const setDraftObjectiveTool: McpTool = {
 /** The 25 Nov floor (ad set structure analysis §2, §6): no enabled ad set under £8 a day. */
 export const AD_SET_FLOOR_GBP = 8;
 
+/** Ad set and audience group ids embed their audience ids (the wizard's own ids), so they can be long. */
+const ID_MAX = 2000;
+
 const adSetChange = z
   .object({
-    ad_set_id: z.string().min(1).max(120).optional().describe("The ad set (an id from get_draft's adSets)."),
+    // An interest ad set's id carries its interest ids ("as_ig_interests:6003…,6003…"), often past 120 characters.
+    ad_set_id: z.string().min(1).max(ID_MAX).optional().describe("The ad set (an id from get_draft's adSets)."),
     enabled: z.boolean().optional(),
     budget_per_day: z.number().min(0).max(100_000).optional().describe("GBP a day (daily drafts)."),
     budget_lifetime: z.number().min(0).max(1_000_000).optional().describe("GBP for the whole run (lifetime drafts)."),
@@ -145,7 +149,7 @@ const adSetChange = z
     advantage_plus: z.boolean().optional().describe("Advantage+ Audience (the audience becomes a suggestion)."),
     add_broad: z
       .object({
-        suggestion_group_id: z.string().min(1).max(120).optional().describe("A page, custom or interest group id (get_draft audiences.groups) to give Meta as Advantage+ suggestions. Leave out for a blank broad ad set."),
+        suggestion_group_id: z.string().min(1).max(ID_MAX).optional().describe("A page, custom or interest group id (get_draft audiences.groups) to give Meta as Advantage+ suggestions. Leave out for a blank broad ad set."),
       })
       .optional()
       .describe("Add a broad Advantage+ ad set on the draft's locations. The other fields of this change (name, budget, ages) apply to it."),

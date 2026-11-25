@@ -481,3 +481,12 @@ test("a folder elsewhere in the shared drive lists and attaches (a client's fold
   await refused(run(listDriveCreativesTool, ctx, { event_code: "NX27-GLITTERBOX", folder: "drv-foreign" }), /isn't in the Off\/Pixel shared drive/);
   await refused(run(attachDriveCreativesTool, ctx, { draft_id: D_DRAFT, updated_at: out.data.updated_at, file_ids: ["file-foreign"] }), /isn't in the Off\/Pixel shared drive/);
 });
+
+test("an interest ad set's long id (its interest ids, past 120 characters) is accepted by set_draft_ad_sets' input", async () => {
+  const { z } = await import("zod");
+  const { setDraftAdSetsTool } = await import("../tools/draft-build.ts");
+  const id = "as_ig_interests:1711794862401024,569202086550452,6002969794329,6003148839749,6003253526111,6003277780179,6816985058496,937077532996593";
+  assert.ok(id.length > 120);
+  const parsed = z.object(setDraftAdSetsTool.inputSchema).safeParse({ draft_id: D_DRAFT, updated_at: UPDATED, changes: [{ ad_set_id: id, enabled: false }] });
+  assert.equal(parsed.success, true, parsed.success ? "" : parsed.error.message);
+});
