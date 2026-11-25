@@ -18,7 +18,7 @@
  */
 
 import { withMetaWriteIdempotency, type MetaWriteContext } from "../meta/write-idempotency.ts";
-import type { Arm, Tier } from "./words.ts";
+import { callApplied, type Arm, type Tier } from "./words.ts";
 
 export type CallShow = {
   eventId: string;
@@ -103,5 +103,5 @@ export async function applyTestCall(
     const others = await deps.db.from("onsale_refresh_lines").update({ state: "applied", reason: `Applied on ${write.shows.length} shows`, applied_result: { call: { winner: write.winner, done } } }).in("id", ids);
     if (others.error) console.error("[retargeting] call lines on other shows", others.error.message);
   }
-  return { state: "applied", reason: `Layout ${write.winner} on ${write.shows.length} shows; ${loser} paused, each test ended`, result: { call: { winner: write.winner, done } } };
+  return { state: "applied", reason: callApplied(write.winner, write.shows.length), result: { call: { winner: write.winner, done } } };
 }

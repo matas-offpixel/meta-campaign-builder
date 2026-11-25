@@ -28,7 +28,7 @@ import { campaignFloor, shortCampaign } from "../onsale-refresh/purchase-campaig
 import { midBuildable, pagesWithoutRole, perLinkAudiences, tierSpecs, usablePages, type SourceSet } from "./audiences.ts";
 import { firedOn, landingLinks, landingShared, pixelOnOwnDomains, pixelOnPlatforms, ticketLinks, type PixelHosts } from "./links.ts";
 import { shareOn, STRETCH_LABEL } from "./shares.ts";
-import { armTiers, callFor, entered, type PooledRead } from "./test.ts";
+import { armTiers, callFor, entered, testStart, type PooledRead } from "./test.ts";
 import { currentDailyMinor, daysToShow, fundHold, isShare, RT4, startingBudget, type Funding, type Share, type Starting } from "./budget.ts";
 import {
   audiencesNarrow,
@@ -46,6 +46,7 @@ import {
   callWrite,
   noClearWinner,
   notCalledYet,
+  testStartsLine,
   testTitle,
   tooCloseToCall,
   tooSmallToTest,
@@ -60,6 +61,15 @@ import {
   LINKS_NOT_READ,
   noRegistrations,
   noSignupList,
+  signupsFailedSend,
+  signupsNotLinked,
+  signupsOn,
+  signupsWaiting,
+  SIGNUPS_FAILED_READ,
+  SIGNUPS_NOT_CONFIGURED,
+  SIGNUPS_SWITCH_OFF,
+  SIGNUPS_SWITCH_OFF_NONE,
+  type SignupsSync,
   retargetingOff,
   buyersListAge,
   CREATE_WRITE,
@@ -97,7 +107,7 @@ import {
 export type RetargetingState = "before_onsale" | "no_pixel" | "sells_elsewhere" | "nothing_reaches" | "no_purchases" | "no_url" | "not_read" | "links_no_page" | "links_failed" | "no_signal" | "no_spend" | "proposed" | "running";
 
 /** An RT8 action opens the client page's customer-audience wizard with this role and this show chosen. */
-export type MissingLine = { text: string; narrow: string; actions: { label: string; role: "signups" | "buyers" }[] };
+export type MissingLine = { text: string; narrow: string; actions: { label: string; role: "signups" | "buyers" }[]; muted?: boolean; /** SU1: "writes off" reads ochre. */ ochre?: boolean };
 
 export type TierRow = {
   tier: Tier;
@@ -159,6 +169,8 @@ export type CreateCard = {
   eachArm?: string | null;
   /** RT17: a show under £6.00 a day, "Too small to test: … so it runs layout A only." */
   tooSmall?: string | null;
+  /** Design (25 Nov): an entered show, "Test starts {d Mon}, 00:00 London time, and runs to {show day}." */
+  startsLine?: string | null;
 };
 
 export type RetargetingView = {
@@ -214,6 +226,10 @@ export type RetargetingInput = {
   test?: RunningTest | null;
   /** RT18: a running campaign's per-link audience sizes by key (Meta's approximate count); null = not read. */
   linkSizes?: Record<string, { lower: number; upper: number } | null>;
+  /** RT17: the ad account's timezone_name (the test starts at 00:00 there); null = not read, London. */
+  accountTimeZone?: string | null;
+  /** SU1: the show's Signups list into Meta (customer_list_syncs); absent = not switched on (RT15's line). */
+  signups?: SignupsSync | null;
   /** Delivering ad sets with "retarget" in their name, per campaign of the show (not this one). */
   legacy: { campaign: string; adSets: number }[];
   budgetGbp: number | null;
@@ -314,8 +330,32 @@ export function bottomSignals(sources: SourceSet, hosts: PixelHosts | undefined,
   return { visits, checkouts, registrations, signups, empty: !visits && !checkouts && !registrations && !signups };
 }
 
+/**
+ * SU1: Bottom's Signups line, where RT15's line sits. Not switched on is
+ * RT15 as it is (and nothing when a signups list was uploaded by hand);
+ * otherwise one state, then the lines added under it (writes off ochre,
+ * a failed read or send brick). Set like the buyers line: on Meta and
+ * waiting read muted.
+ */
+export function signupsLines(sync: SignupsSync | null, has: readonly string[], signupLists: number): MissingLine[] {
+  const line = (text: string, tone: "muted" | "brick" | "ochre", actions: MissingLine["actions"] = []): MissingLine => ({ text, narrow: text, actions, ...(tone === "muted" ? { muted: true } : tone === "ochre" ? { muted: true, ochre: true } : {}) });
+  if (!sync || sync.state === "not_on") {
+    if (signupLists) return [];
+    return [line(noSignupList(has), "brick", [{ label: UPLOAD_SIGNUP_LIST, role: "signups" }])];
+  }
+  const lines: MissingLine[] = [];
+  if (sync.state === "waiting") lines.push(line(signupsWaiting(sync.madeOn, has), "muted"));
+  else if (sync.state === "on") lines.push(line(signupsOn(sync.count, sync.lastSentAt, sync.rebuiltOn), "muted"));
+  else if (sync.state === "not_linked") lines.push(line(signupsNotLinked(sync.tag), "brick"));
+  else lines.push(line(SIGNUPS_NOT_CONFIGURED, "brick"));
+  if (sync.writesOff) lines.push(line(sync.state === "on" ? SIGNUPS_SWITCH_OFF : SIGNUPS_SWITCH_OFF_NONE, "ochre"));
+  if (sync.failedRead) lines.push(line(SIGNUPS_FAILED_READ, "brick"));
+  if (sync.failedSend) lines.push(line(signupsFailedSend(sync.failedSend.taken, sync.failedSend.sent), "brick"));
+  return lines;
+}
+
 /** RT2 / RT8 / RT13–RT15: the tier rows for these budgets, with their links and missing lines. */
-export function tierRows(input: Pick<RetargetingInput, "sources" | "pixelHosts" | "otherLandingHosts" | "linkSizes"> & { today?: string; created?: boolean }, budgets: Record<Tier, number>): { rows: TierRow[]; notes: MissingLine[] } {
+export function tierRows(input: Pick<RetargetingInput, "sources" | "pixelHosts" | "otherLandingHosts" | "linkSizes" | "signups"> & { today?: string; created?: boolean }, budgets: Record<Tier, number>): { rows: TierRow[]; notes: MissingLine[] } {
   const sources = input.sources;
   const others = new Set(input.otherLandingHosts ?? []);
   const signals = bottomSignals(sources, input.pixelHosts, others);
@@ -362,11 +402,8 @@ export function tierRows(input: Pick<RetargetingInput, "sources" | "pixelHosts" 
           const text = noRegistrations(landing.map((link) => link.name));
           missing.push({ text, narrow: text, actions: [] });
         }
-        if (!signupLists) {
-          const has = [...(hasTickets ? ["ticket-link visitors", "checkout starters"] : []), ...(hasLanding ? ["registrations"] : [])];
-          const text = noSignupList(has);
-          missing.push({ text, narrow: text, actions: [{ label: UPLOAD_SIGNUP_LIST, role: "signups" }] });
-        }
+        const has = [...(hasTickets ? ["ticket-link visitors", "checkout starters"] : []), ...(hasLanding ? ["registrations"] : [])];
+        missing.push(...signupsLines(input.signups ?? null, has, signupLists));
       }
     }
     if (tier === "mid_bottom" && hasLanding) {
@@ -447,7 +484,7 @@ export function planRetargeting(input: RetargetingInput): RetargetingPlan {
   // The show already has the campaign: it runs (PR B reads its tiers).
   if (input.existing) {
     const tiers = { bottom: input.existing.tiers?.bottom ?? 0, mid_bottom: input.existing.tiers?.mid_bottom ?? 0, mid: input.existing.tiers?.mid ?? 0 };
-    const { rows, notes } = tierRows({ sources: input.sources, pixelHosts: input.pixelHosts, otherLandingHosts: input.otherLandingHosts, linkSizes: input.linkSizes, created: true, today: input.today ?? input.runDay }, tiers);
+    const { rows, notes } = tierRows({ sources: input.sources, signups: input.signups, pixelHosts: input.pixelHosts, otherLandingHosts: input.otherLandingHosts, linkSizes: input.linkSizes, created: true, today: input.today ?? input.runDay }, tiers);
     const read = input.read;
     const path = read ? signalPath(read) : null;
     const signal = read && (path === "own_domain" || path === "platform") ? { wide: signalLine(path, { pixelName: read.pixelName, domain: read.domain }), narrow: signalNarrow(path, { pixelName: read.pixelName, domain: read.domain }) } : null;
@@ -516,7 +553,7 @@ export function planRetargeting(input: RetargetingInput): RetargetingPlan {
   }
   const defaultShare: Share = today.share as Share;
   const chosen = options.find((option) => option.share === defaultShare)!;
-  const { rows, notes } = tierRows({ sources: input.sources, pixelHosts: input.pixelHosts, otherLandingHosts: input.otherLandingHosts, today: input.today ?? input.runDay }, chosen.tiers);
+  const { rows, notes } = tierRows({ sources: input.sources, signups: input.signups, pixelHosts: input.pixelHosts, otherLandingHosts: input.otherLandingHosts, today: input.today ?? input.runDay }, chosen.tiers);
   const legacy = input.legacy.filter((row) => row.adSets > 0).map((row) => legacyAdSets(row.adSets, shortCampaign(row.campaign)));
   // RT17: entered at £6.00 a day or more, until the call; after it, one campaign on the winner.
   const winner = input.testWinner ?? null;
@@ -531,6 +568,8 @@ export function planRetargeting(input: RetargetingInput): RetargetingPlan {
     days,
     eachArm: arms ? eachArmLine(arms.halfMinor) : null,
     tooSmall: !winner && !testing ? tooSmallToTest(chosen.totalMinor) : null,
+    // 00:00 tomorrow in the ad account's timezone, as Apply sets it (testStart), from the read's day.
+    startsLine: arms && input.eventDate ? testStartsLine(testStart(input.accountTimeZone || "Europe/London", new Date(`${input.runDay}T12:00:00Z`)).at, input.eventDate) : null,
   };
   const signal = { wide: signalLine(path, { pixelName: read.pixelName, domain: read.domain }), narrow: signalNarrow(path, { pixelName: read.pixelName, domain: read.domain }) };
   const held = !input.where.draftId || !input.where.adAccountId ? NOT_OURS : input.ads.length ? null : NO_ADS;

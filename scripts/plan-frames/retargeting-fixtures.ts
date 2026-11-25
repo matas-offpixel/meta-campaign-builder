@@ -253,9 +253,11 @@ export function rgPlan() {
  * RE: an entered show's Create line, before Apply (design asked for it, 17 Nov;
  * RT17 doesn't draw one). XMPL-WHSE on Tue 17 Nov: £240.00 current daily
  * spend, 10 %, £24.00 a day, so £12.00 to each arm. The line says so in
- * RT17's words; when the test starts is open for design (no record sentence).
+ * RT17's words, then design's 25 Nov start line: 00:00 tomorrow in the ad
+ * account's timezone (London here), "Test starts 18 Nov, 00:00 London
+ * time, and runs to Sat 19 Dec."
  */
-export function rePlan() {
+export function rePlan(accountTimeZone: string | null = null) {
   const plan = planRetargeting(
     input({
       eventId: "xmpl-whse",
@@ -266,6 +268,7 @@ export function rePlan() {
       sources: raSources(),
       existing: null,
       legacy: [],
+      accountTimeZone,
     }),
   );
   return { view: plan.view, line: rbLine(plan.view) };

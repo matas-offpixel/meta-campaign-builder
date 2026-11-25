@@ -215,6 +215,62 @@ export function noSignupList(sources: readonly string[]): string {
   return `No signup list yet, so Bottom runs on ${list} only.`;
 }
 
+// ── SU1 (docs/design-record/2026-11-25-signups-into-meta.html; words-rc su.line.*) ──
+
+/** SU1: the show's Signups list, one state at a time (RT15's "No signup list yet…" is "not_on"). */
+export type SignupsState =
+  | { state: "not_on" }
+  | { state: "waiting"; madeOn: string }
+  | { state: "on"; count: number; lastSentAt: string; rebuiltOn: string }
+  | { state: "not_linked"; tag: string }
+  | { state: "not_configured" };
+
+/** SU1: the state, and the lines added under it when they apply. */
+export type SignupsSync = SignupsState & { writesOff?: boolean; failedRead?: boolean; failedSend?: { taken: number; sent: number } | null };
+
+const LONDON_MOMENT = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/London", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+
+/** SU4: a moment in London time, "Tue 25 Nov, 08:00". */
+export function londonMoment(iso: string): string {
+  const parts = Object.fromEntries(LONDON_MOMENT.formatToParts(new Date(iso)).map((part) => [part.type, part.value]));
+  return `${shortDay(`${parts.year}-${parts.month}-${parts.day}`)}, ${parts.hour}:${parts.minute}`;
+}
+
+const signupCount = (n: number) => (n === 1 ? "1 signup" : `${group(String(n))} signups`);
+
+/** su.line.on / .one: "Signups list · {n} signups · last sent {date, time} · rebuilt in full {date}". */
+export function signupsOn(count: number, lastSentAt: string, rebuiltOn: string): string {
+  return `Signups list · ${signupCount(count)} · last sent ${londonMoment(lastSentAt)} · rebuilt in full ${shortDay(rebuiltOn)}`;
+}
+
+/** su.line.waiting: "No signup list yet: it’s made on {date}, 08:00, so until then Bottom runs on {sources} only." */
+export function signupsWaiting(madeOn: string, sources: readonly string[]): string {
+  const list = sources.length > 1 ? `${sources.slice(0, -1).join(", ")} and ${sources.at(-1)}` : (sources[0] ?? "nothing else");
+  return `No signup list yet: it’s made on ${shortDay(madeOn)}, 08:00, so until then Bottom runs on ${list} only.`;
+}
+
+/** su.line.switch_off (ochre), under the list line. */
+export const SIGNUPS_SWITCH_OFF = "Sending signups to Meta is switched off, so this list isn’t kept current.";
+/** su.line.switch_off.none (ochre), under the waiting line. */
+export const SIGNUPS_SWITCH_OFF_NONE = "Sending signups to Meta is switched off, so the list won’t be made until it’s on.";
+
+/** su.line.not_linked (brick): the tag printed exactly as stored. */
+export function signupsNotLinked(tag: string): string {
+  return `CIRQLIN has no page tagged ${tag}, so this show’s signups can’t be sent.`;
+}
+
+/** su.line.not_configured (brick). */
+export const SIGNUPS_NOT_CONFIGURED = "The CIRQLIN read isn’t set up, so no signups are sent.";
+
+/** su.line.failed.read (brick). */
+export const SIGNUPS_FAILED_READ = "The last run couldn’t read CIRQLIN, so nothing new was sent. The next run tries again tomorrow at 08:00.";
+
+/** su.line.failed.send / .one (brick). */
+export function signupsFailedSend(taken: number, sent: number): string {
+  if (sent === 1) return "Meta didn’t take the 1 signup in the last run. The next run sends it tomorrow at 08:00.";
+  return `Meta took ${group(String(taken))} of ${group(String(sent))} signups in the last run. The next run sends the rest tomorrow at 08:00.`;
+}
+
 /** RT15: no registrations reaching the pixel from the landing pages in 28 days. */
 export function noRegistrations(pages: readonly string[]): string {
   return `No registrations from ${joinNames(pages)} reach the pixel in 28 days, so Bottom counts signups from the signup list only.`;
@@ -349,6 +405,30 @@ export function eachArmNarrow(halfMinor: number): string {
   return `${pence(halfMinor, { minor: true })} a day to each arm`;
 }
 export const META_SPLITS = "Meta splits people at random, so nobody sees both";
+
+const LONDON_CLOCK = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/London", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+
+/**
+ * Design (25 Nov): "Test starts {d Mon}, 00:00 London time, and runs to {show day}."
+ * The start is 00:00 in the ad account's timezone (testStart), written in
+ * London time, so an account outside London reads its own hour.
+ */
+export function testStartsLine(startAt: Date, showDay: string): string {
+  const parts = Object.fromEntries(LONDON_CLOCK.formatToParts(startAt).map((part) => [part.type, part.value]));
+  return `Test starts ${dayMonth(`${parts.year}-${parts.month}-${parts.day}`)}, ${parts.hour}:${parts.minute} London time, and runs to ${shortDay(showDay)}.`;
+}
+
+/** Design (25 Nov): the applied call. */
+export function callApplied(winner: Arm, shows: number): string {
+  const loser: Arm = winner === "A" ? "B" : "A";
+  return `Layout ${winner} now runs on ${shows} shows. Layout ${loser} is paused and each test has ended.`;
+}
+
+/** Design (25 Nov): Meta refused the A/B test; Meta's words go underneath (testRefusedSaid). */
+export const TEST_REFUSED = "Meta didn't accept the A/B test, so nothing is switched on: both arms are made and paused.";
+export function testRefusedSaid(metaWords: string): string {
+  return `Meta said: "${metaWords}"`;
+}
 
 /** RT17: "Too small to test: £{total} a day is under £6.00, so it runs layout A only." */
 export function tooSmallToTest(totalMinor: number): string {

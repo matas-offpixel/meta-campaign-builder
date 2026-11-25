@@ -38,7 +38,7 @@ export function wizardHref(clientId: string | null, eventId: string | null, role
 
 function Missing({ line, clientId, eventId, narrow = false }: { line: MissingLine; clientId: string | null; eventId: string | null; narrow?: boolean }) {
   return (
-    <p className="mt-0.5 text-xs text-destructive" data-missing>
+    <p className={`mt-0.5 text-xs ${line.ochre ? "text-amber-700 dark:text-amber-300" : line.muted ? "text-muted-foreground" : "text-destructive"}`} data-missing data-tone={line.ochre ? "ochre" : line.muted ? "muted" : "brick"}>
       {k(narrow ? line.narrow : line.text)}
       {line.actions.map((action, index) => (
         <span key={action.label}>
@@ -49,6 +49,21 @@ function Missing({ line, clientId, eventId, narrow = false }: { line: MissingLin
         </span>
       ))}
     </p>
+  );
+}
+
+/** A stored reason's first line follows the state word; any later line (Meta's words) sits underneath. */
+function StateText({ state, reason }: { state: Parameters<typeof stateText>[0]; reason: string | null }) {
+  const [first, ...rest] = (reason ?? "").split("\n");
+  return (
+    <>
+      {k(stateText(state, first || null))}
+      {rest.map((text) => (
+        <span key={text} className="block" data-reason-under>
+          {k(text)}
+        </span>
+      ))}
+    </>
   );
 }
 
@@ -170,6 +185,7 @@ function CreateCard({ view, line, shadow, apply, actions, share }: { view: Retar
           <p className="mt-0.5 text-xs text-muted-foreground">{k(option.hold)}</p>
           {create.eachArm ? <p className="mt-0.5 text-xs text-muted-foreground" data-each-arm>{k(create.eachArm)}</p> : null}
           {create.tooSmall ? <p className="mt-0.5 text-xs text-muted-foreground" data-too-small>{k(create.tooSmall)}</p> : null}
+          {create.startsLine ? <p className="mt-0.5 text-xs text-muted-foreground" data-test-starts>{k(create.startsLine)}</p> : null}
           {create.legacy.map((text) => (
             <p key={text} className="mt-0.5 text-xs text-muted-foreground" data-legacy>
               {k(text)}
@@ -179,7 +195,7 @@ function CreateCard({ view, line, shadow, apply, actions, share }: { view: Retar
           {blocked ? <p className="mt-0.5 text-xs text-muted-foreground">{k(blocked)}</p> : null}
           {state !== "to_review" ? (
             <p className={`mt-0.5 text-xs ${state === "failed" ? "text-destructive" : "text-muted-foreground"}`} data-line-state={state}>
-              {k(stateText(state, line?.reason ?? null))}
+              <StateText state={state} reason={line?.reason ?? null} />
             </p>
           ) : null}
         </div>
@@ -370,7 +386,7 @@ function CallCard({ line, shadow, apply, actions }: { line: PanelLine; shadow: b
           {line.narrow?.writeText ? <p className="mt-0.5 text-xs text-muted-foreground sm:hidden">{k(line.narrow.writeText)}</p> : null}
           {state !== "to_review" ? (
             <p className={`mt-0.5 text-xs ${state === "failed" ? "text-destructive" : "text-muted-foreground"}`} data-line-state={state}>
-              {k(stateText(state, line.reason ?? null))}
+              <StateText state={state} reason={line.reason ?? null} />
             </p>
           ) : null}
         </div>

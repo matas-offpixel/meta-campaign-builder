@@ -213,7 +213,8 @@ describe("Ops (c) at Apply: nothing delivers before the split", () => {
     const { deps, ctx } = setup();
     const out = await applyRetargetingCampaign(deps(fake.meta) as never, enteredLine(), ctx as never);
     assert.equal(out.state, "failed");
-    assert.match(String(out.reason), /^Meta refused the A\/B test: Invalid parameter: a campaign in this cell has a scheduled start\. Created paused: both arms' campaigns/);
+    // Design (25 Nov): the sentence, then Meta's words underneath; no "Created paused: …" (the sentence says both arms are made and paused).
+    assert.equal(String(out.reason), "Meta didn't accept the A/B test, so nothing is switched on: both arms are made and paused.\nMeta said: \"Invalid parameter: a campaign in this cell has a scheduled start\"");
     assert.equal(fake.calls.some(([name, , fields]) => name === "setAdSetActive" || (name === "updateCampaign" && (fields as Record<string, unknown>)?.status === "ACTIVE")), false);
   });
 
@@ -357,5 +358,42 @@ describe("design (17 Nov): RG-393's each-arm line, and an entered show's Create 
     assert.equal(view.create!.eachArm, "£12.00 a day to each arm · Meta splits people at random, so nobody sees both");
     assert.equal(view.create!.tooSmall, null);
     assert.equal(line.kind, "retargeting_campaign");
+  });
+});
+
+describe("design (25 Nov): the start line, the applied call, the refused test", () => {
+  it("start line: \"Test starts {d Mon}, 00:00 London time, and runs to {show day}.\" for a London ad account (frame RE)", async () => {
+    const { rePlan } = await import("../../../scripts/plan-frames/retargeting-fixtures.ts");
+    assert.equal(rePlan().view.create!.startsLine, "Test starts 18 Nov, 00:00 London time, and runs to Sat 19 Dec.");
+    assert.equal(rePlan("Europe/London").view.create!.startsLine, "Test starts 18 Nov, 00:00 London time, and runs to Sat 19 Dec.");
+  });
+
+  it("start line: computed in the ad account's timezone, not London's — 00:00 New York is 05:00 London, 00:00 Tokyo is 15:00 the day before", async () => {
+    const { rePlan } = await import("../../../scripts/plan-frames/retargeting-fixtures.ts");
+    assert.equal(rePlan("America/New_York").view.create!.startsLine, "Test starts 18 Nov, 05:00 London time, and runs to Sat 19 Dec.");
+    assert.equal(rePlan("Asia/Tokyo").view.create!.startsLine, "Test starts 17 Nov, 15:00 London time, and runs to Sat 19 Dec.");
+    // The instant Apply would set is the same one the line names.
+    assert.equal(testStart("America/New_York", new Date("2026-11-17T12:00:00Z")).at.toISOString(), "2026-11-18T05:00:00.000Z");
+    // In summer London is an hour ahead of UTC: 00:00 New York (EDT) is 05:00 London (BST).
+    assert.equal(words.testStartsLine(testStart("America/New_York", new Date("2027-06-01T12:00:00Z")).at, "2027-06-20"), "Test starts 2 Jun, 05:00 London time, and runs to Sun 20 Jun.");
+  });
+
+  it("no start line under £6.00 (too small) or after the call (one campaign on the winner)", async () => {
+    const { rbView } = await import("../../../scripts/plan-frames/retargeting-fixtures.ts");
+    assert.equal(rbView().create!.startsLine ?? null, null);
+  });
+
+  it("applied call: \"Layout {X} now runs on {n} shows. Layout {Y} is paused and each test has ended.\"", () => {
+    assert.equal(words.callApplied("A", 6), "Layout A now runs on 6 shows. Layout B is paused and each test has ended.");
+    assert.equal(words.callApplied("B", 3), "Layout B now runs on 3 shows. Layout A is paused and each test has ended.");
+    assert.match(readFileSync("lib/retargeting/apply-call.ts", "utf8"), /reason: callApplied\(write\.winner, write\.shows\.length\)/);
+  });
+
+  it("refused test: the words, and the panel draws a reason's later line underneath", () => {
+    assert.equal(words.TEST_REFUSED, "Meta didn't accept the A/B test, so nothing is switched on: both arms are made and paused.");
+    assert.equal(words.testRefusedSaid("Invalid parameter"), 'Meta said: "Invalid parameter"');
+    const panel = readFileSync("components/dashboard/events/retargeting-panel.tsx", "utf8");
+    assert.match(panel, /const \[first, \.\.\.rest\] = \(reason \?\? ""\)\.split\("\\n"\)/);
+    assert.match(panel, /data-test-starts/);
   });
 });

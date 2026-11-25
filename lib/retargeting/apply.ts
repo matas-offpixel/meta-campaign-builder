@@ -39,7 +39,7 @@ import { tierAudienceName, tierSpecs, type TierAudience } from "./audiences.ts";
 import { daysToShow, isShare, RT4, type Share } from "./budget.ts";
 import type { RetargetingBuild } from "./plan.ts";
 import { dayMonth } from "../onsale-refresh/schedule.ts";
-import { armAdSetName, armCampaignName, pence, pounds, tierAdSetName, type Arm, type Tier } from "./words.ts";
+import { armAdSetName, armCampaignName, pence, pounds, testRefusedSaid, TEST_REFUSED, tierAdSetName, type Arm, type Tier } from "./words.ts";
 import { armSpecs, metaTime, studyPayload, testStart } from "./test.ts";
 
 type Db = Pick<SupabaseClient, "from">;
@@ -484,7 +484,8 @@ async function applyTestArms(
       progress.test.studyId = await withMetaWriteIdempotency(ctx.ledger, "retargeting_study_create", keyBase, () => deps.meta.createAdStudy!(businessId!, payload), { required: true });
       await storeProgress(deps.db, line.id, progress);
     } catch (err) {
-      return fail(`Meta refused the A/B test: ${ctx.plainMetaReason(err)}`, { error: err instanceof Error ? err.message : String(err), step: "study" });
+      // Design (25 Nov): the sentence says what's made and paused, so no "Created paused: …" after it; Meta's words underneath.
+      return { state: "failed", reason: `${TEST_REFUSED}\n${testRefusedSaid(ctx.plainMetaReason(err).replace(/\.$/, ""))}`, result: { retargeting: progress, error: err instanceof Error ? err.message : String(err), step: "study" } };
     }
   }
   // 6. Switched on: every arm ad set, then both campaigns. None delivers before the test's start.
