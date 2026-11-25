@@ -586,3 +586,55 @@ test("suggestions only: lists taken as given go on a broad Advantage+ ad set as 
     if (grp?.audienceIds.includes("120252283933420755")) assert.equal(r.advantagePlus, true, r.id);
   }
 });
+
+// ── the wizard's step checks beside runLaunchGuard's ────────────────────────
+
+test("launch checks carry the wizard's step checks as their own list: an ad with no link is a wizard blocker", async () => {
+  const { runLaunchChecksTool } = await import("../tools/pending.ts");
+  const { ctx, db } = draftCtx();
+  // 25 Nov: attach after removing every ad left the new ads with no link; runLaunchGuard saw nothing.
+  await shape(db, (d) => ({ ...d, creatives: d.creatives.map((c) => ({ ...c, destinationUrl: "" })), creativeAssignments: { "as-1": ["cr-1", "cr-2"], "as-2": ["cr-1", "cr-2"] } }));
+  const out = await runLaunchChecksTool.run(ctx, { draft_id: D_DRAFT });
+  const checks = (out.data as { launchChecks: { ran: boolean; checks: Array<{ key: string }>; wizard: { blockers: string[]; warnings: string[] } } }).launchChecks;
+  assert.equal(checks.ran, true);
+  assert.ok(checks.wizard.blockers.some((b) => /url|link|destination/i.test(b)), checks.wizard.blockers.join(" | "));
+  assert.equal((out.summary.wizardChecks as { blockers: number }).blockers, checks.wizard.blockers.length);
+  // Every write answers with both lists.
+  const w = await run(setDraftScheduleTool, ctx, { start: "2026-12-01", end: "2026-12-14" });
+  assert.ok(((w.data.launchChecks as { wizard: { blockers: string[] } }).wizard.blockers).length > 0);
+});
+
+// ── ad names from the Drive file's recipe ───────────────────────────────────
+
+test("recipeOf reads both export file-name forms and refuses anything else", async () => {
+  const { recipeOf, recipeNames } = await import("../drafts/ad-names.ts");
+  assert.deepEqual(recipeOf("ES27-ENZOSIRAGUSA_ES_ugc-caption-2_signup_9x16.mp4"), { recipe: "ugc-caption-2", variant: "signup" });
+  assert.deepEqual(recipeOf("ES27-ENZOSIRAGUSA_ES_artist-card-jazz-fusic_signup_9x16.mp4"), { recipe: "artist-card-jazz-fusic", variant: "signup" });
+  assert.deepEqual(recipeOf("ES27-ENZOSIRAGUSA__artist-enzo-siragusa__raw__ugc-2-original__no-cta__r1__9x16.mp4"), { recipe: "ugc-2-original", variant: "no-cta" });
+  for (const bad of ["clip-a.mp4", "ES27-ENZOSIRAGUSA_QA-contact-sheet.jpg", "IMG_1234.MOV", "a_b_c_d_e_f.mp4", "", null]) assert.equal(recipeOf(bad), null, String(bad));
+  assert.deepEqual(recipeNames([{ recipe: "roll-call", variant: "signup" }, { recipe: "roll-call", variant: "no-cta" }, { recipe: "raw-uncut", variant: "signup" }]), ["roll-call · signup", "roll-call · no-cta", "raw-uncut"]);
+});
+
+test("set_draft_ad_names: from_files names each ad by its file's recipe, with the old → new → file mapping; an unparsed file stops it", async () => {
+  const { setDraftAdNamesTool } = await import("../tools/draft-build.ts");
+  const { ctx, db } = draftCtx();
+  const slot = (fileName: string, driveFileId: string) => [{ id: "v", name: "Variation 1", assets: [{ id: "a", aspectRatio: "9:16", fileName, driveFileId, uploadStatus: "pending" }] }];
+  await shape(db, (d) => ({
+    ...d,
+    creatives: [
+      { ...d.creatives[0]!, name: "UGC - UGC 1", assetVariations: slot("ES27-X_ES_ugc-caption-2_signup_9x16.mp4", "f1") as never },
+      { ...d.creatives[1]!, name: "UGC - UGC 2", assetVariations: slot("ES27-X__artist-x__raw__ugc-2-original__no-cta__r1__9x16.mp4", "f2") as never },
+    ],
+  }));
+  const out = await run(setDraftAdNamesTool, ctx, { from_files: true });
+  assert.deepEqual(out.data.renamed, [
+    { adId: "cr-1", from: "UGC - UGC 1", to: "ugc-caption-2", driveFileId: "f1" },
+    { adId: "cr-2", from: "UGC - UGC 2", to: "ugc-2-original", driveFileId: "f2" },
+  ]);
+  const after = await saved(db);
+  assert.deepEqual(after.creatives.map((c) => [c.name, c.nameSource]), [["ugc-caption-2", "file"], ["ugc-2-original", "file"]]);
+  await shape(db, (d) => ({ ...d, creatives: [{ ...d.creatives[0]!, assetVariations: slot("clip-a.mp4", "f9") as never }, d.creatives[1]!] }));
+  await refused(run(setDraftAdNamesTool, ctx, { updated_at: String((await readRow(db, D_DRAFT))!.updated_at), from_files: true }), /don't name a recipe.*clip-a\.mp4/);
+  const byHand = await run(setDraftAdNamesTool, ctx, { updated_at: String((await readRow(db, D_DRAFT))!.updated_at), names: [{ ad_id: "cr-1", name: "Clip A" }] });
+  assert.equal((byHand.data.renamed as Array<{ to: string }>)[0]!.to, "Clip A");
+});

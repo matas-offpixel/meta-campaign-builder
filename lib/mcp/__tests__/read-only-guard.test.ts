@@ -132,6 +132,8 @@ const EXTERNAL_READERS: Record<string, readonly string[]> = {
   // The launch checks (#1361): runLaunchGuard's database reads, and takeIdentity (pure).
   "lib/launch-guard/load.ts": ["runLaunchGuard"],
   "lib/launch-guard/check.ts": ["takeIdentity"],
+  // The wizard's own step checks (Review's validateStep(7)): pure.
+  "lib/validation.ts": ["validateStep"],
   // M2b: the wizard's own helpers (pure).
   "lib/wizard/objective-change.ts": ["OBJECTIVE_LABELS", "objectiveChangePatch", "stampRulesObjective"],
   "lib/wizard/assignments.ts": ["assignAllCreatives", "assignmentCounts", "forAdSets", "withoutCreatives"],

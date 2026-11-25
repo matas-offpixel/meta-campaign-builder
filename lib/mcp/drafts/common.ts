@@ -10,9 +10,10 @@
 import { SCOPE_DRAFT } from "../config.ts";
 import { scopeIncludes } from "../oauth/flow.ts";
 import { runLaunchGuard } from "../../launch-guard/load.ts";
+import { validateStep } from "../../validation.ts";
 import type { LaunchCheck } from "../../launch-guard/types.ts";
 import type { CampaignDraft } from "../../types.ts";
-import { ToolInputError, type Db, type LaunchCheckLine, type LaunchChecksOutcome, type McpDraftDeps, type ToolContext } from "../tool-types.ts";
+import { ToolInputError, type Db, type LaunchCheckLine, type LaunchChecksOutcome, type McpDraftDeps, type ToolContext, type WizardChecks } from "../tool-types.ts";
 
 /** The server refuses first (403 insufficient_scope); this is the same rule again inside the tool. */
 export function requireDraftScope(ctx: ToolContext): McpDraftDeps {
@@ -35,19 +36,38 @@ export async function runChecks(db: Db, draft: CampaignDraft): Promise<{ blocker
   return { blockers: r.blockers, warnings: r.warnings, checks: r.checks.map(lineOf) };
 }
 
-/** The launch checks for the draft as saved. Never throws: a failed run is reported, not fatal. */
-export async function launchChecksFor(ctx: ToolContext, draft: CampaignDraft): Promise<LaunchChecksOutcome> {
+/**
+ * The wizard's own step checks, as Review runs them (validateStep(7), every
+ * visible step), in the wizard's words: errors block Launch, warnings don't.
+ */
+export function wizardChecks(draft: CampaignDraft): WizardChecks {
   try {
-    return { ran: true, ...(await runChecks(ctx.db, draft)) };
+    const r = validateStep(7, draft);
+    return { blockers: [...new Set(r.errors)], warnings: [...new Set(r.warnings ?? [])] };
   } catch {
-    return { ran: false, error: CHECKS_FAILED };
+    return { blockers: [], warnings: [], error: "The wizard's step checks couldn't run." };
+  }
+}
+
+/**
+ * The launch checks for the draft as saved: runLaunchGuard (the record's
+ * checks) and, as a separate list, the wizard's step checks. Never throws: a
+ * failed run is reported, not fatal.
+ */
+export async function launchChecksFor(ctx: ToolContext, draft: CampaignDraft): Promise<LaunchChecksOutcome> {
+  const wizard = wizardChecks(draft);
+  try {
+    return { ran: true, ...(await runChecks(ctx.db, draft)), wizard };
+  } catch {
+    return { ran: false, error: CHECKS_FAILED, wizard };
   }
 }
 
 /** A launch-checks outcome as counts and keys for the action log. */
 export function checksSummary(c: LaunchChecksOutcome): Record<string, unknown> {
-  if (!c.ran) return { launchChecks: "error" };
-  return { launchChecks: { blockers: c.blockers, warnings: c.warnings, keys: [...new Set(c.checks.map((x) => x.key))] } };
+  const wizard = { blockers: c.wizard.blockers.length, warnings: c.wizard.warnings.length };
+  if (!c.ran) return { launchChecks: "error", wizardChecks: wizard };
+  return { launchChecks: { blockers: c.blockers, warnings: c.warnings, keys: [...new Set(c.checks.map((x) => x.key))] }, wizardChecks: wizard };
 }
 
 export interface Change {

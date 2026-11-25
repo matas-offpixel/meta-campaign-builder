@@ -70,8 +70,8 @@ async function refused(p: Promise<unknown>, re: RegExp): Promise<ToolInputError>
 
 const draftWrites = (db: { writes: Array<{ table: string; op: string }> }) => db.writes.filter((w) => w.table === "campaign_drafts");
 
-test("twenty-five tools: nine read, sixteen draft (M2 + M2b); draft tools say what they change, one example each", async () => {
-  assert.equal(MCP_TOOLS.length, 25);
+test("twenty-six tools: nine read, seventeen draft (M2 + M2b); draft tools say what they change, one example each", async () => {
+  assert.equal(MCP_TOOLS.length, 26);
   assert.deepEqual(DRAFT_TOOLS.map((t) => t.name).sort(), [
     "apply_audience_template",
     "archive_draft",
@@ -80,6 +80,7 @@ test("twenty-five tools: nine read, sixteen draft (M2 + M2b); draft tools say wh
     "list_drive_creatives",
     "remove_draft_creatives",
     "replicate_to_event",
+    "set_draft_ad_names",
     "set_draft_ad_sets",
     "set_draft_audiences",
     "set_draft_budget",
@@ -451,7 +452,10 @@ test("launch checks: runLaunchGuard's real result after every write, on the draf
   const b = draftCtx();
   const broken = { ...b.ctx, db: fakeDb(draftTablesForBroken()) } as ToolContext;
   const out = await run(setDraftLinkTool, broken, { draft_id: D_DRAFT, updated_at: UPDATED, url: TGT_SIGNUP });
-  assert.deepEqual(out.data.launchChecks, { ran: false, error: "The launch checks couldn't run. The change is saved." });
+  const failed = out.data.launchChecks as { ran: boolean; error: string; wizard: { blockers: string[] } };
+  assert.deepEqual([failed.ran, failed.error], [false, "The launch checks couldn't run. The change is saved."]);
+  // The wizard's step checks still come back on their own list.
+  assert.ok(Array.isArray(failed.wizard.blockers));
 });
 
 function draftTablesForBroken() {

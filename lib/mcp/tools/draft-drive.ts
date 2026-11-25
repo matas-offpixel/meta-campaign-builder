@@ -35,6 +35,7 @@ import type { AdCreativeDraft, CampaignDraft, CTAType } from "../../types.ts";
 import { ToolInputError, type McpTool, type ToolContext } from "../tool-types.ts";
 import { checksSummary, launchChecksFor, linkKey, requireDraftScope } from "../drafts/common.ts";
 import { loadWritableDraft, saveDraft } from "../drafts/write.ts";
+import { recipeNames, recipeOf } from "../drafts/ad-names.ts";
 import { loadEventByCode, normaliseCode } from "./shared.ts";
 
 const CTAS: readonly CTAType[] = ["sign_up", "learn_more", "book_now", "buy_tickets"];
@@ -143,7 +144,7 @@ export const attachDriveCreativesTool: McpTool = {
   readOnly: false,
   idempotent: false,
   description: [
-    "Adds files from the draft's event Drive (ids from list_drive_creatives) as new ads in the draft, one ad per 9:16 file, as the From Drive picker does: each file is copied into the app's Storage and the ad is named from its folder. Nothing is sent to Meta (the upload happens at launch).",
+    "Adds files from the draft's event Drive (ids from list_drive_creatives) as new ads in the draft, one ad per 9:16 file, as the From Drive picker does: each file is copied into the app's Storage. Each ad is named from its file's recipe (\"ugc-caption-2\", \"ugc-2-original\"), else from its folder as the picker names it. Nothing is sent to Meta (the upload happens at launch).",
     "Page and Instagram default to the event's client's. primary_text, headline and cta apply to every new ad; the link is the event's ticket link, else the last ad's. A file already in the draft is skipped.",
     "Artist-voice copy (one of the event's artist_first_person captions in the Lab) is refused until caption approvals exist.",
     'Example: attach_drive_creatives({ draft_id: "3f2c…-uuid", updated_at: "2026-11-24T10:00:00.123+00:00", file_ids: ["1XyZ…"], headline: "Glitterbox Newcastle", cta: "book_now" }).',
@@ -217,6 +218,7 @@ export const attachDriveCreativesTool: McpTool = {
     const added: Array<{ id: string; name: string; kind: string; fileId: string; storagePath: string; fromRegistry: boolean }> = [];
     const skipped: string[] = [];
     const failed: Array<{ fileId: string; reason: string }> = [];
+    const unparsed: string[] = [];
     for (const [folderId, ids] of byFolder) {
       const view = await loadPickerView(ctx.db as never, drive, event, { folderId, now: ctx.now });
       if (view.state !== "ok") throw viewRefusal(view.state);
@@ -252,8 +254,11 @@ export const attachDriveCreativesTool: McpTool = {
         }
         // The picker's onPrepare, then its onUploaded patch without the Meta fields.
         const c = createDefaultCreative(draft.settings.objective);
-        c.name = ad.name;
-        c.nameSource = "operator";
+        // The file's recipe (lib/mcp/drafts/ad-names.ts), else the picker's name.
+        const recipe = recipeOf(part.fileName);
+        c.name = recipe ? recipeNames([recipe], names)[0]! : ad.name;
+        c.nameSource = recipe ? "file" : "operator";
+        if (!recipe) unparsed.push(part.fileName);
         c.identity = { pageId, instagramAccountId: igId };
         c.captions = [{ id: deps.newId(), text: primaryText ?? fields.primaryText }];
         c.headline = headline ?? fields.headline;
@@ -276,9 +281,9 @@ export const attachDriveCreativesTool: McpTool = {
         });
         c.assetVariations = [variation];
         ads.push(c);
-        names.push(ad.name);
+        names.push(c.name);
         existingDriveIds.add(part.fileId);
-        added.push({ id: c.id, name: ad.name, kind: c.mediaType, fileId: part.fileId, storagePath: copy.storagePath, fromRegistry: copy.fromRegistry });
+        added.push({ id: c.id, name: c.name, kind: c.mediaType, fileId: part.fileId, storagePath: copy.storagePath, fromRegistry: copy.fromRegistry });
       }
     }
     if (ads.length === 0) {
@@ -303,6 +308,7 @@ export const attachDriveCreativesTool: McpTool = {
         instagram: igId || null,
         link: linkKey(fields.url),
         cta: cta ?? fields.cta,
+        ...(unparsed.length ? { namedByPicker: unparsed } : {}),
         note: "Each new ad's file is in the app's Storage, waiting: it goes to Meta at launch.",
         launchChecks: checks,
       },

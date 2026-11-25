@@ -46,6 +46,7 @@ import { ToolInputError, type McpTool } from "../tool-types.ts";
 import { changes, checksSummary, launchChecksFor, requireDraftScope } from "../drafts/common.ts";
 import { DRAFT_REFUSALS, assertDraftId, insertDraft, loadWritableDraft, migratedDraft, readDraftRow } from "../drafts/write.ts";
 import { artistVoiceCaptions, norm } from "./draft-drive.ts";
+import { adFile, recipeNames, recipeOf } from "../drafts/ad-names.ts";
 import { draftArgs, finish, localOf, round2 } from "./draft-edit.ts";
 
 // ─── set_draft_objective ────────────────────────────────────────────────────
@@ -660,5 +661,64 @@ export const duplicateDraftTool: McpTool = {
         ...checksSummary(checks),
       },
     };
+  },
+};
+
+// ─── set_draft_ad_names ─────────────────────────────────────────────────────
+
+export const setDraftAdNamesTool: McpTool = {
+  name: "set_draft_ad_names",
+  title: "Rename a draft's ads",
+  kind: "draft",
+  readOnly: false,
+  idempotent: true,
+  description: [
+    "Renames ads, as the creative step's name field does. from_files names each ad (every ad, or those in ad_ids) from its Drive file's recipe, e.g. ES27-X_ES_ugc-caption-2_signup_9x16.mp4 → \"ugc-caption-2\" (the variant is added only where two ads share a recipe); a file name that doesn't parse is refused, never guessed. names sets them by hand. Returns old → new → Drive file id for each ad.",
+    'Example: set_draft_ad_names({ draft_id: "3f2c…-uuid", updated_at: "2026-11-24T10:00:00.123+00:00", from_files: true }).',
+  ].join(" "),
+  inputSchema: {
+    ...draftArgs,
+    from_files: z.boolean().optional(),
+    ad_ids: z.array(z.string().min(1).max(80)).max(200).optional().describe("With from_files: only these ads."),
+    names: z.array(z.object({ ad_id: z.string().min(1).max(80), name: z.string().min(1).max(120) })).max(200).optional(),
+  },
+  async run(ctx, args) {
+    requireDraftScope(ctx);
+    const fromFiles = args.from_files === true;
+    const given = Array.isArray(args.names) ? (args.names as Array<{ ad_id: string; name: string }>) : [];
+    if (fromFiles === given.length > 0) throw new ToolInputError("Give from_files: true or names, one of them.", { refused: "bad_args" });
+    const loaded = await loadWritableDraft(ctx, args.draft_id, args.updated_at);
+    const { draft } = loaded;
+    const ids = fromFiles ? (Array.isArray(args.ad_ids) ? (args.ad_ids as string[]) : draft.creatives.map((c) => c.id)) : given.map((g) => g.ad_id);
+    const unknown = ids.filter((id) => !draft.creatives.some((c) => c.id === id));
+    if (unknown.length) throw new ToolInputError(`These ad ids aren't in this draft: ${unknown.slice(0, 10).join(", ")}. Nothing was saved.`, { draftId: loaded.row.id, refused: "unknown_ads" });
+    const renamed = new Map<string, { name: string; source: "file" | "operator" }>();
+    if (fromFiles) {
+      const targets = draft.creatives.filter((c) => ids.includes(c.id));
+      const parsed = targets.map((c) => ({ c, file: adFile(c), recipe: recipeOf(adFile(c).fileName) }));
+      const bad = parsed.filter((p) => !p.recipe);
+      if (bad.length) {
+        throw new ToolInputError(
+          `These ads' files don't name a recipe, so they weren't renamed (nothing was saved): ${bad.map((p) => `${p.c.name} (${p.file.fileName ?? "no Drive file"})`).join("; ")}.`,
+          { draftId: loaded.row.id, refused: "unparsed_file_names", ads: bad.map((p) => p.c.id) },
+        );
+      }
+      const taken = draft.creatives.filter((c) => !ids.includes(c.id)).map((c) => c.name);
+      const names = recipeNames(parsed.map((p) => p.recipe!), taken);
+      parsed.forEach((p, i) => renamed.set(p.c.id, { name: names[i]!, source: "file" }));
+    } else {
+      for (const g of given) renamed.set(g.ad_id, { name: g.name.trim(), source: "operator" });
+    }
+    const mapping = draft.creatives
+      .filter((c) => renamed.has(c.id))
+      .map((c) => ({ adId: c.id, from: c.name, to: renamed.get(c.id)!.name, driveFileId: adFile(c).driveFileId }));
+    const next: CampaignDraft = {
+      ...draft,
+      creatives: draft.creatives.map((c) => (renamed.has(c.id) ? { ...c, name: renamed.get(c.id)!.name, nameSource: renamed.get(c.id)!.source } : c)),
+    };
+    return finish(ctx, loaded, next, () => ({
+      data: { renamed: mapping },
+      summary: { fieldsChanged: ["creatives.name"], ads: mapping.length, mapping },
+    }));
   },
 };

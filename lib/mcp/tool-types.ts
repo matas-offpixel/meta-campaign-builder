@@ -47,10 +47,21 @@ export interface LaunchCheckLine {
   fixes: string[];
 }
 
-/** runLaunchGuard's result after a write or from run_launch_checks. A failed run is reported, never fatal. */
+/** The wizard's step checks (validateStep(7), as Review runs them), in the wizard's words. */
+export interface WizardChecks {
+  blockers: string[];
+  warnings: string[];
+  error?: string;
+}
+
+/**
+ * After a write or from run_launch_checks: runLaunchGuard's result (blockers,
+ * warnings, checks) and, separately, the wizard's step checks (wizard). A
+ * failed run is reported, never fatal.
+ */
 export type LaunchChecksOutcome =
-  | { ran: true; blockers: number; warnings: number; checks: LaunchCheckLine[] }
-  | { ran: false; error: string };
+  | { ran: true; blockers: number; warnings: number; checks: LaunchCheckLine[]; wizard: WizardChecks }
+  | { ran: false; error: string; wizard: WizardChecks };
 
 /**
  * Everything a draft tool reaches outside the database client. The route
