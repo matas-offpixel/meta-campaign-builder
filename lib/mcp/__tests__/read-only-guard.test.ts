@@ -150,6 +150,8 @@ const EXTERNAL_READERS: Record<string, readonly string[]> = {
   "lib/drive/picker.ts": ["loadPickerView", "PICKER_BUCKET", "fileInSharedDrive", "fileInTree", "loadDriveFolderView"],
   // M3a: which slots go to Meta at launch (pure).
   "lib/creatives/stored-at-launch.ts": ["storedSlotsToSend"],
+  // M3a: whose footage a Drive file is (drive_folders, events, artist_library_folders reads; Drive metadata).
+  "lib/drive/file-owner.ts": ["mayUseFor", "resolveDriveOwner"],
   // M3a: the video step's slot helpers (pure); the send step itself is behind the Meta seam.
   "lib/plan/stored-assets-meta.ts": ["failVideos", "sentVideoIds"],
   "lib/drive/picker-model.ts": ["PICKER_WORDS", "defaultBatchFields", "folderTiles", "formatBytes"],

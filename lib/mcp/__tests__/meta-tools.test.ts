@@ -21,9 +21,10 @@ import { attachDriveCreativesTool, listDriveCreativesTool } from "../tools/draft
 import { APPROVAL_WORDS } from "../meta/approval.ts";
 import { draftMoneyADay } from "../meta/ceiling.ts";
 import { ToolInputError, type McpTool, type ToolContext } from "../tool-types.ts";
-import { D_DRAFT, EV_TGT, UPDATED, draftCtx, fakeDrive, fakeDraftDeps, newSpies, readRow } from "./draft-fixtures.ts";
+import { CLIENT_EL, D_DRAFT, EV_EL, EV_SRC, EV_TGT, UPDATED, draftCtx, fakeDrive, fakeDraftDeps, newSpies, readRow } from "./draft-fixtures.ts";
 
 import { ACCOUNT, YES, metaCtx } from "./meta-fixtures.ts";
+import { CLIENT_NX } from "./fixtures.ts";
 
 async function run(tool: McpTool, ctx: ToolContext, args: Record<string, unknown>) {
   return (await tool.run(ctx, args)) as { data: Record<string, unknown>; summary: Record<string, unknown> };
@@ -306,11 +307,25 @@ function widerDrive(spies: ReturnType<typeof newSpies>): DriveApi {
     "drv-client": { id: "drv-client", name: "NX Live (promoter)", mimeType: FOLDER, parents: ["drive-test"], trashed: false },
     "drv-foreign": { id: "drv-foreign", name: "Someone else's", mimeType: FOLDER, parents: ["other-drive"], trashed: false },
     "other-drive": { id: "other-drive", name: "Other", mimeType: FOLDER, parents: [], trashed: false },
+    // Another NX Live show's tree (mapped), inside NX Live's client folder.
+    "drv-src-event": { id: "drv-src-event", name: "2026-12-20 Source show [NX26-SRC]", mimeType: FOLDER, parents: ["drv-client"], trashed: false },
+    // Electric's folders, unmapped: the "[CODE]" in a folder's name gives the event and its client.
+    "drv-el": { id: "drv-el", name: "Electric", mimeType: FOLDER, parents: ["drive-test"], trashed: false },
+    "drv-el-event": { id: "drv-el-event", name: "2027-02-26 Lock Lead [EBR27-LOCKLEAD]", mimeType: FOLDER, parents: ["drv-el"], trashed: false },
+    // The artist library, under the drive's root.
+    "drv-lib": { id: "drv-lib", name: "00 Artist Library", mimeType: FOLDER, parents: ["drive-test"], trashed: false },
+    "drv-lib-artist": { id: "drv-lib-artist", name: "Ada North", mimeType: FOLDER, parents: ["drv-lib"], trashed: false },
+    // A folder nobody's: no mapping, no code, not the library.
+    "drv-loose": { id: "drv-loose", name: "Shared bits", mimeType: FOLDER, parents: ["drive-test"], trashed: false },
   };
   const extra = [
     m({ id: "file-client-916", name: "meta-date_9x16.mp4", mimeType: "video/mp4", parents: ["drv-client"] }),
     m({ id: "file-client-45", name: "meta-date_4x5.mp4", mimeType: "video/mp4", parents: ["drv-client"], width: 1080, height: 1350 }),
     m({ id: "file-foreign", name: "x.mp4", mimeType: "video/mp4", parents: ["drv-foreign"] }),
+    m({ id: "file-src-916", name: "source-show_9x16.mp4", mimeType: "video/mp4", parents: ["drv-src-event"] }),
+    m({ id: "file-el-916", name: "lock-lead_9x16.mp4", mimeType: "video/mp4", parents: ["drv-el-event"] }),
+    m({ id: "file-lib-916", name: "ada-north-live_9x16.mp4", mimeType: "video/mp4", parents: ["drv-lib-artist"] }),
+    m({ id: "file-loose-916", name: "loose_9x16.mp4", mimeType: "video/mp4", parents: ["drv-loose"] }),
   ];
   return {
     ...base,
@@ -331,16 +346,22 @@ function widerDrive(spies: ReturnType<typeof newSpies>): DriveApi {
   };
 }
 
-function driveCtx() {
+async function driveCtx() {
   const spies = newSpies();
   const made = draftCtx({}, spies);
   made.ctx.draft = fakeDraftDeps(spies, { drive: () => widerDrive(spies) });
+  // NX Live's client folder (no event) and another NX Live show's event folder, as the Drive tick maps them.
+  await made.db.from("drive_folders").insert([
+    { event_id: null, client_id: CLIENT_NX, key: "client", name: "NX Live (promoter)", drive_folder_id: "drv-client" },
+    { event_id: EV_SRC, client_id: CLIENT_NX, key: "event", name: "2026-12-20 Source show [NX26-SRC]", drive_folder_id: "drv-src-event" },
+  ]);
+  made.db.writes.length = 0;
   // The event tree's only folder sits in the shared drive too.
   return { ...made, spies };
 }
 
 test("pairs: a 4:5 feed file and its 9:16 make one ad with both slots, Dual, both waiting for launch", async () => {
-  const { ctx, db, spies } = driveCtx();
+  const { ctx, db, spies } = await driveCtx();
   const out = await run(attachDriveCreativesTool, ctx, { draft_id: D_DRAFT, updated_at: UPDATED, pairs: [{ feed: "file-static-45", vertical: "file-static-916" }] });
   const added = out.data.added as Array<{ id: string; slots: string[]; fileIds: string[] }>;
   assert.equal(added.length, 1);
@@ -360,7 +381,7 @@ test("pairs: a 4:5 feed file and its 9:16 make one ad with both slots, Dual, bot
 });
 
 test("pairs: a non-feed aspect, a non-9:16 vertical and a video with a static are refused; a 4:5 on its own is refused with its aspect", async () => {
-  const { ctx, db } = driveCtx();
+  const { ctx, db } = await driveCtx();
   await refused(run(attachDriveCreativesTool, ctx, { draft_id: D_DRAFT, updated_at: UPDATED, pairs: [{ feed: "file-static-916", vertical: "file-static-45" }] }), /^Refused: poster\.jpg is 9:16\. A pair’s feed file is 4:5 or 1:1\. Nothing was saved\.$/);
   await refused(run(attachDriveCreativesTool, ctx, { draft_id: D_DRAFT, updated_at: UPDATED, pairs: [{ feed: "file-static-45", vertical: "file-clip-916" }] }), /A pair is two videos or two statics/);
   await refused(run(attachDriveCreativesTool, ctx, { draft_id: D_DRAFT, updated_at: UPDATED, file_ids: ["file-static-45"] }), /poster-feed\.jpg is 4:5\. A file on its own must be 9:16/);
@@ -368,7 +389,7 @@ test("pairs: a non-feed aspect, a non-9:16 vertical and a video with a static ar
 });
 
 test("a folder elsewhere in the shared drive lists and attaches (a client's folder); a folder outside it is refused", async () => {
-  const { ctx, db } = driveCtx();
+  const { ctx, db } = await driveCtx();
   const list = await run(listDriveCreativesTool, ctx, { event_code: "NX27-GLITTERBOX", folder: "drv-client" });
   assert.equal(list.data.outsideTree, true);
   assert.deepEqual((list.data.files as Array<{ id: string; usable: boolean }>).map((f) => [f.id, f.usable]), [["file-client-916", true], ["file-client-45", false]]);
@@ -384,6 +405,37 @@ test("a folder elsewhere in the shared drive lists and attaches (a client's fold
 
   await refused(run(listDriveCreativesTool, ctx, { event_code: "NX27-GLITTERBOX", folder: "drv-foreign" }), /^Refused: that folder or file isn’t in the Off\/Pixel shared drive\. Nothing was saved\.$/);
   await refused(run(attachDriveCreativesTool, ctx, { draft_id: D_DRAFT, updated_at: out.data.updated_at, file_ids: ["file-foreign"] }), /^Refused: that folder or file isn’t in the Off\/Pixel shared drive\. Nothing was saved\.$/);
+});
+
+test("whose footage: a file in another show's tree for the same client is the client's own; another client's is refused; the artist library is artist material; a folder nobody's is refused", async () => {
+  const { ctx, db } = await driveCtx();
+  const attach = (file: string, updated: string) => run(attachDriveCreativesTool, ctx, { draft_id: D_DRAFT, updated_at: updated, file_ids: [file] });
+  // Another NX Live show's tree (mapped folders; the client folder above has no event).
+  const own = await attach("file-src-916", UPDATED);
+  assert.equal((own.data.added as unknown[]).length, 1);
+  // Electric's show, found by the "[EBR27-LOCKLEAD]" in its folder's name: another client.
+  await refused(attach("file-el-916", String(own.data.updated_at)), /^Refused: lock-lead_9x16\.mp4 is Electric’s footage, not this show’s client’s\. Only the client’s own files or the artist library can go on its drafts\. Nothing was saved\.$/);
+  // The artist library: shareable artist material.
+  const lib = await attach("file-lib-916", String(own.data.updated_at));
+  assert.equal((lib.data.added as unknown[]).length, 1);
+  // A folder that is nobody's.
+  await refused(attach("file-loose-916", String(lib.data.updated_at)), /^Refused: loose_9x16\.mp4 isn’t in a client’s folders or the artist library/);
+  assert.equal(db.writes.filter((w) => w.table === "campaign_drafts").length, 2);
+});
+
+test("resolveDriveOwner: a client folder's null event is dropped, the mapped rows give the client, and the code is the fallback", async () => {
+  const { resolveDriveOwner, mayUseFor } = await import("../../drive/file-owner.ts");
+  const { db } = await driveCtx();
+  const spiesDrive = widerDrive(newSpies());
+  const src = await resolveDriveOwner(db as never, spiesDrive, "drv-src-event");
+  assert.deepEqual([src.inSharedDrive, src.clientIds, src.eventIds], [true, [CLIENT_NX], [EV_SRC]]);
+  assert.equal(mayUseFor(src, CLIENT_NX), "own");
+  const el = await resolveDriveOwner(db as never, spiesDrive, "drv-el-event");
+  assert.deepEqual([el.clientIds, el.eventIds, mayUseFor(el, CLIENT_NX)], [[CLIENT_EL], [EV_EL], "other_client"]);
+  const lib = await resolveDriveOwner(db as never, spiesDrive, "drv-lib-artist");
+  assert.deepEqual([lib.artistLibrary, mayUseFor(lib, CLIENT_NX)], [true, "artist_library"]);
+  const foreign = await resolveDriveOwner(db as never, spiesDrive, "drv-foreign");
+  assert.equal(foreign.inSharedDrive, false);
 });
 
 test("an interest ad set's long id (its interest ids, past 120 characters) is accepted by set_draft_ad_sets' input", async () => {

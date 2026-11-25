@@ -150,6 +150,14 @@ export const ATTACH_WORDS = {
   failed: "The files couldn’t be copied in. Try again. Nothing was saved.",
   waiting: "The new ads’ files wait in Off/Pixel and go to Meta at launch, or now with upload_draft_assets.",
   pairsOff: "Per-placement ads are switched off in Off/Pixel, so each pair launches as one file in every placement until they’re switched on.",
+  /**
+   * PENDING DESIGN (no row yet, sent back with the M3a PR): a file in another
+   * client's folders, and a file whose owner can't be told. Builder's candidates.
+   */
+  otherClient: (name: string, client: string) =>
+    `Refused: ${name} is ${client}’s footage, not this show’s client’s. Only the client’s own files or the artist library can go on its drafts. Nothing was saved.`,
+  ownerUnknown: (name: string) =>
+    `Refused: ${name} isn’t in a client’s folders or the artist library, so whose footage it is can’t be told. Nothing was saved.`,
 } as const;
 
 /** today.mcp.result.* forms, for claude.mcp.done's {result}. */
