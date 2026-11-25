@@ -5,6 +5,9 @@
  *   - Lab clips by owner: the artist's own clips (shareable), and promoter
  *     clips that feature the artist (held: "Filmed by {client}");
  *   - Lab renders: shareable only when every clip in them is artist-owned;
+ *   - files in the source map (source-map.ts): footage someone confirmed is
+ *     the artist's, with the ads it ran as. The footage is shareable; the
+ *     ads keep their own show and client;
  *   - ads matched to the artist (match.ts): a Lab render's ads take its
  *     rights; any other ad is the client's (held).
  * Spend and results are never stored: readers take them from
@@ -23,6 +26,7 @@ import { hasFullName, kindFromAd, matchAd, type MatchedBy } from "./match.ts";
 import { clientAdRights, clipRights, renderRights, rightsProblem, type Rights } from "./rights.ts";
 import type { AssetRow, EventLite, InsightRow } from "./view.ts";
 import { EVENT_LITE_COLUMNS } from "./load.ts";
+import { SOURCE_MAP, type SourceEntry } from "./source-map.ts";
 
 type Db = Pick<SupabaseClient, "from">;
 
@@ -63,6 +67,8 @@ export interface BackfillInputs {
   ads: AdSummary[];
   insights: InsightRow[];
   context: AdContextIndex;
+  /** Confirmed sources (source-map.ts). */
+  sources: readonly SourceEntry[];
 }
 
 export interface ArtistPlan {
@@ -112,10 +118,26 @@ export function planArtistAssets(inputs: BackfillInputs, artist: { id: string; n
     rows.push(row);
   };
 
+  // ─── Confirmed sources: the footage itself ──────────────────────────────
+  const sources = inputs.sources.filter((e) => e.artistId === artist.id);
+  const sourceByFile = new Map(sources.map((e) => [e.driveFileId, e]));
+  for (const entry of sources) {
+    keep({
+      ...blank(artist.id),
+      asset_key: `drive:${entry.driveFileId}`,
+      kind: entry.kind,
+      name: entry.name,
+      drive_file_id: entry.driveFileId,
+      matched_by: "drive",
+      ...withRights({ ownerKind: entry.ownerKind, shareable: true, heldReason: null, clientId: null }),
+    });
+  }
+
   // ─── Lab clips: the artist's own, and promoter clips featuring them ─────
   const ownLab = new Set(inputs.labArtists.filter((l) => l.artist_id === artist.id).map((l) => l.id));
   const featured = new Set(inputs.clipFeatures.filter((f) => ownLab.has(f.artist_id)).map((f) => f.clip_id));
   const artistClips = new Set<string>();
+  const confirmedClips = new Set<string>();
   for (const clip of inputs.clips) {
     const own = clip.artist_id != null && ownLab.has(clip.artist_id);
     if (!own && !featured.has(clip.id)) continue;
@@ -124,6 +146,9 @@ export function planArtistAssets(inputs: BackfillInputs, artist: { id: string; n
     const eventId = clip.event_id ?? clip.shown_on_event_id;
     const clientId = lab?.client_id ?? (eventId ? eventById.get(eventId)?.client_id ?? null : null);
     const file = clip.creative_asset_id ? assetById.get(clip.creative_asset_id) : undefined;
+    // A clip whose file is in the source map is the artist's, whatever the Lab recorded.
+    const confirmed = Boolean(file?.drive_file_id && sourceByFile.has(file.drive_file_id));
+    if (confirmed) confirmedClips.add(clip.id);
     keep({
       ...blank(artist.id),
       asset_key: `clip:${clip.id}`,
@@ -134,7 +159,7 @@ export function planArtistAssets(inputs: BackfillInputs, artist: { id: string; n
       lab_clip_id: clip.id,
       material_at: clip.ig_posted_at ?? clip.created_at,
       matched_by: "lab",
-      ...withRights(clipRights(own ? clip.owner : "promoter", clientId)),
+      ...withRights(clipRights(confirmed ? "artist" : own ? clip.owner : "promoter", clientId)),
     });
   }
 
@@ -147,7 +172,7 @@ export function planArtistAssets(inputs: BackfillInputs, artist: { id: string; n
     const lab = clip.artist_id ? labOf.get(clip.artist_id) : null;
     const clientId = (eventId ? eventById.get(eventId)?.client_id : null) ?? lab?.client_id ?? null;
     // A render is shareable only when every clip in it is the artist's own (one clip per render today).
-    const ownerOfClip = clip.artist_id && ownLab.has(clip.artist_id) ? clip.owner : "promoter";
+    const ownerOfClip = confirmedClips.has(clip.id) ? "artist" : clip.artist_id && ownLab.has(clip.artist_id) ? clip.owner : "promoter";
     const rights = renderRights([ownerOfClip], clientId);
     renderRightsById.set(render.id, { rights, eventId });
     keep({
@@ -198,6 +223,25 @@ export function planArtistAssets(inputs: BackfillInputs, artist: { id: string; n
       continue;
     }
     const how = matchAd(ad, artist.name, { linked: Boolean(context.eventId && linked.has(context.eventId)), tagged: tagged.has(ad.meta_ad_id) });
+    // An ad that ran a confirmed file: the footage's rights, the ad's own show and client.
+    const code = context.eventId ? eventById.get(context.eventId)?.event_code ?? null : null;
+    const ranFile = sources.find((e) => e.ranAs.eventCode === code && ad.ad_name != null && e.ranAs.adNames.includes(ad.ad_name));
+    if (ranFile) {
+      keep({
+        ...blank(artist.id),
+        asset_key: `ad:${ad.meta_ad_id}`,
+        kind: ranFile.kind,
+        name: ad.ad_name,
+        drive_file_id: ranFile.driveFileId,
+        source_event_id: context.eventId,
+        meta_ad_id: ad.meta_ad_id,
+        launched_ad_id: ledger?.id ?? null,
+        material_at: ad.last_date,
+        matched_by: how ?? "drive",
+        ...withRights({ ownerKind: ranFile.ownerKind, shareable: true, heldReason: null, clientId: context.clientId }),
+      });
+      continue;
+    }
     if (!how) continue;
     const clientId = context.clientId;
     const kind = kindFromAd(ledger?.media_type, ad.ad_name);
@@ -315,6 +359,7 @@ export async function loadBackfillInputs(db: Db): Promise<BackfillInputs> {
     ads: summariseAds(insightDays),
     insights: insightDays,
     context,
+    sources: SOURCE_MAP,
   };
 }
 

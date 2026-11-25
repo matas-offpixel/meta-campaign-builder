@@ -3,7 +3,8 @@ import { describe, it } from "node:test";
 
 import { adEvent, campaignEvents, planArtistAssets, summariseAds, type BackfillInputs } from "../backfill.ts";
 import { codeInName, hasFullName, kindFromAd, matchAd, rankedStageOf } from "../match.ts";
-import { buildArtistView } from "../view.ts";
+import { SOURCE_MAP, type SourceEntry } from "../source-map.ts";
+import { buildArtistView, forEvent } from "../view.ts";
 
 const ENZO = { id: "lib-enzo", name: "Enzo Siragusa" };
 
@@ -41,7 +42,20 @@ describe("matching an ad to an artist (AL2)", () => {
   });
 });
 
-function inputs(): BackfillInputs {
+const MAPPED: SourceEntry = {
+  artistId: ENZO.id,
+  driveFileId: "drv-ugc2",
+  name: "Enzo Siragusa - UGC 2.mp4",
+  kind: "clip",
+  folderId: "folder",
+  ownerKind: "artist",
+  source: "Enzo's Instagram",
+  confirmedBy: "Matas",
+  confirmedOn: "2026-11-25",
+  ranAs: { eventCode: "P26-BDAY", adNames: ["Enzo - UGC 2"] },
+};
+
+function inputs(sources: readonly SourceEntry[] = []): BackfillInputs {
   const day = (meta_ad_id: string, campaign_name: string, spend: number, registrations: number, purchases = 0, date = "2026-11-10") => ({
     id: `${meta_ad_id}-${date}`,
     meta_ad_id,
@@ -65,6 +79,8 @@ function inputs(): BackfillInputs {
     { ...day("ad-lab", "[P26-BDAY] SIGNUP", 21, 10), ad_name: "lab ad" },
     { ...day("ad-mixed", "[P26-BDAY] SIGNUP", 50, 40), ad_name: "lab mixed ad" },
     { ...day("ad-arch", "[OLD26] SIGNUP", 50, 40), ad_name: "Enzo Siragusa old" },
+    { ...day("ad-map", "[P26-BDAY] SIGNUP", 30, 15), ad_name: "Enzo - UGC 2" },
+    { ...day("ad-puz", "[P26-BDAY] SIGNUP", 30, 15), ad_name: "Puzzle - Enzo UGC 1" },
   ];
   return {
     artists: [ENZO, { id: "lib-luke", name: "Luke Dean" }],
@@ -100,6 +116,7 @@ function inputs(): BackfillInputs {
     tags: [],
     ads: summariseAds(days),
     insights: days,
+    sources,
     context: {
       launchedAds: new Map(),
       launchedAdSets: new Map(),
@@ -149,10 +166,68 @@ describe("the backfill plan (AL2)", () => {
     const i = inputs();
     const view = buildArtistView({ assets: plan.rows, insights: i.insights, events: i.events, linkedEventIds: ["e-bday"], today: "2026-11-25" });
     const bday = view.shows.find((s) => s.code === "P26-BDAY")!;
-    assert.equal(Math.round(bday.spend * 10) / 10, 25.2 + 40 + 21 + 50, "Luke's ad on the same show isn't counted");
+    assert.equal(Math.round(bday.spend * 10) / 10, 25.2 + 40 + 21 + 50 + 30 + 30, "Luke's ad on the same show isn't counted");
     assert.deepEqual(view.counted, { shows: 2, clients: 2 });
     const art = view.groups.find((g) => g.key === "render:r-art")!;
     assert.equal(art.driveFileId, "drv-r-art");
     assert.equal(art.byStage.signup!.spend, 21);
   });
 });
+
+describe("the source map (confirmed sources)", () => {
+  it("every entry has its who, when and Drive id; Enzo's four UGC files are the artist's", () => {
+    assert.equal(SOURCE_MAP.length, 4);
+    for (const e of SOURCE_MAP) {
+      assert.match(e.driveFileId, /^[A-Za-z0-9_-]{20,}$/, e.name);
+      assert.equal(e.ownerKind, "artist");
+      assert.equal(e.confirmedBy, "Matas");
+      assert.equal(e.confirmedOn, "2026-11-25");
+      assert.equal(e.source, "Enzo's Instagram");
+      assert.equal(e.ranAs.eventCode, "P26-BDAY");
+    }
+    assert.equal(new Set(SOURCE_MAP.map((e) => e.driveFileId)).size, 4);
+    assert.ok(!SOURCE_MAP.some((e) => e.ranAs.adNames.includes("Puzzle - Enzo UGC 1")), "the Puzzle edit stays Puzzle's");
+  });
+
+  it("a file in the map comes out artist and shareable; its ads keep their show and client", () => {
+    const plan = planArtistAssets(inputs([MAPPED]), ENZO);
+    const file = plan.rows.find((r) => r.asset_key === "drive:drv-ugc2")!;
+    assert.deepEqual([file.kind, file.owner_kind, file.shareable, file.held_reason, file.source_client_id], ["clip", "artist", true, null, null]);
+    const ad = plan.rows.find((r) => r.asset_key === "ad:ad-map")!;
+    assert.deepEqual([ad.owner_kind, ad.shareable, ad.drive_file_id, ad.source_event_id, ad.source_client_id], ["artist", true, "drv-ugc2", "e-bday", "c-puzzle"]);
+  });
+
+  it("a promoter file outside the map stays held, map or no map", () => {
+    for (const sources of [[], [MAPPED]]) {
+      const puz = planArtistAssets(inputs(sources), ENZO).rows.find((r) => r.asset_key === "ad:ad-puz")!;
+      assert.deepEqual([puz.owner_kind, puz.shareable, puz.held_reason, puz.source_client_id], ["promoter", false, "filmed", "c-puzzle"]);
+    }
+    const unmapped = planArtistAssets(inputs([]), ENZO).rows.find((r) => r.asset_key === "ad:ad-map")!;
+    assert.equal(unmapped.shareable, false, "without the map the same ad is Puzzle's");
+  });
+
+  it("another client's event gets the mapped file with its results, and Puzzle's held count drops by it", () => {
+    const i = inputs([MAPPED]);
+    const view = (sources: readonly SourceEntry[]) => {
+      const inp = inputs(sources);
+      return buildArtistView({ assets: planArtistAssets(inp, ENZO).rows, insights: inp.insights, events: inp.events, linkedEventIds: ["e-bday"], today: "2026-11-25" });
+    };
+    const before = forEvent(view([]), "c-electric");
+    const after = forEvent(view([MAPPED]), "c-electric");
+    assert.equal(after.held.get("c-puzzle"), before.held.get("c-puzzle")! - 1);
+    const ranked = after.ranked.signup.find((r) => r.group.key === "drive:drv-ugc2")!;
+    assert.equal(ranked.group.name, "Enzo Siragusa - UGC 2.mp4");
+    assert.equal(ranked.group.code, "P26-BDAY");
+    assert.equal(ranked.cost, 2);
+    assert.ok(i.sources.length === 1);
+  });
+
+  it("a Lab clip whose file is in the map is the artist's, and so is a render of it alone", () => {
+    const i = inputs([{ ...MAPPED, driveFileId: "drv-crowd-file" }]);
+    i.creativeAssets = i.creativeAssets.map((a) => (a.id === "ca-crowd" ? { ...a, drive_file_id: "drv-crowd-file" } : a));
+    const rows = planArtistAssets(i, ENZO).rows;
+    assert.equal(rows.find((r) => r.asset_key === "clip:clip-crowd")!.shareable, true);
+    assert.equal(rows.find((r) => r.asset_key === "render:r-mixed")!.shareable, true, "its only clip is now the artist's");
+  });
+});
+
