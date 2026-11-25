@@ -16,6 +16,7 @@
  */
 import {
   ACCESS_TOKEN_TTL_SECONDS,
+  CHALLENGE_SCOPE,
   CLAUDE_CALLBACK,
   CODE_TTL_SECONDS,
   IGNORED_SCOPES,
@@ -80,12 +81,17 @@ export function redirectUriMatches(registered: readonly string[], presented: str
 
 // ── Scopes ───────────────────────────────────────────────────────────────────
 
-/** Requested scope → granted scope string, or null when something unknown is asked for. */
+/**
+ * Requested scope → granted scope string, or null when something unknown is
+ * asked for. Nothing asked → `mcp:read`. `mcp:draft` always comes with
+ * `mcp:read` (a draft grant reads the drafts it changes), in that order.
+ */
 export function resolveScope(requested: string | null | undefined): string | null {
   const parts = (requested ?? "").split(/\s+/).filter(Boolean).filter((s) => !IGNORED_SCOPES.includes(s));
   if (parts.length === 0) return SCOPE_READ;
   if (parts.some((s) => !SCOPES_SUPPORTED.includes(s))) return null;
-  return [...new Set(parts)].join(" ");
+  const asked = new Set([SCOPE_READ, ...parts]);
+  return SCOPES_SUPPORTED.filter((s) => asked.has(s)).join(" ");
 }
 
 export function scopeIncludes(granted: string, needed: string): boolean {
@@ -265,6 +271,29 @@ async function issueTokens(grant: GrantRow, deps: FlowDeps): Promise<{ response:
   };
 }
 
+/**
+ * One live grant per connection. When a code is exchanged, the user's other
+ * live grants from the same client for the same resource whose scope the new
+ * grant covers are revoked (reason 'user': the operator pressed Allow on a page
+ * that replaces them), tokens and all. This is what makes an upgrade's Allow
+ * replace the read-only grant rather than sit beside it. It runs only once the
+ * new grant and its tokens exist, so a consent that is cancelled, or a code
+ * that is never exchanged, leaves the old grant as it was. Another client's
+ * grant, and a grant with a scope the new one lacks, are never touched.
+ */
+export async function revokeReplacedGrants(grant: GrantRow, deps: FlowDeps, nowIso: string): Promise<string[]> {
+  const live = await deps.store.listLiveGrants({ userId: grant.user_id });
+  const replaced = live.filter(
+    (g) =>
+      g.id !== grant.id &&
+      g.client_id === grant.client_id &&
+      normaliseResource(g.resource) === normaliseResource(grant.resource) &&
+      g.scope.split(/\s+/).filter(Boolean).every((s) => scopeIncludes(grant.scope, s)),
+  );
+  for (const g of replaced) await deps.store.revokeGrant(g.id, "user", nowIso);
+  return replaced.map((g) => g.id);
+}
+
 export async function exchangeToken(
   form: URLSearchParams,
   urls: McpUrls,
@@ -291,8 +320,19 @@ export async function exchangeToken(
     if (!verifyPkceS256(verifier, row.code_challenge)) return oauthError(400, "invalid_grant", "PKCE check failed.");
     if (!deps.isOperator(row.user_id)) return oauthError(400, "invalid_grant");
     const grant = await deps.store.insertGrant({ user_id: row.user_id, client_id: row.client_id, scope: row.scope, resource: row.resource });
-    const { response } = await issueTokens(grant, deps);
-    return { status: 200, body: response };
+    try {
+      const { response } = await issueTokens(grant, deps);
+      await revokeReplacedGrants(grant, deps, nowIso);
+      return { status: 200, body: response };
+    } catch (err) {
+      // The store has no transaction across these writes, so a failure part
+      // way is undone by revoking the new grant: its tokens never reach the
+      // client, and the connection is never left with two live grants. The
+      // read grant stays live unless its own revoke had already gone through.
+      console.error("[mcp/oauth] code exchange failed after the grant insert; revoking the new grant", err instanceof Error ? err.message : "error");
+      await deps.store.revokeGrant(grant.id, "user", nowIso);
+      return oauthError(500, "server_error", "The connection could not be finished. Connect again.");
+    }
   }
 
   if (grantType === "refresh_token") {
@@ -361,9 +401,13 @@ export async function checkBearer(authorization: string | null, urls: McpUrls, d
   return { ok: true, userId: grant.user_id, grantId: grant.id, scope: grant.scope };
 }
 
-/** RFC 9728 §5.1 challenge on 401 / 403. Never echoes the token. */
+/**
+ * RFC 9728 §5.1 challenge on 401 / 403. Never echoes the token. The scope is
+ * everything an operator may hold (read and draft): on a 403
+ * insufficient_scope it is the step-up a read-only grant needs.
+ */
 export function wwwAuthenticate(urls: McpUrls, error?: string): string {
-  const parts = [`resource_metadata="${urls.resourceMetadata}"`, `scope="${SCOPE_READ}"`];
+  const parts = [`resource_metadata="${urls.resourceMetadata}"`, `scope="${CHALLENGE_SCOPE}"`];
   if (error && error !== "forbidden" && error !== "invalid_request") parts.unshift(`error="${error}"`);
   return `Bearer ${parts.join(", ")}`;
 }

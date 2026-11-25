@@ -30,6 +30,9 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { launchFailureLead, type LaunchErrorSource } from "@/lib/meta/launch-failure-copy";
+import { LaunchChecks } from "@/components/launch-guard/launch-checks";
+import { keptIdentityLines, keptLinkLines, keptLocationLines } from "@/lib/launch-guard/check";
+import type { LaunchCheck, LaunchCheckFix, LaunchGuardResult } from "@/lib/launch-guard/types";
 import { attachedAdSetKey, type CampaignDraft, type CampaignSettings, type LaunchSummary } from "@/lib/types";
 import { urlTagsReviewLine } from "@/lib/meta/url-tags";
 import { describeLaunchBudget } from "@/lib/meta/budget-launch";
@@ -119,6 +122,10 @@ interface ReviewLaunchProps {
    * entities short-circuit and only failed ad / ad-set rows re-attempt.
    */
   onRetryFailedAds?: () => void;
+  /** The pre-launch check (record RC3). Null until the first read lands. */
+  launchGuard?: LaunchGuardResult | null;
+  /** Applies a check's fix. Absent: the checks render read-only. */
+  onLaunchGuardFix?: (check: LaunchCheck, fix: LaunchCheckFix) => void;
 }
 
 // ── Launch event types ────────────────────────────────────────────────────────
@@ -916,6 +923,8 @@ export function ReviewLaunch({
   canvasOwnsLaunch = false,
   onUpdateSettings,
   onRetryFailedAds,
+  launchGuard = null,
+  onLaunchGuardFix,
 }: ReviewLaunchProps) {
   const bs = draft.budgetSchedule;
   const wizardMode = draft.settings.wizardMode ?? "new";
@@ -1029,6 +1038,15 @@ export function ReviewLaunch({
           </div>
         )}
       </div>
+
+      {/* ── Launch checks (record RC3): blockers first, then warnings ───────── */}
+      {launchGuard && !isLaunching && !launchSummary ? (
+        <LaunchChecks
+          result={launchGuard}
+          onFix={canvasOwnsLaunch ? undefined : onLaunchGuardFix}
+          keptLines={[...keptIdentityLines(draft), ...keptLinkLines(draft), ...keptLocationLines(draft)]}
+        />
+      ) : null}
 
       {/* ── Live launch progress feed ──────────────────────────────────────── */}
       {(isLaunching || launchSummary) && (

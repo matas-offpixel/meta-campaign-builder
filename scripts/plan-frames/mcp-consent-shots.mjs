@@ -23,6 +23,13 @@ export const MCP_CONSENT_SHOTS = [
   shot("invalid", 393),
   shot("signed-out", 393),
   shot("not-operator", 393),
+  // M2: grants that include drafts.
+  shot("claude-drafts", 1280),
+  shot("claude-drafts", 393),
+  shot("loopback-drafts", 1280),
+  shot("loopback-drafts", 393),
+  shot("claude-upgrade", 1280),
+  shot("claude-upgrade", 393),
   {
     ...shot("claude", 393, "-dark"),
     lab: true,

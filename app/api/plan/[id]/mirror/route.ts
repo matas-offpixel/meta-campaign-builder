@@ -16,6 +16,8 @@ import {
   googleKeywordBlockers,
   tiktokNeedsVideoBlockers,
 } from "@/lib/plan/drawer";
+import { launchGuardBlockerRows } from "@/lib/launch-guard/plan-rows";
+import { runLaunchGuard } from "@/lib/launch-guard/load";
 import { formatMetaStaleChip, isDerivedStale } from "@/lib/plan/live-mirror";
 import { loadLinkedDraftsForPlan } from "@/lib/plan/linked-drafts";
 import { loadPlanForUser } from "@/lib/plan/load";
@@ -50,6 +52,17 @@ export async function GET(
   if (plan.launches.google.draftId) {
     googleTree = await loadGoogleSearchPlanTree(supabase, plan.launches.google.draftId);
     googleLast = googleTree ? googleLastDerivedAt(googleTree) : null;
+  }
+
+  // The launch checks for the Meta row (record RC3). A failed read adds no
+  // rows; the launch route runs the same check and refuses on a blocker.
+  let launchGuardRows: ReturnType<typeof launchGuardBlockerRows> = [];
+  if (linked.meta && !linked.meta.metaCampaignId) {
+    try {
+      launchGuardRows = launchGuardBlockerRows(await runLaunchGuard(supabase, linked.meta));
+    } catch (err) {
+      console.error("[plan mirror] launch checks could not run:", err);
+    }
   }
 
   const now = new Date();
@@ -93,14 +106,17 @@ export async function GET(
      */
     drawerBlockers: {
       meta: linked.meta
-        ? blockerRowsFromValidation(
-            getVisibleSteps(linked.meta.settings.wizardMode ?? "new")
-              .filter((step) => step !== 7)
-              .map((step) => ({
-                step,
-                errors: validateStep(step, linked.meta!, resolved).errors,
-              })),
-          )
+        ? [
+            ...blockerRowsFromValidation(
+              getVisibleSteps(linked.meta.settings.wizardMode ?? "new")
+                .filter((step) => step !== 7)
+                .map((step) => ({
+                  step,
+                  errors: validateStep(step, linked.meta!, resolved).errors,
+                })),
+            ),
+            ...launchGuardRows,
+          ]
         : [],
       tiktok: linked.tiktok
         ? tiktokNeedsVideoBlockers({ items: linked.tiktok.creatives.items })

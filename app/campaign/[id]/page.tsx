@@ -1,4 +1,5 @@
 import { PlanLinkBanner } from "@/components/plan/plan-link-banner";
+import { ReplicatedBanner } from "@/components/replicate/replicated-banner";
 import { WizardShell } from "@/components/wizard/wizard-shell";
 import { loadPlanForMetaDraft } from "@/lib/plan/linked-plan";
 import { createClient } from "@/lib/supabase/server";
@@ -16,6 +17,7 @@ export default async function CampaignPage(props: { params: Promise<{ id: string
   return (
     <>
       <PlanLinkBanner draftId={id} />
+      <ReplicatedBanner draftId={id} />
       <WizardShell draftId={id} linkedPlan={linkedPlan} />
     </>
   );

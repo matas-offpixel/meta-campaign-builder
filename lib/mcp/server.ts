@@ -10,16 +10,21 @@
  * Every tools/call is logged to mcp_actions with its duration and size.
  * The token is never logged, echoed or passed on.
  *
+ * M2: a tools/call naming a draft tool needs `mcp:draft` on the grant. A
+ * read-only grant gets 403 insufficient_scope with the step-up challenge
+ * (scope="mcp:read mcp:draft") before the SDK runs, and the refusal is an
+ * mcp_actions row. Its reads keep working.
+ *
  * Relative imports only, so the whole request path runs under node:test.
  */
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
-import { isMcpEnabled, mcpUrls } from "./config.ts";
-import { checkBearer, wwwAuthenticate, type FlowDeps } from "./oauth/flow.ts";
+import { SCOPE_DRAFT, isMcpEnabled, mcpUrls } from "./config.ts";
+import { checkBearer, scopeIncludes, wwwAuthenticate, type FlowDeps } from "./oauth/flow.ts";
 import type { ActionLogger } from "./action-log.ts";
 import { checkRateLimit } from "./rate-limit.ts";
 import { MCP_TOOLS } from "./tools/index.ts";
-import { ToolInputError, type Db, type McpReaders, type McpTool, type ToolContext } from "./tool-types.ts";
+import { ToolInputError, type Db, type McpDraftDeps, type McpReaders, type McpTool, type ToolContext } from "./tool-types.ts";
 
 /** Claude's result limit is about 150,000 characters; stay under it. */
 export const MAX_RESULT_CHARS = 140_000;
@@ -34,6 +39,8 @@ export interface McpHandlerDeps extends FlowDeps {
   logger: ActionLogger;
   isMatas: (userId: string) => boolean;
   tools?: readonly McpTool[];
+  /** M2's Meta search, Drive, Storage and pending-PR seams (lib/mcp/draft-deps.ts). */
+  draft?: McpDraftDeps;
 }
 
 const ALLOWED_ORIGINS = new Set(["https://claude.ai", "https://claude.com"]);
@@ -46,10 +53,18 @@ export function londonToday(now: Date): string {
 }
 
 const INSTRUCTIONS = [
-  "Off/Pixel: the agency's event-marketing ads tool. These tools only read.",
+  "Off/Pixel: the agency's event-marketing ads tool.",
   "Shows are identified by event codes such as NX26-DOD. Start with morning_topline for the day, list_events to find a code, get_event for one show.",
   "Money is GBP. Phases: teaser, announced, presale, general sale (on sale), show week.",
+  "The read tools only read. The draft tools change campaign drafts in the app (status draft only) and never Meta: nothing launches or spends.",
+  "Before a draft tool, call get_draft and pass its updatedAt as updated_at; every draft tool answers with the new updated_at and the launch checks.",
 ].join(" ");
+
+function failedText(tool: McpTool): string {
+  return tool.kind === "draft"
+    ? "The draft tool failed and nothing was saved. Try again, or read the draft again with get_draft."
+    : "The read failed. Try again, or narrow the request.";
+}
 
 function buildServer(ctx: ToolContext, deps: McpHandlerDeps, grantId: string): McpServer {
   const server = new McpServer({ name: "off-pixel", title: "Off/Pixel", version: "1.0.0" }, { instructions: INSTRUCTIONS });
@@ -60,7 +75,13 @@ function buildServer(ctx: ToolContext, deps: McpHandlerDeps, grantId: string): M
         title: tool.title,
         description: tool.description,
         inputSchema: tool.inputSchema,
-        annotations: { title: tool.title, readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+        annotations: {
+          title: tool.title,
+          readOnlyHint: tool.readOnly ?? tool.kind === "read",
+          destructiveHint: false,
+          idempotentHint: tool.idempotent ?? tool.kind === "read",
+          openWorldHint: false,
+        },
       },
       async (args: Record<string, unknown>) => {
         const started = Date.now();
@@ -88,7 +109,8 @@ function buildServer(ctx: ToolContext, deps: McpHandlerDeps, grantId: string): M
           status = "failed";
           const message = e instanceof Error ? e.message : String(e);
           error = message;
-          text = JSON.stringify({ error: e instanceof ToolInputError ? message : "The read failed. Try again, or narrow the request." });
+          if (e instanceof ToolInputError) result = e.summary;
+          text = JSON.stringify(e instanceof ToolInputError ? { error: message, ...(e.data ?? {}) } : { error: failedText(tool) });
         }
         await deps.logger
           .log({
@@ -98,7 +120,7 @@ function buildServer(ctx: ToolContext, deps: McpHandlerDeps, grantId: string): M
             event_id: eventId,
             tool: tool.name,
             args,
-            kind: "read",
+            kind: tool.kind,
             status,
             result,
             error,
@@ -111,6 +133,25 @@ function buildServer(ctx: ToolContext, deps: McpHandlerDeps, grantId: string): M
     );
   }
   return server;
+}
+
+/** The draft tools a JSON-RPC body (one message or a batch) calls with tools/call. */
+async function draftToolsCalled(req: Request, tools: readonly McpTool[]): Promise<string[]> {
+  const draft = new Set(tools.filter((t) => t.kind === "draft").map((t) => t.name));
+  let body: unknown;
+  try {
+    body = await req.clone().json();
+  } catch {
+    return [];
+  }
+  const messages = Array.isArray(body) ? body : [body];
+  const out: string[] = [];
+  for (const m of messages) {
+    if (!m || typeof m !== "object") continue;
+    const msg = m as { method?: unknown; params?: { name?: unknown } };
+    if (msg.method === "tools/call" && typeof msg.params?.name === "string" && draft.has(msg.params.name)) out.push(msg.params.name);
+  }
+  return out;
 }
 
 export async function handleMcpRequest(req: Request, deps: McpHandlerDeps): Promise<Response> {
@@ -135,15 +176,28 @@ export async function handleMcpRequest(req: Request, deps: McpHandlerDeps): Prom
   const rate = await checkRateLimit(deps.logDb, auth.grantId, now);
   if (!rate.ok) return json(429, { error: "rate_limited" }, { "retry-after": String(rate.retryAfterSeconds) });
 
+  const tools = deps.tools ?? MCP_TOOLS;
+  const needsDraft = await draftToolsCalled(req, tools);
+  if (needsDraft.length > 0 && !scopeIncludes(auth.scope, SCOPE_DRAFT)) {
+    for (const name of needsDraft) {
+      await deps.logger
+        .log({ user_id: auth.userId, grant_id: auth.grantId, tool: name, args: {}, kind: "draft", status: "failed", result: { refused: "insufficient_scope" }, error: "insufficient_scope", duration_ms: 0, result_bytes: 0 })
+        .catch(() => "stdout");
+    }
+    return json(403, { error: "insufficient_scope" }, { "www-authenticate": wwwAuthenticate(urls, "insufficient_scope") });
+  }
+
   const ctx: ToolContext = {
     db: deps.db,
     readers: deps.readers,
     userId: auth.userId,
+    scope: auth.scope,
+    draft: deps.draft,
     seesClientNames: deps.isMatas(auth.userId),
     today: londonToday(now),
     now,
   };
-  const server = buildServer(ctx, deps, auth.grantId);
+  const server = buildServer(ctx, { ...deps, tools }, auth.grantId);
   const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
   await server.connect(transport);
   try {
