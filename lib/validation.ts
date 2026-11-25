@@ -6,6 +6,7 @@ import type { CampaignDraft, WizardStep } from "./types.ts";
 import { attachedAdSetKey, getVisibleSteps } from "./types.ts";
 import { findMultiIgPagesMissingOverride } from "./validation/page-instagram.ts";
 import { validateCreativeAssetCompleteness } from "./validation/asset-completeness.ts";
+import { sendsAtLaunch } from "./creatives/stored-at-launch.ts";
 import { findAdSetLocationProblems, findAdSetLocationWarnings } from "./meta/location-targeting.ts";
 import { cityRadiusProblemInDraft } from "./meta/location-radius.ts";
 import {
@@ -316,7 +317,8 @@ function validateCreatives(draft: CampaignDraft): ValidationResult {
             errors.push(`${label} › ${varLabel}: No asset slots defined`);
           } else {
             for (const slot of slots) {
-              if (slot.uploadStatus === "pending") {
+              // A pending slot whose file is already in Storage goes to Meta at Launch (M3a).
+              if (slot.uploadStatus === "pending" && !sendsAtLaunch(slot)) {
                 errors.push(`${label} › ${varLabel} › ${slot.aspectRatio}: Asset not yet uploaded`);
               } else if (slot.uploadStatus === "uploading") {
                 errors.push(`${label} › ${varLabel} › ${slot.aspectRatio}: Upload still in progress`);
@@ -349,7 +351,7 @@ function validateCreatives(draft: CampaignDraft): ValidationResult {
     if (sourceType !== "existing_post") {
       // Asset completeness: dual/full mode requires all aspect ratio slots to have
       // a Meta asset ID before launch (assetHash for images, videoId for videos).
-      for (const issue of validateCreativeAssetCompleteness(c)) {
+      for (const issue of validateCreativeAssetCompleteness(c, { sendsAtLaunch: true })) {
         errors.push(
           `${label} › ${issue.variationName}: ${issue.assetMode} mode requires ${issue.missingRatios.join(" + ")} — upload the missing aspect ratio(s) or switch to Single mode`,
         );

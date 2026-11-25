@@ -14,6 +14,7 @@ import { createServiceRoleClient } from "@/lib/supabase/server";
 import { isOperator, MATAS_USER_IDS } from "@/lib/auth/operator-allowlist";
 import { createActionLogger } from "./action-log";
 import { realDraftDeps } from "./draft-deps";
+import { realMetaDeps } from "./meta-deps";
 import { realReaders } from "./readers";
 import { createSupabaseStore, devMemoryStore, type McpStore } from "./oauth/store";
 import type { McpHandlerDeps } from "./server";
@@ -24,7 +25,7 @@ export function mcpStore(): McpStore {
 }
 
 export function flowDeps() {
-  return { store: mcpStore(), isOperator };
+  return { store: mcpStore(), isOperator, isMatas: (userId: string) => MATAS_USER_IDS.includes(userId) };
 }
 
 export function mcpHandlerDeps(): McpHandlerDeps {
@@ -40,6 +41,7 @@ export function mcpHandlerDeps(): McpHandlerDeps {
     logger: createActionLogger(devStore ? null : db),
     readers: realReaders,
     draft: realDraftDeps(db),
+    meta: realMetaDeps(db),
   };
 }
 

@@ -11,6 +11,7 @@ import { SCOPE_DRAFT } from "../config.ts";
 import { scopeIncludes } from "../oauth/flow.ts";
 import { runLaunchGuard } from "../../launch-guard/load.ts";
 import { validateStep } from "../../validation.ts";
+import { storedSlotsToSend } from "../../creatives/stored-at-launch.ts";
 import type { LaunchCheck } from "../../launch-guard/types.ts";
 import type { CampaignDraft } from "../../types.ts";
 import { ToolInputError, type Db, type LaunchCheckLine, type LaunchChecksOutcome, type McpDraftDeps, type ToolContext, type WizardChecks } from "../tool-types.ts";
@@ -39,11 +40,14 @@ export async function runChecks(db: Db, draft: CampaignDraft): Promise<{ blocker
 /**
  * The wizard's own step checks, as Review runs them (validateStep(7), every
  * visible step), in the wizard's words: errors block Launch, warnings don't.
+ * A file already in Storage goes to Meta at launch (M3a), so it isn't a
+ * blocker; `sendAtLaunch` counts them.
  */
 export function wizardChecks(draft: CampaignDraft): WizardChecks {
   try {
     const r = validateStep(7, draft);
-    return { blockers: [...new Set(r.errors)], warnings: [...new Set(r.warnings ?? [])] };
+    const atLaunch = storedSlotsToSend(draft).length;
+    return { blockers: [...new Set(r.errors)], warnings: [...new Set(r.warnings ?? [])], ...(atLaunch > 0 ? { sendAtLaunch: atLaunch } : {}) };
   } catch {
     return { blockers: [], warnings: [], error: "The wizard's step checks couldn't run." };
   }

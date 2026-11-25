@@ -25,6 +25,7 @@ import type {
 } from "@/lib/types";
 import { attachedAdSetKey, getVisibleSteps } from "@/lib/types";
 import { validateStep } from "@/lib/validation";
+import { applyStoredSlotResults, storedSlotsToSend, type StoredSlotResult } from "@/lib/creatives/stored-at-launch";
 import { saveDraftToStorage } from "@/lib/autosave";
 import { applyTemplate } from "@/lib/templates";
 import { loadTemplatesFromDb, saveTemplateToDb, deleteTemplateFromDb } from "@/lib/db/templates";
@@ -80,8 +81,11 @@ export function WizardShell({ draftId, linkedPlan = null }: WizardShellProps) {
   } = draftController;
 
   // Launch state
-  const { mutate: launchCampaign, loading: launching, error: launchError, errorSource: launchErrorSource, rateLimit: launchRateLimit, resetError: dismissLaunchError } = useLaunchCampaign();
+  const { mutate: launchCampaign, loading: launchRunning, error: launchError, errorSource: launchErrorSource, rateLimit: launchRateLimit, resetError: dismissLaunchError } = useLaunchCampaign();
   const [launchSummary, setLaunchSummary] = useState<LaunchSummary | null>(null);
+  // Launch's first step (M3a): files already in Storage go to Meta. The panel shows "Launching…" throughout.
+  const [sendingStoredAssets, setSendingStoredAssets] = useState(false);
+  const launching = launchRunning || sendingStoredAssets;
   const launchAccountId = draft.settings.metaAdAccountId || draft.settings.adAccountId || null;
   const launchCooldown = useBucCooldown(launchAccountId, launchRateLimit);
 
@@ -252,6 +256,39 @@ export function WizardShell({ draftId, linkedPlan = null }: WizardShellProps) {
       return;
     }
 
+    // Files attached from Drive or through the connector are in Storage, not
+    // yet on Meta: send them first (the MML path), stamp their ids, then launch.
+    let launchDraft = draft;
+    if (storedSlotsToSend(draft).length > 0) {
+      setSendingStoredAssets(true);
+      try {
+        const res = await fetch("/api/meta/draft-assets", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ draft }),
+        });
+        const json = (await res.json().catch(() => null)) as { results?: StoredSlotResult[]; error?: string } | null;
+        if (!res.ok || !json?.results) {
+          alert(`Cannot launch:\n${json?.error ?? `HTTP ${res.status}`}`);
+          return;
+        }
+        launchDraft = applyStoredSlotResults(draftRef.current, json.results);
+        setDraft(launchDraft);
+        autosave(launchDraft);
+      } catch (err) {
+        alert(`Cannot launch:\n${err instanceof Error ? err.message : "Upload failed"}`);
+        return;
+      } finally {
+        setSendingStoredAssets(false);
+      }
+      // A file Meta didn't take is now "Upload failed — retry or remove": the launch stops.
+      const after = validateStep(7, launchDraft);
+      if (!after.valid) {
+        alert(`Cannot launch:\n${after.errors.join("\n")}`);
+        return;
+      }
+    }
+
     try {
       // Build page → IG account ID map from the enriched pages cache.
       // The cache was populated using the user's Facebook OAuth token, which
@@ -290,13 +327,13 @@ export function WizardShell({ draftId, linkedPlan = null }: WizardShellProps) {
       );
 
       // Single server-side call — runs all 4 phases and saves to Supabase
-      const result = await launchCampaign(draft, { igAccountMap });
+      const result = await launchCampaign(launchDraft, { igAccountMap });
 
       // Store launch summary on the draft without overwriting editable fields.
       // adSetSuggestions and creatives are left intact so re-launches start
       // from a clean state without stale metaAdSetId / metaCreativeId values.
       const published: CampaignDraft = {
-        ...draft,
+        ...launchDraft,
         metaCampaignId: result.metaCampaignId,
         launchSummary: result,
         status: "published",

@@ -537,20 +537,41 @@ export type LaunchCampaignResult = LaunchSummary;
 export const maxDuration = 800;
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
-  return launchWriteState.run({ sent: false }, () => launchCampaign(req));
+  return launchWriteState.run({ sent: false }, () => launchCampaign(req, null));
 }
 
-async function launchCampaign(req: NextRequest): Promise<NextResponse> {
+/**
+ * The same launch for an operator without a browser session: the Off/Pixel
+ * connector's launch_draft (lib/mcp/meta-deps.ts, M3a). Everything below
+ * runs as it does for the wizard, with `supabase` the service-role client
+ * and `user` the connector's operator: every user-scoped read and write in
+ * this route names `user.id` itself, and the launch checks, the token, the
+ * ledger and the paused path are the route's own. The body is the wizard's
+ * (`draft`, `createPaused`, `igAccountMap`).
+ */
+export async function launchCampaignAs(
+  req: NextRequest,
+  auth: { supabase: Awaited<ReturnType<typeof createClient>>; user: { id: string } },
+): Promise<NextResponse> {
+  return launchWriteState.run({ sent: false }, () => launchCampaign(req, auth));
+}
+
+async function launchCampaign(
+  req: NextRequest,
+  auth: { supabase: Awaited<ReturnType<typeof createClient>>; user: { id: string } } | null,
+): Promise<NextResponse> {
   const launchStart = Date.now();
   const phaseDurations: Record<string, number> = {};
   // Unique ID for this launch run — lets callers distinguish results across re-launches
   const launchRunId = crypto.randomUUID();
 
   // ── Auth ───────────────────────────────────────────────────────────────────
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const supabase = auth?.supabase ?? (await createClient());
+  const user = auth
+    ? auth.user
+    : (
+        await supabase.auth.getUser()
+      ).data.user;
 
   if (!user) {
     return launchJson({ error: "Unauthorised" }, { status: 401 });
