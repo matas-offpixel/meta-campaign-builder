@@ -37,6 +37,7 @@ import type { AssetRatio } from "../../types.ts";
 import type { AdCreativeDraft, CampaignDraft, CTAType } from "../../types.ts";
 import { ToolInputError, type McpTool, type ToolContext } from "../tool-types.ts";
 import { ATTACH_WORDS } from "../meta/words.ts";
+import { mayUseFor, resolveDriveOwner, type DriveFileOwner } from "../../drive/file-owner.ts";
 import { checksSummary, launchChecksFor, linkKey, requireDraftScope } from "../drafts/common.ts";
 import { loadWritableDraft, saveDraft } from "../drafts/write.ts";
 import { recipeNames, recipeOf } from "../drafts/ad-names.ts";
@@ -303,6 +304,23 @@ export const attachDriveCreativesTool: McpTool = {
         throw e;
       }
       opened.set(parent, { open, tiles: folderTiles(open.files, "single") });
+    }
+    // A file from outside this show's tree must be the show's client's own, or artist material
+    // (lib/drive/file-owner.ts: the same resolution the prod transcript's runner checks with).
+    const ownerOf = new Map<string, DriveFileOwner>();
+    for (const [id, parent] of folderOf) {
+      if (opened.get(parent)!.open.inTree) continue;
+      const owner = ownerOf.get(parent) ?? (await resolveDriveOwner(ctx.db as never, drive, parent));
+      ownerOf.set(parent, owner);
+      const may = mayUseFor(owner, event.client_id);
+      if (may === "own" || may === "artist_library") continue;
+      const fileName = opened.get(parent)!.open.files.find((f) => f.id === id)?.name ?? id;
+      if (may === "other_client") {
+        const c = await ctx.db.from("clients").select("name").in("id", owner.clientIds).limit(1);
+        const name = ((c.data ?? []) as Array<{ name: string | null }>)[0]?.name ?? "another client";
+        throw new ToolInputError(ATTACH_WORDS.otherClient(fileName, name), { draftId: loaded.row.id, refused: "other_client", fileId: id });
+      }
+      throw new ToolInputError(ATTACH_WORDS.ownerUnknown(fileName), { draftId: loaded.row.id, refused: "owner_unknown", fileId: id });
     }
     const tileOf = (id: string): { tile: Tile; open: OpenFolder } => {
       const at = opened.get(folderOf.get(id)!)!;
