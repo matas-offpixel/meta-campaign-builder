@@ -29,6 +29,11 @@ interface WizardFooterProps {
   /** BUC cooldown remaining, e.g. "47m 00s" — disables Launch until elapsed. */
   launchCooldownLabel?: string | null;
   /**
+   * "Launch · {n} to fix" while a launch check blocks (record RC3). Set,
+   * the button reads it and stays off.
+   */
+  launchBlockedLabel?: string | null;
+  /**
    * A plan-linked draft launches from the plan canvas, with TikTok and
    * Google, paused, in one action — so this footer offers a pointer there
    * instead of a second Launch (§3a row 8, friction #6).
@@ -53,6 +58,7 @@ export function WizardFooter({
   saveStatus,
   launching = false,
   launchCooldownLabel = null,
+  launchBlockedLabel = null,
   showLaunch = true,
   planHref = null,
   showTemplates = true,
@@ -109,55 +115,66 @@ export function WizardFooter({
         </div>
       )}
 
-      {/* ── Main footer row ── */}
-      <div className="px-6 py-3">
-        <div className="mx-auto flex max-w-5xl items-center justify-between">
-          <div className="flex items-center gap-3">
-            {!isFirstStep && (
-              <Button variant="outline" onClick={onBack}>
-                <ChevronLeft className="h-4 w-4" />
-                Back
-              </Button>
-            )}
-            {showTemplates && showLoadTemplate && (
-              <Button variant="outline" onClick={onLoadTemplate}>
-                <FolderOpen className="h-4 w-4" />
-                Load Template
-              </Button>
-            )}
-            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              {saveStatus === "saving" && (
-                <>
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  <span>Saving...</span>
-                </>
+      {/* ── Main footer row ──
+          Under 640px it is two rows (#1361 design round, 393): the primary
+          action full width on top, so "Launch · {n} to fix" always shows,
+          then Back, Save as Template, Save Draft on one row that never wraps.
+          From 640px that row is display: contents, so the footer is one row as
+          before: the primary sits last, at the right. */}
+      <div className="px-4 py-3 sm:px-6">
+        <div className="mx-auto flex max-w-5xl flex-wrap items-center gap-2 sm:flex-nowrap">
+          <div className="flex w-full flex-nowrap items-center justify-between sm:contents">
+            <div className="flex items-center gap-2 sm:gap-3">
+              {!isFirstStep && (
+                <Button variant="outline" onClick={onBack} className="max-sm:px-3">
+                  <ChevronLeft className="h-4 w-4" />
+                  Back
+                </Button>
               )}
-              {saveStatus === "saved" && (
-                <>
-                  <CheckCircle2 className="h-3.5 w-3.5 text-success" />
-                  <span className="text-success">Saved</span>
-                </>
+              {showTemplates && showLoadTemplate && (
+                <Button variant="outline" onClick={onLoadTemplate}>
+                  <FolderOpen className="h-4 w-4" />
+                  Load Template
+                </Button>
               )}
+              <div className="flex items-center gap-1.5 text-xs text-muted-foreground empty:hidden">
+                {saveStatus === "saving" && (
+                  <>
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    <span>Saving...</span>
+                  </>
+                )}
+                {saveStatus === "saved" && (
+                  <>
+                    <CheckCircle2 className="h-3.5 w-3.5 text-success" />
+                    <span className="text-success">Saved</span>
+                  </>
+                )}
+              </div>
+            </div>
+
+            <div className="ml-auto flex items-center sm:gap-2">
+              {showTemplates ? (
+                <Button variant="ghost" onClick={onSaveTemplate} className="whitespace-nowrap max-sm:gap-1.5 max-sm:px-1.5">
+                  <BookmarkPlus className="h-4 w-4" />
+                  Save as Template
+                </Button>
+              ) : null}
+              <Button variant="ghost" onClick={onSaveDraft} className="whitespace-nowrap max-sm:gap-1.5 max-sm:px-1.5">
+                <Save className="h-4 w-4" />
+                Save Draft
+              </Button>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
-            {showTemplates ? (
-              <Button variant="ghost" onClick={onSaveTemplate}>
-                <BookmarkPlus className="h-4 w-4" />
-                Save as Template
-              </Button>
-            ) : null}
-            <Button variant="ghost" onClick={onSaveDraft}>
-              <Save className="h-4 w-4" />
-              Save Draft
-            </Button>
-
+          <div data-footer-primary="" className="order-first flex w-full empty:hidden sm:order-none sm:w-auto [&>*]:w-full sm:[&>*]:w-auto">
             {isLastStep ? (
               showLaunch ? (
                 <Button
                   onClick={onLaunch}
-                  disabled={!canContinue || launching || Boolean(launchCooldownLabel)}
+                  disabled={
+                    !canContinue || launching || Boolean(launchCooldownLabel) || Boolean(launchBlockedLabel)
+                  }
                 >
                   {launching ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
@@ -168,7 +185,7 @@ export function WizardFooter({
                     ? "Creating campaign…"
                     : launchCooldownLabel
                       ? `Retry in ${launchCooldownLabel}`
-                      : "Launch Campaign"}
+                      : launchBlockedLabel ?? "Launch Campaign"}
                 </Button>
               ) : planHref ? (
                 <a
