@@ -71,10 +71,16 @@ const INSTRUCTIONS = [
 ].join(" ");
 
 function failedText(tool: McpTool): string {
+  if (tool.failedText) return tool.failedText;
   if (tool.kind === "meta") return "The Meta tool failed partway. Read the draft again with get_draft (or get_campaign_tree) to see what was sent before trying again.";
   return tool.kind === "draft"
     ? "The draft tool failed and nothing was saved. Try again, or read the draft again with get_draft."
     : "The read failed. Try again, or narrow the request.";
+}
+
+/** What Claude gets for a failed call: a refusal's own words and data, else the tool's failure row. Never the raw error. */
+export function errorAnswer(tool: McpTool, e: unknown): string {
+  return JSON.stringify(e instanceof ToolInputError ? { error: e.message, ...(e.data ?? {}) } : { error: failedText(tool) });
 }
 
 function buildServer(ctx: ToolContext, deps: McpHandlerDeps, grantId: string): McpServer {
@@ -122,7 +128,7 @@ function buildServer(ctx: ToolContext, deps: McpHandlerDeps, grantId: string): M
           const message = e instanceof Error ? e.message : String(e);
           error = message;
           if (e instanceof ToolInputError) result = e.summary;
-          text = JSON.stringify(e instanceof ToolInputError ? { error: message, ...(e.data ?? {}) } : { error: failedText(tool) });
+          text = errorAnswer(tool, e);
         }
         // A meta call's row carries the chat yes it ran on (approval_source claude_prompt).
         let approval: { asked: string; answer: string } | null = null;

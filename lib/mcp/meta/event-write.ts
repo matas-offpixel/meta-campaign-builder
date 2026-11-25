@@ -14,6 +14,9 @@
  * Relative imports only (node:test).
  */
 import { ToolInputError, type Db } from "../tool-types.ts";
+import { EVENT_WORDS } from "./words.ts";
+
+const label = (field: string) => EVENT_WORDS.field[field] ?? field;
 
 export const EVENT_EDIT_FIELDS = ["announcement_at", "presale_at", "general_sale_at", "signup_url", "ticket_url"] as const;
 export type EventEditField = (typeof EVENT_EDIT_FIELDS)[number];
@@ -38,10 +41,10 @@ export function normaliseInstant(field: string, value: unknown): string | null {
   if (value === null) return null;
   const s = typeof value === "string" ? value.trim() : "";
   if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,6})?)?(Z|[+-]\d{2}:?\d{2})$/.test(s)) {
-    throw new ToolInputError(`${field} is a time with its zone, e.g. "2026-11-27T18:00:00Z" (London in winter) or "2027-04-10T10:00:00+01:00" (London in summer), or null to clear it.`, { refused: "bad_time", field });
+    throw new ToolInputError(EVENT_WORDS.refusedTimeFormat(label(field)), { refused: "bad_time", field });
   }
   const d = new Date(s);
-  if (Number.isNaN(d.getTime())) throw new ToolInputError(`${field} isn't a real time.`, { refused: "bad_time", field });
+  if (Number.isNaN(d.getTime())) throw new ToolInputError(EVENT_WORDS.refusedTime(label(field)), { refused: "bad_time", field });
   return d.toISOString();
 }
 
@@ -52,17 +55,18 @@ export function normaliseLink(field: string, value: unknown): string | null {
   try {
     url = new URL(s);
   } catch {
-    throw new ToolInputError(`${field} is an https link, or null to clear it.`, { refused: "bad_link", field });
+    throw new ToolInputError(EVENT_WORDS.refusedLink(label(field)), { refused: "bad_link", field });
   }
-  if (url.protocol !== "https:") throw new ToolInputError(`${field} must start with https://.`, { refused: "bad_link", field });
+  if (url.protocol !== "https:") throw new ToolInputError(EVENT_WORDS.refusedLink(label(field)), { refused: "bad_link", field });
   return s;
 }
 
 /** The event form's update, for the given fields only, guarded on the owner. */
 export async function updateEventFields(db: Db, input: { eventId: string; userId: string; patch: EventPatch }): Promise<EventEditRow> {
   const res = await db.from("events").update(input.patch).eq("id", input.eventId).eq("user_id", input.userId).select(EVENT_EDIT_COLUMNS);
-  if (res.error) throw new Error(`events update: ${res.error.message}`);
+  // No database message reaches Claude (MW2): it stays in the action log.
+  if (res.error) throw new ToolInputError(EVENT_WORDS.failed, { eventId: input.eventId, refused: "save_failed", error: res.error.message.slice(0, 200) });
   const row = ((res.data ?? []) as EventEditRow[])[0];
-  if (!row) throw new ToolInputError("This event belongs to another account, so it can't be changed from here.", { eventId: input.eventId, refused: "not_owner" });
+  if (!row) throw new ToolInputError(EVENT_WORDS.refusedOtherAccount, { eventId: input.eventId, refused: "not_owner" });
   return row;
 }

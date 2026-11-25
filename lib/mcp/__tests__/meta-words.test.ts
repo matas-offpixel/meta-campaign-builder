@@ -10,12 +10,14 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { LAUNCH_UPLOAD_WORDS, storedSendSteps } from "../../creatives/stored-at-launch.ts";
-import { MCP_WORDS, RESULT_WORDS, THINGS } from "../meta/words.ts";
+import { APPROVAL_FIELD_WORDS, ATTACH_WORDS, EVENT_WORDS, LAUNCH_WORDS, MCP_WORDS, NAME_WORDS, RESULT_WORDS, THINGS, UPLOAD_WORDS } from "../meta/words.ts";
+import { CONSENT_WORDS, consentContent } from "../oauth/consent-words.ts";
+import { CLAUDE_CALLBACK } from "../config.ts";
 import { APPROVAL_WORDS } from "../meta/approval.ts";
 import { CEILING_WORDS } from "../meta/ceiling.ts";
 
 const FIXTURE = new URL("./fixtures/words-mcp-today-2026-11-25.tsv", import.meta.url);
-const SHA256 = "5aeca085a051cc358091bf0861ebe908e08174030241792f865325fb3f6d1980";
+const SHA256 = "ed3bab1637bd6a443c17dc041072dc94530e8ae7f28b20dfc1a54f617294fad1";
 
 const raw = readFileSync(FIXTURE);
 const rows = new Map(
@@ -34,12 +36,12 @@ const rows = new Map(
 function row(key: string, vars: Record<string, string | number> = {}): string {
   const words = rows.get(key);
   assert.ok(words, `${key} is in the list`);
-  return words!.replace(/\{([a-z, ]+)\}/g, (m, name: string) => (name in vars ? String(vars[name]) : m));
+  return words!.replace(/\{([a-z_, ]+)\}/g, (m, name: string) => (name in vars ? String(vars[name]) : m));
 }
 
-test("the fixture is design's list: header + 143 rows, sha256 5aeca085…", () => {
+test("the fixture is design's list: header + 208 rows, sha256 ed3bab16…", () => {
   assert.equal(createHash("sha256").update(raw).digest("hex"), SHA256);
-  assert.equal(rows.size, 143);
+  assert.equal(rows.size, 208);
 });
 
 test("FC2: what the meta tools tell Claude", () => {
@@ -85,4 +87,95 @@ test("FC4's steps: files, then videos when any, each done once the next phase st
   assert.deepEqual(storedSendSteps({ phase: "videos", files: 14, videos: 4 }).map((s) => s.done), [true, false]);
   assert.deepEqual(storedSendSteps({ phase: "launch", files: 14, videos: 4 }).map((s) => s.done), [true, true]);
   assert.deepEqual(storedSendSteps({ phase: "files", files: 1, videos: 0 }).map((s) => s.label), ["Sending 1 file to Meta…"]);
+});
+
+test("MW1: the consent page's Meta line, and the Meta upgrade's title and note", () => {
+  assert.equal(CONSENT_WORDS.meta, row("consent.line2.meta"));
+  assert.equal(CONSENT_WORDS.titleUpgradeMeta, row("consent.title.upgrade.meta"));
+  assert.equal(CONSENT_WORDS.titleUpgradeMetaLoopback, row("consent.title.upgrade.meta.loopback"));
+  assert.equal(CONSENT_WORDS.upgradeCancelNoteMeta, row("consent.upgrade.cancel_note.meta"));
+  const META = "mcp:read mcp:draft mcp:meta";
+  const page = (upgradeFrom?: "read" | "drafts") => consentContent({ redirectUri: CLAUDE_CALLBACK, clientName: "Claude", email: null, returnHost: "claude.ai", scope: META, upgradeFrom });
+  assert.equal(page().lines[1], row("consent.line2.meta"));
+  assert.equal(page().title, "Connect Claude to Off/Pixel");
+  assert.equal(page().cancelNote, undefined);
+  assert.deepEqual([page("drafts").title, page("drafts").cancelNote], [row("consent.title.upgrade.meta"), row("consent.upgrade.cancel_note.meta")]);
+  // A read-only grant adding Meta keeps M2's note.
+  assert.deepEqual([page("read").title, page("read").cancelNote], [row("consent.title.upgrade.meta"), "If you cancel, it keeps the read-only access it has now."]);
+});
+
+test("MW2: the refusals, each ending with what didn't happen", () => {
+  assert.equal(MCP_WORDS.refusedScope, row("claude.mcp.refused.scope"));
+  assert.equal(MCP_WORDS.refusedNoClient, row("claude.mcp.refused.no_client"));
+  assert.equal(MCP_WORDS.refusedCurrency("EUR"), row("claude.mcp.refused.currency", { currency: "EUR" }));
+  assert.equal(MCP_WORDS.refusedCeilingUnread, row("claude.mcp.refused.ceiling_unread"));
+  assert.equal(MCP_WORDS.refusedNotDraft("published"), row("claude.mcp.refused.not_draft", { status: "published" }));
+  assert.equal(MCP_WORDS.refusedChecksUnavailable, row("claude.mcp.refused.checks_unavailable"));
+  assert.equal(APPROVAL_FIELD_WORDS.approval, row("claude.mcp.approval"));
+  assert.equal(APPROVAL_FIELD_WORDS.asked, row("claude.mcp.approval.asked"));
+  assert.equal(APPROVAL_FIELD_WORDS.answer, row("claude.mcp.approval.answer"));
+});
+
+test("MW2: launch_draft's answers, paused, live, failed and part way", () => {
+  const link = "https://adsmanager.facebook.com/x";
+  assert.equal(LAUNCH_WORDS.paused, row("claude.mcp.launch.mode.paused"));
+  assert.equal(LAUNCH_WORDS.live(45), row("claude.mcp.launch.mode.live", { x: "45.00" }));
+  assert.equal(LAUNCH_WORDS.link(link), row("claude.mcp.launch.link", { link }));
+  assert.equal(LAUNCH_WORDS.failed, row("claude.mcp.launch.failed"));
+  assert.equal(LAUNCH_WORDS.partialPaused("120", 1, 3, link), row("claude.mcp.launch.partial.paused", { id: "120", a: 1, adsets: "3 ad sets", link }));
+  assert.equal(LAUNCH_WORDS.partialLive("120", 0, 1, link), row("claude.mcp.launch.partial.live", { id: "120", a: 0, adsets: "1 ad set", link }));
+});
+
+test("MW2: the send step's answers, with one-forms", () => {
+  assert.equal(UPLOAD_WORDS.failedLaunch(2, 9), row("claude.mcp.upload.failed.launch", { f: 2, files: "9 files" }));
+  assert.equal(UPLOAD_WORDS.failedLaunch(1, 9), row("claude.mcp.upload.failed.launch.one", { files: "9 files" }));
+  assert.equal(UPLOAD_WORDS.failed(2, 9), row("claude.mcp.upload.failed", { f: 2, files: "9 files" }));
+  assert.equal(UPLOAD_WORDS.failed(1, 1), row("claude.mcp.upload.failed.one", { files: "1 file" }));
+  assert.equal(UPLOAD_WORDS.fileFailed("a.mp4"), row("claude.mcp.upload.file_failed", { "file name": "a.mp4" }));
+  assert.equal(UPLOAD_WORDS.videoFailed("a.mp4"), row("claude.mcp.upload.video_failed", { "file name": "a.mp4" }));
+  assert.equal(UPLOAD_WORDS.done(2), row("claude.mcp.upload.done", { files: "2 files" }));
+  assert.equal(UPLOAD_WORDS.already(3), row("claude.mcp.upload.already", { n: 3 }));
+  assert.equal(UPLOAD_WORDS.already(1), row("claude.mcp.upload.already.one"));
+  assert.equal(UPLOAD_WORDS.none, row("claude.mcp.upload.none"));
+  assert.equal(UPLOAD_WORDS.noLaunch, row("claude.mcp.upload.no_launch"));
+});
+
+test("MW2: update_event's answers and refusals", () => {
+  assert.equal(EVENT_WORDS.done("NX27-X", "Announcement: not set → 2026"), row("claude.mcp.event.done", { code: "NX27-X", changes: "Announcement: not set → 2026" }));
+  assert.equal(EVENT_WORDS.change("Presale", "a", "b"), row("claude.mcp.event.change", { field: "Presale", before: "a", after: "b" }));
+  assert.equal(EVENT_WORDS.cleared, row("claude.mcp.event.cleared"));
+  assert.equal(EVENT_WORDS.notSet, row("claude.mcp.event.not_set"));
+  for (const [f, key] of [["announcement_at", "announcement"], ["presale_at", "presale"], ["general_sale_at", "general_sale"], ["signup_url", "signup_url"], ["ticket_url", "ticket_url"]]) {
+    assert.equal(EVENT_WORDS.field[f!], row(`claude.mcp.event.field.${key}`));
+  }
+  assert.equal(EVENT_WORDS.refusedEmpty("a, b"), row("claude.mcp.event.refused.empty", { fields: "a, b" }));
+  assert.equal(EVENT_WORDS.refusedUnknown("NX27-X"), row("claude.mcp.event.refused.unknown", { code: "NX27-X" }));
+  assert.equal(EVENT_WORDS.refusedOtherAccount, row("claude.mcp.event.refused.other_account"));
+  assert.equal(EVENT_WORDS.refusedTimeFormat("Presale"), row("claude.mcp.event.refused.time_format", { field: "Presale" }));
+  assert.equal(EVENT_WORDS.refusedTime("Presale"), row("claude.mcp.event.refused.time", { field: "Presale" }));
+  assert.equal(EVENT_WORDS.refusedLink("Ticket link"), row("claude.mcp.event.refused.link", { field: "Ticket link" }));
+  assert.equal(EVENT_WORDS.failed, row("claude.mcp.event.failed"));
+});
+
+test("MW2: set_draft_name and the attach refusals", () => {
+  assert.equal(NAME_WORDS.done("A", "B"), row("claude.mcp.name.done", { old: "A", new: "B" }));
+  assert.equal(NAME_WORDS.same, row("claude.mcp.name.same"));
+  assert.equal(NAME_WORDS.tooLong(400), row("claude.mcp.name.too_long", { max: 400 }));
+  assert.equal(ATTACH_WORDS.outside, row("claude.mcp.attach.outside"));
+  assert.equal(ATTACH_WORDS.fileOutside("1x"), row("claude.mcp.attach.file_outside", { id: "1x" }));
+  assert.equal(ATTACH_WORDS.notMedia("1x"), row("claude.mcp.attach.not_media", { id: "1x" }));
+  assert.equal(ATTACH_WORDS.singleRatio("a.jpg", "4:5"), row("claude.mcp.attach.single_ratio", { name: "a.jpg", ratio: "4:5" }));
+  assert.equal(ATTACH_WORDS.pairFeed("a.jpg", "9:16"), row("claude.mcp.attach.pair.feed", { name: "a.jpg", ratio: "9:16" }));
+  assert.equal(ATTACH_WORDS.pairVertical("a.jpg", "4:5"), row("claude.mcp.attach.pair.vertical", { name: "a.jpg", ratio: "4:5" }));
+  assert.equal(
+    ATTACH_WORDS.pairKinds("a.jpg", ATTACH_WORDS.kind.image!, "b.mp4", ATTACH_WORDS.kind.video!),
+    row("claude.mcp.attach.pair.kinds", { "name a": "a.jpg", "kind a": row("claude.mcp.attach.kind.static"), "name b": "b.mp4", "kind b": row("claude.mcp.attach.kind.video") }),
+  );
+  assert.equal(ATTACH_WORDS.pairSame, row("claude.mcp.attach.pair.same"));
+  assert.equal(ATTACH_WORDS.empty, row("claude.mcp.attach.empty"));
+  assert.equal(ATTACH_WORDS.ratioUnknown, row("claude.mcp.attach.ratio_unknown"));
+  assert.equal(ATTACH_WORDS.pickerReason("a.mp4", "Over 200 MB"), row("claude.mcp.attach.picker_reason", { name: "a.mp4", reason: "Over 200 MB" }));
+  assert.equal(ATTACH_WORDS.failed, row("claude.mcp.attach.failed"));
+  assert.equal(ATTACH_WORDS.waiting, row("claude.mcp.attach.waiting"));
+  assert.equal(ATTACH_WORDS.pairsOff, row("claude.mcp.attach.pairs_off"));
 });

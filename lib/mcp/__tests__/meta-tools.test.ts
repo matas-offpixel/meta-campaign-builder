@@ -10,7 +10,6 @@ import { resolveMetaLaunchEntityStatus } from "../../meta/launch-status.ts";
 import { buildAdSetPayload } from "../../meta/adset.ts";
 import { buildAdPayload } from "../../meta/creative.ts";
 import { buildCampaignPayload } from "../../meta/campaign.ts";
-import { sendStoredDraftAssets } from "../../plan/stored-assets-meta.ts";
 import type { DriveApi, DriveFile, DriveMediaFile } from "../../drive/client.ts";
 import type { CampaignDraft } from "../../types.ts";
 import { validateStep } from "../../validation.ts";
@@ -21,124 +20,10 @@ import { setDraftNameTool } from "../tools/draft-edit.ts";
 import { attachDriveCreativesTool, listDriveCreativesTool } from "../tools/draft-drive.ts";
 import { APPROVAL_WORDS } from "../meta/approval.ts";
 import { draftMoneyADay } from "../meta/ceiling.ts";
-import { ToolInputError, type McpMetaDeps, type McpTool, type ToolContext } from "../tool-types.ts";
-import { CLIENT_NX } from "./fixtures.ts";
-import { OPERATOR } from "./helpers.ts";
-import { D_DRAFT, EV_TGT, TGT_SIGNUP, UPDATED, draftCtx, fakeDrive, fakeDraftDeps, newSpies, readRow } from "./draft-fixtures.ts";
+import { ToolInputError, type McpTool, type ToolContext } from "../tool-types.ts";
+import { D_DRAFT, EV_TGT, UPDATED, draftCtx, fakeDrive, fakeDraftDeps, newSpies, readRow } from "./draft-fixtures.ts";
 
-const SCOPE_ALL = "mcp:read mcp:draft mcp:meta";
-const YES = { asked: "Launch [NX27-GLITTERBOX] SIGNUP to Meta paused? 2 ad sets, £50 a day once switched on.", answer: "yes, paused" };
-const REG_A = "a0000000-0000-4000-8000-0000000000a1";
-const REG_B = "a0000000-0000-4000-8000-0000000000a2";
-const ACCOUNT = "act_606252931141334";
-
-const LAUNCHED = {
-  launchRunId: "run-1",
-  metaCampaignId: "120200000000000001",
-  adSetsCreated: [
-    { name: "Broad", metaAdSetId: "120200000000000011", ageMode: "strict" },
-    { name: "Fans", metaAdSetId: "120200000000000012", ageMode: "strict" },
-  ],
-  adSetsFailed: [],
-  creativesCreated: [
-    { name: "Teaser 1", metaCreativeId: "120200000000000021", ads: [{ adSetName: "Broad", metaAdId: "120200000000000031" }, { adSetName: "Fans", metaAdId: "120200000000000032" }], adsFailed: [] },
-    { name: "Teaser 2", metaCreativeId: "120200000000000022", ads: [{ adSetName: "Broad", metaAdId: "120200000000000033" }, { adSetName: "Fans", metaAdId: "120200000000000034" }], adsFailed: [] },
-  ],
-  creativesFailed: [],
-  adsCreated: 4,
-  adsFailed: 0,
-};
-
-/** D_DRAFT made launchable: copy, link, one interest group, assignments, and each ad's 9:16 file in Storage (pending). */
-async function makeLaunchable(db: ReturnType<typeof draftCtx>["db"], opts: { storage?: boolean } = {}) {
-  const row = (await readRow(db, D_DRAFT))!;
-  const d = structuredClone(row.draft_json) as CampaignDraft;
-  d.audiences.interestGroups = [{ id: "ig-1", name: "Disco", interests: [{ id: "6003000000002", name: "Disco" }] } as never];
-  d.adSetSuggestions = d.adSetSuggestions.map((s) => ({ ...s, sourceType: "interest_group", sourceId: "ig-1", sourceName: "Disco" })) as never;
-  d.creativeAssignments = { "as-1": ["cr-1", "cr-2"], "as-2": ["cr-1", "cr-2"] };
-  d.creatives = d.creatives.map((c, i) => {
-    const slot = c.assetVariations[0]!.assets[0]!;
-    return {
-      ...c,
-      captions: [{ id: `cap-${i}`, text: "Glitterbox returns to Newcastle" }],
-      destinationUrl: TGT_SIGNUP,
-      cta: "sign_up",
-      mediaType: "video",
-      assetVariations: [
-        {
-          ...c.assetVariations[0]!,
-          name: "Variation 1",
-          assets: [
-            {
-              ...slot,
-              id: `slot-${i + 1}`,
-              uploadStatus: "pending",
-              ...(opts.storage === false ? {} : { storagePath: `videos/drive-send/${i + 1}.mp4`, storageBucket: "campaign-assets", registryAssetId: i === 0 ? REG_A : REG_B }),
-            },
-          ],
-        },
-      ],
-    };
-  });
-  await db.from("campaign_drafts").update({ draft_json: d }).eq("id", D_DRAFT);
-  await db.from("creative_assets").insert([
-    { id: REG_A, user_id: OPERATOR, content_hash: "h-a", byte_size: 8_000_000, filename: "teaser-1_9x16.mp4", media_kind: "video", aspect_ratio: "9:16", storage_bucket: "campaign-assets", storage_path: "videos/drive/h-a.mp4" },
-    { id: REG_B, user_id: OPERATOR, content_hash: "h-b", byte_size: 8_000_000, filename: "teaser-2_9x16.mp4", media_kind: "video", aspect_ratio: "9:16", storage_bucket: "campaign-assets", storage_path: "videos/drive/h-b.mp4" },
-  ]);
-  // The fixture's updated_at is unchanged by the fake's update: UPDATED still reads it.
-  db.writes.length = 0;
-}
-
-interface MetaSpy {
-  uploads: Array<Record<string, unknown>>;
-  launches: Array<{ draft: CampaignDraft; createPaused: boolean }>;
-  waited: string[][];
-  failUpload: boolean;
-  /** Videos Meta reports as video_status error. */
-  erroredVideos: string[];
-}
-
-function metaDeps(db: ReturnType<typeof draftCtx>["db"], spy: MetaSpy): McpMetaDeps {
-  return {
-    sendAssets: ({ userId, draft }) =>
-      sendStoredDraftAssets({
-        supabase: db,
-        draft,
-        userId,
-        storage: { copy: async () => ({ error: null }), remove: async () => undefined },
-        upload: async (req) => {
-          const body = (await req.json()) as Record<string, unknown>;
-          spy.uploads.push(body);
-          if (spy.failUpload) return Response.json({ error: "Meta didn't take this file" }, { status: 500 });
-          const rows = (await db.from("creative_assets").select("*")).data as Array<Record<string, unknown>>;
-          const reg = rows.find((r) => r.content_hash === body.contentHash)!;
-          await db.from("creative_asset_channel_ids").insert({ asset_id: reg.id, channel: "meta", scope: body.adAccountId, platform_id: `vid-${String(body.contentHash)}`, user_id: OPERATOR });
-          return Response.json({ videoId: `vid-${String(body.contentHash)}` });
-        },
-      }),
-    async waitVideos({ videoIds }) {
-      spy.waited.push([...videoIds]);
-      const errored = videoIds.filter((id) => spy.erroredVideos.includes(id));
-      return { ready: videoIds.filter((id) => !errored.includes(id)), errored, timedOut: [] };
-    },
-    async launch({ draft, createPaused }) {
-      spy.launches.push({ draft, createPaused });
-      return { status: 200, body: LAUNCHED };
-    },
-  };
-}
-
-async function metaCtx(opts: { storage?: boolean; ceiling?: number | null; scope?: string; isMatas?: boolean } = {}) {
-  const made = draftCtx({ scope: opts.scope ?? SCOPE_ALL });
-  const { ctx, db } = made;
-  await makeLaunchable(db, { storage: opts.storage });
-  if (opts.ceiling != null) await db.from("client_spend_ceilings").insert({ client_id: CLIENT_NX, daily_gbp: opts.ceiling, set_by: OPERATOR, set_at: "2026-11-25T10:00:00Z" });
-  db.writes.length = 0;
-  const spy: MetaSpy = { uploads: [], launches: [], waited: [], failUpload: false, erroredVideos: [] };
-  (ctx as ToolContext).meta = metaDeps(db, spy);
-  (ctx as ToolContext).isMatas = opts.isMatas ?? true;
-  return { ...made, spy };
-}
+import { ACCOUNT, YES, metaCtx } from "./meta-fixtures.ts";
 
 async function run(tool: McpTool, ctx: ToolContext, args: Record<string, unknown>) {
   return (await tool.run(ctx, args)) as { data: Record<string, unknown>; summary: Record<string, unknown> };
@@ -209,7 +94,15 @@ test("launch_draft paused: the stored files go first (no drop), then the launch 
   assert.equal(out.summary.metaCampaignId, "120200000000000001");
   assert.equal(out.data.ceiling, undefined, "a paused launch reads no ceiling");
   // FC2: "Done: {result}." and, a paused campaign Claude made having an Undo (FC1), the undo note.
-  assert.equal(out.data.message, "Done: 1 campaign launched · 120200000000000001. Matas can undo this on Today.");
+  assert.equal(
+    out.data.message,
+    [
+      "Done: 1 campaign launched · 120200000000000001.",
+      "It’s paused: nothing spends until it’s switched on.",
+      "Ads Manager: https://adsmanager.facebook.com/adsmanager/manage/campaigns?act=606252931141334&selected_campaign_ids=120200000000000001",
+      "Matas can undo this on Today.",
+    ].join("\n"),
+  );
   // FC4's second step: the sent videos waited for before the launch.
   assert.deepEqual(spy.waited, [["vid-h-a", "vid-h-b"]]);
 });
@@ -256,7 +149,14 @@ test("launch_draft live: refused with no ceiling and over the ceiling (nothing s
     assert.equal(spy.launches[0]!.createPaused, false);
     assert.deepEqual([out.data.status, out.data.moneyADay, out.data.ceiling], ["ACTIVE", 50, 50]);
     // A live launch has no Undo (today.mcp.undo.live), so no undo note.
-    assert.equal(out.data.message, "Done: 1 campaign launched · 120200000000000001.");
+    assert.equal(
+      out.data.message,
+      [
+        "Done: 1 campaign launched · 120200000000000001.",
+        "It’s live, up to £50.00 a day.",
+        "Ads Manager: https://adsmanager.facebook.com/adsmanager/manage/campaigns?act=606252931141334&selected_campaign_ids=120200000000000001",
+      ].join("\n"),
+    );
   }
 });
 
@@ -282,9 +182,9 @@ test("a pending slot without a Storage copy still blocks: launch_draft refuses o
 test("a failed upload stops the launch: nothing is created, and each slot is saved as \"Upload failed — retry or remove\"", async () => {
   const { ctx, db, spy } = await metaCtx();
   spy.failUpload = true;
-  const e = await refused(run(launchDraftTool, ctx, { draft_id: D_DRAFT, mode: "paused", approval: YES }), /2 of 2 files didn't go to Meta, so nothing was launched/);
+  const e = await refused(run(launchDraftTool, ctx, { draft_id: D_DRAFT, mode: "paused", approval: YES }), /^2 of 2 files didn’t go to Meta, so nothing was launched\. Each is marked “Upload failed — retry or remove” on the draft: send them again with upload_draft_assets, or remove those ads\.$/);
   assert.equal(e.summary?.refused, "upload_failed");
-  assert.deepEqual(e.data?.failed, ['"Teaser 1" › "Variation 1" › 9:16: Meta didn\'t take this file', '"Teaser 2" › "Variation 1" › 9:16: Meta didn\'t take this file']);
+  assert.deepEqual(e.data?.failed, ["teaser-1_9x16.mp4: Meta didn’t take it.", "teaser-2_9x16.mp4: Meta didn’t take it."]);
   assert.equal(spy.launches.length, 0, "the launch route was never called");
   const json = (await readRow(db, D_DRAFT))!.draft_json as CampaignDraft;
   assert.ok(validateStep(7, json).errors.includes('"Teaser 1" › "Variation 1" › 9:16: Upload failed — retry or remove'));
@@ -297,7 +197,8 @@ test("a failed upload stops the launch: nothing is created, and each slot is sav
 test("a video Meta reports as failed stops the launch like a failed upload: nothing created, the slot saved as \"Upload failed — retry or remove\"", async () => {
   const { ctx, db, spy } = await metaCtx();
   spy.erroredVideos = ["vid-h-b"];
-  const e = await refused(run(launchDraftTool, ctx, { draft_id: D_DRAFT, mode: "paused", approval: YES }), /1 of 2 files didn't go to Meta, so nothing was launched/);
+  const e = await refused(run(launchDraftTool, ctx, { draft_id: D_DRAFT, mode: "paused", approval: YES }), /^1 of 2 files didn’t go to Meta, so nothing was launched\. It’s marked/);
+  assert.deepEqual(e.data?.failed, ["teaser-2_9x16.mp4: Meta couldn’t process the video."]);
   assert.equal(spy.launches.length, 0);
   const json = (await readRow(db, D_DRAFT))!.draft_json as CampaignDraft;
   const slots = json.creatives.map((c) => c.assetVariations[0]!.assets[0]!);
@@ -309,7 +210,7 @@ test("a video Meta reports as failed stops the launch like a failed upload: noth
 test("a launch route refusal comes back as a refusal, with the files already sent kept", async () => {
   const { ctx, spy } = await metaCtx();
   (ctx as ToolContext).meta = { ...(ctx as ToolContext).meta!, launch: async () => ({ status: 400, body: { error: "Still points to Show: source-show in 2 ads.", source: "preflight" } }) };
-  const e = await refused(run(launchDraftTool, ctx, { draft_id: D_DRAFT, mode: "paused", approval: YES }), /Meta didn't launch it: Still points to Show/);
+  const e = await refused(run(launchDraftTool, ctx, { draft_id: D_DRAFT, mode: "paused", approval: YES }), /^Meta didn’t launch it, so nothing was created\. Try again, or launch it in the app\.$/);
   assert.equal(e.summary?.refused, "launch_failed");
   assert.equal(spy.uploads.length, 2);
 });
@@ -317,7 +218,7 @@ test("a launch route refusal comes back as a refusal, with the files already sen
 test("a published draft can't be launched again from here", async () => {
   const { ctx, db } = await metaCtx();
   await db.from("campaign_drafts").update({ status: "published" }).eq("id", D_DRAFT);
-  await refused(run(launchDraftTool, ctx, { draft_id: D_DRAFT, mode: "paused", approval: YES }), /This draft is published/);
+  await refused(run(launchDraftTool, ctx, { draft_id: D_DRAFT, mode: "paused", approval: YES }), /^Refused: this draft is published, and only a draft with status draft can be launched or have files sent\. Nothing was sent to Meta\.$/);
 });
 
 // ── upload_draft_assets ─────────────────────────────────────────────────────
@@ -326,7 +227,7 @@ test("upload_draft_assets: the send step only (no launch, no ceiling), saved; a 
   const { ctx, db, spy } = await metaCtx({ ceiling: null });
   const out = await run(uploadDraftAssetsTool, ctx, { draft_id: D_DRAFT, approval: YES });
   assert.deepEqual([out.data.files, out.data.sent, spy.launches.length], [2, 2, 0]);
-  assert.equal(out.data.message, "Done: 2 files added · vid-h-a, vid-h-b.");
+  assert.equal(out.data.message, "Done: 2 files sent to Meta.\nNothing was launched and nothing spends.");
   const checks = out.data.launchChecks as { wizard: { blockers: string[]; sendAtLaunch?: number } };
   assert.equal(checks.wizard.sendAtLaunch, undefined, "nothing left to send");
   const again = await run(uploadDraftAssetsTool, ctx, { draft_id: D_DRAFT, approval: YES });
@@ -383,10 +284,13 @@ test("update_event: only the fields given, times as the form saves them, links h
   assert.equal(ev.presale_at, "2027-01-15T10:00:00Z", "a field not given is left as it was");
   assert.deepEqual((out.data.changed as Array<{ field: string }>).map((c) => c.field), ["announcement_at", "ticket_url"]);
   assert.deepEqual([...new Set(db.writes.map((w) => w.table))], ["events"]);
-  assert.equal(out.data.message, `Done: 1 event changed · ${EV_TGT}.`);
-  await refused(run(updateEventTool, ctx, { event_code: "NX27-GLITTERBOX", changes: { presale_at: "2027-01-15 10:00" }, approval: YES }), /a time with its zone/);
-  await refused(run(updateEventTool, ctx, { event_code: "NX27-GLITTERBOX", changes: { signup_url: "http://crqln.com/l/x" }, approval: YES }), /must start with https/);
-  await refused(run(updateEventTool, ctx, { event_code: "NX27-GLITTERBOX", changes: {}, approval: YES }), /Give at least one/);
+  assert.equal(
+    out.data.message,
+    "Done: NX27-GLITTERBOX · Announcement: not set → 2026-11-27T18:00:00.000Z, Ticket link: https://www.skiddle.com/e/40000001 → cleared. Only the app changed; nothing went to Meta.",
+  );
+  await refused(run(updateEventTool, ctx, { event_code: "NX27-GLITTERBOX", changes: { presale_at: "2027-01-15 10:00" }, approval: YES }), /^Refused: Presale needs a time with its zone, like 2026-11-27T18:00:00Z/);
+  await refused(run(updateEventTool, ctx, { event_code: "NX27-GLITTERBOX", changes: { signup_url: "http://crqln.com/l/x" }, approval: YES }), /^Refused: Signup link must be an https:\/\/ link, or null to clear it\. Nothing changed\.$/);
+  await refused(run(updateEventTool, ctx, { event_code: "NX27-GLITTERBOX", changes: {}, approval: YES }), /^Refused: give at least one of announcement_at, presale_at, general_sale_at, signup_url, ticket_url\. Nothing changed\.$/);
 });
 
 // ── attach_drive_creatives: pairs, and folders anywhere in the shared drive ──
@@ -457,7 +361,7 @@ test("pairs: a 4:5 feed file and its 9:16 make one ad with both slots, Dual, bot
 
 test("pairs: a non-feed aspect, a non-9:16 vertical and a video with a static are refused; a 4:5 on its own is refused with its aspect", async () => {
   const { ctx, db } = driveCtx();
-  await refused(run(attachDriveCreativesTool, ctx, { draft_id: D_DRAFT, updated_at: UPDATED, pairs: [{ feed: "file-static-916", vertical: "file-static-45" }] }), /poster\.jpg is 9:16\. A pair's feed file is 4:5 or 1:1/);
+  await refused(run(attachDriveCreativesTool, ctx, { draft_id: D_DRAFT, updated_at: UPDATED, pairs: [{ feed: "file-static-916", vertical: "file-static-45" }] }), /^Refused: poster\.jpg is 9:16\. A pair’s feed file is 4:5 or 1:1\. Nothing was saved\.$/);
   await refused(run(attachDriveCreativesTool, ctx, { draft_id: D_DRAFT, updated_at: UPDATED, pairs: [{ feed: "file-static-45", vertical: "file-clip-916" }] }), /A pair is two videos or two statics/);
   await refused(run(attachDriveCreativesTool, ctx, { draft_id: D_DRAFT, updated_at: UPDATED, file_ids: ["file-static-45"] }), /poster-feed\.jpg is 4:5\. A file on its own must be 9:16/);
   assert.deepEqual(db.writes.filter((w) => w.table === "campaign_drafts"), []);
@@ -478,8 +382,8 @@ test("a folder elsewhere in the shared drive lists and attaches (a client's fold
   const ad = ((await readRow(db, D_DRAFT))!.draft_json as CampaignDraft).creatives.at(-1)!;
   assert.equal(ad.assetVariations[0]!.assets[1]!.sourceLabel, "From Drive · NX Live (promoter)");
 
-  await refused(run(listDriveCreativesTool, ctx, { event_code: "NX27-GLITTERBOX", folder: "drv-foreign" }), /isn't in the Off\/Pixel shared drive/);
-  await refused(run(attachDriveCreativesTool, ctx, { draft_id: D_DRAFT, updated_at: out.data.updated_at, file_ids: ["file-foreign"] }), /isn't in the Off\/Pixel shared drive/);
+  await refused(run(listDriveCreativesTool, ctx, { event_code: "NX27-GLITTERBOX", folder: "drv-foreign" }), /^Refused: that folder or file isn’t in the Off\/Pixel shared drive\. Nothing was saved\.$/);
+  await refused(run(attachDriveCreativesTool, ctx, { draft_id: D_DRAFT, updated_at: out.data.updated_at, file_ids: ["file-foreign"] }), /^Refused: that folder or file isn’t in the Off\/Pixel shared drive\. Nothing was saved\.$/);
 });
 
 test("an interest ad set's long id (its interest ids, past 120 characters) is accepted by set_draft_ad_sets' input", async () => {

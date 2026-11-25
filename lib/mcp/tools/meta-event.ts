@@ -15,7 +15,7 @@ import { approvalInput, requireMetaApproval } from "../meta/approval.ts";
 import { EVENT_EDIT_COLUMNS, EVENT_EDIT_FIELDS, normaliseInstant, normaliseLink, updateEventFields, type EventEditRow, type EventPatch } from "../meta/event-write.ts";
 import { changes, linkKey } from "../drafts/common.ts";
 import { ToolInputError, type McpTool } from "../tool-types.ts";
-import { MCP_WORDS, RESULT_WORDS, THINGS } from "../meta/words.ts";
+import { EVENT_WORDS } from "../meta/words.ts";
 import { loadEventByCode, normaliseCode } from "./shared.ts";
 
 const TIMES = new Set(["announcement_at", "presale_at", "general_sale_at"]);
@@ -24,6 +24,7 @@ export const updateEventTool: McpTool = {
   name: "update_event",
   title: "Change an event's dates and links",
   kind: "meta",
+  failedText: EVENT_WORDS.failed,
   readOnly: false,
   idempotent: true,
   description: [
@@ -54,25 +55,37 @@ export const updateEventTool: McpTool = {
       if (!(field in given) || given[field] === undefined) continue;
       patch[field] = TIMES.has(field) ? normaliseInstant(field, given[field]) : normaliseLink(field, given[field]);
     }
-    if (Object.keys(patch).length === 0) throw new ToolInputError(`Give at least one of ${EVENT_EDIT_FIELDS.join(", ")} in changes.`, { refused: "no_changes" });
+    if (Object.keys(patch).length === 0) throw new ToolInputError(EVENT_WORDS.refusedEmpty(EVENT_EDIT_FIELDS.join(", ")), { refused: "no_changes" });
 
-    const found = await loadEventByCode(ctx.db, code);
-    if (!found) throw new ToolInputError(`No event with code ${code}.`, { code, refused: "event_not_found" });
+    let found: Awaited<ReturnType<typeof loadEventByCode>>;
+    try {
+      found = await loadEventByCode(ctx.db, code);
+    } catch (e) {
+      throw new ToolInputError(EVENT_WORDS.failed, { code, refused: "read_failed", error: e instanceof Error ? e.message.slice(0, 200) : "error" });
+    }
+    if (!found) throw new ToolInputError(EVENT_WORDS.refusedUnknown(code), { code, refused: "event_not_found" });
     const res = await ctx.db.from("events").select(EVENT_EDIT_COLUMNS).eq("id", found.primary.id).maybeSingle();
+    if (res.error) throw new ToolInputError(EVENT_WORDS.failed, { code, refused: "read_failed", error: res.error.message.slice(0, 200) });
     const before = res.data as EventEditRow | null;
-    if (res.error || !before) throw new ToolInputError(`No event with code ${code}.`, { code, refused: "event_not_found" });
-    if (before.user_id !== ctx.userId) throw new ToolInputError("This event belongs to another account, so it can't be changed from here.", { code, refused: "not_owner" });
+    if (!before) throw new ToolInputError(EVENT_WORDS.refusedUnknown(code), { code, refused: "event_not_found" });
+    if (before.user_id !== ctx.userId) throw new ToolInputError(EVENT_WORDS.refusedOtherAccount, { code, refused: "not_owner" });
 
     const after = await updateEventFields(ctx.db, { eventId: before.id, userId: ctx.userId, patch });
     const show = (f: string, v: string | null) => (TIMES.has(f) ? v : linkKey(v));
     const changed = changes(Object.keys(patch).map((f) => [f, show(f, before[f as keyof EventEditRow]), show(f, after[f as keyof EventEditRow])]));
+    // MW2: "{field}: {before} → {after}" for every field given, "not set" before and "cleared" after.
+    const lines = Object.keys(patch).map((f) => {
+      const was = before[f as keyof EventEditRow] as string | null;
+      const now = after[f as keyof EventEditRow] as string | null;
+      return EVENT_WORDS.change(EVENT_WORDS.field[f] ?? f, was ?? EVENT_WORDS.notSet, now ?? EVENT_WORDS.cleared);
+    });
     return {
       data: {
         event: code,
         changed,
         ...(found.siblings.length ? { siblingsUnchanged: found.siblings.length } : {}),
-        // claude.mcp.done with today.mcp.result.one; no Undo exists for an event edit (FC1), so no undo note.
-        message: MCP_WORDS.done(RESULT_WORDS.changed(THINGS.event, [before.id])),
+        // claude.mcp.event.done; no Undo exists for an event edit (FC1), so no undo note.
+        message: EVENT_WORDS.done(code, lines.join(", ")),
       },
       eventId: before.id,
       clientId: before.client_id,
