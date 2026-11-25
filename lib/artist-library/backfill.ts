@@ -9,24 +9,30 @@
  *     the artist's, with the ads it ran as. The footage is shareable; the
  *     ads keep their own show and client;
  *   - ads matched to the artist (match.ts): a Lab render's ads take its
- *     rights; any other ad is the client's (held).
+ *     rights; an ad whose ad name (or ad set name) names the artist is the
+ *     client's (held). An ad naming no artist is its show's own (the
+ *     general bucket, planGeneral), never every artist on the bill.
  * Spend and results are never stored: readers take them from
  * ad_daily_insights by meta_ad_id. Archived clients are left out.
  *
  * planArtistAssets is pure; loadBackfillInputs reads prod (service role,
  * paged); writeArtistAssets is the --apply write, upserting on
- * (artist_id, asset_key).
+ * (artist_id, asset_key). planRemovals says which of an artist's stored
+ * rows the plan no longer gives them; deleteArtistAssets removes those
+ * (--apply, named artists only). A row of a file the source map makes
+ * shareable, and a Drive drop (drive:), are never removed.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { isArchivedClientStatus } from "../db/client-status.ts";
 import { loadAllPaged } from "../db/paged-read.ts";
 import { loadAdContextIndex, resolveAdContext, type AdContextIndex } from "../learning/ad-facts.ts";
-import { hasFullName, kindFromAd, matchAd, type MatchedBy } from "./match.ts";
+import { ALIASES, type AliasEntry } from "./aliases.ts";
+import { artistsOfAd, buildRoster, fold, isClipIdentity, kindFromAd, type MatchedBy, type NamedField, type Roster } from "./match.ts";
 import { clientAdRights, clipRights, renderRights, rightsProblem, type Rights } from "./rights.ts";
 import type { AssetRow, EventLite, InsightRow } from "./view.ts";
 import { EVENT_LITE_COLUMNS } from "./load.ts";
-import { SOURCE_MAP, type SourceEntry } from "./source-map.ts";
+import { SOURCE_MAP, sourceMapShareableFiles, type SourceEntry } from "./source-map.ts";
 
 type Db = Pick<SupabaseClient, "from">;
 
@@ -53,7 +59,8 @@ export interface BackfillInputs {
   links: { event_id: string; artist_id: string }[];
   events: (EventLite & { meta_campaign_id?: string | null })[];
   clients: { id: string; name: string; status: string | null }[];
-  labArtists: { id: string; client_id: string; artist_id: string | null }[];
+  /** The Lab's artists; `name` is what the operator called them for that client (an alias when it differs). */
+  labArtists: { id: string; client_id: string; artist_id: string | null; name?: string | null }[];
   clips: { id: string; artist_id: string | null; owner: string | null; event_id: string | null; shown_on_event_id: string | null; creative_asset_id: string | null; created_at: string; ig_posted_at: string | null }[];
   clipFeatures: { clip_id: string; artist_id: string }[];
   creativeAssets: { id: string; filename: string | null; drive_file_id: string | null }[];
@@ -63,18 +70,64 @@ export interface BackfillInputs {
   rounds: { id: string; event_id: string }[];
   launches: { round_ad_id: string; meta_ad_id: string }[];
   launchedAds: { id: string; meta_ad_id: string; media_type: string | null }[];
-  tags: { meta_ad_id: string | null; creative_name: string }[];
   ads: AdSummary[];
   insights: InsightRow[];
   context: AdContextIndex;
   /** Confirmed sources (source-map.ts). */
   sources: readonly SourceEntry[];
+  /** Recorded aliases (aliases.ts). */
+  aliases: readonly AliasEntry[];
 }
 
 export interface ArtistPlan {
   artist: { id: string; name: string };
   rows: PlannedAsset[];
   skipped: { archived: number; noClient: number };
+  /** Which field named the artist, per ad row matched by name (ad or ad set): for the dry run. */
+  namedIn: Map<string, NamedField>;
+}
+
+/** Every name an artist goes by: their own, recorded aliases, and the Lab's names for them. */
+export function artistNames(inputs: Pick<BackfillInputs, "aliases" | "labArtists">, artist: { id: string; name: string }): string[] {
+  const out = [artist.name, ...inputs.aliases.filter((a) => a.artistId === artist.id).map((a) => a.alias)];
+  for (const l of inputs.labArtists) if (l.artist_id === artist.id && l.name) out.push(l.name);
+  return [...new Map(out.map((n) => [fold(n), n])).values()];
+}
+
+const rosterCache = new WeakMap<object, { roster: Roster; byAd: Map<string, { artistIds: string[]; field: NamedField | null }> }>();
+
+/** The roster and who every ad names, worked out once per inputs. */
+export function adNamesIndex(inputs: BackfillInputs) {
+  let hit = rosterCache.get(inputs);
+  if (!hit) {
+    const roster = buildRoster(inputs.artists.map((a) => ({ id: a.id, names: artistNames(inputs, a) })));
+    const byAd = new Map(inputs.ads.map((ad) => [ad.meta_ad_id, artistsOfAd(ad, roster)]));
+    hit = { roster, byAd };
+    rosterCache.set(inputs, hit);
+  }
+  return hit;
+}
+
+/** The Meta ads a Lab round launched, by render: these keep the render's owner link. */
+function labAdRenders(inputs: BackfillInputs): Map<string, string> {
+  const renderOfAd = new Map<string, string>();
+  const roundAdById = new Map(inputs.roundAds.map((r) => [r.id, r]));
+  for (const l of inputs.launches) {
+    const ra = roundAdById.get(l.round_ad_id);
+    if (ra?.render_id) renderOfAd.set(l.meta_ad_id, ra.render_id);
+  }
+  return renderOfAd;
+}
+
+/** The source entry an ad ran, if any: the entry's show, and the ad name is the file's clip identity. */
+function sourceOfAd(
+  sources: readonly SourceEntry[],
+  ad: AdSummary,
+  code: string | null,
+  clientName: string | null,
+  namesOf: (artistId: string) => string[],
+): SourceEntry | undefined {
+  return sources.find((e) => e.ranAs.eventCode === code && isClipIdentity(ad.ad_name, e.ranAs.clip, namesOf(e.artistId), clientName));
 }
 
 const blank = (artistId: string): Omit<PlannedAsset, "asset_key" | "kind" | "owner_kind" | "shareable" | "held_reason" | "matched_by"> => ({
@@ -102,8 +155,8 @@ export function planArtistAssets(inputs: BackfillInputs, artist: { id: string; n
   const assetById = new Map(inputs.creativeAssets.map((a) => [a.id, a]));
   const clipById = new Map(inputs.clips.map((c) => [c.id, c]));
   const captionEvent = new Map(inputs.captions.map((c) => [c.id, c.event_id]));
-  const linked = new Set(inputs.links.filter((l) => l.artist_id === artist.id).map((l) => l.event_id));
   const rows: PlannedAsset[] = [];
+  const namedIn = new Map<string, NamedField>();
   const skipped = { archived: 0, noClient: 0 };
   const keep = (row: PlannedAsset) => {
     if (row.source_client_id && archived.has(row.source_client_id)) {
@@ -191,15 +244,12 @@ export function planArtistAssets(inputs: BackfillInputs, artist: { id: string; n
 
   // ─── Ads ────────────────────────────────────────────────────────────────
   const roundEvent = new Map(inputs.rounds.map((r) => [r.id, r.event_id]));
-  const renderOfAd = new Map<string, string>();
-  const roundAdById = new Map(inputs.roundAds.map((r) => [r.id, r]));
-  for (const l of inputs.launches) {
-    const ra = roundAdById.get(l.round_ad_id);
-    if (ra?.render_id) renderOfAd.set(l.meta_ad_id, ra.render_id);
-  }
+  const renderOfAd = labAdRenders(inputs);
   const launched = new Map(inputs.launchedAds.map((a) => [a.meta_ad_id, a]));
   const linkedCampaigns = campaignEvents(inputs.events);
-  const tagged = new Set(inputs.tags.filter((t) => t.meta_ad_id && hasFullName(t.creative_name, artist.name)).map((t) => t.meta_ad_id!));
+  const { byAd } = adNamesIndex(inputs);
+  const clientNameOf = new Map(inputs.clients.map((c) => [c.id, c.name]));
+  const names = artistNames(inputs, artist);
   for (const ad of inputs.ads) {
     const context = adEvent(ad, inputs.context, linkedCampaigns, eventById);
     const renderId = renderOfAd.get(ad.meta_ad_id);
@@ -222,10 +272,11 @@ export function planArtistAssets(inputs: BackfillInputs, artist: { id: string; n
       });
       continue;
     }
-    const how = matchAd(ad, artist.name, { linked: Boolean(context.eventId && linked.has(context.eventId)), tagged: tagged.has(ad.meta_ad_id) });
+    const named = byAd.get(ad.meta_ad_id);
+    const how: MatchedBy | null = named?.artistIds.includes(artist.id) ? "ad_name" : null;
     // An ad that ran a confirmed file: the footage's rights, the ad's own show and client.
     const code = context.eventId ? eventById.get(context.eventId)?.event_code ?? null : null;
-    const ranFile = sources.find((e) => e.ranAs.eventCode === code && ad.ad_name != null && e.ranAs.adNames.includes(ad.ad_name));
+    const ranFile = sourceOfAd(sources, ad, code, context.clientId ? clientNameOf.get(context.clientId) ?? null : null, () => names);
     if (ranFile) {
       keep({
         ...blank(artist.id),
@@ -243,6 +294,7 @@ export function planArtistAssets(inputs: BackfillInputs, artist: { id: string; n
       continue;
     }
     if (!how) continue;
+    if (named?.field) namedIn.set(`ad:${ad.meta_ad_id}`, named.field);
     const clientId = context.clientId;
     const kind = kindFromAd(ledger?.media_type, ad.ad_name);
     keep({
@@ -258,7 +310,100 @@ export function planArtistAssets(inputs: BackfillInputs, artist: { id: string; n
       ...withRights(clientAdRights(kind, clientId)),
     });
   }
-  return { artist, rows, skipped };
+  return { artist, rows, skipped, namedIn };
+}
+
+/** One show's general bucket: its ads that name no artist (not Lab, not a source file). */
+export interface GeneralBucket {
+  eventId: string;
+  code: string | null;
+  clientId: string | null;
+  /** Artists on the bill (event_artists). */
+  bill: number;
+  ads: number;
+  /** Distinct ad names (copies folded), with their ad counts. */
+  files: Map<string, number>;
+}
+
+/**
+ * The general bucket per show: every ad on a show with a bill that names no
+ * artist in its ad or ad set name. Before this they went to every artist on
+ * the bill. Not stored (artist_assets is per artist): the dry run prints it.
+ */
+export function planGeneral(inputs: BackfillInputs): GeneralBucket[] {
+  const archived = new Set(inputs.clients.filter((c) => isArchivedClientStatus(c.status)).map((c) => c.id));
+  const eventById = new Map(inputs.events.map((e) => [e.id, e]));
+  const bill = new Map<string, number>();
+  for (const l of inputs.links) bill.set(l.event_id, (bill.get(l.event_id) ?? 0) + 1);
+  const renderOfAd = labAdRenders(inputs);
+  const linkedCampaigns = campaignEvents(inputs.events);
+  const { byAd } = adNamesIndex(inputs);
+  const clientNameOf = new Map(inputs.clients.map((c) => [c.id, c.name]));
+  const artistById = new Map(inputs.artists.map((a) => [a.id, a]));
+  const namesOf = (id: string) => (artistById.get(id) ? artistNames(inputs, artistById.get(id)!) : []);
+  const out = new Map<string, GeneralBucket>();
+  for (const ad of inputs.ads) {
+    if (renderOfAd.has(ad.meta_ad_id) || byAd.get(ad.meta_ad_id)?.artistIds.length) continue;
+    const context = adEvent(ad, inputs.context, linkedCampaigns, eventById);
+    if (!context.eventId || !bill.has(context.eventId)) continue;
+    if (context.clientId && archived.has(context.clientId)) continue;
+    const code = eventById.get(context.eventId)?.event_code ?? null;
+    if (sourceOfAd(inputs.sources, ad, code, context.clientId ? clientNameOf.get(context.clientId) ?? null : null, namesOf)) continue;
+    let b = out.get(context.eventId);
+    if (!b) out.set(context.eventId, (b = { eventId: context.eventId, code, clientId: context.clientId, bill: bill.get(context.eventId)!, ads: 0, files: new Map() }));
+    b.ads += 1;
+    const file = (ad.ad_name ?? "(no name)").replace(/\s+[–-]\s+Copy(?:\s+\d+)?$/gi, "").trim();
+    b.files.set(file, (b.files.get(file) ?? 0) + 1);
+  }
+  return [...out.values()].sort((a, b) => b.ads - a.ads || String(a.code).localeCompare(String(b.code)));
+}
+
+/** A stored artist_assets row, as much as a removal needs. */
+export interface StoredAsset {
+  id: string;
+  artist_id: string;
+  asset_key: string;
+  name: string | null;
+  kind: string;
+  shareable: boolean;
+  drive_file_id: string | null;
+}
+
+/** The keys the backfill writes (ad, Lab clip, Lab render). A drive: row may be a library drop (AL4), so it is never the backfill's to remove. */
+const BACKFILL_KEY = /^(ad|clip|render):/;
+
+/**
+ * Which of an artist's stored rows the new plan no longer gives them. Only
+ * backfill keys; never a shareable row of a file the source map makes the
+ * artist's, whatever the plan says.
+ */
+export function planRemovals(stored: readonly StoredAsset[], plan: Pick<ArtistPlan, "artist" | "rows">, sources: readonly SourceEntry[]): StoredAsset[] {
+  const planned = new Set(plan.rows.map((r) => r.asset_key));
+  const protectedFiles = sourceMapShareableFiles(sources, plan.artist.id);
+  return stored.filter(
+    (r) =>
+      r.artist_id === plan.artist.id &&
+      BACKFILL_KEY.test(r.asset_key) &&
+      !planned.has(r.asset_key) &&
+      !(r.shareable && r.drive_file_id && protectedFiles.has(r.drive_file_id)),
+  );
+}
+
+/** An artist's stored rows (service role, paged). Reads only. */
+export async function loadStoredAssets(db: Db, artistId: string): Promise<StoredAsset[]> {
+  return loadAllPaged<StoredAsset>(db, "artist_assets", "id, artist_id, asset_key, name, kind, shareable, drive_file_id", ["id"], (q) => q.eq("artist_id", artistId));
+}
+
+/** --apply: delete these rows of one artist from artist_assets, 200 a call. Returns rows deleted. No Drive, no Meta. */
+export async function deleteArtistAssets(db: Db, artistId: string, rows: readonly StoredAsset[]): Promise<number> {
+  let deleted = 0;
+  for (let i = 0; i < rows.length; i += 200) {
+    const ids = rows.slice(i, i + 200).map((r) => r.id);
+    const res = await db.from("artist_assets").delete({ count: "exact" }).eq("artist_id", artistId).in("id", ids);
+    if (res.error) throw new Error(`artist_assets delete: ${res.error.message}`);
+    deleted += res.count ?? 0;
+  }
+  return deleted;
 }
 
 /**
@@ -317,13 +462,13 @@ export function summariseAds(insights: readonly (InsightRow & { meta_adset_id: s
 /** Every table the plan reads, paged (service role). Reads only; no Meta call. */
 export async function loadBackfillInputs(db: Db): Promise<BackfillInputs> {
   const page = <T extends object>(table: string, columns: string) => loadAllPaged<T>(db, table, columns, ["id"]);
-  const [artists, links, events, clients, labArtists, clips, clipFeatures, creativeAssets, renders, captions, roundAds, rounds, launches, launchedAds, tags, insightDays, context] =
+  const [artists, links, events, clients, labArtists, clips, clipFeatures, creativeAssets, renders, captions, roundAds, rounds, launches, launchedAds, insightDays, context] =
     await Promise.all([
       page<{ id: string; name: string }>("artists", "id, name"),
       page<{ id: string; event_id: string; artist_id: string }>("event_artists", "id, event_id, artist_id"),
       page<EventLite & { meta_campaign_id: string | null }>("events", `${EVENT_LITE_COLUMNS}, meta_campaign_id`),
       page<{ id: string; name: string; status: string | null }>("clients", "id, name, status"),
-      page<{ id: string; client_id: string; artist_id: string | null }>("creative_lab_artists", "id, client_id, artist_id"),
+      page<{ id: string; client_id: string; artist_id: string | null; name: string | null }>("creative_lab_artists", "id, client_id, artist_id, name"),
       page<BackfillInputs["clips"][number]>("creative_lab_clips", "id, artist_id, owner, event_id, shown_on_event_id, creative_asset_id, created_at, ig_posted_at"),
       loadAllPaged<{ clip_id: string; artist_id: string }>(db, "creative_lab_clip_features", "clip_id, artist_id", ["clip_id", "artist_id"]),
       page<BackfillInputs["creativeAssets"][number]>("creative_assets", "id, filename, drive_file_id"),
@@ -333,7 +478,6 @@ export async function loadBackfillInputs(db: Db): Promise<BackfillInputs> {
       page<BackfillInputs["rounds"][number]>("creative_lab_rounds", "id, event_id"),
       page<{ id: string; round_ad_id: string; meta_ad_id: string }>("creative_lab_round_ad_launches", "id, round_ad_id, meta_ad_id"),
       page<BackfillInputs["launchedAds"][number]>("launched_ads", "id, meta_ad_id, media_type"),
-      page<{ id: string; meta_ad_id: string | null; creative_name: string }>("creative_tag_assignments", "id, meta_ad_id, creative_name"),
       page<InsightRow & { id: string; meta_adset_id: string | null; meta_campaign_id: string | null; ad_name: string | null; adset_name: string | null; ad_account_id: string | null }>(
         "ad_daily_insights",
         "id, meta_ad_id, meta_adset_id, meta_campaign_id, ad_name, adset_name, campaign_name, campaign_objective, ad_account_id, date, spend, registrations, purchases",
@@ -355,11 +499,11 @@ export async function loadBackfillInputs(db: Db): Promise<BackfillInputs> {
     rounds,
     launches,
     launchedAds,
-    tags,
     ads: summariseAds(insightDays),
     insights: insightDays,
     context,
     sources: SOURCE_MAP,
+    aliases: ALIASES,
   };
 }
 

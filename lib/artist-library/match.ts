@@ -1,14 +1,24 @@
 /**
  * lib/artist-library/match.ts — which ads are an artist's (AL2).
  *
- * An ad is the artist's when, in this order:
- *   lab            it ran a Lab render of the artist's clip;
- *   ad_name        the artist's full name is in its ad, ad set or campaign name;
- *   tag            a creative_tag_assignments row names the artist in its creative name;
- *   event_artists  its event is linked to the artist and one of the name's
- *                  words (4+ letters) is in the ad or ad set name: "Lineup
- *                  Push - Enzo" on a show Enzo is linked to.
- * Spend is only ever the matched ads' (AL2), never the whole show's.
+ * Matas, 25 Nov: an ad counts for an artist only when its ad name or ad set
+ * name contains one of the artist's names, matched exactly: the name in
+ * `artists`, or an alias someone recorded (aliases.ts, and the Lab's own
+ * name for the artist). Case, accents and punctuation are folded; nothing
+ * else is. No prefix, no first-name guess, no fuzzy match.
+ *
+ *   1. The ad name decides when it names anyone on the roster: those
+ *      artists, and only them ("Dr Banana" in an "Enzo Siragusa Interest
+ *      Targeting" ad set is Dr Banana's).
+ *   2. Otherwise the ad set name, unless it is only the campaign's own name
+ *      (Ads Manager's quick create copies it down), which labels the
+ *      campaign, not the creative.
+ *   3. Otherwise no artist: the ad is the show's own (the general bucket).
+ *
+ * A name inside a longer name of another artist on the roster gives way to
+ * the longer one. The campaign name, tag assignments and "the artist is on
+ * the bill" never make an ad an artist's. Lab clips and renders keep their
+ * own owner link (backfill.ts).
  *
  * Stage is the tree's (RC14, stageOfCampaign over the campaign name and
  * objective). Only Signup and On sale are ranked; an Unsorted ad isn't.
@@ -18,13 +28,14 @@
 import { stageOfCampaign } from "../campaign-tree/tree.ts";
 import type { RankedStage } from "./words.ts";
 
+/** Migration 269's CHECK. A match on the ad set name is still "ad_name"; the dry run says which field. */
 export type MatchedBy = "lab" | "drive" | "event_artists" | "ad_name" | "tag";
 
 /** Lower case, accents dropped, everything but letters and digits a space, single-spaced. */
 export function fold(text: string | null | undefined): string {
   return ` ${(text ?? "")
     .normalize("NFKD")
-    .replace(/[̀-ͯ]/g, "")
+    .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, " ")
     .trim()} `;
@@ -37,18 +48,50 @@ export function hasFullName(text: string | null | undefined, artistName: string)
   return fold(text).includes(` ${name} `);
 }
 
-/** The words of a name that can stand for it on its own linked show: 4+ letters, not a common word. */
-const COMMON = new Set(["the", "and", "dj", "live", "band", "club", "night", "show", "presents", "with", "more", "friends", "b2b"]);
-export function nameWords(artistName: string): string[] {
-  return fold(artistName)
-    .trim()
-    .split(" ")
-    .filter((w) => w.length >= 4 && !COMMON.has(w));
+/** One artist and every name that stands for them: their own, then recorded aliases. */
+export interface RosterEntry {
+  id: string;
+  names: readonly string[];
 }
 
-export function hasNameWord(text: string | null | undefined, artistName: string): boolean {
+/** A roster ready to match: folded names, longest first. */
+export interface Roster {
+  names: { artistId: string; folded: string }[];
+}
+
+export function buildRoster(entries: readonly RosterEntry[]): Roster {
+  const seen = new Set<string>();
+  const names: Roster["names"] = [];
+  for (const e of entries) {
+    for (const n of e.names) {
+      const folded = fold(n).trim();
+      if (!folded || seen.has(`${e.id}\u0000${folded}`)) continue;
+      seen.add(`${e.id}\u0000${folded}`);
+      names.push({ artistId: e.id, folded });
+    }
+  }
+  names.sort((a, b) => b.folded.length - a.folded.length || a.folded.localeCompare(b.folded));
+  return { names };
+}
+
+/**
+ * The artists a text names, as whole words. A hit inside a longer hit of
+ * another artist ("Luke" inside "Luke Dean") is dropped.
+ */
+export function artistsNamedIn(text: string | null | undefined, roster: Roster): string[] {
   const folded = fold(text);
-  return nameWords(artistName).some((w) => folded.includes(` ${w} `));
+  if (folded.trim() === "") return [];
+  const spans: { artistId: string; start: number; end: number }[] = [];
+  for (const n of roster.names) {
+    const needle = ` ${n.folded} `;
+    for (let at = folded.indexOf(needle); at !== -1; at = folded.indexOf(needle, at + 1)) {
+      const start = at + 1;
+      const end = start + n.folded.length;
+      if (spans.some((s) => s.artistId !== n.artistId && s.start <= start && end <= s.end)) continue;
+      spans.push({ artistId: n.artistId, start, end });
+    }
+  }
+  return [...new Set(spans.map((s) => s.artistId))].sort();
 }
 
 export interface AdNames {
@@ -57,16 +100,46 @@ export interface AdNames {
   campaign_name: string | null;
 }
 
+export type NamedField = "ad" | "adset";
+
+/** Who an ad names, and where: the ad name first, then an ad set name that isn't just the campaign's. Empty: no one. */
+export function artistsOfAd(ad: AdNames, roster: Roster): { artistIds: string[]; field: NamedField | null } {
+  const byAd = artistsNamedIn(ad.ad_name, roster);
+  if (byAd.length) return { artistIds: byAd, field: "ad" };
+  if (ad.adset_name && fold(ad.adset_name) !== fold(ad.campaign_name)) {
+    const bySet = artistsNamedIn(ad.adset_name, roster);
+    if (bySet.length) return { artistIds: bySet, field: "adset" };
+  }
+  return { artistIds: [], field: null };
+}
+
+/** "x – Copy", "x - Copy 2", "x – Copy – Copy": the duplicate suffixes Ads Manager adds, folded off. */
+export function withoutCopySuffix(folded: string): string {
+  let out = folded.trim();
+  for (;;) {
+    const next = out.replace(/ copy(?: \d+)?$/, "");
+    if (next === out) return out;
+    out = next;
+  }
+}
+
 /**
- * How an ad (not a Lab one) is the artist's, or null. `linked` says the
- * ad's event is in the artist's event_artists; `tagged` that a tag
- * assignment's creative name carries the full name.
+ * A source file's clip identity in an ad name: "{Client} - {Artist} {clip}"
+ * or "{Artist} - {clip}", copies included. True when the folded ad name,
+ * less its copy suffix and a leading client name, is exactly one of the
+ * artist's names followed by the clip label. "Enzo - UGC 1", "Puzzle -
+ * Enzo UGC 1" and "Enzo - UGC 1 – Copy" are UGC 1; "Enzo - UGC 12" isn't.
  */
-export function matchAd(ad: AdNames, artistName: string, opts: { linked: boolean; tagged: boolean }): MatchedBy | null {
-  if (hasFullName(ad.ad_name, artistName) || hasFullName(ad.adset_name, artistName) || hasFullName(ad.campaign_name, artistName)) return "ad_name";
-  if (opts.tagged) return "tag";
-  if (opts.linked && (hasNameWord(ad.ad_name, artistName) || hasNameWord(ad.adset_name, artistName))) return "event_artists";
-  return null;
+export function isClipIdentity(adName: string | null | undefined, clip: string, artistNames: readonly string[], clientName: string | null | undefined): boolean {
+  if (!adName) return false;
+  let id = withoutCopySuffix(fold(adName));
+  const client = fold(clientName).trim();
+  if (client && id.startsWith(`${client} `)) id = id.slice(client.length + 1);
+  const label = fold(clip).trim();
+  return artistNames.some((n) => {
+    const name = fold(n).trim();
+    return Boolean(name && label) && id === `${name} ${label}`;
+  });
 }
 
 /** The tree's stage for an ad's campaign, when it's one the library ranks. */
