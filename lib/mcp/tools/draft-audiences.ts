@@ -50,8 +50,14 @@ const change = z
       .optional(),
     add_custom: z
       .object({
-        audience_ids: z.array(z.string().regex(/^\d{5,25}$/)).min(1).max(50).describe("Meta custom audience ids in the draft's ad account."),
+        audience_ids: z.array(z.string().regex(/^\d{5,25}$/)).max(50).describe("Meta custom audience ids in the draft's ad account."),
         name: z.string().min(1).max(80),
+        include_group_ids: z.array(z.string().min(1).max(160)).max(10).optional().describe("Also every audience in these custom groups (deduped)."),
+        suggestions_only: z.boolean().optional().describe("Advantage+ suggestions only: no ad set of its own, never direct targeting; use it as add_broad's suggestion_group_id."),
+        unrecorded: z
+          .object({ names: z.record(z.string(), z.string().min(1).max(120)), reason: z.string().min(5).max(300) })
+          .optional()
+          .describe("Ids the app hasn't recorded in this account, taken as given (no Meta read can check them), with their names and why. Suggestions only. Logged."),
       })
       .optional(),
   })
@@ -92,7 +98,7 @@ export const setDraftAudiencesTool: McpTool = {
   readOnly: false,
   idempotent: false,
   description: [
-    "Edits a draft's audience groups as the Audiences step does, in order, saved together: remove a page, custom or interest group; rename one; merge interest groups, or custom groups, into one named group (deduped; the first group's ad sets stay, the others' go); add interests to a group or a new one (Meta's interest search, a read); add custom audiences that already exist in the draft's ad account (by Meta id, as the app recorded them) as a new group.",
+    "Edits a draft's audience groups as the Audiences step does, in order, saved together: remove a page, custom or interest group; rename one; merge interest groups, or custom groups, into one named group (deduped; the first group's ad sets stay, the others' go); add interests to a group or a new one (Meta's interest search, a read); add custom audiences that already exist in the draft's ad account (by Meta id, as the app recorded them) as a new group, with include_group_ids to fold in other groups' audiences. suggestions_only makes it Advantage+ suggestions only (no ad set of its own, never direct targeting: use it as set_draft_ad_sets add_broad's suggestion_group_id); only such a group may take ids the app hasn't recorded, as given, with their names and a reason, which are logged.",
     "An interest search with no exact single match saves nothing and lists the hits with interest_id: call again with the one you mean.",
     "Ad sets follow: a removed or merged-away group's ad sets go; a new group gets its ad sets at the + Blank ad set budget (set them with set_draft_ad_sets); other ad sets keep their budgets and names. Group ids are in get_draft's audiences.groups.",
     'Example: set_draft_audiences({ draft_id: "3f2c…-uuid", updated_at: "2026-11-24T10:00:00.123+00:00", changes: [{ remove: "pg_old" }, { merge: { group_ids: ["ig_a", "ig_b"], name: "House & tech house" } }, { add_interests: { group_id: "ig_a", interests: [{ search: "Defected Records" }] } }] }).',
@@ -121,6 +127,7 @@ export const setDraftAudiencesTool: McpTool = {
     const touched = new Set<string>();
     const log: string[] = [];
     let metaGets = 0;
+    const unverified: Array<{ group: string; ids: string[]; reason: string }> = [];
     const choices: Array<{ search: string; hits: Array<{ interest_id: string; name: string; audienceSize: number | null; path: string | null }> }> = [];
 
     for (const c of list) {
@@ -232,17 +239,34 @@ export const setDraftAudiencesTool: McpTool = {
       }
       if (c.add_custom) {
         const account = draft.settings.metaAdAccountId || draft.settings.adAccountId || loaded.row.ad_account_id || "";
-        const ids = [...new Set(c.add_custom.audience_ids)];
-        const known = await recordedAudiences(ctx, account, ids);
-        const unknown = ids.filter((id) => !known.has(id));
-        if (unknown.length) {
-          throw refuse(`These audiences aren't recorded as ready in ${account || "this draft's ad account"}: ${unknown.join(", ")}. Only audiences the app knows in this account can be added from here.`, "unknown_audiences", null, { unknown: unknown.length });
+        const fromGroups = (c.add_custom.include_group_ids ?? []).map((id) => a.customAudienceGroups.find((g) => g.id === id));
+        const badGroups = (c.add_custom.include_group_ids ?? []).filter((_, i) => !fromGroups[i]);
+        if (badGroups.length) throw refuse(`These aren't custom groups on this draft: ${badGroups.join(", ")}.`, "unknown_group");
+        const given = [...new Set(c.add_custom.audience_ids)];
+        const unrecorded = c.add_custom.unrecorded;
+        if (unrecorded && !c.add_custom.suggestions_only) throw refuse("Audiences taken as given can only be Advantage+ suggestions: set suggestions_only.", "unrecorded_not_suggestions");
+        const known = given.length ? await recordedAudiences(ctx, account, given) : new Map<string, string | null>();
+        const unknown = given.filter((id) => !known.has(id));
+        const asGiven = unknown.filter((id) => unrecorded?.names[id]);
+        const missing = unknown.filter((id) => !asGiven.includes(id));
+        if (missing.length) {
+          throw refuse(`These audiences aren't recorded as ready in ${account || "this draft's ad account"}: ${missing.join(", ")}. Only audiences the app knows in this account can be added from here, or as given (unrecorded, with names and a reason) as Advantage+ suggestions.`, "unknown_audiences", null, { unknown: missing.length });
         }
-        const names: Record<string, string> = {};
+        const ids = [...new Set([...(fromGroups as CustomAudienceGroup[]).flatMap((g) => g.audienceIds), ...given])];
+        if (ids.length === 0) throw refuse("Give audience_ids or include_group_ids.", "no_audiences");
+        const names: Record<string, string> = Object.assign({}, ...(fromGroups as CustomAudienceGroup[]).map((g) => g.audienceNames ?? {}));
         for (const [id, n] of known) if (n) names[id] = n;
-        const g: CustomAudienceGroup = { id: deps.newId(), name: c.add_custom.name.trim(), audienceIds: ids, audienceNames: names };
+        for (const id of asGiven) names[id] = unrecorded!.names[id]!;
+        const g: CustomAudienceGroup = {
+          id: deps.newId(),
+          name: c.add_custom.name.trim(),
+          audienceIds: ids,
+          audienceNames: names,
+          ...(c.add_custom.suggestions_only ? { suggestionsOnly: true } : {}),
+        };
         a = { ...a, customAudienceGroups: [...a.customAudienceGroups, g] };
-        log.push(`added custom group ${g.name}: ${ids.length} audiences`);
+        log.push(`added custom group ${g.name} (${g.id}): ${ids.length} audiences${g.suggestionsOnly ? ", Advantage+ suggestions only" : ""}${asGiven.length ? `; ${asGiven.length} taken as given, not checked against Meta` : ""}`);
+        if (asGiven.length) unverified.push({ group: g.id, ids: asGiven, reason: unrecorded!.reason });
         touched.add(groupKey("custom", g.id));
       }
     }
@@ -266,6 +290,7 @@ export const setDraftAudiencesTool: McpTool = {
         adSetsRemoved: follow.removed.map((r) => r.name),
         adSetsAdded: follow.added.map((r) => ({ id: r.id, name: r.name, perDayGbp: r.budgetPerDay, lifetimeGbp: r.budgetLifetime ?? null })),
         adSets: follow.adSets.length,
+        unverified,
         metaGets,
       },
       summary: {
@@ -274,6 +299,7 @@ export const setDraftAudiencesTool: McpTool = {
         after: { groups: count(a), adSets: follow.adSets.length },
         adSetsRemovedIds: follow.removed.map((r) => r.id),
         adSetsAddedIds: follow.added.map((r) => r.id),
+        unverified,
         metaGets,
       },
     }));

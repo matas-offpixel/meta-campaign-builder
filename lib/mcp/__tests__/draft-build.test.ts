@@ -531,3 +531,58 @@ test("set_draft_locations every_ad_set: a location already on the draft goes on 
   for (const r of after.adSetSuggestions) assert.deepEqual(r.locationGroupIds, ["g1", "g2"], r.id);
   await refused(run(setDraftLocationsTool, ctx, { updated_at: String((await readRow(db, D_DRAFT))!.updated_at), every_ad_set: ["nowhere"] }), /aren't on this draft: nowhere/);
 });
+
+test("suggestions only: lists taken as given go on a broad Advantage+ ad set as suggestions, never as any ad set's direct targeting", async () => {
+  const { buildMetaTargeting } = await import("../../meta/adset.ts");
+  const { ctx, db } = draftCtx();
+  await shape(db, (d) => ({
+    ...d,
+    audiences: { ...AUDIENCES, customAudienceGroups: [{ id: "custom:th", name: "Crossover pages", audienceIds: ["120000000000001", "120000000000002"], audienceNames: {} }] },
+  }));
+  // As given needs suggestions_only, names and a reason.
+  await refused(
+    run(setDraftAudiencesTool, ctx, { changes: [{ add_custom: { name: "X", audience_ids: ["120252283933420755"], unrecorded: { names: { "120252283933420755": "Tech House Data" }, reason: "Shared to the account today." } } }] }),
+    /can only be Advantage\+ suggestions/,
+  );
+  await refused(run(setDraftAudiencesTool, ctx, { changes: [{ add_custom: { name: "X", audience_ids: ["120252283933420755"], suggestions_only: true } }] }), /aren't recorded as ready/);
+  const reason = "Held in NX Promoter, shared to the Sheffield account today (Matas, 25 Nov).";
+  const out = await run(setDraftAudiencesTool, ctx, {
+    changes: [
+      {
+        add_custom: {
+          name: "Broad suggestions",
+          audience_ids: ["120252283933420755", "120233817912470755"],
+          include_group_ids: ["custom:th"],
+          suggestions_only: true,
+          unrecorded: { names: { "120252283933420755": "Tech House Data", "120233817912470755": "NX LOVES DATA CSV" }, reason },
+        },
+      },
+    ],
+  });
+  let after = await saved(db);
+  const g = after.audiences.customAudienceGroups.find((x) => x.name === "Broad suggestions")!;
+  assert.equal(g.suggestionsOnly, true);
+  assert.deepEqual(g.audienceIds, ["120000000000001", "120000000000002", "120252283933420755", "120233817912470755"]);
+  assert.deepEqual(out.summary.unverified, [{ group: g.id, ids: ["120252283933420755", "120233817912470755"], reason }]);
+  // No ad set of its own, from the tool or the wizard's Generate.
+  assert.equal(after.adSetSuggestions.some((r) => r.sourceId === g.id), false);
+  assert.equal(generateSuggestions(after.audiences, 0, [], UK_NATIONWIDE_FALLBACK).some((r) => r.sourceId === g.id), false);
+  // The broad takes it as Advantage+ suggestions.
+  const broad = await run(setDraftAdSetsTool, ctx, { updated_at: String((await readRow(db, D_DRAFT))!.updated_at), changes: [{ add_broad: { suggestion_group_id: g.id }, name: "Broad", budget_per_day: 40 }] });
+  after = await saved(db);
+  const row = after.adSetSuggestions.find((r) => r.id === (broad.data.added as string[])[0])!;
+  assert.deepEqual([row.sourceType, row.sourceId, row.advantagePlus], ["custom_group", g.id, true]);
+  const t = buildMetaTargeting(row, after.audiences, after.budgetSchedule.locationGroups, []);
+  assert.equal(t.targeting_automation?.advantage_audience, 1);
+  assert.deepEqual(t.custom_audiences?.map((x) => x.id), g.audienceIds);
+  // Never direct: the tool refuses Advantage+ off, and launch refuses a strict row built on it.
+  await refused(run(setDraftAdSetsTool, ctx, { updated_at: String((await readRow(db, D_DRAFT))!.updated_at), changes: [{ ad_set_id: row.id, advantage_plus: false }] }), /Advantage\+ suggestions only/);
+  assert.throws(() => buildMetaTargeting({ ...row, advantagePlus: false }, after.audiences, after.budgetSchedule.locationGroups, []), /Advantage\+ suggestions only/);
+  // Awareness would clear Advantage+, so it is refused while the row is there.
+  await refused(run(setDraftObjectiveTool, ctx, { updated_at: String((await readRow(db, D_DRAFT))!.updated_at), objective: "awareness" }), /only run on Advantage\+ suggestions/);
+  // Every other row with these lists is Advantage+.
+  for (const r of after.adSetSuggestions) {
+    const grp = after.audiences.customAudienceGroups.find((x) => x.id === r.sourceId);
+    if (grp?.audienceIds.includes("120252283933420755")) assert.equal(r.advantagePlus, true, r.id);
+  }
+});

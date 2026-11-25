@@ -87,6 +87,13 @@ export const setDraftObjectiveTool: McpTool = {
     let adSets = draft.adSetSuggestions;
     let advantageCleared = 0;
     if (!isAdvantageAudienceSupportedForObjective(settings.objective, settings.optimisationGoal)) {
+      const suggested = adSets.filter((r) => r.sourceType === "custom_group" && draft.audiences.customAudienceGroups.some((g) => g.id === r.sourceId && g.suggestionsOnly));
+      if (suggested.length) {
+        throw new ToolInputError(
+          `${OBJECTIVE_LABELS[objective]} can't run Advantage+ Audience, and ${suggested.map((r) => r.name).join(", ")} only run on Advantage+ suggestions. Remove those ad sets first. Nothing was saved.`,
+          { draftId: loaded.row.id, refused: "suggestions_only" },
+        );
+      }
       const cleared = clearUnsupportedAdvantagePlus(adSets);
       adSets = cleared.suggestions;
       advantageCleared = cleared.clearedCount;
@@ -239,7 +246,8 @@ export const setDraftAdSetsTool: McpTool = {
           // Generate's row for that one group, as a broad Advantage+ copy.
           const only = { ...draft.audiences, pageGroups: [], customAudienceGroups: [], interestGroups: [], savedAudiences: { audienceIds: [] }, selectedPagesLookalikeGroups: [] } as CampaignDraft["audiences"];
           if (group.kind === "page") only.pageGroups = draft.audiences.pageGroups.filter((g) => g.id === gid).map((g) => ({ ...g, lookalike: false }));
-          if (group.kind === "custom") only.customAudienceGroups = draft.audiences.customAudienceGroups.filter((g) => g.id === gid).map((g) => ({ ...g, lookalike: false }));
+          // Generate skips a suggestions-only group; this row is Advantage+, so the group may seed it.
+          if (group.kind === "custom") only.customAudienceGroups = draft.audiences.customAudienceGroups.filter((g) => g.id === gid).map((g) => ({ ...g, lookalike: false, suggestionsOnly: false }));
           if (group.kind === "interest") only.interestGroups = draft.audiences.interestGroups.filter((g) => g.id === gid);
           const gen = generateSuggestions(only, 0, bs.locationGroups ?? [], UK_NATIONWIDE_FALLBACK).find((r) => r.sourceType === SOURCE_OF[group.kind]);
           if (!gen) throw refuse(`Group ${group.name} has no audiences in it, so it can't be a suggestion.`, "empty_group");
@@ -277,6 +285,8 @@ export const setDraftAdSetsTool: McpTool = {
       if (fields.age_max != null) patch.ageMax = fields.age_max;
       if (fields.advantage_plus != null) {
         if (row.sourceType === "blank" && !fields.advantage_plus) throw refuse("A blank ad set always runs Advantage+ Audience: there's no audience to hold it to.", "blank_is_advantage");
+        const sourceGroup = row.sourceType === "custom_group" ? draft.audiences.customAudienceGroups.find((g) => g.id === row.sourceId) : undefined;
+        if (!fields.advantage_plus && sourceGroup?.suggestionsOnly) throw refuse(`${row.name} runs on ${sourceGroup.name}, which is Advantage+ suggestions only: it can't be targeted directly.`, "suggestions_only");
         if (fields.advantage_plus && !advantageOk) throw refuse(`${OBJECTIVE_LABELS[draft.settings.objective]} campaigns can't run Advantage+ Audience.`, "advantage_unsupported");
         patch.advantagePlus = fields.advantage_plus;
       }

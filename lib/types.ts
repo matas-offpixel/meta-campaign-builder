@@ -457,6 +457,13 @@ export interface CustomAudienceGroup {
    * available (lib/audiences/ca-availability-recovery.ts).
    */
   populatingAudienceIds?: string[];
+  /**
+   * Advantage+ suggestions only: these audiences may be given to Meta as
+   * suggestions on an Advantage+ ad set, never as an ad set's direct
+   * targeting. Generate makes no ad set for the group, and launch refuses a
+   * strict (non-Advantage+) ad set built on it (lib/meta/adset.ts).
+   */
+  suggestionsOnly?: boolean;
   /** When true, lookalike ad sets will be created from this group's audiences at launch */
   lookalike?: boolean;
   /** Lookalike percentage tiers to create ad sets for (e.g. ["0-1%", "1-2%"]) */
