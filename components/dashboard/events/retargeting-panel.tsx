@@ -417,8 +417,14 @@ export function RetargetingPanelView({ view, line = null, budgetLines = [], clie
         </p>
       ) : null}
       {running?.nextStep ? (
-        <p className="mt-3 border-t border-border pt-2 text-xs text-muted-foreground" data-next-step>
+        <p className="mt-3 hidden border-t border-border pt-2 text-xs text-muted-foreground sm:block" data-next-step>
           {k(running.nextStep)}
+        </p>
+      ) : null}
+      {/* Design (25 Nov): at 393, one muted line — one step and a count. The frames runner fails a [data-one-line] that wraps. */}
+      {running?.nextStepNarrow ? (
+        <p className="mt-3 border-t border-border pt-2 text-xs text-muted-foreground sm:hidden" data-next-step-narrow data-one-line>
+          {k(running.nextStepNarrow)}
         </p>
       ) : null}
 

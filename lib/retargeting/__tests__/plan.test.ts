@@ -378,10 +378,32 @@ describe("RT8 acceptance (revised 17 Nov): no \"Connect ticketing\" anywhere on 
     assert.match(panel, /`Pool \$\{\(row\.pool \?\? NOT_READ_TODAY\)\.replace\(\/\^\(Below\|Not\)\//);
   });
 
-  it("design (25 Nov): the next-step footer is one muted line at every width, never hidden at 393", () => {
+  it("design (25 Nov): the 393 footer, word for word (retargeting.footer.next.phone*)", () => {
+    const steps = [{ label: "final month", from: "2026-11-19", share: 15 }, { label: "payday", from: "2026-11-26", share: 15 }];
+    // .phone + .phone.more.one
+    assert.equal(words.nextStepNarrow(steps, false), "Next: final month from Thu 19 Nov · 1 more");
+    // one step left: .phone alone
+    assert.equal(words.nextStepNarrow([{ label: "payday", from: "2026-11-26" }], false), "Next: payday from Thu 26 Nov");
+    // none: no footer
+    assert.equal(words.nextStepNarrow([], false), null);
+    // .phone.set: "Next: {share} % from {Ddd d Mon}, {stretch}"
+    assert.equal(words.nextStepNarrow(steps, true), "Next: 15 % from Thu 19 Nov, final month · 1 more");
+    // .phone.more: " · {n} more"
+    assert.equal(words.nextStepNarrow([...steps, { label: "final week", from: "2026-12-12" }], false), "Next: final month from Thu 19 Nov · 2 more");
+    // 1280 keeps both steps and "step heights: Matas".
+    assert.equal(words.nextStepLine(steps, false), "Next step: final month from Thu 19 Nov · payday from Thu 26 Nov · step heights: Matas");
+  });
+
+  it("design (25 Nov): 1280 draws the long footer, 393 the one-line footer the frames runner holds to one line", async () => {
     const panel = readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../components/dashboard/events/retargeting-panel.tsx"), "utf8");
-    const footer = panel.split("\n").find((line) => line.includes("data-next-step"))!;
-    assert.match(footer, /text-xs text-muted-foreground/);
-    assert.equal(/\bhidden\b|sm:block/.test(footer), false);
+    const lines = panel.split("\n");
+    assert.match(lines.find((line) => line.includes("data-next-step>"))!, /hidden [^"]*sm:block/);
+    const narrow = lines.find((line) => line.includes("data-next-step-narrow"))!;
+    assert.match(narrow, /text-xs text-muted-foreground sm:hidden/);
+    assert.match(narrow, /data-one-line/);
+    const runner = readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../scripts/plan-frames/run.mjs"), "utf8");
+    assert.match(runner, /querySelectorAll\("\[data-one-line\]"\)/);
+    const { raPlan } = await import("../../../scripts/plan-frames/retargeting-fixtures.ts");
+    assert.equal(raPlan().view.running!.nextStepNarrow, "Next: final month from Thu 19 Nov · 1 more");
   });
 });

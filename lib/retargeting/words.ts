@@ -463,6 +463,20 @@ export const BUDGET_KIND_LABEL = { move: "Move", hold: "Hold", cut: "Cut" } as c
 
 // ── RT6 (dates only; the heights are PR C's, unset) ─────────────────────────
 
+/**
+ * Design (25 Nov), retargeting.footer.next.phone*: the 393 footer is one
+ * step and a count. "Next: {stretch} from {Ddd d Mon}" (.phone), with the
+ * heights set "Next: {share} % from {Ddd d Mon}, {stretch}" (.phone.set),
+ * then " · {n} more" / " · 1 more" (.phone.more / .one). None: no footer.
+ * "step heights: Matas" is 1280's only.
+ */
+export function nextStepNarrow(steps: readonly { label: string; from: string; share?: number | null }[], heightsSet: boolean): string | null {
+  const [first, ...rest] = steps;
+  if (!first) return null;
+  const head = heightsSet && first.share != null ? `Next: ${first.share} % from ${shortDay(first.from)}, ${first.label}` : `Next: ${first.label} from ${shortDay(first.from)}`;
+  return `${head}${rest.length === 1 ? " · 1 more" : rest.length > 1 ? ` · ${rest.length} more` : ""}`;
+}
+
 /** RT6: the footer, "Next step: final month from Thu 19 Nov · payday from Thu 26 Nov · step heights: Matas". */
 export function nextStepLine(steps: readonly { label: string; from: string }[], heightsSet: boolean): string | null {
   if (!steps.length) return null;

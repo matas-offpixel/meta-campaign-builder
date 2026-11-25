@@ -344,6 +344,19 @@ async function main() {
             await settleVideos(page, shot.id);
           }
         }
+        // A design ruling's "one line" ([data-one-line], e.g. the retargeting
+        // footer at 393) must draw one line at this width: a wrap fails the shot.
+        const wrapped = await page.evaluate(() =>
+          [...document.querySelectorAll("[data-one-line]")]
+            .filter((node) => node.getClientRects().length > 0)
+            .flatMap((node) => {
+              const range = document.createRange();
+              range.selectNodeContents(node);
+              const lines = new Set([...range.getClientRects()].filter((rect) => rect.width > 0).map((rect) => Math.round(rect.top))).size;
+              return lines > 1 ? [`${JSON.stringify(node.textContent)} draws ${lines} lines in ${Math.round(node.getBoundingClientRect().width)}px`] : [];
+            }),
+        );
+        if (wrapped.length) throw new Error(`${shot.id}: one-line text wraps: ${wrapped.join(" | ")}`);
         await page.waitForTimeout(150);
         const png = await page.locator(`[data-frame-ready="${shot.frame}"]`).screenshot({
           type: "png",

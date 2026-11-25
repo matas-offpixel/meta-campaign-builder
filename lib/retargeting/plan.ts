@@ -30,7 +30,7 @@ import { isOff } from "./delivery.ts";
 import { firedOn, landingLinks, landingShared, pixelOnOwnDomains, pixelOnPlatforms, ticketLinks, type PixelHosts } from "./links.ts";
 import { costOf, planBudget, type BudgetLine, type BudgetNote, type TierFigures } from "./moves.ts";
 import { shareOn, STRETCH_LABEL } from "./shares.ts";
-import { nextSteps, stepHeightsSet } from "./steps.ts";
+import { nextSteps, RUN_IN, STEP_HEIGHTS, stepHeightsSet } from "./steps.ts";
 import { currentDailyMinor, daysToShow, fundHold, isShare, RT4, startingBudget, type Funding, type Share, type Starting } from "./budget.ts";
 import {
   audiencesNarrow,
@@ -64,6 +64,7 @@ import {
   leavesOut,
   legacyAdSets,
   nextStepLine,
+  nextStepNarrow,
   MID_NOT_BUILT,
   NO_FIGURE,
   NO_PIXEL,
@@ -175,8 +176,10 @@ export type RunningView = {
   holds?: BudgetNote[];
   /** RT5: "No move today: …". */
   note?: string | null;
-  /** RT6's footer: "Next step: …". */
+  /** RT6's footer: "Next step: …" (1280). */
   nextStep?: string | null;
+  /** Design (25 Nov): the 393 footer, one step and a count, on one line. */
+  nextStepNarrow?: string | null;
 };
 
 /** What the daily read gathered for a running campaign, per tier (Meta's figures plus ad_daily_insights' 7 days). */
@@ -621,6 +624,7 @@ function planRunning(input: RetargetingInput, base: Pick<RetargetingView, "code"
           holds: budget?.holds ?? [],
           note: budget?.note ?? null,
           nextStep: nextStepLine(steps, stepHeightsSet()),
+          nextStepNarrow: nextStepNarrow(steps.map((step) => ({ ...step, share: STEP_HEIGHTS[RUN_IN.find((row) => row.label === step.label)?.key ?? "payday"] })), stepHeightsSet()),
         }
       : null;
   return {
