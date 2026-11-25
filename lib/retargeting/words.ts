@@ -8,7 +8,7 @@
  * Events API, advertiser ID, dataset.
  */
 
-import { dayMonth, shortDay } from "../onsale-refresh/schedule.ts";
+import { addDaysIso, dayMonth, shortDay } from "../onsale-refresh/schedule.ts";
 
 export type Tier = "bottom" | "mid_bottom" | "mid";
 
@@ -470,7 +470,17 @@ export function callTitle(winner: Arm): string {
 }
 export function callDetail(args: { winner: Arm; x: number; nx: number; y: number; ny: number; pct: number; shows: number; days: number; from: string; to: string }): string {
   const loser: Arm = args.winner === "A" ? "B" : "A";
-  return `${pence(args.x)} per attributed purchase (${args.nx}) against ${loser}'s ${pence(args.y)} (${args.ny}) · ${args.pct} % cheaper · ${args.shows} shows · ${args.days} days, ${dayRange(args.from, args.to)}`;
+  return `${pence(args.x)} per attributed purchase (${args.nx}) against ${loser}'s ${pence(args.y)} (${args.ny}) · ${args.pct} % cheaper · ${args.shows} shows · ${testWindow(args.from, args.days)}`;
+}
+
+/**
+ * Design (25 Nov, frame RG): the test's window, from the test's start day
+ * (London, as RE's start line and the "Running since" header) and its day
+ * count, both ends counted as the pooled read counts them: 14 days from
+ * Wed 18 Nov is "14 days, Wed 18 Nov – Tue 1 Dec".
+ */
+export function testWindow(from: string, days: number): string {
+  return `${days} days, ${dayRange(from, addDaysIso(from, days - 1))}`;
 }
 export function callOnAccept(winner: Arm, shows: number): string {
   const loser: Arm = winner === "A" ? "B" : "A";

@@ -255,12 +255,12 @@ describe("Ops (c) at Apply: nothing delivers before the split", () => {
 });
 
 describe("RT17's call: pooled across every show", () => {
-  const RG = { from: "2026-11-17", to: "2026-11-30", days: 14, shows: 6, arms: { A: { shows: 6, spend: 2184, purchases: 168, cost: 13 }, B: { shows: 6, spend: 2179.4, purchases: 130, cost: 16.76 } } };
+  const RG = { from: "2026-11-18", to: "2026-12-01", days: 14, shows: 6, arms: { A: { shows: 6, spend: 2184, purchases: 168, cost: 13 }, B: { shows: 6, spend: 2179.4, purchases: 130, cost: 16.76 } } };
 
   it("RG: Layout A wins, in the record's words", () => {
     const line = callLine(RG)!;
     assert.equal(line.title, "Layout A wins the retargeting test");
-    assert.equal(line.detail, "£13.00 per attributed purchase (168) against B's £16.76 (130) · 22 % cheaper · 6 shows · 14 days, Tue 17 – Mon 30 Nov");
+    assert.equal(line.detail, "£13.00 per attributed purchase (168) against B's £16.76 (130) · 22 % cheaper · 6 shows · 14 days, Wed 18 Nov – Tue 1 Dec");
     assert.equal(line.onAccept, "On accept: B pauses on 6 shows and each show's A takes its whole retargeting budget. New shows start on A.");
     assert.equal(line.writeText, "Ends the Meta A/B test on 6 shows · pauses 6 campaigns · ad-set budget writes");
     assert.equal(line.narrow, "Layout A wins · £13.00 vs £16.76 · 22 % cheaper");
@@ -278,6 +278,23 @@ describe("RT17's call: pooled across every show", () => {
     assert.equal(read.arms.A.cost, 10, "£200 ÷ 20, not the mean of £100 and £5.26");
     const fromRows = pooledFromRows([{ date: "2026-11-18", campaign_name: "XMPL-WHSE · Retargeting · A/B · B", spend: "40", purchases: "2" }, { date: "2026-11-19", campaign_name: "XMPL-WHSE · Tickets", spend: 99, purchases: 9 }], "2026-11-30")!;
     assert.deepEqual([fromRows.from, fromRows.arms.B.spend, fromRows.arms.A.spend], ["2026-11-18", 40, 0]);
+    // Design (25 Nov, RG): with the test's start known, the window starts there (00:00 London), not on the first day an arm spent.
+    const fromStart = pooledFromRows([{ date: "2026-11-19", campaign_name: "XMPL-WHSE · Retargeting · A/B · A", spend: "40", purchases: "2" }], "2026-12-01", "2026-11-18")!;
+    assert.deepEqual([fromStart.from, fromStart.to, fromStart.days], ["2026-11-18", "2026-12-01", 14]);
+  });
+
+  it("design (25 Nov, RG): the window is the test's start plus its days, both ends counted, across a month end and a year end", () => {
+    assert.equal(words.testWindow("2026-11-18", 14), "14 days, Wed 18 Nov – Tue 1 Dec");
+    assert.equal(words.testWindow("2026-12-28", 7), "7 days, Mon 28 Dec – Sun 3 Jan");
+    assert.equal(words.testWindow("2026-11-02", 14), "14 days, Mon 2 – Sun 15 Nov");
+    // The same count the pooled read makes: 18 Nov to 1 Dec is 14 days.
+    assert.equal(pooled([], { from: "2026-11-18", to: "2026-12-01" }).days, 14);
+    // The frame's call reads the same window as its header's "Running since Wed 18 Nov".
+    return import("../../../scripts/plan-frames/retargeting-fixtures.ts").then(({ rgPlan }) => {
+      const { view, line } = rgPlan();
+      assert.match(String(line.detail), /· 14 days, Wed 18 Nov – Tue 1 Dec$/);
+      assert.equal(view.running?.since, "2026-11-18");
+    });
   });
 
   it("before the minimum, under the margin, and the 28-day fallback that keeps A", () => {

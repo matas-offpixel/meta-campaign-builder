@@ -32,7 +32,7 @@ import { customerListWritesEnabled, listTriggerAt, londonDate } from "../custome
 import { pixelRules, ruleChanges, tierSpecs, type SourceList, type SourcePage, type SourceSet } from "./audiences.ts";
 import { linksFallback, linksFromPages, otherLandingHosts, type PixelHosts, type ShowLink } from "./links.ts";
 import { refreshTokenFor, rewriteRules, ruleRewriteGates } from "./rule-rewrite.ts";
-import { pooled, type PooledRead } from "./test.ts";
+import { localDay, pooled, type PooledRead } from "./test.ts";
 import type { CallShow, CallWrite } from "./apply-call.ts";
 import { callLine, type RunningTest } from "./plan.ts";
 import type { Arm } from "./words.ts";
@@ -305,14 +305,16 @@ export function runningTest(test: TestProgress, rows: readonly { date: string; m
 const ARM_CAMPAIGN = /^(.+?) · Retargeting · A\/B · (A|B)$/i;
 
 /** RT17: the pooled read — every show in the test, from the first show's start to the read's last day, each arm's spend and attributed purchases summed. */
-export function pooledFromRows(rows: readonly { date: string; campaign_name?: string | null; spend: number | string; purchases: number | string }[], to: string): PooledRead | null {
+export function pooledFromRows(rows: readonly { date: string; campaign_name?: string | null; spend: number | string; purchases: number | string }[], to: string, testFrom: string | null = null): PooledRead | null {
   const tagged = rows.flatMap((row) => {
     const match = ARM_CAMPAIGN.exec((row.campaign_name ?? "").trim());
     return match ? [{ show: match[1]!, arm: match[2]!.toUpperCase() as Arm, date: row.date, spend: num(row.spend), purchases: num(row.purchases) }] : [];
   });
   const started = tagged.filter((row) => row.spend > 0).map((row) => row.date).sort()[0];
   if (!started || started > to) return null;
-  return pooled(tagged, { from: started, to });
+  // Design (25 Nov, RG): the window starts on the test's start day (00:00 London), else the first day an arm spent.
+  const from = testFrom && testFrom <= to ? testFrom : started;
+  return pooled(tagged, { from, to });
 }
 
 /** RT17: the call's write, every show in the test (its draft, test, campaigns and arm budgets). */
@@ -436,7 +438,9 @@ export async function runRetargetingRead(input: {
   });
   const calls = await loadAll<{ id: string; write: Record<string, unknown> | null; applied_at: string | null }>(input.db, "onsale_refresh_lines", "id, write, applied_at", ["id"], (q) => q.eq("kind", "retargeting_test_call").eq("state", "applied")).catch(() => []);
   const testWinner = (calls.sort((a, b) => ((a.applied_at ?? "") < (b.applied_at ?? "") ? 1 : -1))[0]?.write?.winner as Arm | undefined) ?? null;
-  const pooledRead = testShows.length ? pooledFromRows(raw.rows, addDaysIso(day, -1)) : null;
+  // The first show's test start, as a London day (Apply starts every test at 00:00 Europe/London).
+  const testFrom = testShows.flatMap(({ test }) => (test.startAt ? [localDay("Europe/London", new Date(test.startAt))] : [])).sort()[0] ?? null;
+  const pooledRead = testShows.length ? pooledFromRows(raw.rows, addDaysIso(day, -1), testFrom) : null;
   const call = !testWinner && pooledRead ? callLine(pooledRead) : null;
   const hostsByPixel = new Map<string, PixelHosts>();
   const readLinks = input.pageLinks ?? ((tag: string) => fetchCirqlinPageLinks(tag));

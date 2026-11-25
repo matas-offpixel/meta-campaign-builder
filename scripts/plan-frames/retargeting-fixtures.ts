@@ -33,6 +33,7 @@
 import type { PanelLine, PanelProposal } from "@/lib/onsale-refresh/read";
 
 import { ONSALE_PHASE } from "../../lib/onsale-refresh/phase-config.ts";
+import { addDaysIso } from "../../lib/onsale-refresh/schedule.ts";
 import type { PurchaseRead } from "../../lib/onsale-refresh/purchases.ts";
 import type { PartnerPageLinks } from "../../lib/cirqlin/page-links.ts";
 import { linkKey } from "../../lib/retargeting/audiences.ts";
@@ -193,20 +194,24 @@ function raSources(links = linksFromPages(WHSE_PAGES)) {
 }
 
 /**
- * RG: RA's show in the layout test, read Tue 1 Dec (-2.html RT17, PR E's
+ * RG: RA's show in the layout test, read Wed 2 Dec (-2.html RT17, PR E's
  * lines): £36.00 a day, £18.00 to each arm split £9.00 / £4.50 / £4.50.
- * The arms' 7 days (24–30 Nov): A £63.00 ÷ 9, £31.50 ÷ 4, £31.50 ÷ 4
+ * The arms' 7 days (25 Nov – 1 Dec): A £63.00 ÷ 9, £31.50 ÷ 4, £31.50 ÷ 4
  * (£126.00 ÷ 17 = £7.41); B £63.00 ÷ 7, £31.50 ÷ 3, £31.50 ÷ 3
- * (£126.00 ÷ 13 = £9.69). The test, every show (Tue 17 – Mon 30 Nov, 14
- * days, 6 shows): A £2,184.00 ÷ 168 = £13.00, B £2,179.40 ÷ 130 = £16.76,
+ * (£126.00 ÷ 13 = £9.69). The test, every show, from its start Wed 18 Nov
+ * (00:00 London, the header's "Running since") for 14 days, to Tue 1 Dec,
+ * 6 shows: A £2,184.00 ÷ 168 = £13.00, B £2,179.40 ÷ 130 = £16.76,
  * 22 % cheaper: the call is made. The header's stretch wording is PR D's.
  */
 export function rgPlan() {
   const tier = (budgetMinor: number, spendMinor: number, purchases: number, frequency: number, pool: string) => ({ budgetMinor, spendMinor, purchases, frequency, pool });
+  // Design (25 Nov): the window is the test's start plus its days, never written out by hand.
+  const since = "2026-11-18";
+  const days = 14;
   const pooledRead = {
-    from: "2026-11-17",
-    to: "2026-11-30",
-    days: 14,
+    from: since,
+    to: addDaysIso(since, days - 1),
+    days,
     shows: 6,
     arms: { A: { shows: 6, spend: 2184, purchases: 168, cost: 13 }, B: { shows: 6, spend: 2179.4, purchases: 130, cost: 16.76 } },
   };
@@ -215,12 +220,12 @@ export function rgPlan() {
       eventId: "xmpl-whse",
       eventCode: "XMPL-WHSE",
       eventDate: "2026-12-19",
-      runDay: "2026-12-01",
-      today: "2026-12-01",
+      runDay: "2026-12-02",
+      today: "2026-12-02",
       last7SpendGbp: 1680,
       pixelHosts: { any: ["www.skiddle.com", "ra.co", "xmpl-whse.com"], pageView: ["www.skiddle.com", "ra.co", "xmpl-whse.com"], checkout: ["www.skiddle.com"], registration: ["xmpl-whse.com"] },
       sources: raSources(),
-      existing: { campaignId: null, since: "2026-11-18", totalMinor: 3600, share: 15, tiers: { bottom: 1800, mid_bottom: 900, mid: 900 }, status: "ACTIVE" },
+      existing: { campaignId: null, since, totalMinor: 3600, share: 15, tiers: { bottom: 1800, mid_bottom: 900, mid: 900 }, status: "ACTIVE" },
       test: {
         arms: {
           A: { bottom: tier(900, 6300, 9, 3.1, "4,100–4,800"), mid_bottom: tier(450, 3150, 4, 2.0, "6,600–7,800"), mid: tier(450, 3150, 4, 1.4, "184,000–216,000") },
