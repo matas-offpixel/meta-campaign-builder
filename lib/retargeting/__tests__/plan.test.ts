@@ -374,7 +374,7 @@ describe("RT8 acceptance (revised 17 Nov): no \"Connect ticketing\" anywhere on 
     const panel = readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../components/dashboard/events/retargeting-panel.tsx"), "utf8");
     // Design (25 Nov): a created tier whose estimate Meta didn't give today reads "Not read today", never "—".
     assert.equal(words.NOT_READ_TODAY, "Not read today");
-    assert.match(panel, /created \? \(row\.pool \?\? NOT_READ_TODAY\) : POOL_BEFORE_CREATE/);
+    assert.match(panel, /created \? k\(row\.pool \?\? NOT_READ_TODAY\) : POOL_BEFORE_CREATE/);
     assert.match(panel, /`Pool \$\{\(row\.pool \?\? NOT_READ_TODAY\)\.replace\(\/\^\(Below\|Not\)\//);
   });
 
