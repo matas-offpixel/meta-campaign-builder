@@ -383,3 +383,13 @@ The figures under each frame (outside the shot) are the composer's.
 | AF-B-after | Eyes 0.500 W, 0.445 H; head 0.312, chin 0.571 H; claim on 1004 px |
 | AF-C-before | Window 1080 px, head at 0.41 W; the claim on its 1238 baseline (0.568–0.645 H) over the head |
 | AF-C-after | "Framed on the artist: crop moved 97 px left"; window 886 px (1.22×), head 0.50 W; the claim moved up under the date (from 0.382 H; the date ends 0.355 H) |
+
+## RC-E: Audience templates tab
+
+`/frames/audience-templates/RC-E` at 1280 and 393
+(`audience-templates-shots.mjs`, `audience-templates-fixtures.ts`): the real
+tab row and `AudienceTemplatesPanel` on RC-E's values
+(`docs/design-record/2026-11-24-campaign-creator-replicate.html`, RC5).
+Audience writes are off, so the footer adds "Creating audiences is switched
+off, so these 2 wait." Ewan McVicar is an added page not yet saved ("1
+change since this template was saved"). Also in the overflow guard at 320–430.
