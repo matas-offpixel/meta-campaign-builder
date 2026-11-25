@@ -169,7 +169,7 @@ export type CreateCard = {
   eachArm?: string | null;
   /** RT17: a show under £6.00 a day, "Too small to test: … so it runs layout A only." */
   tooSmall?: string | null;
-  /** Design (25 Nov): an entered show, "Test starts {d Mon}, 00:00 London time, and runs to {show day}." */
+  /** Design (25 Nov): an entered show, "Test starts {Ddd d Mon}, 00:00 London time, and runs to {show day}." */
   startsLine?: string | null;
 };
 

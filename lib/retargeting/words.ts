@@ -409,13 +409,14 @@ export const META_SPLITS = "Meta splits people at random, so nobody sees both";
 const LONDON_CLOCK = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/London", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
 
 /**
- * Design (25 Nov): "Test starts {d Mon}, 00:00 London time, and runs to {show day}."
+ * Design (25 Nov, frame RE): "Test starts {Ddd d Mon}, 00:00 London time, and runs to {show day}."
+ * The weekday is the started date's, through shortDay like every other date line.
  * The start is 00:00 in the ad account's timezone (testStart), written in
  * London time, so an account outside London reads its own hour.
  */
 export function testStartsLine(startAt: Date, showDay: string): string {
   const parts = Object.fromEntries(LONDON_CLOCK.formatToParts(startAt).map((part) => [part.type, part.value]));
-  return `Test starts ${dayMonth(`${parts.year}-${parts.month}-${parts.day}`)}, ${parts.hour}:${parts.minute} London time, and runs to ${shortDay(showDay)}.`;
+  return `Test starts ${shortDay(`${parts.year}-${parts.month}-${parts.day}`)}, ${parts.hour}:${parts.minute} London time, and runs to ${shortDay(showDay)}.`;
 }
 
 /** Design (25 Nov): the applied call. */

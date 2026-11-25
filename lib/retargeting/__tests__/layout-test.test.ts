@@ -362,20 +362,20 @@ describe("design (17 Nov): RG-393's each-arm line, and an entered show's Create 
 });
 
 describe("design (25 Nov): the start line, the applied call, the refused test", () => {
-  it("start line: \"Test starts {d Mon}, 00:00 London time, and runs to {show day}.\" for a London ad account (frame RE)", async () => {
+  it("start line: \"Test starts {Ddd d Mon}, 00:00 London time, and runs to {show day}.\" for a London ad account (frame RE)", async () => {
     const { rePlan } = await import("../../../scripts/plan-frames/retargeting-fixtures.ts");
-    assert.equal(rePlan().view.create!.startsLine, "Test starts 18 Nov, 00:00 London time, and runs to Sat 19 Dec.");
-    assert.equal(rePlan("Europe/London").view.create!.startsLine, "Test starts 18 Nov, 00:00 London time, and runs to Sat 19 Dec.");
+    assert.equal(rePlan().view.create!.startsLine, "Test starts Wed 18 Nov, 00:00 London time, and runs to Sat 19 Dec.");
+    assert.equal(rePlan("Europe/London").view.create!.startsLine, "Test starts Wed 18 Nov, 00:00 London time, and runs to Sat 19 Dec.");
   });
 
   it("start line: computed in the ad account's timezone, not London's — 00:00 New York is 05:00 London, 00:00 Tokyo is 15:00 the day before", async () => {
     const { rePlan } = await import("../../../scripts/plan-frames/retargeting-fixtures.ts");
-    assert.equal(rePlan("America/New_York").view.create!.startsLine, "Test starts 18 Nov, 05:00 London time, and runs to Sat 19 Dec.");
-    assert.equal(rePlan("Asia/Tokyo").view.create!.startsLine, "Test starts 17 Nov, 15:00 London time, and runs to Sat 19 Dec.");
+    assert.equal(rePlan("America/New_York").view.create!.startsLine, "Test starts Wed 18 Nov, 05:00 London time, and runs to Sat 19 Dec.");
+    assert.equal(rePlan("Asia/Tokyo").view.create!.startsLine, "Test starts Tue 17 Nov, 15:00 London time, and runs to Sat 19 Dec.");
     // The instant Apply would set is the same one the line names.
     assert.equal(testStart("America/New_York", new Date("2026-11-17T12:00:00Z")).at.toISOString(), "2026-11-18T05:00:00.000Z");
     // In summer London is an hour ahead of UTC: 00:00 New York (EDT) is 05:00 London (BST).
-    assert.equal(words.testStartsLine(testStart("America/New_York", new Date("2027-06-01T12:00:00Z")).at, "2027-06-20"), "Test starts 2 Jun, 05:00 London time, and runs to Sun 20 Jun.");
+    assert.equal(words.testStartsLine(testStart("America/New_York", new Date("2027-06-01T12:00:00Z")).at, "2027-06-20"), "Test starts Wed 2 Jun, 05:00 London time, and runs to Sun 20 Jun.");
   });
 
   it("no start line under £6.00 (too small) or after the call (one campaign on the winner)", async () => {
