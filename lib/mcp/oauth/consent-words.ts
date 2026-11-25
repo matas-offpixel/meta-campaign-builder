@@ -17,7 +17,7 @@
  * control characters are dropped, it is capped at CLIENT_NAME_MAX characters
  * inside the curly quotes (59 and "…" when longer), and React escapes it.
  */
-import { CLAUDE_CALLBACK, SCOPE_DRAFT, SCOPE_READ } from "../config.ts";
+import { CLAUDE_CALLBACK, SCOPE_DRAFT, SCOPE_META, SCOPE_READ } from "../config.ts";
 
 export const CLIENT_NAME_MAX = 60;
 
@@ -28,6 +28,15 @@ export const CONSENT_WORDS = {
   /** consent.line2.drafts */
   drafts:
     "It can read every client's events, spend, signup and ticket counts, drafts and learnings. It can also make, change and archive campaign drafts that aren't published, including adding creatives from Google Drive. It can't publish, launch or send anything.",
+  /** consent.line2.meta (record 2026-11-25-mcp-m3a-words MW1): the whole mcp:meta scope. */
+  meta:
+    "It can read every client's events, spend, signup and ticket counts, drafts and learnings, and make, change and archive campaign drafts. It can also send files to Meta, launch drafts paused or live, change live campaigns, and change an event's dates and links, each only after you say yes in Claude. It can't start or raise spend past a client's daily ceiling, and every change is listed on Today.",
+  /** consent.title.upgrade.meta */
+  titleUpgradeMeta: "Let Claude make Meta changes in Off/Pixel",
+  /** consent.title.upgrade.meta.loopback */
+  titleUpgradeMetaLoopback: "Let an app on this computer make Meta changes in Off/Pixel",
+  /** consent.upgrade.cancel_note.meta */
+  upgradeCancelNoteMeta: "If you cancel, it keeps the drafts access it has now.",
   /** consent.title.upgrade */
   titleUpgrade: "Let Claude change drafts in Off/Pixel",
   /** consent.title.upgrade.loopback */
@@ -74,24 +83,41 @@ export function asksForDrafts(scope: string | null | undefined): boolean {
   return (scope ?? "").split(/\s+/).includes(SCOPE_DRAFT);
 }
 
+/** Whether the scope the user will get includes mcp:meta (line 2's Meta wording). */
+export function asksForMeta(scope: string | null | undefined): boolean {
+  return (scope ?? "").split(/\s+/).includes(SCOPE_META);
+}
+
 /**
- * The upgrade wording (ops' ruling 24 Nov): the request asks for mcp:draft
- * and the signed-in operator already holds a live grant FROM THE SAME CLIENT
- * with mcp:read and no mcp:draft. Another client's grant doesn't count.
- * Cancelling leaves that grant and its tokens as they are
- * (decideConsentRequest writes nothing on Cancel), which is what the cancel
- * note says.
+ * The upgrade wording (ops' ruling 24 Nov; MW1 for Meta): the signed-in
+ * operator already holds a live grant FROM THE SAME CLIENT with less than
+ * the request. Another client's grant doesn't count. Cancelling leaves that
+ * grant and its tokens as they are (decideConsentRequest writes nothing on
+ * Cancel), which is what the cancel note says.
+ *   - asking for mcp:meta over a drafts grant → "drafts", the Meta title and note;
+ *   - asking for mcp:meta over a read-only grant → "read": the Meta title, M2's note;
+ *   - asking for mcp:draft over a read-only grant → "read": M2's title and note.
  */
+export function upgradeFrom(
+  liveGrants: ReadonlyArray<{ client_id: string; scope: string; revoked_at?: string | null }>,
+  clientId: string,
+  requestedScope: string | null | undefined,
+): "read" | "drafts" | null {
+  if (!asksForDrafts(requestedScope)) return null;
+  const meta = asksForMeta(requestedScope);
+  const mine = liveGrants.filter((g) => !g.revoked_at && g.client_id === clientId).map((g) => g.scope.split(/\s+/));
+  if (meta && mine.some((p) => p.includes(SCOPE_DRAFT) && !p.includes(SCOPE_META))) return "drafts";
+  if (mine.some((p) => p.includes(SCOPE_READ) && !p.includes(SCOPE_DRAFT))) return "read";
+  return null;
+}
+
+/** M2's check: a read-only grant from the same client, while asking for drafts (and not Meta). */
 export function isUpgradeConsent(
   liveGrants: ReadonlyArray<{ client_id: string; scope: string; revoked_at?: string | null }>,
   clientId: string,
   requestedScope: string | null | undefined,
 ): boolean {
-  if (!asksForDrafts(requestedScope)) return false;
-  return liveGrants.some((g) => {
-    const parts = g.scope.split(/\s+/);
-    return !g.revoked_at && g.client_id === clientId && parts.includes(SCOPE_READ) && !parts.includes(SCOPE_DRAFT);
-  });
+  return !asksForMeta(requestedScope) && upgradeFrom(liveGrants, clientId, requestedScope) === "read";
 }
 
 export function consentContent(input: {
@@ -99,13 +125,16 @@ export function consentContent(input: {
   clientName: string | null;
   email: string | null;
   returnHost: string;
-  /** The scope the request resolves to (M2: line 1 and 2 follow mcp:draft). */
+  /** The scope the request resolves to (M2: line 1 and 2 follow mcp:draft; M3a: line 2 follows mcp:meta). */
   scope?: string | null;
-  /** The signed-in operator already holds a live read-only grant (the upgrade wording). */
+  /** M2: the signed-in operator already holds a live read-only grant (the upgrade wording). */
   hasReadOnlyGrant?: boolean;
+  /** What the operator's existing grant from this client holds, when it's less than the request (upgradeFrom). */
+  upgradeFrom?: "read" | "drafts" | null;
 }): ConsentContent {
   const kind = returnKindOf(input.redirectUri);
   const drafts = asksForDrafts(input.scope);
+  const meta = asksForMeta(input.scope);
   const verb = drafts ? "use" : "read";
   const as = input.email ? ` as ${input.email}` : "";
   const name = displayClientName(input.clientName);
@@ -115,18 +144,29 @@ export function consentContent(input: {
       : name
         ? `An app on this computer, calling itself “${name}”, is asking to ${verb} Off/Pixel${as}.`
         : `An app on this computer is asking to ${verb} Off/Pixel${as}.`;
-  const upgrade = drafts && input.hasReadOnlyGrant === true;
-  const title = upgrade
-    ? kind === "claude"
-      ? CONSENT_WORDS.titleUpgrade
-      : CONSENT_WORDS.titleUpgradeLoopback
-    : kind === "claude"
-      ? CONSENT_WORDS.titleClaude
-      : CONSENT_WORDS.titleLoopback;
+  const from = drafts ? (input.upgradeFrom ?? (input.hasReadOnlyGrant === true ? "read" : null)) : null;
+  const title =
+    from && meta
+      ? kind === "claude"
+        ? CONSENT_WORDS.titleUpgradeMeta
+        : CONSENT_WORDS.titleUpgradeMetaLoopback
+      : from === "read"
+        ? kind === "claude"
+          ? CONSENT_WORDS.titleUpgrade
+          : CONSENT_WORDS.titleUpgradeLoopback
+        : kind === "claude"
+          ? CONSENT_WORDS.titleClaude
+          : CONSENT_WORDS.titleLoopback;
+  const cancelNote = from === "drafts" ? CONSENT_WORDS.upgradeCancelNoteMeta : from === "read" ? CONSENT_WORDS.upgradeCancelNote : null;
   return {
     kind,
     title,
-    lines: [first, drafts ? CONSENT_WORDS.drafts : CONSENT_WORDS.readOnly, CONSENT_WORDS.stays, `After you allow it, you go back to ${input.returnHost}.`],
-    ...(upgrade ? { cancelNote: CONSENT_WORDS.upgradeCancelNote } : {}),
+    lines: [
+      first,
+      meta ? CONSENT_WORDS.meta : drafts ? CONSENT_WORDS.drafts : CONSENT_WORDS.readOnly,
+      CONSENT_WORDS.stays,
+      `After you allow it, you go back to ${input.returnHost}.`,
+    ],
+    ...(cancelNote ? { cancelNote } : {}),
   };
 }

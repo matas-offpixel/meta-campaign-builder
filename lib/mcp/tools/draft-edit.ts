@@ -4,8 +4,8 @@
  *
  * Each one is what the wizard does on the same field, through the same
  * helpers, saved with lib/mcp/drafts/write.ts (status draft only, guarded
- * on updated_at). After the write the launch checks run (#1361; "not
- * available yet" until it merges) and come back with the answer.
+ * on updated_at). After the write the launch checks run (runLaunchGuard)
+ * and come back with the answer.
  *
  *   - set_draft_link: every ad's destinationUrl, as the creative step's
  *     Link field sets it. https only. link_not_event's words (RC3) when the
@@ -22,6 +22,8 @@
  *     convertAdSetBudgetsOnTypeChange, as the Daily / Lifetime switch),
  *     amount, then Distribute's even split over enabled ad sets when budgets
  *     are on the ad sets; start and end as typed dates (source "operator").
+ *   - apply_audience_template: the Audience templates tab's Add to this
+ *     draft, Reused audiences only (lib/mcp/drafts/templates.ts).
  *   - archive_draft: the library's Archive (status column only); the
  *     library's Unarchive brings it back. Never deletes.
  */
@@ -36,10 +38,13 @@ import type { CampaignDraft, LocationSelection, LocationTargetingGroup, Location
 import { addLocationToEveryAdSet, adSetsTargetingLocation, convertAdSetBudgetsOnTypeChange, followLocationTiers } from "../../wizard/adset-suggestions.ts";
 import { mapExcludedLocations, mapLocationGroups, patchBudgetSchedule } from "../../wizard/budget-schedule-update.ts";
 import { ToolInputError, type McpTool, type ToolContext } from "../tool-types.ts";
-import { NOT_YET, changes, checksSummary, launchChecksFor, linkKey, requireDraftScope } from "../drafts/common.ts";
+import { changes, checksSummary, launchChecksFor, linkKey, requireDraftScope } from "../drafts/common.ts";
+import { APPLY_WORDS, addReusedToDraft, applySentences, loadTemplatesFor, templateGroupId } from "../drafts/templates.ts";
+import { followAudienceGroups, groupKey } from "../../wizard/follow-audience-groups.ts";
 import { archiveDraftRow, loadWritableDraft, saveDraft, type WritableDraft } from "../drafts/write.ts";
+import { NAME_WORDS } from "../meta/words.ts";
 
-const draftArgs = {
+export const draftArgs = {
   draft_id: z.string().uuid().describe("The draft's id (a UUID), from get_drafts."),
   updated_at: z.string().min(10).max(40).describe("The draft's updatedAt exactly as get_draft returned it. A draft changed since then is refused."),
 };
@@ -68,7 +73,7 @@ async function eventLinks(ctx: ToolContext, eventId: string | null | undefined):
   return res.data as EventLinks;
 }
 
-async function finish(
+export async function finish(
   ctx: ToolContext,
   loaded: WritableDraft,
   next: CampaignDraft,
@@ -200,7 +205,7 @@ export const setDraftLocationsTool: McpTool = {
   description: [
     "Adds or removes a draft's targeted locations, as Step 5's location picker does. Add a place by search (Meta's location search, a read), a pin (point + radius), or the Leeds preset.",
     "A search with more than one hit saves nothing and lists the hits with their city_key: call again with the one you mean. Meta key 811209 is Leeds in Kent, not West Yorkshire: the answer warns and points at the Leeds preset.",
-    "tier tags the added locations primary or secondary (tiered ad sets follow). add_to_every_ad_set puts the added locations on every enabled ad set. remove takes location ids, Meta keys or names from get_draft.",
+    "tier tags the added locations primary or secondary (tiered ad sets follow). add_to_every_ad_set puts the added locations on every enabled ad set; every_ad_set does the same for locations already on the draft. remove takes location ids, Meta keys or names from get_draft.",
     'Example: set_draft_locations({ draft_id: "3f2c…-uuid", updated_at: "2026-11-24T10:00:00.123+00:00", add: [{ preset: "leeds" }, { search: "Manchester", city_key: "2513419" }], tier: "primary" }).',
   ].join(" "),
   inputSchema: {
@@ -209,13 +214,15 @@ export const setDraftLocationsTool: McpTool = {
     remove: z.array(z.string().min(1).max(120)).max(50).optional().describe("Location ids, Meta keys or names to take off."),
     tier: z.enum(["primary", "secondary"]).optional().describe("Tag the added locations with this tier."),
     add_to_every_ad_set: z.boolean().optional().describe("Also put the added locations on every enabled ad set (Step 5's Add to every ad set)."),
+    every_ad_set: z.array(z.string().min(1).max(120)).max(30).optional().describe("Locations already on the draft (ids, Meta keys or names from get_draft) to put on every enabled ad set, as Step 5's Add to every ad set."),
   },
   async run(ctx, args) {
     const deps = requireDraftScope(ctx);
     const adds = (Array.isArray(args.add) ? args.add : []) as AddItem[];
     const removes = (Array.isArray(args.remove) ? args.remove : []).map((r) => String(r).trim()).filter(Boolean);
     const tier = (args.tier === "primary" || args.tier === "secondary" ? args.tier : undefined) as LocationTier | undefined;
-    if (adds.length === 0 && removes.length === 0) throw new ToolInputError("Give add or remove.", { refused: "nothing_to_do" });
+    const everyArg = (Array.isArray(args.every_ad_set) ? args.every_ad_set : []).map((r) => String(r).trim()).filter(Boolean);
+    if (adds.length === 0 && removes.length === 0 && everyArg.length === 0) throw new ToolInputError("Give add, remove or every_ad_set.", { refused: "nothing_to_do" });
     for (const a of adds) {
       const kinds = [a.search || a.city_key ? 1 : 0, a.pin ? 1 : 0, a.preset ? 1 : 0].reduce((s, x) => s + x, 0);
       if (kinds !== 1) throw new ToolInputError("Each added location is one of: search (with city_key), pin, or preset.", { refused: "bad_add" });
@@ -322,6 +329,10 @@ export const setDraftLocationsTool: McpTool = {
     if (args.add_to_every_ad_set === true) {
       for (const g of tiered) adSets = addLocationToEveryAdSet(adSets, g, groups, nextBs.excludedLocations ?? []);
     }
+    const everyGroups = everyArg.map((r) => groups.find((g) => matchGroup(g, r)));
+    const everyMissing = everyArg.filter((_, i) => !everyGroups[i]);
+    if (everyMissing.length) throw new ToolInputError(`These aren't on this draft: ${everyMissing.slice(0, 10).join(", ")}. Nothing was saved.`, { draftId: loaded.row.id, refused: "unknown_every" });
+    for (const g of everyGroups) adSets = addLocationToEveryAdSet(adSets, g!, groups, nextBs.excludedLocations ?? []);
     const next: CampaignDraft = { ...draft, budgetSchedule: nextBs, adSetSuggestions: adSets };
     const onNoAdSet = tiered.filter((g) => adSetsTargetingLocation(adSets, g.id).length === 0).map((g) => g.label);
 
@@ -337,6 +348,7 @@ export const setDraftLocationsTool: McpTool = {
         metaGets,
       },
       summary: {
+        everyAdSet: everyGroups.map((g) => g!.id),
         fieldsChanged: ["budgetSchedule.locationGroups", ...(addExcluded.length || removedExcluded.length ? ["budgetSchedule.excludedLocations"] : []), "adSetSuggestions.locations"],
         before: { locations: existing.length, excluded: pool.length },
         after: { locations: groups.length, excluded: (nextBs.excludedLocations ?? []).length },
@@ -355,14 +367,14 @@ const DAY = /^\d{4}-\d{2}-\d{2}$/;
 const DAY_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
 
 /** "2026-12-01" → "2026-12-01T00:00" (start) or "…T23:59" (end); "YYYY-MM-DDTHH:mm" as given. */
-function localOf(value: unknown, edge: "start" | "end"): string | null {
+export function localOf(value: unknown, edge: "start" | "end"): string | null {
   const s = typeof value === "string" ? value.trim() : "";
   if (DAY_TIME.test(s)) return s;
   if (DAY.test(s)) return `${s}T${edge === "start" ? "00:00" : "23:59"}`;
   return null;
 }
 
-const round2 = (n: number) => Math.round(n * 100) / 100;
+export const round2 = (n: number) => Math.round(n * 100) / 100;
 
 export const setDraftBudgetTool: McpTool = {
   name: "set_draft_budget",
@@ -372,7 +384,7 @@ export const setDraftBudgetTool: McpTool = {
   idempotent: true,
   description: [
     "Sets a draft's budget (daily or lifetime, in GBP) and its start and end, as the Budget and Schedule cards do. Nothing spends: the draft isn't launched.",
-    "When budgets sit on the ad sets, the amount is split evenly over the enabled ad sets (the card's Distribute). Dates are London time: YYYY-MM-DD or YYYY-MM-DDTHH:mm; a day alone starts at 00:00 and ends at 23:59.",
+    "level moves the budget between the ad sets and the campaign (CBO), as the card's level switch. When budgets sit on the ad sets, the amount is split evenly over the enabled ad sets (the card's Distribute); set each one after with set_draft_ad_sets. Dates are London time: YYYY-MM-DD or YYYY-MM-DDTHH:mm; a day alone starts at 00:00 and ends at 23:59.",
     "A start in the past and an end before the start are refused. Leave end out to keep the draft's current end; a lifetime budget needs an end. Returns the per-day equivalent.",
     'Example: set_draft_budget({ draft_id: "3f2c…-uuid", updated_at: "2026-11-24T10:00:00.123+00:00", type: "lifetime", amount_gbp: 300, start: "2026-12-01", end: "2026-12-14" }).',
   ].join(" "),
@@ -382,6 +394,7 @@ export const setDraftBudgetTool: McpTool = {
     amount_gbp: z.number().positive().max(100_000).describe("The budget in GBP: per day for daily, the whole run for lifetime."),
     start: z.string().min(10).max(16).describe("YYYY-MM-DD or YYYY-MM-DDTHH:mm, London time, not in the past."),
     end: z.string().min(10).max(16).optional().describe("YYYY-MM-DD or YYYY-MM-DDTHH:mm, after the start. Leave out to keep the current end."),
+    level: z.enum(["ad_set", "campaign"]).optional().describe("Where the budget sits, the Budget card's level switch: ad_set (each ad set its own) or campaign (CBO). Leave out to keep it."),
   },
   async run(ctx, args) {
     requireDraftScope(ctx);
@@ -411,16 +424,19 @@ export const setDraftBudgetTool: McpTool = {
 
     // The Schedule card's Duration (components/steps/budget-schedule.tsx).
     const days = endAt ? Math.ceil((endAt.getTime() - startAt.getTime()) / (1000 * 60 * 60 * 24)) : 0;
+    // The Budget card's level switch is the field alone (updateBs({ budgetLevel })).
+    const level = args.level === "ad_set" || args.level === "campaign" ? args.level : bs.budgetLevel;
     let adSets = draft.adSetSuggestions;
     if (type !== bs.budgetType) adSets = convertAdSetBudgetsOnTypeChange(adSets, type, bs.budgetAmount, days > 0 ? days : 0);
     const enabled = adSets.filter((s) => s.enabled);
-    const onAdSets = bs.budgetLevel !== "campaign" && enabled.length > 0;
+    const onAdSets = level !== "campaign" && enabled.length > 0;
     if (onAdSets) {
       // Distribute (the card's button): an even split over enabled ad sets.
       const perSet = Math.round((amount / enabled.length) * 100) / 100;
       adSets = adSets.map((s) => (!s.enabled ? s : type === "lifetime" ? { ...s, budgetLifetime: perSet } : { ...s, budgetPerDay: perSet }));
     }
     const nextBs = patchBudgetSchedule(bs, {
+      budgetLevel: level,
       budgetType: type,
       budgetAmount: amount,
       startDate: start,
@@ -432,6 +448,7 @@ export const setDraftBudgetTool: McpTool = {
     const perDay = type === "daily" ? round2(amount) : days > 0 ? round2(amount / days) : null;
     const total = type === "lifetime" ? round2(amount) : days > 0 ? round2(amount * days) : null;
     const fieldDiff = changes([
+      ["budgetLevel", bs.budgetLevel, level],
       ["budgetType", bs.budgetType, type],
       ["budgetAmount", bs.budgetAmount, amount],
       ["startDate", bs.startDate, start],
@@ -447,14 +464,14 @@ export const setDraftBudgetTool: McpTool = {
         days: days || null,
         perDayGbp: perDay,
         totalGbp: total,
-        budgetsOn: bs.budgetLevel === "campaign" ? "campaign" : "ad sets",
+        budgetsOn: level === "campaign" ? "campaign" : "ad sets",
         adSetsSplit: onAdSets ? { adSets: enabled.length, eachGbp: Math.round((amount / enabled.length) * 100) / 100 } : null,
         changes: fieldDiff,
       },
       summary: {
         fieldsChanged: fieldDiff.map((c) => c.field).concat(onAdSets ? ["adSetSuggestions.budgets"] : []),
-        before: { type: bs.budgetType, amount: bs.budgetAmount, start: bs.startDate || null, end: bs.endDate || null },
-        after: { type, amount: round2(amount), start, end: end || null, perDay, days: days || null },
+        before: { level: bs.budgetLevel, type: bs.budgetType, amount: bs.budgetAmount, start: bs.startDate || null, end: bs.endDate || null },
+        after: { level, type, amount: round2(amount), start, end: end || null, perDay, days: days || null },
       },
     }));
   },
@@ -462,15 +479,19 @@ export const setDraftBudgetTool: McpTool = {
 
 // ─── apply_audience_template ────────────────────────────────────────────────
 
+// SWITCH(#1375): once #1375 merges, replace addReusedToDraft below with its apply
+// (lib/audience-templates/apply.ts addTemplateToDraft) so this is the tab's own "Add to this draft".
+const addTemplate = addReusedToDraft;
+
 export const applyAudienceTemplateTool: McpTool = {
   name: "apply_audience_template",
-  title: "Apply an audience template to a draft",
+  title: "Add an audience template to a draft",
   kind: "draft",
   readOnly: false,
   idempotent: true,
   description: [
-    "Applies one of the client's audience templates to a draft, showing each audience as Reused (already in the ad account) or Will be created. It never creates audiences: that's Meta, at launch.",
-    `Not available yet: it answers "${NOT_YET}" until the audience templates (PR #1363) are merged, and changes nothing.`,
+    "Adds one of the client's audience templates to a draft, as the Audience templates tab's Add to this draft: the audiences already made in the draft's ad account go in by their Meta ids (one custom audience group and one interest group, both named after the template). Nothing is created and Meta isn't called.",
+    "The rest are left out and counted, in Meta audiences: not made yet, held in another account, or video viewers that need this show's videos. Ad sets for the template's groups are added at the + Blank ad set budget; set them with set_draft_ad_sets. A template Matas hasn't confirmed is refused. Adding twice changes nothing.",
     'Example: apply_audience_template({ draft_id: "3f2c…-uuid", updated_at: "2026-11-24T10:00:00.123+00:00", template: "Techno" }).',
   ].join(" "),
   inputSchema: {
@@ -478,22 +499,50 @@ export const applyAudienceTemplateTool: McpTool = {
     template: z.string().min(1).max(80).describe('The template\'s name, e.g. "Techno" or "House & disco".'),
   },
   async run(ctx, args) {
-    const deps = requireDraftScope(ctx);
+    requireDraftScope(ctx);
     const loaded = await loadWritableDraft(ctx, args.draft_id, args.updated_at);
+    const { draft } = loaded;
     const template = String(args.template ?? "").trim();
-    if (!deps.audienceTemplates) {
-      return {
-        data: { draft_id: loaded.row.id, updated_at: loaded.row.updated_at, available: false, status: NOT_YET, waitingOn: "PR #1363 (audience templates)", changed: false },
-        eventId: loaded.row.event_id,
-        clientId: loaded.row.client_id,
-        summary: { draftId: loaded.row.id, template, available: false, fieldsChanged: [] },
-      };
+    const clientId = draft.settings.clientId || loaded.row.client_id;
+    if (!clientId) throw new ToolInputError("This draft has no client, so it has no templates.", { draftId: loaded.row.id, refused: "no_client" });
+    const account = draft.settings.metaAdAccountId || draft.settings.adAccountId || loaded.row.ad_account_id || "";
+    const pixel = draft.settings.metaPixelId || draft.settings.pixelId || null;
+    const found = await loadTemplatesFor(ctx.db, { clientId, adAccount: account, pixelId: pixel });
+    const t = found.templates.find((x) => x.name.trim().toLowerCase() === template.toLowerCase());
+    if (!t) {
+      throw new ToolInputError(`No template called "${template}" for this client. Its templates: ${found.templates.map((x) => x.name).join(", ") || "none"}.`, {
+        draftId: loaded.row.id,
+        template,
+        refused: "unknown_template",
+      });
     }
-    const applied = await deps.audienceTemplates.apply(ctx.db, { draft: loaded.draft as unknown as Record<string, unknown>, template, userId: ctx.userId });
-    if ("error" in applied) throw new ToolInputError(applied.error, { draftId: loaded.row.id, template, refused: "template" });
-    return finish(ctx, loaded, applied.draft as unknown as CampaignDraft, () => ({
-      data: { template, reused: applied.reused, willBeCreated: applied.willBeCreated, note: "Audiences marked Will be created are made at launch, never here." },
-      summary: { template, fieldsChanged: ["audiences"], reused: applied.reused.length, willBeCreated: applied.willBeCreated.length },
+    if (!(t.confirmedBy && t.confirmedAt)) {
+      throw new ToolInputError(`${t.name}: ${APPLY_WORDS["templates.unconfirmed"]}. ${APPLY_WORDS["templates.unconfirmed.line"]}`, { draftId: loaded.row.id, template: t.name, refused: "unconfirmed" });
+    }
+    const resolved = found.resolve(t.name)!;
+    const out = addTemplate(draft.audiences, t.name, resolved);
+    const touched = new Set([groupKey("custom", templateGroupId(t.name)), groupKey("interest", templateGroupId(t.name))]);
+    const follow = followAudienceGroups(draft.adSetSuggestions, out.audiences, draft.budgetSchedule.locationGroups ?? [], draft.budgetSchedule, touched);
+    const next: CampaignDraft = { ...draft, audiences: out.audiences, adSetSuggestions: follow.adSets };
+    const draftName = draft.settings.campaignName || "this draft";
+    return finish(ctx, loaded, next, () => ({
+      data: {
+        template: t.name,
+        sentences: applySentences(out, t.name, draftName, found.accountName),
+        added: out.added,
+        newAudienceIds: out.newIds,
+        leftOut: out.leftOut,
+        adSetsAdded: follow.added.map((a) => ({ id: a.id, name: a.name, budget: a.budgetLifetime ?? a.budgetPerDay })),
+      },
+      summary: {
+        template: t.name,
+        fieldsChanged: out.newIds.length || out.newInterests ? ["audiences", ...(follow.added.length ? ["adSetSuggestions"] : [])] : [],
+        before: { customGroups: draft.audiences.customAudienceGroups.length, interestGroups: draft.audiences.interestGroups.length, adSets: draft.adSetSuggestions.length },
+        after: { customGroups: out.audiences.customAudienceGroups.length, interestGroups: out.audiences.interestGroups.length, adSets: follow.adSets.length },
+        added: out.added,
+        newAudienceIds: out.newIds,
+        leftOut: { notMade: out.leftOut.notMade, held: out.leftOut.held.reduce((s, h) => s + h.n, 0), needVideos: out.leftOut.needVideos },
+      },
     }));
   },
 };
@@ -522,5 +571,54 @@ export const archiveDraftTool: McpTool = {
       clientId: loaded.row.client_id,
       summary: { draftId: loaded.row.id, fieldsChanged: ["status"], before: { status: "draft" }, after: { status: "archived" }, ...checksSummary(checks) },
     };
+  },
+};
+
+// ─── set_draft_name (M3a) ───────────────────────────────────────────────────
+
+/** Meta's campaign name limit. */
+export const MAX_CAMPAIGN_NAME_LENGTH = 400;
+
+/**
+ * The draft's name: the Campaign step's Campaign Name field
+ * (settings.campaignName), which the library lists and the launch sends as
+ * the Meta campaign's name. The library has no rename of its own; this is
+ * the field Matas edits in the app. The code-in-name launch check runs after.
+ */
+export const setDraftNameTool: McpTool = {
+  name: "set_draft_name",
+  title: "Rename a draft",
+  kind: "draft",
+  readOnly: false,
+  idempotent: true,
+  description: [
+    "Renames a draft: the Campaign step's Campaign Name, which the library shows and Meta gets as the campaign's name at launch. Keep the event code in square brackets at the front (\"[ES27-ENZOSIRAGUSA] ANNOUNCE\"): the launch checks flag a name without it.",
+    'Example: set_draft_name({ draft_id: "3f2c…-uuid", updated_at: "2026-11-24T10:00:00.123+00:00", name: "[ES27-ENZOSIRAGUSA] ANNOUNCE A" }).',
+  ].join(" "),
+  inputSchema: {
+    ...draftArgs,
+    // Trimmed by the input check, so an empty or blank name never reaches the tool.
+    name: z.string().trim().min(1).max(20_000).describe("The new name."),
+  },
+  async run(ctx, args) {
+    requireDraftScope(ctx);
+    const name = typeof args.name === "string" ? args.name.replace(/\s+/g, " ").trim() : "";
+    if (name.length > MAX_CAMPAIGN_NAME_LENGTH) throw new ToolInputError(NAME_WORDS.tooLong(MAX_CAMPAIGN_NAME_LENGTH), { refused: "name_too_long" });
+    const loaded = await loadWritableDraft(ctx, args.draft_id, args.updated_at);
+    const before = loaded.draft.settings.campaignName ?? "";
+    if (before === name) {
+      // claude.mcp.name.same: nothing is written.
+      return {
+        data: { draft_id: loaded.row.id, updated_at: loaded.row.updated_at, name, message: NAME_WORDS.same },
+        eventId: loaded.row.event_id,
+        clientId: loaded.row.client_id,
+        summary: { draftId: loaded.row.id, fieldsChanged: [] },
+      };
+    }
+    const next: CampaignDraft = { ...loaded.draft, settings: { ...loaded.draft.settings, campaignName: name } };
+    return finish(ctx, loaded, next, () => ({
+      data: { name, message: NAME_WORDS.done(before, name) },
+      summary: { fieldsChanged: ["campaignName"], changes: changes([["campaignName", before, name]]) },
+    }));
   },
 };

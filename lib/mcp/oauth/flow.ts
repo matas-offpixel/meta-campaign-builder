@@ -22,6 +22,8 @@ import {
   IGNORED_SCOPES,
   REFRESH_TOKEN_TTL_SECONDS,
   SCOPES_SUPPORTED,
+  SCOPE_DRAFT,
+  SCOPE_META,
   SCOPE_READ,
   normaliseResource,
   type McpUrls,
@@ -32,6 +34,8 @@ import type { GrantRow, McpStore, OAuthClientRow } from "./store.ts";
 export interface FlowDeps {
   store: McpStore;
   isOperator: (userId: string) => boolean;
+  /** MATAS_USER_IDS: only these get mcp:meta. Absent: nobody does. */
+  isMatas?: (userId: string) => boolean;
   now?: () => Date;
 }
 
@@ -91,7 +95,22 @@ export function resolveScope(requested: string | null | undefined): string | nul
   if (parts.length === 0) return SCOPE_READ;
   if (parts.some((s) => !SCOPES_SUPPORTED.includes(s))) return null;
   const asked = new Set([SCOPE_READ, ...parts]);
+  // mcp:meta launches drafts, so it brings mcp:draft (and mcp:read) with it.
+  if (asked.has(SCOPE_META)) asked.add(SCOPE_DRAFT);
   return SCOPES_SUPPORTED.filter((s) => asked.has(s)).join(" ");
+}
+
+/**
+ * The scope a user is actually granted: mcp:meta only for MATAS_USER_IDS
+ * (Matas's answer 24 Nov). Anyone else's consent is issued without it, so
+ * a connector asking for everything still connects with read and drafts.
+ */
+export function scopeForUser(scope: string, userId: string, deps: Pick<FlowDeps, "isMatas">): string {
+  if (!scopeIncludes(scope, SCOPE_META) || deps.isMatas?.(userId) === true) return scope;
+  return scope
+    .split(/\s+/)
+    .filter((s) => s && s !== SCOPE_META)
+    .join(" ");
 }
 
 export function scopeIncludes(granted: string, needed: string): boolean {
@@ -212,7 +231,7 @@ export async function issueCode(
     code_hash: sha256Hex(code),
     client_id: request.client.client_id,
     user_id: userId,
-    scope: request.scope,
+    scope: scopeForUser(request.scope, userId, deps),
     resource: request.resource,
     redirect_uri: request.redirectUri,
     code_challenge: request.codeChallenge,

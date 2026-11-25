@@ -4,12 +4,17 @@
  * with Drive's notification email. Stop sharing removes that one permission
  * and nothing else. Never called automatically: only the server actions in
  * lib/actions/drive-share.ts call these, after the operator's confirm.
+ *
+ * The artist library (00 Artist Library, AL1) is never shared outside
+ * Off/Pixel: a folder in it, or under it, is refused as if the event had no
+ * folder, before any Drive permission call.
  */
 
 import { DriveApiError, type DriveApi } from "./client.ts";
 import { rowById, type DriveDb } from "./db.ts";
 import { EVENT_NOT_ON_ACCOUNT } from "./panel.ts";
 import { isCancelled } from "./tree.ts";
+import { isLibraryFolder } from "../artist-library/library-drive.ts";
 
 export type ShareResult = { ok: true; sharedWith: string | null; sharedAt: string | null } | { ok: false; error: string };
 
@@ -49,6 +54,7 @@ export async function shareEventFolder(
   if (!event) return { ok: false, error: NOT_YOURS };
   if (!event.drive_folder_id) return { ok: false, error: NO_FOLDER };
   if (isCancelled(event.status)) return { ok: false, error: "This event is cancelled — its folder is no longer shared out." };
+  if (await isLibraryFolder(db, drive, event.drive_folder_id)) return { ok: false, error: NO_FOLDER };
   if (event.drive_share_permission_id) {
     return { ok: false, error: `This folder is already shared with ${event.drive_shared_with ?? "someone"} — stop sharing first.` };
   }

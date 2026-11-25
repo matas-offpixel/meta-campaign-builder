@@ -14,6 +14,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { ZodRawShape } from "zod";
 import type { DriveApi } from "../drive/client.ts";
 import type { LocationSearchHit } from "../meta/location-search.ts";
+import type { AccountPage, InterestHit } from "./graph-reads.ts";
+import type { CampaignDraft } from "../types.ts";
+import type { StoredSendOutcome } from "../plan/stored-assets-meta.ts";
 
 export type Db = Pick<SupabaseClient, "from">;
 
@@ -35,24 +38,39 @@ export interface McpReaders {
   migrateDraft(raw: Record<string, unknown>): Record<string, unknown>;
 }
 
-/** Launch checks (#1361) as M2 runs them after every write: `available: false` until that PR merges. */
-export type LaunchChecksOutcome =
-  | { available: false; status: "not available yet"; waitingOn: string }
-  | { available: true; blockers: number; warnings: number; checks: unknown[] }
-  | { available: true; error: string };
+/** One launch check as the record words it (lib/launch-guard/words.ts): what Claude reads back. */
+export interface LaunchCheckLine {
+  key: string;
+  severity: "blocker" | "warning";
+  label: string;
+  sentence: string;
+  evidence: string;
+  /** The fix buttons' words. */
+  fixes: string[];
+}
 
-/** Audience templates (#1363) for apply_audience_template: null until that PR merges. */
-export interface AudienceTemplatesSeam {
-  apply(db: Db, input: { draft: Record<string, unknown>; template: string; userId: string }): Promise<{
-    draft: Record<string, unknown>;
-    reused: Array<{ name: string; id: string | null }>;
-    willBeCreated: Array<{ name: string }>;
-  } | { error: string }>;
+/** The wizard's step checks (validateStep(7), as Review runs them), in the wizard's words. */
+export interface WizardChecks {
+  blockers: string[];
+  warnings: string[];
+  /** Files in Storage that go to Meta at launch (M3a): not blockers. */
+  sendAtLaunch?: number;
+  error?: string;
 }
 
 /**
- * Everything an M2 tool reaches outside the database client. The route
- * passes the real ones (lib/mcp/draft-deps.ts); tests pass spies.
+ * After a write or from run_launch_checks: runLaunchGuard's result (blockers,
+ * warnings, checks) and, separately, the wizard's step checks (wizard). A
+ * failed run is reported, never fatal.
+ */
+export type LaunchChecksOutcome =
+  | { ran: true; blockers: number; warnings: number; checks: LaunchCheckLine[]; wizard: WizardChecks }
+  | { ran: false; error: string; wizard: WizardChecks };
+
+/**
+ * Everything a draft tool reaches outside the database client. The route
+ * passes the real ones (lib/mcp/draft-deps.ts); tests pass spies. The three
+ * Meta reads are GETs (lib/mcp/graph-reads.ts); nothing here writes Meta.
  */
 export interface McpDraftDeps {
   /**
@@ -61,17 +79,49 @@ export interface McpDraftDeps {
    * `metaGets` is how many GETs this search made.
    */
   geoSearch(input: { userId: string; query: string; types: readonly string[] }): Promise<{ hits: LocationSearchHit[]; metaGets: number }>;
+  /**
+   * Meta interest search, the Audiences step's picker (GET /api/meta/interest-search):
+   * one GET to Graph /search?type=adinterest.
+   */
+  interestSearch(input: { userId: string; query: string }): Promise<{ hits: InterestHit[]; metaGets: number }>;
+  /**
+   * The pages an ad account can run ads from: /{act}/promote_pages, the page
+   * picker's list Meta checks at launch. GETs only (paged).
+   */
+  pagesForAccount(input: { userId: string; adAccountId: string }): Promise<{ pages: AccountPage[]; metaGets: number; truncated: boolean }>;
   /** The export Drive (driveFromEnv), or null when it isn't configured. */
   drive(): DriveApi | null;
   /** Storage writes the Drive picker's copy makes (uploadFileToStorageBucket, Storage copy). */
   uploadFile(storagePath: string, filePath: string, contentType: string): Promise<void>;
   copyObject(from: string, to: string): Promise<void>;
-  /** #1361's checks for one draft, or null until it merges. */
-  launchChecks: ((db: Db, draft: Record<string, unknown>) => Promise<{ blockers: number; warnings: number; checks: unknown[] }>) | null;
-  /** #1363's templates, or null until it merges. */
-  audienceTemplates: AudienceTemplatesSeam | null;
   /** New ids (draft, creatives). */
   newId(): string;
+}
+
+/**
+ * M3a's reach to Meta (scope mcp:meta), each one the app's own path for one
+ * operator. The route passes the real ones (lib/mcp/meta-deps.ts); tests
+ * pass spies. No other MCP code reaches Meta's write API.
+ */
+export interface McpMetaDeps {
+  /**
+   * Standalone Launch's first step: every slot whose file is in Storage goes
+   * to the draft's ad account through the MML path
+   * (sendStoredDraftAssetsToMeta, handleUploadAsset bound to this user).
+   * Saves nothing.
+   */
+  sendAssets(input: { userId: string; draft: CampaignDraft }): Promise<StoredSendOutcome>;
+  /**
+   * FC4's second step: waits for each video to be ready on Meta
+   * (waitForStoredVideos, GETs only, the operator's token).
+   */
+  waitVideos(input: { userId: string; videoIds: readonly string[] }): Promise<{ ready: string[]; errored: string[]; timedOut: string[] }>;
+  /**
+   * Review & Launch's route (POST /api/meta/launch-campaign through
+   * launchCampaignAs) for this user. `createPaused` is the route's own flag:
+   * campaign, ad sets and ads are created PAUSED.
+   */
+  launch(input: { userId: string; draft: CampaignDraft; createPaused: boolean }): Promise<{ status: number; body: Record<string, unknown> }>;
 }
 
 export interface ToolContext {
@@ -82,6 +132,12 @@ export interface ToolContext {
   scope?: string;
   /** M2's outside reach; absent on read-only setups. */
   draft?: McpDraftDeps;
+  /** M3a's Meta reach (launch, uploads); absent unless the route wires it. */
+  meta?: McpMetaDeps;
+  /** The caller is in MATAS_USER_IDS (mcp:meta tools check it again). */
+  isMatas?: boolean;
+  /** Today's Undo exists; omitted means TODAY_UNDO_SHIPPED (meta/today-undo.ts). Injected so tests cover both. */
+  todayUndo?: boolean;
   /** MATAS_USER_IDS sees client names on cross-client learnings; other operators don't. */
   seesClientNames: boolean;
   /** Today's London date (YYYY-MM-DD); injected so tests are stable. */
@@ -102,12 +158,14 @@ export interface McpTool {
   name: string;
   title: string;
   description: string;
-  kind: "read" | "draft";
+  kind: "read" | "draft" | "meta";
   /** MCP readOnlyHint. Defaults to kind === "read". */
   readOnly?: boolean;
   /** MCP idempotentHint. Defaults to kind === "read". */
   idempotent?: boolean;
   inputSchema: ZodRawShape;
+  /** What Claude is told when the tool throws something unexpected (a row; MW2: no raw error reaches Claude). */
+  failedText?: string;
   run(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolOutcome>;
 }
 

@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { createDefaultCreative, createDefaultDraft } from "../../campaign-defaults.ts";
 import { validateStep } from "../../validation.ts";
 import { foreignAccountLaunchError } from "../account-scope-preflight.ts";
+import { collectAudienceAccountRefs } from "../../audiences/audience-account.ts";
 import type { WizardMode } from "../../types.ts";
 import type { AdSetSuggestion } from "../../types.ts";
 
@@ -469,5 +470,66 @@ describe("foreignAccountLaunchError", () => {
     const result = validateStep(3, draft);
     assert.equal(result.errors.some((error) => error.includes("belongs to")), false);
     assert.ok(result.warnings?.some((warning) => warning.includes("belongs to act_584836032177995")));
+  });
+});
+
+describe("account-scope preflight on location groups (M3a run 6)", () => {
+  // Run 6 logged "Ad set … has no included locations" from the audience leg for
+  // the one ENABLED ad set: collectAudienceAccountRefs built targeting without
+  // the draft's location groups, so a row on locationGroupIds resolved to no
+  // area, threw, and its audiences went unchecked. The launch itself passes
+  // budgetSchedule.locationGroups (buildAdSetPayload), so it targeted Newcastle.
+  function locationDraft() {
+    const draft = draftWith({ audienceId: AUDIENCE });
+    draft.budgetSchedule.locationGroups = [
+      {
+        id: "loc-ncl",
+        label: "Newcastle",
+        source: "manual",
+        selections: [
+          { id: "813386", source: "search", label: "Newcastle upon Tyne", mode: "include", locationType: "city", locationKey: "813386", countryCode: "GB", radius: 80, distanceUnit: "kilometer" },
+        ],
+      },
+    ];
+    const enabled = { ...draft.adSetSuggestions[0]!, locationGroupIds: ["loc-ncl"] };
+    // Disabled, and on a location group that no longer exists: never sent, so never read.
+    const disabled: AdSetSuggestion = { ...enabled, id: "adset-off", name: "Off", enabled: false, locationGroupIds: ["loc-gone"] };
+    draft.adSetSuggestions = [enabled, disabled];
+    return draft;
+  }
+
+  async function withErrors<T>(fn: () => Promise<T> | T): Promise<{ out: T; errors: string[] }> {
+    const errors: string[] = [];
+    const original = console.error;
+    console.error = (...args: unknown[]) => { errors.push(args.map(String).join(" ")); };
+    try {
+      return { out: await fn(), errors };
+    } finally {
+      console.error = original;
+    }
+  }
+
+  it("the enabled ad set on a location group is read with the draft's groups: its audience is checked, nothing is logged", async () => {
+    const draft = locationDraft();
+    const { out: refs, errors } = await withErrors(() => collectAudienceAccountRefs(draft));
+    assert.deepEqual(refs.map((r) => r.id), [AUDIENCE]);
+    assert.deepEqual(errors, []);
+  });
+
+  it("a foreign audience on that ad set now refuses (it slipped through before)", async () => {
+    const { out: error, errors } = await withErrors(() =>
+      foreignAccountLaunchError({
+        draft: locationDraft(),
+        adAccountId: LAUNCH,
+        token: "test-token",
+        supabase: {},
+        userId: "operator-2",
+        wizardMode: "new",
+        graphMultiGet: async () => ({ [AUDIENCE]: { account_id: "1073273492854557" } }),
+        listVideoScopes: async () => ({ ok: true, rows: [] }),
+      }),
+    );
+    assert.match(error ?? "", /belongs to act_1073273492854557/);
+    assert.equal(errors.some((e) => e.includes("no included locations")), false);
   });
 });

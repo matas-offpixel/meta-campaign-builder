@@ -33,7 +33,7 @@ import { zonedLocalToUtc } from "../time.ts";
 import { adSetDisplayName } from "../wizard/import-edits.ts";
 import { resolveEffectivePlacementConfig, buildPlacementConfigTargeting } from "./placement-config.ts";
 import { geoHasNoIncludedArea, resolveAdSetGeoLocations } from "./location-targeting.ts";
-import { META_INITIATE_CHECKOUT_EVENT } from "./campaign.ts";
+import { META_INITIATE_CHECKOUT_EVENT, mapObjectiveToMeta } from "./campaign.ts";
 
 // ─── Optimization goal mapping ────────────────────────────────────────────────
 //
@@ -117,16 +117,24 @@ export interface MetaCustomAudience {
 
 export interface MetaTargeting {
   /**
-   * Strict minimum age — only sent when Advantage+ is OFF.
-   * When Advantage+ is ON, age is passed as a suggestion via
-   * targeting_automation.individual_setting instead.
+   * Minimum age. Advantage+ OFF: the draft's strict floor. Advantage+ ON:
+   * the age control, the draft's minimum capped at
+   * {@link ADVANTAGE_AUDIENCE_AGE_MIN_CONTROL_MAX}.
    */
   age_min?: number;
   /**
-   * Strict maximum age — only sent when Advantage+ is OFF.
-   * Meta rejects values < 65 on Advantage+ ad sets.
+   * Maximum age. Advantage+ OFF: the draft's strict ceiling. Advantage+ ON:
+   * always 65 ({@link ADVANTAGE_AUDIENCE_AGE_MAX}); a narrower draft range
+   * goes as the age suggestion in `age_range`.
    */
   age_max?: number;
+  /**
+   * Advantage+ Audience age suggestion, `[min, max]`. Sent with
+   * `targeting_automation.individual_setting.age = 1`. Meta, "Age as a
+   * suggestion": developers.facebook.com/documentation/ads-commerce/
+   * marketing-api/audiences/reference/advanced-targeting (v23.0+).
+   */
+  age_range?: [number, number];
   genders?: number[]; // 1 = male, 2 = female; omit for all
   geo_locations: MetaGeoLocations;
   excluded_geo_locations?: MetaGeoLocations;
@@ -136,13 +144,14 @@ export interface MetaTargeting {
   targeting_automation?: {
     advantage_audience: 0 | 1;
     /**
-     * Age / gender *suggestions* for Advantage+ audience (advantage_audience: 1).
-     * Meta uses these as guidance but can expand beyond them.
-     * Do NOT combine with strict top-level age_min/age_max when this is set.
+     * Which settings Advantage+ may treat as suggestions. `age: 1` makes
+     * the top-level `age_range` a suggestion (Meta's Advanced targeting
+     * page, "Age as a suggestion"). The keys are flags, never ages: the old
+     * `{ age_min, age_max }` here is not a shape Meta documents, and every
+     * Advantage+ ad set that sent it was refused with subcode 1870196.
      */
     individual_setting?: {
-      age_min?: number;
-      age_max?: number;
+      age?: 0 | 1;
     };
   };
   /**
@@ -317,6 +326,99 @@ function toUnixTs(dateStr: string, timezone: string): number {
 
 // ─── Targeting builder ────────────────────────────────────────────────────────
 
+/** With Advantage+ Audience on, Meta takes age_max 65 and no other ceiling. */
+export const ADVANTAGE_AUDIENCE_AGE_MAX = 65;
+/** With Advantage+ Audience on, the age_min control may be at most 25. */
+export const ADVANTAGE_AUDIENCE_AGE_MIN_CONTROL_MAX = 25;
+
+/**
+ * The age part of an Advantage+ Audience ad set's targeting.
+ *
+ * With `advantage_audience: 1`, Meta allows only `age_min` as a control
+ * (≤ 25) and `age_max` must be 65. A draft range narrower than that goes as
+ * the age suggestion: top-level `age_range: [min, max]` plus
+ * `targeting_automation.individual_setting.age = 1` (Meta, Advanced
+ * targeting, "Age as a suggestion"; its example sends `age_min` 18 with
+ * `age_range` [25, 35], and its read-back stores `age_max` 65). A draft
+ * at the full range (control ≤ draft min, max 65) sends no suggestion.
+ *
+ * 18–45 → `{ age_min: 18, age_max: 65, age_range: [18, 45],
+ * targeting_automation: { advantage_audience: 1, individual_setting: { age: 1 } } }`.
+ */
+export function advantageAudienceAgeTargeting(
+  ageMin: number,
+  ageMax: number,
+): Pick<MetaTargeting, "age_min" | "age_max" | "age_range" | "targeting_automation"> {
+  const control = Math.min(ageMin, ADVANTAGE_AUDIENCE_AGE_MIN_CONTROL_MAX);
+  const narrower = ageMin > control || ageMax < ADVANTAGE_AUDIENCE_AGE_MAX;
+  return narrower
+    ? {
+        age_min: control,
+        age_max: ADVANTAGE_AUDIENCE_AGE_MAX,
+        age_range: [ageMin, ageMax],
+        targeting_automation: { advantage_audience: 1, individual_setting: { age: 1 } },
+      }
+    : {
+        age_min: control,
+        age_max: ADVANTAGE_AUDIENCE_AGE_MAX,
+        targeting_automation: { advantage_audience: 1 },
+      };
+}
+
+/**
+ * Meta objectives that take Advantage+ age as a suggestion. Meta's Advanced
+ * targeting page: "This feature is only available for the OUTCOME_SALES and
+ * APP_INSTALLS objectives." (This app has no app-install objective.)
+ */
+export const AGE_SUGGESTION_META_OBJECTIVES: ReadonlySet<string> = new Set(["OUTCOME_SALES", "APP_INSTALLS"]);
+
+/**
+ * Step 2 of the Advantage+ age order: the same Advantage+ Audience
+ * targeting without the age suggestion — `age_min` control, `age_max` 65,
+ * no `age_range`, no `individual_setting.age`. Custom audiences, interests
+ * and everything else are kept, so they stay suggestions. Widens the age
+ * range to 65; callers must report that (`AgeSuggestionDropped`).
+ * Returns the targeting unchanged when it carries no age suggestion.
+ */
+export function withoutAgeSuggestion(targeting: MetaTargeting): MetaTargeting {
+  if (targeting.age_range == null && targeting.targeting_automation?.individual_setting?.age == null) {
+    return targeting;
+  }
+  const { age_range: _dropped, ...rest } = targeting;
+  void _dropped;
+  const automation = targeting.targeting_automation;
+  const individual = { ...(automation?.individual_setting ?? {}) };
+  delete individual.age;
+  return {
+    ...rest,
+    age_max: ADVANTAGE_AUDIENCE_AGE_MAX,
+    targeting_automation: {
+      advantage_audience: automation?.advantage_audience ?? 1,
+      ...(Object.keys(individual).length > 0 ? { individual_setting: individual } : {}),
+    },
+  };
+}
+
+/** Why an Advantage+ ad set went without its age suggestion (step 2). */
+export type AgeSuggestionDropped = "objective" | "meta_refused";
+
+/**
+ * Step 2 up front: `"objective"` when this ad set is Advantage+ (or blank),
+ * its draft age range is narrower than the Advantage+ ages, and its
+ * campaign objective can't take an age suggestion — so buildAdSetPayload
+ * sends age_max 65 with no suggestion and the age range widens. Else null.
+ */
+export function ageSuggestionDroppedForObjective(
+  adSet: AdSetSuggestion,
+  objective: CampaignObjective,
+): AgeSuggestionDropped | null {
+  const advantage = adSet.sourceType === "blank" || adSet.advantagePlus;
+  if (!advantage) return null;
+  const narrower = adSet.ageMin > ADVANTAGE_AUDIENCE_AGE_MIN_CONTROL_MAX || adSet.ageMax < ADVANTAGE_AUDIENCE_AGE_MAX;
+  if (!narrower) return null;
+  return AGE_SUGGESTION_META_OBJECTIVES.has(mapObjectiveToMeta(objective)) ? null : "objective";
+}
+
 /**
  * Build the Meta targeting spec for a single ad set suggestion.
  *
@@ -357,12 +459,11 @@ export function buildMetaTargeting(
   // age_min / age_max at targeting root = hard limits Meta enforces.
   // advantage_audience: 0 must be explicit (Meta rejects omission).
   //
-  // ── Advantage+ ON: suggested age ─────────────────────────────────────────
-  // Do NOT send top-level age_min / age_max — Meta rejects values < 65 on
-  // Advantage+ ad sets ("strict age_max below 65 not allowed").
-  // Instead, pass the user's chosen range as individual_setting inside
-  // targeting_automation; Meta treats these as audience *suggestions* and
-  // may expand beyond them.
+  // ── Advantage+ ON: age control + age suggestion ──────────────────────────
+  // See advantageAudienceAgeTargeting: age_min is the control (≤ 25),
+  // age_max is 65, and a narrower draft range goes as the age suggestion
+  // (age_range + individual_setting.age = 1). Custom audiences stay
+  // suggestions; nothing here makes them hard targeting.
   // Resolve geo — precedence is documented on resolveAdSetGeoLocations. The
   // GB default below is only for legacy rows that never had a location; a
   // multi-city row the operator emptied must fail here, not launch UK-wide.
@@ -387,14 +488,8 @@ export function buildMetaTargeting(
 
   const targeting: MetaTargeting = advantagePlusActive
     ? {
+        ...advantageAudienceAgeTargeting(adSet.ageMin, adSet.ageMax),
         geo_locations: geoLocations,
-        targeting_automation: {
-          advantage_audience: 1,
-          individual_setting: {
-            age_min: adSet.ageMin,
-            age_max: adSet.ageMax,
-          },
-        },
       }
     : {
         age_min: adSet.ageMin,
@@ -437,6 +532,9 @@ export function buildMetaTargeting(
 
     case "custom_group": {
       const group = audiences.customAudienceGroups.find((g) => g.id === adSet.sourceId);
+      if (group?.suggestionsOnly && !advantagePlusActive) {
+        throw new Error(`Ad set "${adSet.name}" targets "${group.name}" directly, but those audiences are Advantage+ suggestions only. Turn Advantage+ Audience on for it.`);
+      }
       if (group) {
         const realIds = audienceIdsForLaunch(group.audienceIds, group.foreignAccountById);
         if (realIds.length > 0) {
@@ -842,6 +940,16 @@ export function findAdSetsWithoutWebsiteDestination(
 }
 
 /**
+ * Step 1 / step 2 up front: a Sales campaign keeps the age suggestion; any
+ * other objective can't take one (AGE_SUGGESTION_META_OBJECTIVES), so the ad
+ * set goes Advantage+ with the age_min control and age_max 65 instead —
+ * never strict. See ageSuggestionDroppedUpFront for the launch result.
+ */
+function ageSuggestionForObjective(targeting: MetaTargeting, objective: CampaignObjective): MetaTargeting {
+  return AGE_SUGGESTION_META_OBJECTIVES.has(mapObjectiveToMeta(objective)) ? targeting : withoutAgeSuggestion(targeting);
+}
+
+/**
  * Operator-facing refusal. Names every ad set and what it carries instead, so
  * the message is actionable without opening Ads Manager.
  */
@@ -912,11 +1020,9 @@ export function buildAdSetPayload(
     campaign_id: campaignId,
     billing_event: mapBillingEvent(effectiveGoal),
     optimization_goal: mapOptimisationGoal(effectiveGoal),
-    targeting: buildMetaTargeting(
-      adSet,
-      audiences,
-      budgetSchedule.locationGroups,
-      budgetSchedule.excludedLocations,
+    targeting: ageSuggestionForObjective(
+      buildMetaTargeting(adSet, audiences, budgetSchedule.locationGroups, budgetSchedule.excludedLocations),
+      objective,
     ),
     // Wizard default ACTIVE so spend begins immediately. Plan fan-out
     // threads PAUSED via entityStatus without changing standalone launches.
