@@ -20,8 +20,9 @@
 
 import type { AudienceTemplatesPayload } from "../../lib/actions/audience-templates.ts";
 import type { AudienceTemplate, KnownAudience, TemplateItem } from "../../lib/audience-templates/resolve.ts";
+import type { TemplateVideoPick } from "../../lib/types.ts";
 
-export const AUDIENCE_TEMPLATE_FRAME_IDS = ["RC-E", "SU-C", "SU-C-held"] as const;
+export const AUDIENCE_TEMPLATE_FRAME_IDS = ["RC-E", "RC-E-picked", "SU-C", "SU-C-held"] as const;
 export type AudienceTemplateFrameId = (typeof AUDIENCE_TEMPLATE_FRAME_IDS)[number];
 
 const ACCOUNT = "act_606252931141334";
@@ -184,8 +185,27 @@ export const SU_C_HELD_DATA: AudienceTemplatesPayload = {
   accountNames: { [ACCOUNT]: "NX Promoter", [SHEFFIELD]: "Electric Studios Sheffield" },
 };
 
-export const AUDIENCE_TEMPLATE_FRAME_DATA: Record<AudienceTemplateFrameId, { data: AudienceTemplatesPayload; pending: TemplateItem[] }> = {
-  "RC-E": { data: RC_E_DATA, pending: RC_E_PENDING },
-  "SU-C": { data: SU_C_DATA, pending: [] },
-  "SU-C-held": { data: SU_C_HELD_DATA, pending: [] },
+// ─── RC-E before and after picking (record 2026-11-25-signups-into-meta) ──────
+
+/** The frames' draft: NX26-LOCKLEAD, as the record's RC-E breadcrumb reads. */
+export const RC_E_EVENT = { eventId: "00000000-0000-4000-8000-0000000000a1", code: "NX26-LOCKLEAD" };
+
+/** Three of NX26-LOCKLEAD's videos, picked for House & disco's video viewers (50% · 30 days). */
+export const RC_E_PICKS: TemplateVideoPick[] = [
+  {
+    template: "House & disco",
+    threshold: 50,
+    retentionDays: 30,
+    ...RC_E_EVENT,
+    videoIds: ["1200000000000001", "1200000000000002", "1200000000000003"],
+    contextId: "756330917740654",
+    campaignIds: ["120200000000001"],
+  },
+];
+
+export const AUDIENCE_TEMPLATE_FRAME_DATA: Record<AudienceTemplateFrameId, { data: AudienceTemplatesPayload; pending: TemplateItem[]; picks: TemplateVideoPick[] }> = {
+  "RC-E": { data: RC_E_DATA, pending: RC_E_PENDING, picks: [] },
+  "RC-E-picked": { data: RC_E_DATA, pending: RC_E_PENDING, picks: RC_E_PICKS },
+  "SU-C": { data: SU_C_DATA, pending: [], picks: [] },
+  "SU-C-held": { data: SU_C_HELD_DATA, pending: [], picks: [] },
 };

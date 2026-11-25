@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 
 import { createTemplateAudiences, loadAudienceTemplates, saveTemplatePages, type AudienceTemplatesPayload } from "@/lib/actions/audience-templates";
-import type { AudienceSettings } from "@/lib/types";
+import type { AudienceSettings, TemplateVideoPick } from "@/lib/types";
 import type { AudienceTemplate, TemplateItem } from "@/lib/audience-templates/resolve";
 import { fw, tw } from "@/lib/audience-templates/words";
 
@@ -66,6 +66,10 @@ export function AudiencesTabSwitch({
   audiences,
   draftName,
   onAddToDraft,
+  eventId,
+  eventCode,
+  videoPicks,
+  onVideoPicks,
   children,
 }: {
   clientId: string | null | undefined;
@@ -75,6 +79,11 @@ export function AudiencesTabSwitch({
   audiences?: AudienceSettings;
   draftName?: string;
   onAddToDraft?: (next: AudienceSettings) => void;
+  /** The draft's event, and its picked videos for template video-viewer items (the drawer keeps them on the draft). */
+  eventId?: string | null;
+  eventCode?: string | null;
+  videoPicks?: TemplateVideoPick[];
+  onVideoPicks?: (next: TemplateVideoPick[]) => void;
   children: ReactNode;
 }) {
   const [data, setData] = useState<AudienceTemplatesPayload | null>(null);
@@ -110,13 +119,32 @@ export function AudiencesTabSwitch({
 
   const onCreate = useCallback(
     async (template: AudienceTemplate) => {
-      const res = await createTemplateAudiences({ clientId, adAccountId, pixelId, templateName: template.name });
+      const res = await createTemplateAudiences({
+        clientId,
+        adAccountId,
+        pixelId,
+        templateName: template.name,
+        event: { eventId: eventId ?? "", code: eventCode ?? "" },
+        picks: videoPicks,
+      });
       if (res.ok) setVersion((v) => v + 1);
       return res;
     },
-    [clientId, adAccountId, pixelId],
+    [clientId, adAccountId, pixelId, eventId, eventCode, videoPicks],
   );
-  const draft = audiences && onAddToDraft ? { name: draftName ?? "", audiences, onAdd: onAddToDraft } : undefined;
+  const draft =
+    audiences && onAddToDraft
+      ? {
+          name: draftName ?? "",
+          audiences,
+          onAdd: onAddToDraft,
+          ...(clientId ? { clientId } : {}),
+          // A show's videos need a show: without an event code there's nothing to pick from.
+          ...(eventCode ? { event: { eventId: eventId ?? "", code: eventCode } } : {}),
+          picks: videoPicks,
+          onPicks: onVideoPicks,
+        }
+      : undefined;
 
   // The Audiences tab stays mounted in the same place whether or not the row
   // shows, and while the templates tab is open: its own state is never reset.

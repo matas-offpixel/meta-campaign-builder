@@ -17,7 +17,11 @@ import {
   SU_C_HELD_TEMPLATE,
   SU_C_TEMPLATE,
   TECHNO,
+  RC_E_EVENT,
+  RC_E_PICKS,
 } from "../../../scripts/plan-frames/audience-templates-fixtures.ts";
+import { pickFor } from "../videos.ts";
+import type { TemplateVideoPick } from "../../types.ts";
 import { buildTemplateView, pageItem, shortDate } from "../view.ts";
 
 const ctx = {
@@ -46,7 +50,7 @@ describe("buildTemplateView (RC-E)", () => {
       "Disco buyers | Customer list · role: buyers, disco | Reused",
       "Page views | NX Loves pixel · 30 days | Reused",
       "Signups | NX Loves pixel · 180 days | Reused",
-      "Video viewers | 50% watched · 30 days | Will be created",
+      "Video viewers | 50% watched · 30 days | Needs videos",
       "Folamour | Facebook + Instagram · 365 days | Reused",
       "Robbie Doherty | Facebook + Instagram · 365 days | Reused",
       "Ewan McVicar | Facebook + Instagram · 365 days | Will be created",
@@ -54,12 +58,15 @@ describe("buildTemplateView (RC-E)", () => {
     ]);
   });
 
-  it("the footer counts every interest, and says the creates wait with writes off", () => {
+  it("the footer counts every interest, names the item waiting for videos, and says the one create waits", () => {
     assert.equal(view.reused, 9);
-    assert.equal(view.toCreate, 2);
-    assert.equal(view.metaCreates, 3);
-    assert.equal(view.footer, "9 reused · 2 will be created in NX Promoter. Creating audiences is switched off, so these 2 wait.");
-    assert.equal(buildTemplateView(HOUSE_DISCO, RC_E_KNOWN, { ...ctx, writesEnabled: true }, RC_E_PENDING).footer, "9 reused · 2 will be created in NX Promoter");
+    assert.equal(view.toCreate, 1, "Ewan McVicar's page, one item");
+    assert.equal(view.needVideos, 1);
+    assert.equal(view.footer, "9 reused · 1 will be created in NX Promoter · 1 needs videos picked. Creating audiences is switched off, so this one waits.");
+    assert.equal(
+      buildTemplateView(HOUSE_DISCO, RC_E_KNOWN, { ...ctx, writesEnabled: true }, RC_E_PENDING).footer,
+      "9 reused · 1 will be created in NX Promoter · 1 needs videos picked",
+    );
   });
 
   it("an added page is a change until saved; a page already in the template isn't", () => {
@@ -173,10 +180,11 @@ describe("SU2: shows' Signups lists in the tab (SU-C, SU-C-held)", () => {
   it("a waiting list is never Will be created, and Create never counts it", () => {
     const v = buildTemplateView(SU_C_TEMPLATE, SU_C_DATA.known, ctx);
     assert.equal(v.waiting, 1);
-    // Video viewers are the only item left to make, and they're out of both counts (Matas, 25 Nov).
+    // Only video viewers are left, with no videos picked: no create part, Create hidden.
     assert.equal(v.toCreate, 0);
     assert.equal(v.createCount, 0);
-    assert.equal(v.footer, "10 reused · 0 will be created in NX Promoter");
+    assert.equal(v.needVideos, 1);
+    assert.equal(v.footer, "10 reused · 1 needs videos picked");
   });
 
   it("SU-C-held: in Sheffield every list reads held in NX Promoter, the waiting list still Made on", () => {
@@ -192,44 +200,75 @@ describe("SU2: shows' Signups lists in the tab (SU-C, SU-C-held)", () => {
       ],
     );
     assert.equal(v.held, 3);
-    assert.equal(v.toCreate, 6);
-    assert.equal(v.createCount, 6);
+    assert.equal(v.toCreate, 4, "two pools, two pages");
+    assert.equal(v.createCount, 4);
     assert.equal(v.addCount, 3);
     assert.equal(v.leftOut, 9);
-    assert.equal(v.footer, "3 reused · 6 will be created in Electric Studios Sheffield. Creating audiences is switched off, so these 6 wait.");
+    assert.equal(v.footer, "3 reused · 4 will be created in Electric Studios Sheffield · 1 needs videos picked. Creating audiences is switched off, so these 4 wait.");
   });
 });
 
 
-  describe("the footer and Create count the same audiences (one function)", () => {
+  describe("video-viewer items (record 2026-11-25-signups-into-meta, RC-E before and after)", () => {
+    const picks = (list: TemplateVideoPick[]) => (it: TemplateItem) => pickFor(list, "House & disco", it, RC_E_EVENT);
+    const before = buildTemplateView(HOUSE_DISCO, RC_E_KNOWN, { ...ctx, picks: picks([]) }, RC_E_PENDING);
+    const after = buildTemplateView(HOUSE_DISCO, RC_E_KNOWN, { ...ctx, picks: picks(RC_E_PICKS) }, RC_E_PENDING);
+    const video = (v: ReturnType<typeof buildTemplateView>) => v.groups[1]!.rows.find((r) => r.title === "Video viewers")!;
+
+    it("before: Needs videos, the ochre line, Pick this show's videos", () => {
+      const r = video(before);
+      assert.equal(r.status, "needs_videos");
+      assert.equal(r.statusLabel, "Needs videos");
+      assert.deepEqual(r.note, { text: "Meta needs this show’s videos, so Create leaves this out until they’re picked.", tone: "ochre" });
+      assert.deepEqual(r.videos, { action: "pick", threshold: 50, days: 30 });
+      assert.equal(before.footer, "9 reused · 1 will be created in NX Promoter · 1 needs videos picked. Creating audiences is switched off, so this one waits.");
+      assert.equal(before.createCount, 1);
+    });
+
+    it("after: Will be created, n videos picked from the code, Change videos, and Create counts it", () => {
+      const r = video(after);
+      assert.equal(r.status, "create");
+      assert.equal(r.statusLabel, "Will be created");
+      assert.deepEqual(r.note, { text: "3 videos picked from NX26-LOCKLEAD", tone: "muted" });
+      assert.equal(r.videos?.action, "change");
+      assert.equal(after.needVideos, 0);
+      assert.equal(after.footer, "9 reused · 2 will be created in NX Promoter. Creating audiences is switched off, so these 2 wait.");
+      assert.equal(after.createCount, 2);
+    });
+
+    it("a pick for another event, or with no page id, is never used", () => {
+      const other = buildTemplateView(HOUSE_DISCO, RC_E_KNOWN, { ...ctx, picks: (it) => pickFor(RC_E_PICKS, "House & disco", it, { eventId: "another", code: "NX26-OTHER" }) }, RC_E_PENDING);
+      assert.equal(video(other).status, "needs_videos");
+      const noPage = RC_E_PICKS.map((p) => ({ ...p, contextId: undefined }));
+      assert.equal(video(buildTemplateView(HOUSE_DISCO, RC_E_KNOWN, { ...ctx, picks: picks(noPage) }, RC_E_PENDING)).status, "needs_videos");
+    });
+
+    it("only video viewers left to make: the Create count is 0, so the button hides", () => {
+      const v = buildTemplateView(HOUSE_DISCO, RC_E_KNOWN, { ...ctx, picks: picks([]) });
+      assert.equal(v.createCount, 0);
+      assert.equal(v.footer, "9 reused · 1 needs videos picked");
+    });
+  });
+
+  describe("the footer and Create count the same items (one function)", () => {
     const sheffield = { ...ctx, accountId: SU_C_HELD_DATA.accountId, accountName: SU_C_HELD_DATA.accountName, pixelId: SU_C_HELD_DATA.pixelId, pixelName: SU_C_HELD_DATA.pixelName };
+    const picked = (it: TemplateItem) => pickFor(RC_E_PICKS, "House & disco", it, RC_E_EVENT);
     const cases: Array<[string, ReturnType<typeof buildTemplateView>]> = [
       ["RC-E", buildTemplateView(HOUSE_DISCO, RC_E_KNOWN, ctx, RC_E_PENDING)],
+      ["RC-E picked", buildTemplateView(HOUSE_DISCO, RC_E_KNOWN, { ...ctx, picks: picked }, RC_E_PENDING)],
       ["SU-C", buildTemplateView(SU_C_TEMPLATE, SU_C_DATA.known, ctx)],
+      ["SU-C picked", buildTemplateView(SU_C_TEMPLATE, SU_C_DATA.known, { ...ctx, picks: picked })],
       ["SU-C-held", buildTemplateView(SU_C_HELD_TEMPLATE, SU_C_HELD_DATA.known, sheffield)],
+      ["SU-C-held picked", buildTemplateView(SU_C_HELD_TEMPLATE, SU_C_HELD_DATA.known, { ...sheffield, picks: picked })],
       ["writes on", buildTemplateView(HOUSE_DISCO, RC_E_KNOWN, { ...ctx, writesEnabled: true }, RC_E_PENDING)],
+      ["video viewers only", buildTemplateView({ ...HOUSE_DISCO, items: HOUSE_DISCO.items.filter((i) => i.listRole === "video_viewers") }, [], ctx)],
     ];
     for (const [name, v] of cases) {
       it(`${name}: toCreate === createCount`, () => assert.equal(v.toCreate, v.createCount));
     }
-
-    it("video viewers are in none of them, though their row still reads Will be created", () => {
-      // Every template above holds a video-viewers pool that no account has.
-      for (const [, v] of cases) {
-        const row = v.groups[1]!.rows.find((r) => r.title === "Video viewers")!;
-        assert.equal(row.status, "create");
-        assert.equal(row.statusLabel, "Will be created");
-      }
-      const videoOnly = { ...HOUSE_DISCO, items: HOUSE_DISCO.items.filter((i) => i.listRole === "video_viewers") };
-      const v = buildTemplateView(videoOnly, [], ctx);
-      assert.equal(v.toCreate, 0);
-      assert.equal(v.createCount, 0);
-      assert.equal(v.footer, "0 reused · 0 will be created in NX Promoter");
-    });
-
-    it("RC-E's footer reads as before: Ewan McVicar's two, no video viewers", () => {
-      assert.equal(cases[0]![1].footer, "9 reused · 2 will be created in NX Promoter. Creating audiences is switched off, so these 2 wait.");
+    it("picking adds exactly the video item to both", () => {
+      assert.equal(cases[1]![1].createCount - cases[0]![1].createCount, 1);
+      assert.equal(cases[5]![1].createCount - cases[4]![1].createCount, 1);
     });
   });
 });
-

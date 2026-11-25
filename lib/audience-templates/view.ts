@@ -6,9 +6,9 @@
  * Pure. No `@/` imports, so node --test can load it.
  */
 
-import { TEMPLATE_NAMES, GROUP_LABEL, changedLine, footerLine, fw, heldLine, madeOnLine, signupsLine, tw } from "./words.ts";
-import { createTargets } from "./create.ts";
-import { audienceBuilderHref } from "../audiences/initial-selection.ts";
+import { TEMPLATE_NAMES, GROUP_LABEL, changedLine, footerLine, fw, heldLine, madeOnLine, pickedLine, signupsLine, tw } from "./words.ts";
+import { createItems, createTargets, type PickLookup } from "./create.ts";
+import { isUsablePick, isVideoViewers, itemThreshold } from "./videos.ts";
 import { normalizeAccount, resolveTemplate, type ResolvedTemplate, type AudienceTemplate, type KnownAudience, type ResolvedItem, type TemplateItem, type TemplateItemKind } from "./resolve.ts";
 
 export const GROUP_ORDER: readonly TemplateItemKind[] = ["customer_list", "retargeting_pool", "page_engagers", "interest"];
@@ -22,11 +22,15 @@ export interface TemplateRow {
    * yet. It is never re-uploaded, so it isn't "Will be created": the line
    * says where it's held, and the row has no status chip.
    */
-  status: "reused" | "create" | "held" | "waiting";
+  status: "reused" | "create" | "held" | "waiting" | "needs_videos";
   /** Empty for a held list; "Made on {date}" for a show's list the sync hasn't made yet (dashed, like Will be created). */
   statusLabel: string;
   /** How many items this row stands for (the interests row is all of them). */
   count: number;
+  /** A line under the item's own (video viewers: what's needed, or what's picked). */
+  note?: { text: string; tone: "ochre" | "muted" };
+  /** Video viewers to make: "Pick this show's videos" before, "Change videos" after. */
+  videos?: { action: "pick" | "change"; threshold: number; days: number };
 }
 
 export interface TemplateGroup {
@@ -56,6 +60,8 @@ export interface TemplateView {
   held: number;
   /** Shows' Signups lists the sync hasn't made yet ("Made on {date}"): never created here. */
   waiting: number;
+  /** Video-viewer items with no videos picked ("Needs videos"): the footer's "{k} need videos picked". */
+  needVideos: number;
   /** "Add to this draft": the made items it adds ({n}), and the ones left out ({m}). */
   addCount: number;
   leftOut: number;
@@ -81,6 +87,8 @@ export interface ViewContext {
   confirmerName: (userId: string) => string | null;
   /** act_… → Meta's account name, for "held in {account}"; the id when none is stored. */
   accountLabel?: (accountId: string) => string | null;
+  /** The draft's picked videos for this template's video-viewer items (this event's only). */
+  picks?: PickLookup;
 }
 
 /** "Tue 24 Nov": the frame's date, in London. */
@@ -115,28 +123,13 @@ function pixelLabel(ctx: ViewContext): string {
 }
 
 /**
- * Video viewers' way to be made (Matas, 25 Nov): the audience builder opened
- * on Video views at the item's threshold and days, where the operator picks
- * the videos (the picker's own reads). Built and tested, not drawn: the row
- * shows no link until design rules its words.
- */
-export function videoViewersBuilderHref(clientId: string, it: TemplateItem): string | null {
-  if (it.kind !== "retargeting_pool" || it.listRole !== "video_viewers") return null;
-  const t = it.detail.threshold;
-  return audienceBuilderHref(clientId, {
-    subtype: "video_views",
-    ...(t === 25 || t === 50 || t === 75 || t === 95 || t === 100 ? { threshold: t } : {}),
-    ...(it.retentionDays ? { retentionDays: it.retentionDays } : {}),
-  });
-}
-
-/**
  * The one count of what's to create (Matas, 25 Nov): the footer's
  * "{m} will be created" and Create's "{m}" both read it, so they are always
- * the same audiences. A page counts once per platform it lacks.
+ * the same items. A page is one item; video viewers count once this show's
+ * videos are picked.
  */
-export function willBeCreated(resolved: ResolvedTemplate, pixelId: string | null): number {
-  return createTargets(resolved.items, pixelId).length;
+export function willBeCreated(resolved: ResolvedTemplate, pixelId: string | null, picks?: PickLookup): number {
+  return createItems(createTargets(resolved.items, pixelId, picks)).length;
 }
 
 /** The account holding a list the target can't use, when it isn't the target. */
@@ -177,7 +170,15 @@ function itemRow(r: ResolvedItem, ctx: ViewContext): TemplateRow {
     }
     case "retargeting_pool":
       if (it.listRole === "video_viewers") {
-        return { ...base, title: fw("frame.pool.video_viewers"), line: fw("frame.pool.video.line", { threshold: Number(it.detail.threshold ?? 0), days }) };
+        const row = { ...base, title: fw("frame.pool.video_viewers"), line: fw("frame.pool.video.line", { threshold: itemThreshold(it), days }) };
+        if (r.status !== "create") return row;
+        const videos = { threshold: itemThreshold(it), days };
+        const pick = ctx.picks?.(it) ?? null;
+        // Ruled 25 Nov: without this show's videos the item needs them, and Create leaves it out.
+        if (!isUsablePick(pick)) {
+          return { ...row, status: "needs_videos", statusLabel: tw("templates.item.videos"), note: { text: tw("templates.item.videos.line"), tone: "ochre" }, videos: { ...videos, action: "pick" } };
+        }
+        return { ...row, note: { text: pickedLine(pick.videoIds.length, pick.code), tone: "muted" }, videos: { ...videos, action: "change" } };
       }
       return {
         ...base,
@@ -251,15 +252,17 @@ export function buildTemplateView(
   const waiting = resolved.items.filter((r) => r.status === "create" && isShowSignups(r.item) && !r.item.metaAudienceId).length;
   // One count for the footer's "{m} will be created" and Create's button (Matas, 25 Nov): the audiences
   // Create makes. Held lists, a show's list not made yet and video viewers are none of them.
-  const toCreate = willBeCreated(resolved, ctx.pixelId);
+  const toCreate = willBeCreated(resolved, ctx.pixelId, ctx.picks);
+  const needVideos = resolved.items.filter((r) => r.status === "create" && isVideoViewers(r.item) && !isUsablePick(ctx.picks?.(r.item) ?? null)).length;
   return {
     header: headerFor(t, ctx),
     groups,
-    footer: footerLine(resolved.reused, toCreate, ctx.accountName, ctx.writesEnabled),
+    footer: footerLine(resolved.reused, toCreate, ctx.accountName, ctx.writesEnabled, needVideos),
     reused: resolved.reused,
     toCreate,
     held,
     waiting,
+    needVideos,
     addCount: resolved.reused,
     leftOut: resolved.items.length - resolved.reused,
     createCount: toCreate,

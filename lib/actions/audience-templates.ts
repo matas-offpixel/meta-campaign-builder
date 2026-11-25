@@ -4,7 +4,8 @@ import { MATAS_USER_IDS, isOperator } from "@/lib/auth/operator-allowlist";
 import { normalizeAdAccountId } from "@/lib/meta/ad-account";
 import { createMetaCustomAudienceBatch, metaAudienceWritesEnabled } from "@/lib/meta/audience-write";
 import { createAudienceDrafts } from "@/lib/db/meta-custom-audiences";
-import { createInserts, createTargets, runTemplateCreate } from "@/lib/audience-templates/create";
+import { createPlan, createTargets, runTemplateCreate } from "@/lib/audience-templates/create";
+import { pickFor, type PickEvent, type TemplateVideoPick } from "@/lib/audience-templates/videos";
 import { withShowSignups, type SyncEventIn, type SyncRowIn } from "@/lib/audience-templates/signups";
 import {
   dedupeKnown,
@@ -228,16 +229,21 @@ export type CreateTemplateResult =
 
 /**
  * "Create {m} audiences in {account}": makes the template's missing pixel
- * pools and page engagers in the draft's ad account through the existing
- * write path (lib/audience-templates/create.ts says what it makes and what it
- * never does). Reloads the template server-side; the client sends only which
- * one. Off until the template is confirmed, and while audience writes are off.
+ * pools, page engagers and (with this show's videos picked on the draft)
+ * video viewers in the draft's ad account through the existing write path
+ * (lib/audience-templates/create.ts says what it makes and what it never
+ * does). Reloads the template server-side; the client sends which one, and
+ * the draft's picks for its event, which are used only for that event and
+ * only when every id is numeric. Off until the template is confirmed, and
+ * while audience writes are off.
  */
 export async function createTemplateAudiences(input: {
   clientId: string | null | undefined;
   adAccountId: string | null | undefined;
   pixelId: string | null | undefined;
   templateName: string;
+  event?: PickEvent;
+  picks?: TemplateVideoPick[];
 }): Promise<CreateTemplateResult> {
   const db = await createClient();
   const userId = await operator(db);
@@ -246,7 +252,8 @@ export async function createTemplateAudiences(input: {
   const template = data?.templates.find((t) => t.name === input.templateName);
   if (!data || !template || !input.clientId) return { ok: false, error: "not found" };
   const resolved = resolveTemplate(template.items, data.accountId, data.known, data.pixelId);
-  const inserts = createInserts(createTargets(resolved.items, data.pixelId), {
+  const event = input.event ?? { eventId: "", code: "" };
+  const plan = createPlan(createTargets(resolved.items, data.pixelId, (it) => pickFor(input.picks, template.name, it, event)), {
     userId,
     clientId: input.clientId,
     accountId: data.accountId,
@@ -257,7 +264,7 @@ export async function createTemplateAudiences(input: {
     const res = await runTemplateCreate({
       writesEnabled: metaAudienceWritesEnabled(),
       confirmed: Boolean(template.confirmedBy && template.confirmedAt),
-      inserts,
+      plan,
       insertDrafts: (rows) => createAudienceDrafts(rows),
       createBatch: (ids) => createMetaCustomAudienceBatch(ids, { userId, supabase: db }),
     });

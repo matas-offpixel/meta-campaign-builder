@@ -23,6 +23,8 @@ import {
   fw,
   heldLine,
   madeOnLine,
+  pickedLine,
+  pickerPresetLine,
   signupsLine,
 } from "../words.ts";
 
@@ -34,21 +36,27 @@ const ROWS = RAW.toString("utf8")
   .map((line) => line.split("\t"))
   .map(([key, where, words]) => ({ key: key!, where: where!, words: words! }));
 
+const SU_RECORD = readFileSync(new URL("../../../docs/design-record/2026-11-25-signups-into-meta.html", import.meta.url), "utf8")
+  .replace(/<[^>]+>/g, "")
+  .replace(/&amp;/g, "&")
+  .replace(/&nbsp;/g, " ")
+  .replace(/\s+/g, " ");
+
 const RECORD = readFileSync(new URL("../../../docs/design-record/2026-11-24-campaign-creator-replicate.html", import.meta.url), "utf8")
   .replace(/<[^>]+>/g, "")
   .replace(/&amp;/g, "&")
   .replace(/&nbsp;/g, " ");
 
 describe("audience template words", () => {
-  it("the fixture is the record's final list: 242 rows, sha256 61f69c94…ea78", () => {
-    assert.equal(createHash("sha256").update(RAW).digest("hex"), "61f69c94fa9edbc5dd88f013a693f995f1010d8915b3a9987229d59a8ae2ea78");
-    assert.equal(ROWS.length, 242);
-    assert.equal(new Set(ROWS.map((r) => r.key)).size, 242);
+  it("the fixture is the record's final list: 252 rows, sha256 e4de6728…4bb01", () => {
+    assert.equal(createHash("sha256").update(RAW).digest("hex"), "e4de67283a548f8d3f13a2fa2c5fc0f8624b8d9b2d57ce40dd819a4612bb4701");
+    assert.equal(ROWS.length, 252);
+    assert.equal(new Set(ROWS.map((r) => r.key)).size, 252);
   });
 
   it("every templates.* row is in words.ts, word for word", () => {
     const wanted = ROWS.filter((r) => r.key.startsWith("templates."));
-    assert.equal(wanted.length, 32);
+    assert.equal(wanted.length, 42);
     for (const r of wanted) assert.equal((TEMPLATE_WORDS as Record<string, string>)[r.key], r.words, r.key);
   });
 
@@ -126,5 +134,24 @@ describe("audience template words", () => {
     for (const key of ["templates.item.signups.waiting", "templates.apply", "templates.create_button.one", "templates.created", "templates.create_failed"]) {
       assert.ok(rows.has(key), key);
     }
+  });
+
+  it("video-viewer items read as record #1373's RC-E draws them", () => {
+    assert.equal(pickedLine(3, "NX26-LOCKLEAD"), "3 videos picked from NX26-LOCKLEAD");
+    assert.equal(pickedLine(1, "NX26-LOCKLEAD"), "1 video picked from NX26-LOCKLEAD");
+    assert.equal(pickerPresetLine("House & disco", 50, 30), "From House & disco: 50% watched · 30 days. Pick this show’s videos.");
+    const before = footerLine(9, 1, "NX Promoter", false, 1);
+    assert.equal(before, "9 reused · 1 will be created in NX Promoter · 1 needs videos picked. Creating audiences is switched off, so this one waits.");
+    const after = footerLine(9, 2, "NX Promoter", false, 0);
+    assert.equal(after, "9 reused · 2 will be created in NX Promoter. Creating audiences is switched off, so these 2 wait.");
+    for (const line of [pickedLine(3, "NX26-LOCKLEAD"), pickerPresetLine("House & disco", 50, 30), "9 reused · 1 will be created in NX Promoter · 1 needs videos picked.", "9 reused · 2 will be created in NX Promoter."]) {
+      assert.ok(SU_RECORD.includes(line), line);
+    }
+  });
+
+  it("the footer with only video viewers left: no create part, the k part only", () => {
+    assert.equal(footerLine(10, 0, "NX Promoter", false, 1), "10 reused · 1 needs videos picked");
+    assert.equal(footerLine(3, 0, "NX Promoter", false, 2), "3 reused · 2 need videos picked");
+    assert.equal(footerLine(3, 4, "Electric Studios Sheffield", true, 2), "3 reused · 4 will be created in Electric Studios Sheffield · 2 need videos picked");
   });
 });

@@ -241,3 +241,13 @@ templates.created	Template tab, after Create	Created {m} in {Meta account name}.
 templates.created.one	Template tab, after Create (1)	Created 1 in {Meta account name}.
 templates.create_failed	Template tab, after Create, some failed	{n} weren’t created. Try again.
 templates.create_failed.one	Template tab, after Create (1 failed)	1 wasn’t created. Try again.
+templates.item.videos	Item status, a video-viewer item with no videos picked (ochre, dashed)	Needs videos
+templates.item.videos.line	Video-viewer item, under its own line (ochre)	Meta needs this show’s videos, so Create leaves this out until they’re picked.
+templates.item.videos.pick	Video-viewer item, button	Pick this show’s videos
+templates.item.videos.picked	Video-viewer item, under its own line, after the picker	{n} videos picked from {code}
+templates.item.videos.picked.one	Video-viewer item, after the picker (1 video)	1 video picked from {code}
+templates.item.videos.change	Video-viewer item, button, after the picker	Change videos
+templates.footer.videos	Template footer, after templates.footer’s counts	{k} need videos picked
+templates.footer.videos.one	Template footer (1 item)	1 needs videos picked
+templates.writes_off.one	Template footer (1 waiting)	Creating audiences is switched off, so this one waits.
+templates.picker.preset	Audiences step, video picker, opened from a template item	From {template}: {threshold} watched · {days} days. Pick this show’s videos.

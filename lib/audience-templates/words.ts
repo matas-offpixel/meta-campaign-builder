@@ -51,6 +51,16 @@ export const TEMPLATE_WORDS = {
   "templates.created.one": "Created 1 in {Meta account name}.",
   "templates.create_failed": "{n} weren’t created. Try again.",
   "templates.create_failed.one": "1 wasn’t created. Try again.",
+  "templates.item.videos": "Needs videos",
+  "templates.item.videos.line": "Meta needs this show’s videos, so Create leaves this out until they’re picked.",
+  "templates.item.videos.pick": "Pick this show’s videos",
+  "templates.item.videos.picked": "{n} videos picked from {code}",
+  "templates.item.videos.picked.one": "1 video picked from {code}",
+  "templates.item.videos.change": "Change videos",
+  "templates.footer.videos": "{k} need videos picked",
+  "templates.footer.videos.one": "1 needs videos picked",
+  "templates.writes_off.one": "Creating audiences is switched off, so this one waits.",
+  "templates.picker.preset": "From {template}: {threshold} watched · {days} days. Pick this show’s videos.",
 } as const;
 
 export type TemplateWordKey = keyof typeof TEMPLATE_WORDS;
@@ -154,13 +164,29 @@ export function createdLines(created: number, failed: number, account: string): 
   return out;
 }
 
+/** "3 videos picked from NX26-LOCKLEAD", one form for 1. */
+export function pickedLine(n: number, code: string): string {
+  return n === 1 ? tw("templates.item.videos.picked.one", { code }) : tw("templates.item.videos.picked", { n, code });
+}
+
+/** The picker's header when a template item opens it: "From House & disco: 50% watched · 30 days. …". */
+export function pickerPresetLine(template: string, threshold: number, days: number): string {
+  return tw("templates.picker.preset", { template, threshold: `${threshold}%`, days });
+}
+
 /**
- * The footer (RC5): "{n} reused · {m} will be created in {account}", and
- * with audience writes off and something to create, the second sentence.
- * The frame joins them with ". ".
+ * The footer (RC5, and the 25 Nov ruling for video-viewer items):
+ * "{n} reused · {m} will be created in {account}", then " · {k} need videos
+ * picked" when some wait for videos (the "will be created" part is dropped
+ * when m is 0), then, with audience writes off and something to create, the
+ * writes-off sentence (its one-form for 1). Joined with ". " as the frames
+ * draw them.
  */
-export function footerLine(reused: number, toCreate: number, account: string, writesEnabled: boolean): string {
-  const first = tw("templates.footer", { n: reused, m: toCreate, account });
+export function footerLine(reused: number, toCreate: number, account: string, writesEnabled: boolean, needVideos = 0): string {
+  const full = tw("templates.footer", { n: reused, m: toCreate, account });
+  const head = needVideos > 0 && toCreate === 0 ? full.split(" · ")[0]! : full;
+  const videos = needVideos === 0 ? "" : `${fw("frame.sep")}${needVideos === 1 ? tw("templates.footer.videos.one") : tw("templates.footer.videos", { k: needVideos })}`;
+  const first = `${head}${videos}`;
   if (writesEnabled || toCreate === 0) return first;
-  return `${first}. ${tw("templates.writes_off", { m: toCreate })}`;
+  return `${first}. ${toCreate === 1 ? tw("templates.writes_off.one") : tw("templates.writes_off", { m: toCreate })}`;
 }

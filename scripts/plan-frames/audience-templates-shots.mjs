@@ -6,7 +6,7 @@
  * app/(dev)/frames/audience-templates/[id]. Registered in run.mjs's FRAME_SHOTS.
  */
 
-export const AUDIENCE_TEMPLATE_SHOT_WIDTHS = { "RC-E": [1280, 393], "SU-C": [1280, 393], "SU-C-held": [1280, 393] };
+export const AUDIENCE_TEMPLATE_SHOT_WIDTHS = { "RC-E": [1280, 393], "RC-E-picked": [1280, 393], "SU-C": [1280, 393], "SU-C-held": [1280, 393] };
 
 export const AUDIENCE_TEMPLATE_SHOTS = Object.entries(AUDIENCE_TEMPLATE_SHOT_WIDTHS).flatMap(([frame, widths]) =>
   widths.map((width) => ({
