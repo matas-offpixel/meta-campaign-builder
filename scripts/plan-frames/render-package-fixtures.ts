@@ -106,7 +106,7 @@ export const RY_A = {
       recipes: ["montage" as const],
       fileCount: 9,
       status: "done" as const,
-      approvalAsked: "Render the P26-BDAY montage: 9 files (no text, teaser, announcement × 9:16, 4:5, 1:1). 16 clips : 11 filmed by Puzzle, 5 Enzo Siragusa’s. Claim: 3rd release live. Drop at 3.8 s. Files that pass the checks can be uploaded. OK?",
+      approvalAsked: "Render the P26-BDAY montage: 9 files (no text, teaser, announcement × 9:16, 4:5, 1:1). 16 clips: 11 filmed by Puzzle, 5 Enzo Siragusa’s. Claim: 3rd release live. Drop at 3.8 s. Files that pass the checks can be uploaded. OK?",
       approvalAnswer: "yes",
       approvedAt: "2026-11-25T15:10:00Z",
       createdAt: "2026-11-25T15:10:00Z",
