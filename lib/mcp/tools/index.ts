@@ -1,11 +1,13 @@
 /**
  * lib/mcp/tools/index.ts — every MCP tool.
  *
- * M1's eight read tools (scope mcp:read), then the draft tools (scope
- * mcp:draft: app database only, campaign_drafts with status draft): M2's
- * eight and M2b's eight, enough to build a whole campaign as a draft.
+ * M1's eight read tools and get_artist (AL5) (scope mcp:read), then the
+ * draft tools (scope mcp:draft: app database only, campaign_drafts with
+ * status draft): M2's eight and M2b's eight, enough to build a whole
+ * campaign as a draft.
  */
 import type { McpTool } from "../tool-types.ts";
+import { getArtistTool } from "./artist.ts";
 import { attachDriveCreativesTool, listDriveCreativesTool } from "./draft-drive.ts";
 import { applyAudienceTemplateTool, archiveDraftTool, setDraftBudgetTool, setDraftLinkTool, setDraftLocationsTool } from "./draft-edit.ts";
 import { replicateToEventTool } from "./draft-replicate.ts";
@@ -26,6 +28,7 @@ export const READ_TOOLS: readonly McpTool[] = [
   getDraftsTool,
   getDraftTool,
   runLaunchChecksTool,
+  getArtistTool,
 ];
 
 export const DRAFT_TOOLS: readonly McpTool[] = [

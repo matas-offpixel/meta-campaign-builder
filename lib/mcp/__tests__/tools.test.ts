@@ -11,8 +11,9 @@ import { fakeDb } from "./fake-db.ts";
 
 const keys = (o: unknown) => Object.keys(o as object).sort();
 
-test("eight read tools, each read-only with a one-example description", () => {
+test("nine read tools, each read-only with a one-example description", () => {
   assert.deepEqual(READ_TOOLS.map((t) => t.name).sort(), [
+    "get_artist",
     "get_campaign_tree",
     "get_draft",
     "get_drafts",

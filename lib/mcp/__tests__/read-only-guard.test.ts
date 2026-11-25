@@ -145,6 +145,10 @@ const EXTERNAL_READERS: Record<string, readonly string[]> = {
   // Audience templates (#1363): the resolver and the row mapping (pure).
   "lib/audience-templates/resolve.ts": ["dedupeKnown", "knownFromDraftAudiences", "knownFromRows", "normalizeAccount", "resolveTemplate"],
   "lib/audience-templates/store.ts": ["templateFromRows"],
+  // AL5: get_artist's reads (artists, artist_assets, event_artists, events, clients, ad_daily_insights) and its pure view and words.
+  "lib/artist-library/load.ts": ["findArtist", "loadArtistData"],
+  "lib/artist-library/view.ts": ["buildArtistView"],
+  "lib/artist-library/answer.ts": ["artistAnswer", "unknownArtistAnswer"],
 };
 
 /**
