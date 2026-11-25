@@ -59,13 +59,12 @@ describe("blank ad set — buildMetaTargeting / buildAdSetPayload", () => {
   it("forces targeting_automation.advantage_audience = 1 even when advantagePlus is (incorrectly) false", () => {
     const payload = build(makeBlankAdSet({ advantagePlus: false }));
     assert.equal(payload.targeting.targeting_automation?.advantage_audience, 1);
-    // Advantage+ shape: no top-level strict age, age sent as individual_setting suggestion.
-    assert.equal(payload.targeting.age_min, undefined);
-    assert.equal(payload.targeting.age_max, undefined);
-    assert.deepEqual(payload.targeting.targeting_automation?.individual_setting, {
-      age_min: 18,
-      age_max: 65,
-    });
+    // Advantage+ shape at the full 18–65 range: age_min is the control,
+    // age_max 65, and no age suggestion is needed.
+    assert.equal(payload.targeting.age_min, 18);
+    assert.equal(payload.targeting.age_max, 65);
+    assert.equal(payload.targeting.age_range, undefined);
+    assert.equal(payload.targeting.targeting_automation?.individual_setting, undefined);
   });
 
   it("also forces Advantage+ when advantagePlus is (correctly) true — same result either way", () => {

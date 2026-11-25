@@ -11,9 +11,10 @@ import type { CampaignObjective, OptimisationGoal } from "@/lib/types";
  * out about this reactively, via `isInvalidTargetingAutomationError` in
  * `lib/meta/error-classify.ts` stripping the flag and retrying inside the
  * salvage ladder (`lib/audiences/adset-create-with-salvage.ts`). That salvage
- * still succeeds, but it silently produces an ad set identical to a
- * strict-mode sibling — confusing for an operator who duplicated an ad set
- * specifically to A/B Advantage+ vs strict targeting.
+ * used to succeed by producing an ad set identical to a strict-mode sibling
+ * — confusing for an operator who duplicated an ad set specifically to A/B
+ * Advantage+ vs strict targeting. Since 25 Nov 2026 it no longer retries:
+ * the ad set fails with Meta's error.
  *
  * Reproducer (task #116 → this fix, task #126): East End Dubs Newcastle
  * signup v2 (draft `1c8381cb-d4b3-4a72-a7bc-a56d0e139b28`) — "Similar Pages"

@@ -457,6 +457,13 @@ export interface CustomAudienceGroup {
    * available (lib/audiences/ca-availability-recovery.ts).
    */
   populatingAudienceIds?: string[];
+  /**
+   * Advantage+ suggestions only: these audiences may be given to Meta as
+   * suggestions on an Advantage+ ad set, never as an ad set's direct
+   * targeting. Generate makes no ad set for the group, and launch refuses a
+   * strict (non-Advantage+) ad set built on it (lib/meta/adset.ts).
+   */
+  suggestionsOnly?: boolean;
   /** When true, lookalike ad sets will be created from this group's audiences at launch */
   lookalike?: boolean;
   /** Lookalike percentage tiers to create ad sets for (e.g. ["0-1%", "1-2%"]) */
@@ -1533,6 +1540,19 @@ export interface CampaignAttachResult {
     durationMs?: number;
     /** Salvage note (e.g. audiences dropped/recreated) — see lib/audiences/adset-create-with-salvage.ts. */
     note?: string;
+    /** Meta's own refusal that the salvage recovered from (code, subcode, message), next to `note`. */
+    metaError?: { code: number | null; subcode: number | null; message: string };
+    /**
+     * Set when this Advantage+ ad set went out WITHOUT the draft's age
+     * suggestion (age_max 65, so a wider age range than the draft's):
+     * "objective" — the campaign objective can't take an age suggestion;
+     * "meta_refused" — Meta refused the suggestion and the retry without
+     * it was accepted (metaError holds the refusal). See
+     * lib/audiences/adset-create-with-salvage.ts (Tier 2a).
+     */
+    ageSuggestionDropped?: "objective" | "meta_refused";
+    /** With ageSuggestionDropped: the draft's range and the age_min control, for launch.adset.age_widened. */
+    ageWidened?: { min: number; max: number; control: number };
   }[];
   adSetsFailed: { name: string; error: string }[];
   adsCreated: number;
@@ -1836,13 +1856,27 @@ export interface LaunchSummary {
     durationMs?: number;
     /**
      * Non-fatal note from a Phase 2 create-retry ladder — set only when Meta
-     * initially refused and a salvage retry (dropping a stale/unavailable
-     * custom audience, subcode 1359207; or stripping an objective-incompatible
-     * Advantage+ Audience automation, subcode 1870196) fixed it. See
-     * `lib/audiences/ca-availability-recovery.ts` and
-     * `isInvalidTargetingAutomationError` in `lib/meta/error-classify.ts`.
+     * initially refused and a salvage retry fixed it without changing who
+     * the ad set reaches (dropping a stale/unavailable custom audience,
+     * subcode 1359207; adding a missing advantage_audience flag, 1870227).
+     * A refused Advantage+ Audience (1870196) is never salvaged: that ad set
+     * lands in `adSetsFailed` with Meta's error. See
+     * `lib/audiences/adset-create-with-salvage.ts`.
      */
     note?: string;
+    /** Meta's own refusal that the salvage recovered from (code, subcode, message), next to `note`. */
+    metaError?: { code: number | null; subcode: number | null; message: string };
+    /**
+     * Set when this Advantage+ ad set went out WITHOUT the draft's age
+     * suggestion (age_max 65, so a wider age range than the draft's):
+     * "objective" — the campaign objective can't take an age suggestion;
+     * "meta_refused" — Meta refused the suggestion and the retry without
+     * it was accepted (metaError holds the refusal). See
+     * lib/audiences/adset-create-with-salvage.ts (Tier 2a).
+     */
+    ageSuggestionDropped?: "objective" | "meta_refused";
+    /** With ageSuggestionDropped: the draft's range and the age_min control, for launch.adset.age_widened. */
+    ageWidened?: { min: number; max: number; control: number };
   }[];
   adSetsFailed: { name: string; error: string; skippedReason?: string }[];
   creativesCreated: {

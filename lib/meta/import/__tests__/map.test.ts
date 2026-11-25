@@ -406,3 +406,46 @@ describe("budget probe c imports as CBO lifetime", () => {
     );
   });
 });
+
+describe("Advantage+ age suggestion reads back as the draft's range", () => {
+  function mapAdSet(targeting: Record<string, unknown>) {
+    return mapMetaLiveCampaign({
+      bundle: {
+        campaign: { id: "c_1", name: "c", objective: "OUTCOME_SALES", status: "PAUSED" },
+        adSets: [
+          { id: "as_1", name: "Broad + suggestions", status: "PAUSED", campaign_id: "c_1", daily_budget: "4000", targeting },
+        ],
+        ads: [],
+        creatives: {},
+      },
+      adAccountId: "act_1",
+      carry: [],
+      availability: [],
+    }).adSetSuggestions[0];
+  }
+
+  it("age_range [18, 45] with individual_setting.age = 1 imports as 18–45, not the 65 control", () => {
+    const row = mapAdSet({
+      age_min: 18,
+      age_max: 65,
+      age_range: [18, 45],
+      geo_locations: { countries: ["GB"] },
+      targeting_automation: { advantage_audience: 1, individual_setting: { age: 1 } },
+    });
+    assert.equal(row?.advantagePlus, true);
+    assert.equal(row?.ageMin, 18);
+    assert.equal(row?.ageMax, 45);
+  });
+
+  it("without the age flag, the top-level ages stand", () => {
+    const row = mapAdSet({
+      age_min: 18,
+      age_max: 65,
+      age_range: [18, 45],
+      geo_locations: { countries: ["GB"] },
+      targeting_automation: { advantage_audience: 1 },
+    });
+    assert.equal(row?.ageMin, 18);
+    assert.equal(row?.ageMax, 65);
+  });
+});

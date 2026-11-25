@@ -12,6 +12,10 @@
  *   4. cancelled — the folder gains " (cancelled)"; nothing deleted (S27).
  *   5. filing — up to maxFiles approved renders (S20, HS9).
  *   6. winners — judged rounds' winners (S21, HS19).
+ *   7. library — 00 Artist Library / {artist} / Clips · Statics · Renders ·
+ *      Captions · Insights for every artist on an upcoming event (AL1,
+ *      migration 269; nothing until it is applied). Map-first: a quiet tick
+ *      makes no Drive call. Never shared.
  *
  * Archived clients get nothing (S27). Writes only to Drive and to the
  * migration-218 columns; never to a render's status.
@@ -24,6 +28,7 @@ import { fileRender, markWinners, wantsFiling, type FileResult, type StorageDown
 import { allRows, type DriveDb, type RowOf } from "./db.ts";
 import { emptyLog, ensureArtistFolders, ensureClientTree, ensureCycleFolder, ensureEventTree, markCancelled, renameOwnerFolders, type TreeLog } from "./folders.ts";
 import { loadLineupArtists } from "./lineup.ts";
+import { artistsDue, ensureLibraryFolders, loadLibraryMap } from "../artist-library/library-drive.ts";
 import { ownerNameResolver } from "./owner.ts";
 
 export { allRows } from "./db.ts";
@@ -165,6 +170,18 @@ export async function runDriveTick(
       result.winners.push(...(await markWinners(db, drive, round, log)));
     });
   }
+
+  // 7. the artist library (AL1)
+  await attempt("library", async () => {
+    const map = await loadLibraryMap(db);
+    if (!map.on) return;
+    const due = artistsDue({ today, events, clients, links: await allRows(db, "event_artists"), artists: await allRows(db, "artists") });
+    for (const artist of due) {
+      await attempt(`library ${artist.id}`, async () => {
+        await ensureLibraryFolders(db, drive, artist, log, map);
+      });
+    }
+  });
 
   result.renamed = log.renamed;
   result.created = log.created;

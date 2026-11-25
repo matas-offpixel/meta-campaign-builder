@@ -274,6 +274,10 @@ describe("createAdSetWithSalvage — subcode 1359207 (deleted custom audience)",
     assert.equal(res.metaAdSetId, "meta_as_1");
     assert.equal(createCalls, 1);
     assert.match(res.note ?? "", /1 unavailable audience/);
+    // Meta's own refusal is carried next to the note.
+    assert.equal(res.metaError?.code, 100);
+    assert.equal(res.metaError?.subcode, DELETED_CUSTOM_AUDIENCE_SUBCODE);
+    assert.match(res.metaError?.message ?? "", /no longer available/);
   });
 
   it("loops multiple passes when Meta reveals a new batch of stale audiences on each retry (task #123/#757)", async () => {
@@ -460,66 +464,138 @@ describe("createAdSetWithSalvage — subcode 1359207 (deleted custom audience)",
 
 // ─── createAdSetWithSalvage — Tier 2: 1870196 ───────────────────────────────
 
-describe("createAdSetWithSalvage — subcode 1870196 (invalid targeting automation)", () => {
-  it("retries with targeting_automation REPLACED by an explicit advantage_audience: 0 (task #124 — never delete)", async () => {
-    let retryPayloadSeen: MetaAdSetPayload | undefined;
-    const deps = baseDeps({
-      createMetaAdSet: async (_acc, p) => {
-        retryPayloadSeen = p;
-        return { id: "meta_as_1" };
+describe("createAdSetWithSalvage — Advantage+ age order (steps 2 and 3)", () => {
+  // ES27-ENZOSIRAGUSA arm B, 25 Nov 2026: the old 1870196 retry sent
+  // advantage_audience 0 with strict ages, which turned "Broad +
+  // suggestions"' 126 suggestion audiences into hard targeting.
+  const SUGGESTION_IDS = ["ca_1", "ca_2"];
+  /** Step 1's payload: Advantage+ with the 18–45 age suggestion and suggestion audiences. */
+  const step1Payload = (): MetaAdSetPayload =>
+    payload(SUGGESTION_IDS, {
+      targeting: {
+        custom_audiences: SUGGESTION_IDS.map((id) => ({ id })),
+        geo_locations: { countries: ["GB"] },
+        age_min: 18,
+        age_max: 65,
+        age_range: [18, 45],
+        targeting_automation: { advantage_audience: 1, individual_setting: { age: 1 } },
       },
-    });
-
-    const res = await createAdSetWithSalvage(
-      {
-        adSet: adSet({ ageMin: 21, ageMax: 45 }),
-        initialPayload: payload([]),
-        initialError: invalidTargetingAutomationError(),
-        adAccountId: "act_1",
-        logPrefix: "Phase 2",
-        asStart: Date.now(),
-        freshReadinessResults: new Map(),
-        preflightDroppedCount: 0,
-        audienceNameById: new Map(),
-        pageGroups: [],
+    } as Partial<MetaAdSetPayload>);
+  /** Advantage+ at the full range — no age suggestion to drop. */
+  const noSuggestionPayload = (): MetaAdSetPayload =>
+    payload(SUGGESTION_IDS, {
+      targeting: {
+        custom_audiences: SUGGESTION_IDS.map((id) => ({ id })),
+        geo_locations: { countries: ["GB"] },
+        age_min: 18,
+        age_max: 65,
+        targeting_automation: { advantage_audience: 1 },
       },
-      deps,
-    );
-
-    assert.equal(res.metaAdSetId, "meta_as_1");
-    assert.equal(res.ageModeOverride, "strict");
-    assert.deepEqual(retryPayloadSeen?.targeting.targeting_automation, { advantage_audience: 0 });
-    assert.equal(retryPayloadSeen?.targeting.age_min, 21);
-    assert.equal(retryPayloadSeen?.targeting.age_max, 45);
-    // The field must be PRESENT (never deleted) — Meta v23.0+ requires it on
-    // every ad-set-create call (see the chained-subcode reproducer).
-    assert.notEqual(retryPayloadSeen?.targeting.targeting_automation, undefined);
+    } as Partial<MetaAdSetPayload>);
+  const params = (initialPayload: MetaAdSetPayload, initialError: unknown) => ({
+    adSet: adSet({ sourceType: "custom_group", ageMin: 18, ageMax: 45, advantagePlus: true }),
+    initialPayload,
+    initialError,
+    adAccountId: "act_1",
+    logPrefix: "Phase 2",
+    asStart: Date.now(),
+    freshReadinessResults: new Map(),
+    preflightDroppedCount: 0,
+    audienceNameById: new Map(),
+    pageGroups: [],
   });
 
-  it("propagates the retry's own failure distinctly (does not swallow a chained 1870227)", async () => {
+  it("step 2: the age suggestion refused → one retry as Advantage+ with age_max 65, no suggestion, audiences kept", async () => {
+    const sent: MetaAdSetPayload[] = [];
     const deps = baseDeps({
-      createMetaAdSet: async () => {
-        throw missingAdvantageAudienceFlagError();
+      createMetaAdSet: async (_acc, p) => {
+        sent.push(p);
+        return { id: "meta_as_step2" };
       },
     });
-    await assert.rejects(
-      createAdSetWithSalvage(
-        {
-          adSet: adSet(),
-          initialPayload: payload([]),
-          initialError: invalidTargetingAutomationError(),
-          adAccountId: "act_1",
-          logPrefix: "Phase 2",
-          asStart: Date.now(),
-          freshReadinessResults: new Map(),
-          preflightDroppedCount: 0,
-          audienceNameById: new Map(),
-          pageGroups: [],
+    const res = await createAdSetWithSalvage(params(step1Payload(), invalidTargetingAutomationError()), deps);
+
+    assert.equal(res.metaAdSetId, "meta_as_step2");
+    assert.equal(sent.length, 1);
+    // Step 2's payload snapshot, as it goes on the wire.
+    assert.deepEqual(JSON.parse(JSON.stringify(sent[0].targeting)), {
+      custom_audiences: [{ id: "ca_1" }, { id: "ca_2" }],
+      geo_locations: { countries: ["GB"] },
+      age_min: 18,
+      age_max: 65,
+      targeting_automation: { advantage_audience: 1 },
+    });
+    assert.equal(res.ageSuggestionDropped, "meta_refused");
+    assert.deepEqual(res.metaError, { code: 100, subcode: 1870196, message: "targeting automation type passed is invalid" });
+  });
+
+  it("step 3: Advantage+ refused again without the suggestion → fails with Meta's error, never strict", async () => {
+    const sent: MetaAdSetPayload[] = [];
+    const second = invalidTargetingAutomationError();
+    second.message = "targeting automation type passed is invalid (second)";
+    const deps = baseDeps({
+      createMetaAdSet: async (_acc, p) => {
+        sent.push(p);
+        throw second;
+      },
+    });
+    await assert.rejects(createAdSetWithSalvage(params(step1Payload(), invalidTargetingAutomationError()), deps), (err: unknown) => {
+      assert.equal(err, second, "Meta's own error from the refusal of Advantage+ itself");
+      // Step 3 is a failed ad set: no created row, so no age_widened line.
+      assert.equal((err as { ageSuggestionDropped?: unknown }).ageSuggestionDropped, undefined);
+      const e = err as { code: number; subcode: number };
+      assert.equal(e.code, 100);
+      assert.equal(e.subcode, 1870196);
+      return true;
+    });
+    assert.equal(sent.length, 1, "one retry (step 2), then no more");
+    for (const p of sent) {
+      assert.equal(p.targeting.targeting_automation?.advantage_audience, 1, "never advantage_audience 0");
+      assert.equal(p.targeting.age_max, 65, "never the draft's 45 as a hard ceiling");
+    }
+  });
+
+  it("step 3 directly: Advantage+ with no age suggestion refused → fails with Meta's error unchanged, no retry", async () => {
+    let calls = 0;
+    const deps = baseDeps({
+      createMetaAdSet: async () => {
+        calls += 1;
+        return { id: "meta_as_should_not_exist" };
+      },
+    });
+    const refusal = invalidTargetingAutomationError();
+    await assert.rejects(createAdSetWithSalvage(params(noSuggestionPayload(), refusal), deps), (err: unknown) => {
+      assert.equal(err, refusal);
+      const e = err as { code: number; subcode: number; message: string };
+      assert.equal(e.code, 100);
+      assert.equal(e.subcode, 1870196);
+      assert.match(e.message, /targeting automation type passed is invalid/);
+      return true;
+    });
+    assert.equal(calls, 0, "no second createMetaAdSet call — the audience is never changed behind the operator's back");
+  });
+
+  it("logs Meta's code, subcode and message for each refusal", async () => {
+    const logged: string[] = [];
+    const origErr = console.error;
+    const origWarn = console.warn;
+    console.error = (...args: unknown[]) => void logged.push(args.map(String).join(" "));
+    console.warn = (...args: unknown[]) => void logged.push(args.map(String).join(" "));
+    try {
+      const deps = baseDeps({
+        createMetaAdSet: async () => {
+          throw invalidTargetingAutomationError();
         },
-        deps,
-      ),
-      /advantage_audience/,
-    );
+      });
+      await assert.rejects(createAdSetWithSalvage(params(step1Payload(), invalidTargetingAutomationError()), deps));
+    } finally {
+      console.error = origErr;
+      console.warn = origWarn;
+    }
+    const suggestion = logged.find((l) => l.includes("Meta refused the age suggestion"));
+    const advantage = logged.find((l) => l.includes("Meta refused Advantage+ Audience"));
+    assert.match(suggestion ?? "", /code=100 subcode=1870196 message=targeting automation type passed is invalid/);
+    assert.match(advantage ?? "", /code=100 subcode=1870196 message=.*not retried as strict targeting/);
   });
 });
 
@@ -581,6 +657,54 @@ describe("createAdSetWithSalvage — subcode 1870227 (missing advantage_audience
     );
 
     assert.deepEqual(retryPayloadSeen?.targeting.targeting_automation, { advantage_audience: 0 });
+  });
+
+  it("keeps the age suggestion as sent (individual_setting, age_range, controls) — the audience is unchanged", async () => {
+    let retryPayloadSeen: MetaAdSetPayload | undefined;
+    const deps = baseDeps({
+      createMetaAdSet: async (_acc, p) => {
+        retryPayloadSeen = p;
+        return { id: "meta_as_1" };
+      },
+    });
+    const sent = payload(["ca_1"], {
+      targeting: {
+        custom_audiences: [{ id: "ca_1" }],
+        geo_locations: { countries: ["GB"] },
+        age_min: 18,
+        age_max: 65,
+        age_range: [18, 45],
+        targeting_automation: { individual_setting: { age: 1 } },
+      },
+    } as unknown as Partial<MetaAdSetPayload>);
+
+    const res = await createAdSetWithSalvage(
+      {
+        adSet: adSet({ advantagePlus: true, ageMin: 18, ageMax: 45 }),
+        initialPayload: sent,
+        initialError: missingAdvantageAudienceFlagError(),
+        adAccountId: "act_1",
+        logPrefix: "Phase 2",
+        asStart: Date.now(),
+        freshReadinessResults: new Map(),
+        preflightDroppedCount: 0,
+        audienceNameById: new Map(),
+        pageGroups: [],
+      },
+      deps,
+    );
+
+    assert.deepEqual(retryPayloadSeen?.targeting.targeting_automation, {
+      individual_setting: { age: 1 },
+      advantage_audience: 1,
+    });
+    assert.deepEqual(retryPayloadSeen?.targeting.age_range, [18, 45]);
+    assert.equal(retryPayloadSeen?.targeting.age_min, 18);
+    assert.equal(retryPayloadSeen?.targeting.age_max, 65);
+    assert.deepEqual(retryPayloadSeen?.targeting.custom_audiences, [{ id: "ca_1" }]);
+    // Meta's first refusal travels next to the note.
+    assert.deepEqual(res.metaError, { code: 100, subcode: 1870227, message: "advantage_audience must be set" });
+    assert.match(res.note ?? "", /advantage_audience=1/);
   });
 });
 

@@ -209,6 +209,61 @@ export async function loadPickerView(
   }
 }
 
+/** How far up a folder may be from the shared drive's root (event trees are ~6 deep). */
+const DRIVE_MAX_DEPTH = 16;
+
+/**
+ * Whether a folder sits inside this Shared Drive (the export drive, "Off /
+ * Pixel"): its parents lead up to the drive's root, whose id is the drive's
+ * id. The service account can see other drives too; those are false.
+ */
+export async function inSharedDrive(drive: Pick<DriveApi, "getFile" | "driveId">, startFolderId: string): Promise<boolean> {
+  let cursor: string | null = startFolderId;
+  for (let depth = 0; cursor && depth < DRIVE_MAX_DEPTH; depth += 1) {
+    if (cursor === drive.driveId) return true;
+    const folder: DriveFile | null = await drive.getFile(cursor);
+    if (!folder || folder.trashed) return false;
+    cursor = folder.parents?.[0] ?? null;
+  }
+  return false;
+}
+
+/**
+ * Any folder of the Shared Drive outside an event's tree (client and
+ * artist folders, the artist library; M3a's connector): its sub-folders and
+ * media, measured as the picker measures them. No owners, stages or cycles:
+ * those come from an event's tree map.
+ */
+export async function loadDriveFolderView(
+  drive: DriveApi | null,
+  folderId: string,
+): Promise<{ state: "ok"; folder: { id: string; name: string }; folders: { id: string; name: string }[]; files: PickerFile[] } | { state: "not_in_drive" | "unreadable" }> {
+  if (!drive || !drive.listMedia) return { state: "unreadable" };
+  try {
+    if (!(await inSharedDrive(drive, folderId))) return { state: "not_in_drive" };
+    const self = folderId === drive.driveId ? null : await drive.getFile(folderId);
+    const children = await drive.listChildren(folderId, { foldersOnly: true });
+    const media = (await drive.listMedia(folderId)).filter((f) => visible(f.name) && pickerKind(f.mimeType)).map(toPickerFile);
+    return {
+      state: "ok",
+      folder: { id: folderId, name: self?.name ?? "Off / Pixel" },
+      folders: children.filter((f) => visible(f.name)).map((f) => ({ id: f.id, name: f.name })),
+      files: media,
+    };
+  } catch (err) {
+    console.warn(JSON.stringify({ step: "drive_folder_view", error: redactSecrets(err instanceof Error ? err.message : String(err)).slice(0, 200) }));
+    return { state: "unreadable" };
+  }
+}
+
+/** A file anywhere in the Shared Drive, with Drive's measurements; null when it isn't in it. */
+export async function fileInSharedDrive(drive: DriveApi, fileId: string): Promise<DriveMediaFile | null> {
+  if (!drive.getMediaFile) return null;
+  const file = await drive.getMediaFile(fileId);
+  if (!file || file.trashed || !file.parents?.[0]) return null;
+  return (await inSharedDrive(drive, file.parents[0])) ? file : null;
+}
+
 /** A file this event's tree holds, with Drive's measurements; null when it isn't in the tree. */
 export async function fileInTree(db: LooseDb, drive: DriveApi, event: PickerEvent, fileId: string): Promise<DriveMediaFile | null> {
   if (!drive.getMediaFile) return null;
@@ -247,6 +302,11 @@ export type CopyDeps = {
   /** Width and height of a downloaded file Drive hadn't measured. Defaults: the moov probe for video, sharp for images. */
   measure?: (filePath: string, kind: PickerKind) => Promise<{ width: number; height: number } | null>;
   tempRoot?: string;
+  /**
+   * Finds the picked file. Default: in this event's tree (fileInTree). The
+   * connector (M3a) passes fileInSharedDrive, for client and artist folders.
+   */
+  locate?: (fileId: string) => Promise<DriveMediaFile | null>;
 };
 
 function extOf(file: Pick<DriveFile, "name" | "mimeType">, kind: PickerKind): string {
@@ -295,7 +355,7 @@ export async function copyPickedFile(
   const fail = (code: Exclude<CopyResult, { ok: true }>["code"], reason: string): CopyResult => ({ ok: false, code, reason });
   let temp: string | null = null;
   try {
-    const file = await fileInTree(deps.db, deps.drive, event, input.fileId);
+    const file = deps.locate ? await deps.locate(input.fileId) : await fileInTree(deps.db, deps.drive, event, input.fileId);
     if (!file) return fail("not_in_tree", PICKER_WORDS.copyFailed);
     const kind = pickerKind(file.mimeType);
     if (!kind) return fail("copy_failed", PICKER_WORDS.copyFailed);
