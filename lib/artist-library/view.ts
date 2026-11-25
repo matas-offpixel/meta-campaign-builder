@@ -141,10 +141,15 @@ export interface ArtistView {
 
 const num = (v: unknown) => (v == null || v === "" ? 0 : Number(v) || 0);
 
-/** phaseOf, with show week on top of it from the show's Monday to the show itself; null when unknown. */
+/**
+ * A show's phase: "done" once its date has passed (from the next London day),
+ * whatever its stored phase; show week from its Monday to the show day; else
+ * phaseOf. Null for an upcoming show with no dates to say (the part is left out).
+ */
 export function showPhase(event: EventLite, today: string): ShowPhase | null {
   const day = event.event_date?.slice(0, 10);
-  if (day && day >= today && isShowWeek(day, today)) return "show_week";
+  if (day && day < today) return "done";
+  if (day && isShowWeek(day, today)) return "show_week";
   const phase = phaseOf(event, today);
   return phase === "unknown" ? null : phase;
 }

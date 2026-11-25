@@ -126,34 +126,39 @@ export const AL_WORDS = {
   "al.mcp.old": "Newest material: {month year}, over 6 months ago. Check Instagram for anything newer, and for what’s missing here.",
   "al.mcp.unknown": "No artist called “{name}” in Off/Pixel.",
   "al.mcp.closest": "Closest: {names}.",
+  "al.phase.teaser": "Teaser",
+  "al.phase.announced": "Announced",
+  "al.phase.presale": "Presale",
+  "al.phase.general_sale": "General sale",
+  "al.phase.show_week": "Show week",
+  "al.phase.done": "Done",
+  "al.kind.clip": "clip",
+  "al.kind.static": "static",
+  "al.kind.render": "render",
 } as const;
 
 export type AlWordKey = keyof typeof AL_WORDS;
 
-// ─── Pending design ─────────────────────────────────────────────────────────
-// Two fill-ins get_artist needs that have no row in the AL word list yet.
-// Ops asked design for the rows on 25 Nov. When they arrive, swap these
-// values one for one; no other code changes. The record's frames confirm
-// only "Teaser" and "General sale". A test covers every key, so a missing
-// value fails it instead of printing blank.
+// ─── {phase} and {kind} ─────────────────────────────────────────────────────
 
-/** A show's phase: phaseOf's four phases, with show week on top (as the MCP's stageOf). */
-export type ShowPhase = "teaser" | "announced" | "presale" | "general_sale" | "show_week";
+/** A show's phase: phaseOf's four, show week on top up to the show day, and done once its date has passed. */
+export type ShowPhase = "teaser" | "announced" | "presale" | "general_sale" | "show_week" | "done";
 
-/** {phase} in al.mcp.show. PENDING DESIGN: not rows yet. */
+/** {phase} in al.mcp.show (and the artist page's Phase column): the al.phase.* rows. */
 export const PHASE_WORDS: Readonly<Record<ShowPhase, string>> = {
-  teaser: "Teaser",
-  announced: "Announced",
-  presale: "Presale",
-  general_sale: "General sale",
-  show_week: "Show week",
+  teaser: AL_WORDS["al.phase.teaser"],
+  announced: AL_WORDS["al.phase.announced"],
+  presale: AL_WORDS["al.phase.presale"],
+  general_sale: AL_WORDS["al.phase.general_sale"],
+  show_week: AL_WORDS["al.phase.show_week"],
+  done: AL_WORDS["al.phase.done"],
 };
 
-/** {kind} in al.mcp.asset and al.mcp.other.row, as AL-E prints them. PENDING DESIGN: not rows yet. */
+/** {kind} in al.mcp.asset and al.mcp.other.row: the al.kind.* rows (tiles use al.tile.*). */
 export const KIND_WORDS: Readonly<Record<"clip" | "static" | "render", string>> = {
-  clip: "clip",
-  static: "static",
-  render: "render",
+  clip: AL_WORDS["al.kind.clip"],
+  static: AL_WORDS["al.kind.static"],
+  render: AL_WORDS["al.kind.render"],
 };
 
 export { STAGE_LABEL };

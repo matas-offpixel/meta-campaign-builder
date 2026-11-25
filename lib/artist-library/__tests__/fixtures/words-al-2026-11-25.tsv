@@ -115,3 +115,12 @@ al.mcp.fresh	get_artist, last line	Newest material: {month year}. Look on Instag
 al.mcp.old	get_artist, last line, newest over 6 months old	Newest material: {month year}, over 6 months ago. Check Instagram for anything newer, and for what’s missing here.
 al.mcp.unknown	get_artist, no match	No artist called “{name}” in Off/Pixel.
 al.mcp.closest	get_artist, after no match	Closest: {names}.
+al.phase.teaser	{phase}, in get_artist’s show lines and the artist page’s Phase column: teaser	Teaser
+al.phase.announced	{phase}, in get_artist’s show lines and the artist page’s Phase column: announced	Announced
+al.phase.presale	{phase}, in get_artist’s show lines and the artist page’s Phase column: presale	Presale
+al.phase.general_sale	{phase}, in get_artist’s show lines and the artist page’s Phase column: general_sale	General sale
+al.phase.show_week	{phase}, in get_artist’s show lines and the artist page’s Phase column: show_week	Show week
+al.phase.done	{phase}, in get_artist’s show lines and the artist page’s Phase column: any show whose date has passed, whatever its stored phase	Done
+al.kind.clip	{kind}, in get_artist’s file lines (lower case; tiles use al.tile.clip)	clip
+al.kind.static	{kind}, in get_artist’s file lines (lower case; tiles use al.tile.static)	static
+al.kind.render	{kind}, in get_artist’s file lines (lower case; tiles use al.tile.render)	render
