@@ -327,6 +327,21 @@ describe("RT8: buyers lists and their age", () => {
     assert.deepEqual(rows("2026-11-07T10:00:00Z"), [["Buyers list uploaded 7 Nov · 10 days old: upload it again so new buyers drop out", 0]]);
   });
 
+  it("the age line is muted until the list is 30 days old, then brick (design, 25 Nov): it says to upload again from 7 days, and the 29- and 30-day boundary", () => {
+    const note = (uploadedAt: string) => tierRows({ sources: { ...SET, lists: [{ metaAudienceId: "buy", name: "Buyers", role: "buyers", uploadedAt }] }, today: "2026-11-17" }, { bottom: 100, mid_bottom: 100, mid: 100 }).notes[0]!;
+    assert.deepEqual([note("2026-11-14T10:00:00Z").text, note("2026-11-14T10:00:00Z").muted], ["Buyers list uploaded 14 Nov · 3 days old", true]);
+    assert.deepEqual([note("2026-11-11T10:00:00Z").text, note("2026-11-11T10:00:00Z").muted], ["Buyers list uploaded 11 Nov · 6 days old", true]);
+    assert.deepEqual([note("2026-11-10T10:00:00Z").text, note("2026-11-10T10:00:00Z").muted], ["Buyers list uploaded 10 Nov · 7 days old: upload it again so new buyers drop out", true]);
+    assert.deepEqual([note("2026-10-19T10:00:00Z").text, note("2026-10-19T10:00:00Z").muted], ["Buyers list uploaded 19 Oct · 29 days old: upload it again so new buyers drop out", true]);
+    assert.deepEqual([note("2026-10-18T10:00:00Z").text, note("2026-10-18T10:00:00Z").muted], ["Buyers list uploaded 18 Oct · 30 days old: upload it again so new buyers drop out", false]);
+    // No buyers list stays brick.
+    assert.equal(tierRows({ sources: { ...SET, lists: [] }, today: "2026-11-17" }, { bottom: 100, mid_bottom: 100, mid: 100 }).notes[0]!.muted, undefined);
+    // The panel draws a muted line in the muted colour, brick otherwise.
+    const panel = readFileSync("components/dashboard/events/retargeting-panel.tsx", "utf8");
+    assert.match(panel, /line\.muted \? "text-muted-foreground" : "text-destructive"/);
+    assert.match(panel, /line\.ochre \? "text-amber-700 dark:text-amber-300"/);
+  });
+
   it("no Buyers list: one line, ticketing connected or not, and \"buyers\" drops out of Leaves out (Bottom reads \"—\")", () => {
     const out = tierRows({ sources: { ...SET, lists: [] }, today: "2026-11-17" }, { bottom: 100, mid_bottom: 100, mid: 100 });
     assert.deepEqual(out.notes.map((line) => line.text), ["No buyers list yet, so buyers aren't left out and will keep seeing these ads."]);
@@ -357,6 +372,38 @@ describe("RT8 acceptance (revised 17 Nov): no \"Connect ticketing\" anywhere on 
     assert.equal(words.POOL_BEFORE_CREATE, "Known after create");
     assert.equal(words.POOL_BEFORE_CREATE_NARROW, "Pool known after create");
     const panel = readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../components/dashboard/events/retargeting-panel.tsx"), "utf8");
-    assert.match(panel, /created \? figure\(row\.pool\) : POOL_BEFORE_CREATE/);
+    // Design (25 Nov): a created tier whose estimate Meta didn't give today reads "Not read today", never "—".
+    assert.equal(words.NOT_READ_TODAY, "Not read today");
+    assert.match(panel, /created \? k\(row\.pool \?\? NOT_READ_TODAY\) : POOL_BEFORE_CREATE/);
+    assert.match(panel, /`Pool \$\{\(row\.pool \?\? NOT_READ_TODAY\)\.replace\(\/\^\(Below\|Not\)\//);
+  });
+
+  it("design (25 Nov): the 393 footer, word for word (retargeting.footer.next.phone*)", () => {
+    const steps = [{ label: "final month", from: "2026-11-19", share: 15 }, { label: "payday", from: "2026-11-26", share: 15 }];
+    // .phone + .phone.more.one
+    assert.equal(words.nextStepNarrow(steps, false), "Next: final month from Thu 19 Nov · 1 more");
+    // one step left: .phone alone
+    assert.equal(words.nextStepNarrow([{ label: "payday", from: "2026-11-26" }], false), "Next: payday from Thu 26 Nov");
+    // none: no footer
+    assert.equal(words.nextStepNarrow([], false), null);
+    // .phone.set: "Next: {share} % from {Ddd d Mon}, {stretch}"
+    assert.equal(words.nextStepNarrow(steps, true), "Next: 15 % from Thu 19 Nov, final month · 1 more");
+    // .phone.more: " · {n} more"
+    assert.equal(words.nextStepNarrow([...steps, { label: "final week", from: "2026-12-12" }], false), "Next: final month from Thu 19 Nov · 2 more");
+    // 1280 keeps both steps and "step heights: Matas".
+    assert.equal(words.nextStepLine(steps, false), "Next step: final month from Thu 19 Nov · payday from Thu 26 Nov · step heights: Matas");
+  });
+
+  it("design (25 Nov): 1280 draws the long footer, 393 the one-line footer the frames runner holds to one line", async () => {
+    const panel = readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../components/dashboard/events/retargeting-panel.tsx"), "utf8");
+    const lines = panel.split("\n");
+    assert.match(lines.find((line) => line.includes("data-next-step>"))!, /hidden [^"]*sm:block/);
+    const narrow = lines.find((line) => line.includes("data-next-step-narrow"))!;
+    assert.match(narrow, /text-xs text-muted-foreground sm:hidden/);
+    assert.match(narrow, /data-one-line/);
+    const runner = readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../scripts/plan-frames/run.mjs"), "utf8");
+    assert.match(runner, /querySelectorAll\("\[data-one-line\]"\)/);
+    const { raPlan } = await import("../../../scripts/plan-frames/retargeting-fixtures.ts");
+    assert.equal(raPlan().view.running!.nextStepNarrow, "Next: final month from Thu 19 Nov · 1 more");
   });
 });

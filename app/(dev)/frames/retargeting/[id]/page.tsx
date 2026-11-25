@@ -6,7 +6,8 @@ import { RETARGETING_FRAME_IDS } from "@/scripts/plan-frames/retargeting-fixture
 /**
  * The Retargeting campaign frames at /frames/retargeting/{id}: RA, RB and
  * RD of docs/design-record/2026-11-17-retargeting-campaign.html and -2.html,
- * each build PR judged on its own lines. RC lands later. A nested route under the shared /frames/ prefix, while
+ * each build PR judged on its own lines (RA: PR B's links, PR C's figures,
+ * a hold and a move). RC lands later. A nested route under the shared /frames/ prefix, while
  * app/(dev)/frames/[id]/page.tsx sits in an open Cursor PR.
  */
 export function generateStaticParams() {

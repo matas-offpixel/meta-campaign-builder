@@ -25,12 +25,16 @@ import { ONSALE_PHASE } from "../onsale-refresh/phase-config.ts";
 import { fetchEventHosts, loadPurchaseReads, type RefreshGraph } from "../onsale-refresh/purchase-read.ts";
 import { fetchCirqlinPageLinks, type PageLinksResult } from "../cirqlin/page-links.ts";
 import { committedGbpOf, type PcBudgets } from "../onsale-refresh/purchase-campaign.ts";
+import { moveGuard } from "../onsale-refresh/plan-guard.ts";
 import { RETARGETING } from "../onsale-refresh/rules.ts";
 import { addDaysIso, planRun, todayLondon } from "../onsale-refresh/schedule.ts";
+import { CIRQLIN_HASHES_SECRET_ENV } from "../customer-lists/cirqlin-hashed.ts";
+import { customerListWritesEnabled, listTriggerAt, londonDate } from "../customer-lists/rules.ts";
 import { pixelRules, ruleChanges, tierSpecs, type SourceList, type SourcePage, type SourceSet } from "./audiences.ts";
+import { readRunning, type RunningRead } from "./delivery.ts";
 import { linksFallback, linksFromPages, otherLandingHosts, type PixelHosts, type ShowLink } from "./links.ts";
 import { refreshTokenFor, rewriteRules, ruleRewriteGates } from "./rule-rewrite.ts";
-import { planRetargeting, retargetingOnSaleDay, type RetargetingInput, type RetargetingPlan } from "./plan.ts";
+import { planRetargeting, retargetingOnSaleDay, type LiveRead, type RetargetingInput, type RetargetingPlan } from "./plan.ts";
 import { isRetargetingCampaignName, isTestsCampaignName, retargetingCampaignName, TIERS, type Tier } from "./words.ts";
 
 type Db = Pick<SupabaseClient, "from">;
@@ -160,6 +164,8 @@ export function retargetingInput(args: {
   sources: SourceSet;
   appliedLine: { applied_result: Record<string, unknown> | null; write: Record<string, unknown> | null } | null;
   minDailyMinor: number | null;
+  /** HR4: Meta's read of the running campaign (status, tier budgets, frequency, pool). */
+  running?: RunningRead | null;
   /** RT13: how the links were read. */
   linksRead?: RetargetingInput["linksRead"];
   pixelHosts?: PixelHosts;
@@ -167,6 +173,7 @@ export function retargetingInput(args: {
   campaignStatus?: string | null;
   otherLandingHosts?: string[];
   linkSizes?: RetargetingInput["linkSizes"];
+  signups?: RetargetingInput["signups"];
 }): RetargetingInput {
   const { event, day } = args;
   const code = event.event_code ?? event.id;
@@ -181,7 +188,7 @@ export function retargetingInput(args: {
   const firstDay = rows.filter((row) => isRetargetingCampaignName(row.campaign_name, code) && num(row.spend) > 0).map((row) => row.date).sort()[0] ?? null;
   const tiers = progress?.adSets ? Object.fromEntries(TIERS.map((tier) => [tier, progress.adSets?.[tier]?.dailyMinor ?? 0])) as Record<Tier, number> : undefined;
   const existing = named || progress?.campaignId
-    ? { campaignId: progress?.campaignId ?? named?.meta_campaign_id ?? null, since: firstDay, totalMinor: tiers ? TIERS.reduce((sum, tier) => sum + tiers[tier], 0) : null, share: progress?.share ?? null, ...(tiers ? { tiers } : {}), status: args.campaignStatus ?? null }
+    ? { campaignId: progress?.campaignId ?? named?.meta_campaign_id ?? null, since: firstDay, totalMinor: tiers ? TIERS.reduce((sum, tier) => sum + tiers[tier], 0) : null, share: progress?.share ?? null, ...(tiers ? { tiers } : {}), status: args.campaignStatus ?? args.running?.status ?? null, live: liveRead(args.running ?? null, rows, start, end) }
     : null;
   const campaigns = args.campaigns;
   const legacy = campaigns.map((campaign) => ({ campaign: campaign.campaignKey, adSets: campaign.adSets.filter((set) => set.delivering && RETARGETING.test(set.name)).length }));
@@ -231,7 +238,62 @@ export function retargetingInput(args: {
     pixelHosts: args.pixelHosts ?? null,
     otherLandingHosts: args.otherLandingHosts ?? [],
     linkSizes: args.linkSizes,
+    signups: args.signups ?? null,
   };
+}
+
+/** SU1: a show's customer_list_syncs rows (migration 267), as the panel reads them. */
+export type SignupsSyncRow = { event_id: string; enabled: boolean; meta_audience_id: string | null; sent_total: number; removed_total: number; last_sent_at: string | null; last_replaced_at: string | null; created_at: string | null; updated_at?: string | null };
+
+/**
+ * SU1's state from what the sync stores: no enabled row is "not switched
+ * on" (RT15); enabled with no list yet is "made on" presale day (general
+ * sale with no presale); a list is "on Meta" with what it holds now (sent
+ * less removed), the last send and the last full rebuild (else the day it
+ * was made). The CIRQLIN read unset is "not set up"; the writes switch off
+ * adds the ochre line. A failed read or send and an unknown tag aren't
+ * stored on the row, so they aren't drawn here.
+ */
+export function signupsSyncOf(rows: readonly SignupsSyncRow[], event: { presale_at?: string | null; general_sale_at: string | null; event_date: string | null }, env: Record<string, string | undefined> = process.env): RetargetingInput["signups"] {
+  const row = rows.filter((r) => r.enabled).sort((a, b) => ((a.updated_at ?? a.created_at ?? "") < (b.updated_at ?? b.created_at ?? "") ? 1 : -1))[0];
+  if (!row) return { state: "not_on" };
+  const writesOff = !customerListWritesEnabled(env);
+  if (!env[CIRQLIN_HASHES_SECRET_ENV]) return { state: "not_configured", writesOff };
+  if (!row.meta_audience_id) {
+    const at = listTriggerAt({ presale_at: event.presale_at ?? null, general_sale_at: event.general_sale_at, event_date: event.event_date });
+    return at ? { state: "waiting", madeOn: londonDate(at), writesOff } : { state: "not_on" };
+  }
+  const made = row.created_at ?? row.last_sent_at;
+  const lastSent = row.last_sent_at ?? made;
+  if (!lastSent) return { state: "not_on" };
+  const rebuilt = row.last_replaced_at ?? made ?? lastSent;
+  return { state: "on", count: Math.max(0, row.sent_total - row.removed_total), lastSentAt: lastSent, rebuiltOn: londonDate(new Date(rebuilt)), writesOff };
+}
+
+/** RT3 / RT5: each tier's 7 days from ad_daily_insights (spend, attributed purchases), joined to Meta's read. */
+export function liveRead(running: RunningRead | null, rows: readonly { date: string; meta_adset_id?: string | null; spend: number | string; purchases: number | string }[], start: string, end: string): LiveRead | null {
+  if (!running) return null;
+  const tiers: LiveRead["tiers"] = {};
+  for (const tier of TIERS) {
+    const row = running.tiers[tier];
+    if (!row) continue;
+    const week = rows.filter((insight) => insight.meta_adset_id === row.adsetId && insight.date >= start && insight.date <= end);
+    tiers[tier] = {
+      adsetId: row.adsetId,
+      dailyMinor: row.dailyMinor,
+      frequency: row.frequency,
+      pool: row.pool,
+      spendMinor: Math.round(week.reduce((sum, insight) => sum + num(insight.spend), 0) * 100),
+      purchases: week.reduce((sum, insight) => sum + num(insight.purchases), 0),
+    };
+  }
+  return { status: running.status, tiers };
+}
+
+/** The ad set ids the Create line stored, by tier. */
+function knownAdSets(appliedLine: { applied_result: Record<string, unknown> | null } | null): Partial<Record<Tier, string>> {
+  const sets = ((appliedLine?.applied_result?.retargeting ?? null) as { adSets?: Partial<Record<Tier, { id?: string }>> } | null)?.adSets ?? {};
+  return Object.fromEntries(TIERS.flatMap((tier) => (sets[tier]?.id ? [[tier, sets[tier]!.id!]] : []))) as Partial<Record<Tier, string>>;
 }
 
 /** RT13: the show's links — CIRQLIN's pages by its tag, RT2's two links with no tag; the two failures as states. */
@@ -311,6 +373,8 @@ export async function runRetargetingRead(input: {
   if (!events.length) return { ok: true, dryRun, day, events: 0, records: [], skipped, metaCalls: 0, errors };
   const clientIds = [...new Set(events.map((event) => event.client_id).filter((id): id is string => Boolean(id)))];
   const [raw, aux, sourceRows] = await Promise.all([loadInsights(input.db), loadAux(input.db, events.map((event) => event.id), clientIds), loadSourceRows(input.db, events.map((event) => event.id), clientIds)]);
+  // SU1: each show's Signups list into Meta. A failed read draws RT15's line, as before SU1.
+  const syncRows = await loadAll<SignupsSyncRow & { id: string }>(input.db, "customer_list_syncs", "id, event_id, enabled, meta_audience_id, sent_total, removed_total, last_sent_at, last_replaced_at, created_at, updated_at", ["id"], (q) => q.in("event_id", events.map((event) => event.id)).eq("enabled", true)).catch(() => [] as (SignupsSyncRow & { id: string })[]);
   const purchases = await loadPurchaseReads({
     db: input.db,
     events: events.map((event) => ({ id: event.id, event_code: event.event_code, client_id: event.client_id, event_date: event.event_date, signup_url: event.signup_url ?? null, ticket_url: event.ticket_url ?? null, presale_at: event.presale_at ?? null, general_sale_at: event.general_sale_at })),
@@ -363,13 +427,17 @@ export async function runRetargetingRead(input: {
         metaCalls += 1;
         minDaily.set(account, await input.graph.graphGet(`/${account}`, { fields: "min_daily_budget" }).then((body) => num((body as { min_daily_budget?: unknown }).min_daily_budget) || null).catch(() => null));
       }
-      // RT9: a running campaign's status, so an off one says so (a running campaign keeps its last rules when the links read fails, RT13).
+      // HR4: a running campaign is read from Meta every morning, through show week to the show day (RT7).
+      // Its effective_status is RT9's off line (a running campaign keeps its last rules when the links read fails, RT13).
       const campaignId = (appliedLine?.applied_result?.retargeting as { campaignId?: string } | undefined)?.campaignId ?? rows.find((row) => isRetargetingCampaignName(row.campaign_name, code) && row.meta_campaign_id)?.meta_campaign_id ?? null;
-      let campaignStatus: string | null = null;
+      let running: RunningRead | null = null;
       if (campaignId && input.graph) {
-        metaCalls += 1;
-        campaignStatus = await input.graph.graphGet(`/${campaignId}`, { fields: "effective_status" }).then((body) => (body as { effective_status?: string }).effective_status ?? null).catch(() => null);
+        const until = addDaysIso(day, -1);
+        running = await readRunning(input.graph.graphGet, { campaignId, code, since: addDaysIso(until, -6), until, known: knownAdSets(appliedLine) });
+        metaCalls += running.calls;
+        for (const reason of running.errors) skipped.push({ eventCode: code, reason: `Retargeting read: ${reason}` });
       }
+      const campaignStatus = running?.status ?? null;
       // RT18: a running campaign's per-link audience sizes.
       const storedAudiences = ((appliedLine?.applied_result?.retargeting ?? null) as { audiences?: Record<string, string> } | null)?.audiences ?? null;
       let linkSizes: RetargetingInput["linkSizes"];
@@ -378,7 +446,7 @@ export async function runRetargetingRead(input: {
         metaCalls += sized.calls;
         linkSizes = sized.sizes;
       }
-      const plan = planRetargeting(retargetingInput({ event, day, rows, campaigns: inputs.campaigns, read, budgets: purchases.budgets, sources, appliedLine, minDailyMinor: account ? (minDaily.get(account) ?? null) : null, linksRead: links.linksRead, pixelHosts: pixelId ? (hostsByPixel.get(pixelId) ?? null) : null, campaignStatus, otherLandingHosts: [...otherLandingHosts(landingByShow, event.id)], linkSizes }));
+      const plan = planRetargeting(retargetingInput({ event, day, rows, campaigns: inputs.campaigns, read, budgets: purchases.budgets, sources, appliedLine, minDailyMinor: account ? (minDaily.get(account) ?? null) : null, running, linksRead: links.linksRead, pixelHosts: pixelId ? (hostsByPixel.get(pixelId) ?? null) : null, campaignStatus, otherLandingHosts: [...otherLandingHosts(landingByShow, event.id)], linkSizes, signups: signupsSyncOf(syncRows.filter((row) => row.event_id === event.id), event) }));
       const record: RetargetingRecord = { eventId: event.id, eventCode: event.event_code, plan, proposalId: null };
       // RT13: a running campaign's rules against today's links. A failed read keeps the last rules, so nothing is compared.
       const storedRules = ((appliedLine?.applied_result?.retargeting ?? null) as { rules?: Record<string, string[]> } | null)?.rules;
@@ -417,7 +485,11 @@ export async function runRetargetingRead(input: {
         }
       }
       if (!dryRun && plan.state !== "no_signal") {
-        record.proposalId = await writeRetargetingProposal(input.db, { event, day, plan, mode: retargetingGates(applyGates(input.env, arms.get(event.id))).mode, userId: input.userId });
+        const createWrite = (appliedLine?.write ?? null) as { draftId?: string | null; adAccountId?: string | null } | null;
+        const where = campaignId ? { draftId: createWrite?.draftId ?? null, adAccountId: createWrite?.adAccountId ?? account, campaignIds: [campaignId] } : null;
+        const spendToDate = Math.round(rows.reduce((sum, row) => sum + num(row.spend), 0) * 100) / 100;
+        const budget = event.budget_marketing == null ? null : num(event.budget_marketing);
+        record.proposalId = await writeRetargetingProposal(input.db, { event, day, plan, mode: retargetingGates(applyGates(input.env, arms.get(event.id))).mode, userId: input.userId, where, guard: { budget, spendToDate } });
       }
       records.push(record);
     } catch (err) {
@@ -444,7 +516,7 @@ async function loadArms(db: Db, eventIds: readonly string[]): Promise<Map<string
  * review line; a line already accepted, rejected, applied or failed stays
  * and is not proposed again. Earlier unanswered lines expire (RT5).
  */
-export async function writeRetargetingProposal(db: Db, args: { event: EventRow; day: string; plan: RetargetingPlan; mode: ArmMode; userId?: string }): Promise<string> {
+export async function writeRetargetingProposal(db: Db, args: { event: EventRow; day: string; plan: RetargetingPlan; mode: ArmMode; userId?: string; where?: { draftId: string | null; adAccountId: string | null; campaignIds: string[] } | null; guard?: { budget: number | null; spendToDate: number } }): Promise<string> {
   const { event, plan } = args;
   const userId = args.userId ?? (await ownerOf(db, event.id));
   const code = event.event_code!;
@@ -457,7 +529,7 @@ export async function writeRetargetingProposal(db: Db, args: { event: EventRow; 
         user_id: userId,
         event_id: event.id,
         campaign_key: key,
-        campaign_ids: plan.build?.campaignIds ?? [],
+        campaign_ids: plan.build?.campaignIds ?? args.where?.campaignIds ?? [],
         run_kind: "retargeting",
         run_day: args.day,
         cycle_monday: run.cycleMonday,
@@ -486,6 +558,9 @@ export async function writeRetargetingProposal(db: Db, args: { event: EventRow; 
   if (earlier.error) throw new Error(`earlier proposals: ${earlier.error.message}`);
   const earlierIds = ((earlier.data ?? []) as { id: string }[]).map((row) => row.id);
   const decided = await db.from("onsale_refresh_lines").select("id").in("proposal_id", [proposalId, ...earlierIds]).eq("kind", "retargeting_campaign").neq("state", "to_review").neq("state", "expired");
+  // RT5: today's Move or Cut, unless one was already decided on this read.
+  const decidedBudget = await db.from("onsale_refresh_lines").select("id").eq("proposal_id", proposalId).eq("kind", "move_budget").neq("state", "to_review").neq("state", "expired");
+  if (decidedBudget.error) throw new Error(`onsale_refresh_lines decided budget: ${decidedBudget.error.message}`);
   if (decided.error) throw new Error(`onsale_refresh_lines decided: ${decided.error.message}`);
   const cleared = await db.from("onsale_refresh_lines").delete().eq("proposal_id", proposalId).eq("state", "to_review");
   if (cleared.error) throw new Error(`onsale_refresh_lines clear: ${cleared.error.message}`);
@@ -510,6 +585,31 @@ export async function writeRetargetingProposal(db: Db, args: { event: EventRow; 
       state: "to_review",
     });
     if (written.error) throw new Error(`onsale_refresh_lines: ${written.error.message}`);
+  }
+  if (plan.state === "running" && plan.budget && args.where && !((decidedBudget.data ?? []) as unknown[]).length) {
+    const line = plan.budget;
+    // R5's 20 % cap on what moves into a tier; a cut back to the plan adds nothing.
+    const blocked = line.write.toAdsetId && args.guard ? moveGuard(line.write.amountGbp, args.guard.budget, args.guard.spendToDate, 0) : null;
+    const written = await db.from("onsale_refresh_lines").insert({
+      proposal_id: proposalId,
+      user_id: userId,
+      position: 2,
+      kind: "move_budget",
+      rule_id: `retargeting.${line.kind}`,
+      title: line.title,
+      detail: line.detail,
+      write_text: line.writeText,
+      narrow: { detail: line.narrow, writeText: null },
+      target: { fromTier: line.write.fromTier, toTier: line.write.toTier, fromAdsetId: line.write.fromAdsetId, toAdsetId: line.write.toAdsetId, label: line.label },
+      // R6 scores a move on the receiving ad set against its cost before (toCpr).
+      evidence: { state: plan.state, retargetingBudget: { kind: line.kind, label: line.label }, toCpr: line.write.toTier ? (plan.view.tiers.find((row) => row.tier === line.write.toTier)?.cost ?? null) : null, tiers: plan.view.tiers.map((row) => ({ tier: row.tier, budgetMinor: row.budgetMinor, spendMinor: row.spendMinor ?? null, purchases: row.purchases, frequency: row.frequency, pool: row.pool })) },
+      write: { ...line.write, ...args.where },
+      adds_spend: false,
+      blocked_reason: blocked,
+      supply: false,
+      state: "to_review",
+    });
+    if (written.error) throw new Error(`onsale_refresh_lines budget: ${written.error.message}`);
   }
   if (earlierIds.length) {
     const expired = await db.from("onsale_refresh_lines").update({ state: "expired" }).in("proposal_id", earlierIds).eq("state", "to_review");

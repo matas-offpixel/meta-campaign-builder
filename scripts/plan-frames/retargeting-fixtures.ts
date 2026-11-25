@@ -15,12 +15,17 @@
  *     Fatsoma, DICE; xmpl-roof.com), every source at RT14's windows,
  *     registrations in Bottom, and today's share with no choice (RT11).
  *     The pixel is on Skiddle only, so Fatsoma and DICE read "no".
- * RA: XMPL-WHSE's running campaign, read Tue 17 Nov, with PR B's lines only
- *     (-2.html: "Each build PR is judged only on the lines it builds"):
+ * RA: XMPL-WHSE's running campaign, read Tue 17 Nov. PR B's lines (-2.html):
  *     RT14's windows, the per-link sizes (Skiddle 2,100–2,500 · RA
  *     1,000–1,200 · Fixr below 1,000; xmpl-whse.com 7,000–8,200) and the
- *     pixel lines (Skiddle and RA yes, Fixr no; xmpl-whse.com yes). The
- *     tiers' figures, the hold and the move are PR C's; the steps PR D's.
+ *     pixel lines (Skiddle and RA yes, Fixr no; xmpl-whse.com yes). PR C's
+ *     figures: current daily spend £240.00 (£1,680.00 over 10–16 Nov), so
+ *     £24.00 a day is 10 %, on £12.00 / £6.00 / £6.00. The 7 days: Bottom
+ *     £82.40 ÷ 16 = £5.15 at frequency 4.3, Mid Bottom £41.60 ÷ 5 = £8.32 at
+ *     2.2, Mid £41.90 ÷ 2 = £20.95 at 1.6; £165.90 ÷ 23 = £7.21. Bottom is
+ *     cheapest but held (frequency 4.3); Mid gives half its £5.99 a day,
+ *     £2.99, to Mid Bottom (room £10.80). Final month from Thu 19 Nov;
+ *     payday from Thu 26 Nov.
  * RD: RA's show (XMPL-WHSE) on the on-sale panel: its Registrations
  *     lookalike standing default, and the one note in place of the
  *     per-campaign Retargeting default (RT9). Under it, the ten
@@ -145,8 +150,8 @@ const WHSE_PAGES: PartnerPageLinks[] = [
   },
 ];
 
-/** RA: the running campaign's rows with PR B's lines. */
-export function raView(): RetargetingView {
+/** RA: the running panel with PR B's lines, a hold and a move, read Tue 17 Nov. */
+export function raPlan() {
   const links = linksFromPages(WHSE_PAGES);
   const size = (rule: string, lower: number, upper: number) => [rule, { lower, upper }] as const;
   const [skiddle, ra, fixr, whse] = links.map((link) => link.rule);
@@ -161,6 +166,7 @@ export function raView(): RetargetingView {
       eventId: "xmpl-whse",
       eventCode: "XMPL-WHSE",
       eventDate: "2026-12-19",
+      onSaleDay: "2026-11-06",
       last7SpendGbp: 1680,
       pixelHosts: { any: ["www.skiddle.com", "ra.co", "xmpl-whse.com"], pageView: ["www.skiddle.com", "ra.co", "xmpl-whse.com"], checkout: ["www.skiddle.com"], registration: ["xmpl-whse.com"] },
       linkSizes,
@@ -181,10 +187,51 @@ export function raView(): RetargetingView {
           { metaAudienceId: "l4", name: "XMPL-WHSE buyers", role: "buyers", uploadedAt: "2026-11-14T10:00:00Z" },
         ],
       },
-      existing: { campaignId: "120000000000000010", since: "2026-11-10", totalMinor: 2400, share: 10, tiers: { bottom: 1200, mid_bottom: 600, mid: 600 }, status: "ACTIVE" },
+      existing: {
+        campaignId: "120000000000000010",
+        since: "2026-11-10",
+        totalMinor: 2400,
+        share: 10,
+        status: "ACTIVE",
+        live: {
+          status: "ACTIVE",
+          tiers: {
+            bottom: { adsetId: "120000000000000011", dailyMinor: 1200, frequency: 4.3, pool: "3,900–4,600", spendMinor: 8240, purchases: 16 },
+            mid_bottom: { adsetId: "120000000000000012", dailyMinor: 600, frequency: 2.2, pool: "6,300–7,400", spendMinor: 4160, purchases: 5 },
+            mid: { adsetId: "120000000000000013", dailyMinor: 600, frequency: 1.6, pool: "180,000–212,000", spendMinor: 4190, purchases: 2 },
+          },
+        },
+      },
       legacy: [],
     }),
-  ).view;
+  );
+}
+
+/** RA's Move, To review, as the daily read writes it (a move_budget line). */
+export function raBudgetLines(plan = raPlan()): PanelLine[] {
+  const line = plan.budget;
+  if (!line) return [];
+  return [
+    {
+      id: "ra-move",
+      kind: "move_budget",
+      title: line.title,
+      detail: line.detail,
+      writeText: line.writeText,
+      narrow: { detail: line.narrow, writeText: null },
+      addsSpend: false,
+      blockedReason: null,
+      supply: false,
+      state: "to_review",
+      reason: null,
+      writeKind: line.write.kind,
+    },
+  ];
+}
+
+/** RA's view, as frame RA draws it. */
+export function raView(): RetargetingView {
+  return raPlan().view;
 }
 
 /** RB: the Create line with all three missing states, before Apply. */

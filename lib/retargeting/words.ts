@@ -144,6 +144,9 @@ export function audiencesNarrow(lines: readonly string[]): string {
 /** RT3: before the campaign runs, the figure columns read "—". */
 export const NO_FIGURE = "—";
 
+/** Design (25 Nov): a running tier whose estimate Meta didn't give today. Never "—"; "Below 1,000" stays a band. */
+export const NOT_READ_TODAY = "Not read today";
+
 /** RT3 (revised 17 Nov): before Apply the tier's audiences don't exist, so Meta has no estimate. Never "—" or another figure. */
 export const POOL_BEFORE_CREATE = "Known after create";
 /** RT10's card form. */
@@ -215,6 +218,62 @@ export function noSignupList(sources: readonly string[]): string {
   return `No signup list yet, so Bottom runs on ${list} only.`;
 }
 
+// ── SU1 (docs/design-record/2026-11-25-signups-into-meta.html; words-rc su.line.*) ──
+
+/** SU1: the show's Signups list, one state at a time (RT15's "No signup list yet…" is "not_on"). */
+export type SignupsState =
+  | { state: "not_on" }
+  | { state: "waiting"; madeOn: string }
+  | { state: "on"; count: number; lastSentAt: string; rebuiltOn: string }
+  | { state: "not_linked"; tag: string }
+  | { state: "not_configured" };
+
+/** SU1: the state, and the lines added under it when they apply. */
+export type SignupsSync = SignupsState & { writesOff?: boolean; failedRead?: boolean; failedSend?: { taken: number; sent: number } | null };
+
+const LONDON_MOMENT = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/London", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+
+/** SU4: a moment in London time, "Tue 25 Nov, 08:00". */
+export function londonMoment(iso: string): string {
+  const parts = Object.fromEntries(LONDON_MOMENT.formatToParts(new Date(iso)).map((part) => [part.type, part.value]));
+  return `${shortDay(`${parts.year}-${parts.month}-${parts.day}`)}, ${parts.hour}:${parts.minute}`;
+}
+
+const signupCount = (n: number) => (n === 1 ? "1 signup" : `${group(String(n))} signups`);
+
+/** su.line.on / .one: "Signups list · {n} signups · last sent {date, time} · rebuilt in full {date}". */
+export function signupsOn(count: number, lastSentAt: string, rebuiltOn: string): string {
+  return `Signups list · ${signupCount(count)} · last sent ${londonMoment(lastSentAt)} · rebuilt in full ${shortDay(rebuiltOn)}`;
+}
+
+/** su.line.waiting: "No signup list yet: it’s made on {date}, 08:00, so until then Bottom runs on {sources} only." */
+export function signupsWaiting(madeOn: string, sources: readonly string[]): string {
+  const list = sources.length > 1 ? `${sources.slice(0, -1).join(", ")} and ${sources.at(-1)}` : (sources[0] ?? "nothing else");
+  return `No signup list yet: it’s made on ${shortDay(madeOn)}, 08:00, so until then Bottom runs on ${list} only.`;
+}
+
+/** su.line.switch_off (ochre), under the list line. */
+export const SIGNUPS_SWITCH_OFF = "Sending signups to Meta is switched off, so this list isn’t kept current.";
+/** su.line.switch_off.none (ochre), under the waiting line. */
+export const SIGNUPS_SWITCH_OFF_NONE = "Sending signups to Meta is switched off, so the list won’t be made until it’s on.";
+
+/** su.line.not_linked (brick): the tag printed exactly as stored. */
+export function signupsNotLinked(tag: string): string {
+  return `CIRQLIN has no page tagged ${tag}, so this show’s signups can’t be sent.`;
+}
+
+/** su.line.not_configured (brick). */
+export const SIGNUPS_NOT_CONFIGURED = "The CIRQLIN read isn’t set up, so no signups are sent.";
+
+/** su.line.failed.read (brick). */
+export const SIGNUPS_FAILED_READ = "The last run couldn’t read CIRQLIN, so nothing new was sent. The next run tries again tomorrow at 08:00.";
+
+/** su.line.failed.send / .one (brick). */
+export function signupsFailedSend(taken: number, sent: number): string {
+  if (sent === 1) return "Meta didn’t take the 1 signup in the last run. The next run sends it tomorrow at 08:00.";
+  return `Meta took ${group(String(taken))} of ${group(String(sent))} signups in the last run. The next run sends the rest tomorrow at 08:00.`;
+}
+
 /** RT15: no registrations reaching the pixel from the landing pages in 28 days. */
 export function noRegistrations(pages: readonly string[]): string {
   return `No registrations from ${joinNames(pages)} reach the pixel in 28 days, so Bottom counts signups from the signup list only.`;
@@ -232,9 +291,9 @@ export function sizeBand(lower: number, upper: number): string {
   return `${group(String(Math.round(lower)))}–${group(String(Math.round(upper)))}`;
 }
 
-/** RT18: "Skiddle 2,100–2,500 · RA 1,000–1,200 · Fixr below 1,000"; a size Meta didn't give reads "—". */
+/** RT18: "Skiddle 2,100–2,500 · RA 1,000–1,200 · Fixr below 1,000"; a size Meta didn't give today reads "not read today" (design, 25 Nov). */
 export function sizesLine(entries: readonly { name: string; band: string | null }[]): string {
-  return entries.map((entry) => `${entry.name} ${entry.band ?? NO_FIGURE}`).join(" · ");
+  return entries.map((entry) => `${entry.name} ${entry.band ?? NOT_READ_TODAY.toLowerCase()}`).join(" · ");
 }
 
 /** RT18: "Pixel on {names}: yes · {names}: no", or "Pixel on {names}: no" when all are no. */
@@ -312,7 +371,115 @@ export function joinNames(names: readonly string[]): string {
   return `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
 }
 
+// ── RT3 (running) ────────────────────────────────────────────────────────────
+
+/** RT3: a tier with spend and no purchase in the 7 days. */
+export const NO_PURCHASE_YET = "No purchase yet";
+
+/** RT3: the total row's label and spend. */
+export const LAST_7_DAYS = "Last 7 days";
+export function spentText(minor: number): string {
+  return `${pence(minor, { minor: true })} spent`;
+}
+
+/** RT3: the pool in Meta's band, "3,900–4,600", or "Below 1,000". */
+export function poolBand(lower: number, upper: number): string {
+  if (!(upper >= 1000)) return "Below 1,000";
+  return `${group(String(Math.round(lower)))}–${group(String(Math.round(upper)))}`;
+}
+
 /** RT9: when the campaign is off, one line on the Retargeting panel. */
 export function retargetingOff(code: string): string {
   return `${retargetingCampaignName(code)} is off.`;
+}
+
+// ── RT5 ──────────────────────────────────────────────────────────────────────
+
+const freq = (value: number) => value.toFixed(1);
+const each = (gbp: number) => pence(gbp);
+/** "frequency 4.3 on 3,900–4,600"; with the estimate unread today the sentence leaves "on {pool}" out (the tier's row reads "Not read today"). */
+const onPool = (band: string | null) => (band ? ` on ${band}` : "");
+
+/** RT5: Move · "{giver} → {receiver}". */
+export function moveTitle(giver: Tier, receiver: Tier): string {
+  return `${TIER_LABEL[giver]} → ${TIER_LABEL[receiver]}`;
+}
+
+/** RT5: "£{c1} per attributed purchase ({n1}) to £{c2} ({n2}) · {receiver} frequency {f} on {pool} · £{x} a day". A giver with no purchase reads "No purchase yet on £{spent}". */
+export function moveDetail(args: { giverCost: number | null; giverPurchases: number; giverSpendMinor: number; receiver: Tier; receiverCost: number; receiverPurchases: number; frequency: number; pool: string | null; amountMinor: number }): string {
+  const giver = args.giverCost == null ? `${NO_PURCHASE_YET} on ${pence(args.giverSpendMinor, { minor: true })}` : `${each(args.giverCost)} per attributed purchase (${args.giverPurchases})`;
+  return `${giver} to ${each(args.receiverCost)} (${args.receiverPurchases}) · ${TIER_LABEL[args.receiver]} frequency ${freq(args.frequency)}${onPool(args.pool)} · ${pence(args.amountMinor, { minor: true })} a day`;
+}
+
+/** RT5: the phone line, "£{c1} → £{c2} per attributed purchase · £{x} a day". */
+export function moveNarrow(args: { giverCost: number | null; receiverCost: number; amountMinor: number }): string {
+  const giver = args.giverCost == null ? NO_PURCHASE_YET : each(args.giverCost);
+  return `${giver} → ${each(args.receiverCost)} per attributed purchase · ${pence(args.amountMinor, { minor: true })} a day`;
+}
+
+/** RT5: the write, both sides. */
+export const BUDGET_WRITE_BOTH = "Ad-set budget write, both sides";
+/** A cut with no receiver writes one side. */
+export const BUDGET_WRITE_ONE = "Ad-set budget write";
+
+/** RT5: Hold · "{tier} held". */
+export function holdTitle(tier: Tier): string {
+  return `${TIER_LABEL[tier]} held`;
+}
+
+/** RT5: "Cheapest at £{c} per attributed purchase, but frequency {f} on {pool}. It gets no more until frequency falls under 4." */
+export function holdDetail(args: { cost: number; frequency: number; pool: string | null }): string {
+  return `Cheapest at ${each(args.cost)} per attributed purchase, but frequency ${freq(args.frequency)}${onPool(args.pool)}. It gets no more until frequency falls under 4.`;
+}
+
+/** RT5: the phone line, "{tier} held · frequency {f}". */
+export function holdNarrow(tier: Tier, frequency: number): string {
+  return `${TIER_LABEL[tier]} held · frequency ${freq(frequency)}`;
+}
+
+/** RT5: Cut · "{tier} → {receiver}"; with no receiver, "{tier} → the plan" (design, 25 Nov). */
+export function cutTitle(tier: Tier, receiver: Tier | null): string {
+  return `${TIER_LABEL[tier]} → ${receiver ? TIER_LABEL[receiver] : "the plan"}`;
+}
+
+/** RT5: "Frequency {f} on {pool} · £{a} → £{b} a day, back to frequency 4 · £{x} a day to {receiver} (£{c} per attributed purchase, frequency {f2})", or "… · £{x} a day back to the plan". */
+export function cutDetail(args: { frequency: number; pool: string | null; beforeMinor: number; afterMinor: number; freedMinor: number; receiver: { tier: Tier; cost: number; frequency: number } | null }): string {
+  const head = `Frequency ${freq(args.frequency)}${onPool(args.pool)} · ${pence(args.beforeMinor, { minor: true })} → ${pence(args.afterMinor, { minor: true })} a day, back to frequency 4`;
+  const x = `${pence(args.freedMinor, { minor: true })} a day`;
+  const tail = args.receiver ? `${x} to ${TIER_LABEL[args.receiver.tier]} (${each(args.receiver.cost)} per attributed purchase, frequency ${freq(args.receiver.frequency)})` : `${x} back to the plan`;
+  return `${head} · ${tail}`;
+}
+
+/** RT5: the phone line, "Frequency {f} · £{a} → £{b} a day". */
+export function cutNarrow(args: { frequency: number; beforeMinor: number; afterMinor: number }): string {
+  return `Frequency ${freq(args.frequency)} · ${pence(args.beforeMinor, { minor: true })} → ${pence(args.afterMinor, { minor: true })} a day`;
+}
+
+/** RT5: too little to rank. */
+export const NO_MOVE_TODAY = "No move today: no tier has 3 attributed purchases in 7 days.";
+
+/** RT5 / RT10: the line kinds as the panel labels them. */
+export const BUDGET_KIND_LABEL = { move: "Move", hold: "Hold", cut: "Cut" } as const;
+
+// ── RT6 (dates only; the heights are PR C's, unset) ─────────────────────────
+
+/**
+ * Design (25 Nov), retargeting.footer.next.phone*: the 393 footer is one
+ * step and a count. "Next: {stretch} from {Ddd d Mon}" (.phone), with the
+ * heights set "Next: {share} % from {Ddd d Mon}, {stretch}" (.phone.set),
+ * then " · {n} more" / " · 1 more" (.phone.more / .one). None: no footer.
+ * "step heights: Matas" is 1280's only.
+ */
+export function nextStepNarrow(steps: readonly { label: string; from: string; share?: number | null }[], heightsSet: boolean): string | null {
+  const [first, ...rest] = steps;
+  if (!first) return null;
+  const head = heightsSet && first.share != null ? `Next: ${first.share} % from ${shortDay(first.from)}, ${first.label}` : `Next: ${first.label} from ${shortDay(first.from)}`;
+  return `${head}${rest.length === 1 ? " · 1 more" : rest.length > 1 ? ` · ${rest.length} more` : ""}`;
+}
+
+/** RT6: the footer, "Next step: final month from Thu 19 Nov · payday from Thu 26 Nov · step heights: Matas". */
+export function nextStepLine(steps: readonly { label: string; from: string }[], heightsSet: boolean): string | null {
+  if (!steps.length) return null;
+  const parts = steps.map((step) => `${step.label} from ${shortDay(step.from)}`);
+  return `Next step: ${[...parts, ...(heightsSet ? [] : ["step heights: Matas"])].join(" · ")}`;
 }
