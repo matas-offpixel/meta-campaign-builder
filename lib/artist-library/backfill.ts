@@ -193,17 +193,18 @@ export function planArtistAssets(inputs: BackfillInputs, artist: { id: string; n
   const rows: PlannedAsset[] = [];
   const namedIn = new Map<string, NamedField>();
   const skipped = { archived: 0, noClient: 0 };
-  const keep = (row: PlannedAsset) => {
+  const keep = (row: PlannedAsset): boolean => {
     if (row.source_client_id && archived.has(row.source_client_id)) {
       skipped.archived += 1;
-      return;
+      return false;
     }
     const problem = rightsProblem({ ownerKind: row.owner_kind, shareable: row.shareable, heldReason: row.held_reason, clientId: row.source_client_id });
     if (problem) {
       skipped.noClient += 1;
-      return;
+      return false;
     }
     rows.push(row);
+    return true;
   };
 
   // ─── Confirmed sources: the footage itself ──────────────────────────────
@@ -331,10 +332,9 @@ export function planArtistAssets(inputs: BackfillInputs, artist: { id: string; n
     // A general ad (naming no one) is the headliner's, and only theirs.
     const how: MatchedBy | null = byName ?? (!named?.artistIds.length && context.eventId && headliners.get(context.eventId)?.artistIds.includes(artist.id) ? "event_artists" : null);
     if (!how) continue;
-    if (byName && named?.field) namedIn.set(`ad:${ad.meta_ad_id}`, named.field);
     const clientId = context.clientId;
     const kind = kindFromAd(ledger?.media_type, ad.ad_name);
-    keep({
+    const kept = keep({
       ...blank(artist.id),
       asset_key: `ad:${ad.meta_ad_id}`,
       kind,
@@ -346,6 +346,7 @@ export function planArtistAssets(inputs: BackfillInputs, artist: { id: string; n
       matched_by: how,
       ...withRights(clientAdRights(kind, clientId)),
     });
+    if (kept && byName && named?.field) namedIn.set(`ad:${ad.meta_ad_id}`, named.field);
   }
   return { artist, rows, skipped, namedIn };
 }
