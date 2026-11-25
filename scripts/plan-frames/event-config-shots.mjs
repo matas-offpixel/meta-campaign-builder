@@ -8,6 +8,7 @@
  * design passes.
  */
 
+import { LAUNCH_CHECKS_SHOTS } from "./launch-checks-shots.mjs";
 import { LOCATION_PIN_SHOTS } from "./location-pins-shots.mjs";
 import { RETARGETING_SHOTS } from "./retargeting-shots.mjs";
 import { TEST_PLAN_SHOTS } from "./test-plan-shots.mjs";
@@ -39,6 +40,8 @@ export const EVENT_CONFIG_SHOTS = [
   ...RETARGETING_SHOTS,
   // Creative test variant pairs (VP-A, VP-B, VP-C at 1280 and 393).
   ...VARIANT_PAIR_SHOTS,
+  // Launch checks on Review & launch (RC-C, RC-C-clean, RC-C-venue at 1280 and 393).
+  ...LAUNCH_CHECKS_SHOTS,
   // The location pin (LP-A, LP-B, LP-C and their states, at 1280 and 393).
   ...LOCATION_PIN_SHOTS,
 ];

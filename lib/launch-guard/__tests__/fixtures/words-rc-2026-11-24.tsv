@@ -1,0 +1,243 @@
+key	where	words
+replicate.menu	Published campaign ⋯ menu	Replicate to event…
+replicate.menu.sub	Published campaign ⋯ menu	Another event: account, pixel, link and copy follow it
+duplicate.menu	Published campaign ⋯ menu	Duplicate
+duplicate.menu.sub	Published campaign ⋯ menu	Same event, same settings
+replicate.title	Dialog	Replicate to event
+replicate.pick.question	Dialog, step 1	Which event is this for?
+replicate.pick.search	Dialog, step 1	Search events
+replicate.pick.source	Picker row	this campaign’s event
+replicate.pick.empty	Dialog, step 1 (no upcoming events)	No upcoming events for {client}.
+replicate.pick.no_match	Dialog, step 1 (search)	No upcoming events match “{query}”.
+replicate.summary.title	Dialog, step 2	Replicate {source name} to {target code}
+replicate.summary.changes	Dialog, step 2	Changes to match {code}
+replicate.change.labels	Change rows	Event · Name · Account · Pixel · Link · Dates · Copy · Audiences
+replicate.change.was	Change rows	(was {old})
+replicate.change.account	Change rows	Account: {Meta account name} ({venue})
+replicate.change.event	Change rows	{code} · {venue}
+replicate.change.dates	Change rows	Starts {date} · ends at {stage}
+replicate.change.dates.day	Change rows (ends at 23:59 that day)	Starts {date} · ends {date}
+replicate.change.dates.time	Change rows (ends at another time)	Starts {date} · ends {date, time}
+replicate.change.dates.open	Change rows (no end)	Starts {date} · no end date
+replicate.change.pixel	Change rows	Pixel …{last 4}
+replicate.change.link	Change rows	Link: {url} · {n} ads
+replicate.change.link.one	Change rows	Link: {url} · 1 ad
+replicate.change.copy	Change rows	Rewritten from the {venue|artist} templates for {artist} at {venue}
+replicate.change.audiences	Change rows	{n} found in {account} · {m} will be created
+replicate.change.not_set	Change rows (amber)	{Field}: not set for {venue}, check
+replicate.kept.title	Dialog, step 2	Kept from the source
+replicate.kept.line	Dialog, step 2	Objective, {n} ad sets, budgets, placements, interests.
+replicate.kept.line.one	Dialog, step 2 (1 ad set)	Objective, 1 ad set, budgets, placements, interests.
+replicate.kept.line.copy	Dialog, step 2 (copy not rewritten, until R8)	Objective, {n} ad sets, budgets, placements, interests, ad copy.
+replicate.kept.line.copy.one	Dialog, step 2 (copy not rewritten, 1 ad set)	Objective, 1 ad set, budgets, placements, interests, ad copy.
+replicate.page.question	Dialog, step 2 (boxed)	Ads run from {page}: keep or change
+replicate.page.keep	Dialog, step 2	Keep {page}
+replicate.page.change	Dialog, step 2	Change
+replicate.create	Dialog footer	Create draft
+replicate.create.note	Dialog footer	Nothing launches. Launch runs the checks.
+replicate.draft.line	New draft, top	Replicated from {source name}, {date}. Launch runs the checks first.
+replicate.error.signed_out	Dialog, error	You’re signed out. Sign in again, then replicate.
+replicate.error.not_operator	Dialog, error	Only operators can replicate a campaign.
+replicate.error.draft_not_found	Dialog, error	Can’t find this campaign’s draft. Nothing was made.
+replicate.error.event_not_found	Dialog, error	Can’t find that event. Pick it again.
+replicate.error.save_failed	Dialog, error	The draft wasn’t saved. Try again.
+launch.count.fix	Review & launch	● {n} to fix before launch
+launch.count.check	Review & launch	● {n} to check
+launch.count.clean	Review & launch	● Nothing to fix
+launch.clean.line	Review & launch	Account, pixel, link and names match {code}.
+launch.button.blocked	Review & launch	Launch · {n} to fix
+launch.evidence.more	Any check	… and {n} more
+pixel_not_venue.key	Check, blocker	Pixel
+pixel_not_venue	Check, blocker	Pixel …{last 4} is {venue}’s. {code} is at {event venue} (…{right last 4}).
+pixel_not_venue.override	Check, blocker (event override set)	Pixel …{last 4} isn’t the one set for {code} (…{right last 4}).
+pixel_not_venue.evidence	Check, blocker	Ad sets: {all n | names}
+pixel_not_venue.fix	Check, blocker	Use …{right last 4}
+account_not_venue.key	Check, blocker	Account
+account_not_venue	Check, blocker	Account {Meta account name} ({venue}) isn’t {event venue}’s. {code} runs on {right Meta account name} ({event venue}).
+account_not_venue.override	Check, blocker (event override set)	Account {Meta account name} ({venue}) isn’t the one set for {code}: {right Meta account name}.
+account_not_venue.evidence	Check, blocker	Campaign: {campaign name}
+account_not_venue.fix	Check, blocker	Use {right Meta account name}
+other_show_reference.key	Check, blocker	Another show
+other_show_reference	Check, blocker	Still points to {other show}: {value} in {n} {ads | headlines | primary texts | ad names | audience names}.
+other_show_reference.one	Check, blocker	Still points to {other show}: {value} in 1 {ad | headline | primary text | ad name | audience name}.
+other_show_reference.evidence	Check, blocker	{Links | Headlines | Primary text | Ad names | Audience names} in: {up to 4 ad names}
+other_show_reference.fix	Check, blocker	Show the {n} {ads | …}
+other_show_reference.fix.one	Check, blocker	Show the {ad | headline | …}
+name_code_mismatch.key	Check, blocker	Name
+name_code_mismatch	Check, blocker	The campaign name says {full code in the name}. This event is {full event code}.
+name_code_mismatch.evidence	Check, blocker	{campaign name}
+name_code_mismatch.fix	Check, blocker	Rename to {corrected name}
+artist_caption_not_approved.key	Check, blocker	Artist caption
+artist_caption_not_approved	Check, blocker	Artist-voice caption with no OK from {artist}’s team: {n} ads.
+artist_caption_not_approved.one	Check, blocker	Artist-voice caption with no OK from {artist}’s team: 1 ad.
+artist_caption_not_approved.evidence	Check, blocker	Primary text in: {caption labels}
+artist_caption_not_approved.fix	Check, blocker	Open captions
+link_not_event.key	Check, warning	Link
+link_not_event	Check, warning	Link isn’t this event’s page: {url} in {n} ads. The event’s page is {signup url}.
+link_not_event.one	Check, warning	Link isn’t this event’s page: {url} in 1 ad. The event’s page is {signup url}.
+link_not_event.evidence	Check, warning	Set by hand? Mark it in creative setup and this goes.
+link_not_event.fix	Check, warning	Use the event’s page · Keep this link
+link_not_event.kept	Review & launch, under the list	Link kept by {name}, {date, time}: {url}
+identity_not_live.key	Check, warning	Live ads
+identity_not_live	Check, warning	This draft runs from {draft page}; the live ads run from {live page}. Relaunching uses the draft’s.
+identity_not_live.instagram	Check, warning	This draft runs on Instagram as @{draft handle}; the live ads run as @{live handle}. Relaunching uses the draft’s.
+identity_not_live.evidence	Check, warning	Read from the live ads at {date, time}: {n} ads
+identity_not_live.evidence.one	Check, warning	Read from the live ads at {date, time}: 1 ad
+identity_not_live.fix	Check, warning	Use the live ads’ page: {live page}
+identity_not_live.instagram.fix	Check, warning	Use the live ads’ Instagram: @{live handle}
+identity_not_live.keep	Check, warning	Keep {draft page}
+identity_not_live.instagram.keep	Check, warning	Keep @{draft handle}
+identity_not_live.kept	Review & launch, under the list	Page kept by {name}, {date, time}: {draft page}
+identity_not_live.instagram.kept	Review & launch, under the list	Instagram kept by {name}, {date, time}: @{draft handle}
+page_other_client.fix.live	Check, blocker (live ads’ page known, not another client’s)	Use the live ads’ page: {live page}
+page_other_client.instagram.fix.live	Check, blocker (live ads’ Instagram known, not another client’s)	Use the live ads’ Instagram: @{live handle}
+page_other_client.evidence.live	Check, blocker (live ads’ page known)	Ads: all {n} · the live ads run from {live page}
+page_other_client.instagram.evidence.live	Check, blocker (live ads’ Instagram known)	Ads: all {n} · the live ads run as @{live handle}
+page_other_client.key	Check, blocker	Page
+page_other_client	Check, blocker	Ads run from {page}, which is {other client}’s page. {code} is {client}’s show.
+page_other_client.instagram.key	Check, blocker	Instagram
+page_other_client.instagram	Check, blocker	Ads run on Instagram as @{handle}, {other client}’s account. {code} is {client}’s show.
+page_other_client.evidence	Check, blocker	Ads: all {n} | {n} ads: {up to 4 ad names}
+page_other_client.fix	Check, blocker	Change the page
+page_other_client.instagram.fix	Check, blocker	Change the Instagram account
+venue_not_set.key	Check, warning (blocker once every venue is set)	Venue
+venue_not_set	Check, warning	{venue} has no account or pixel stored, so this draft’s account and pixel can’t be checked. Set them on the venue card.
+venue_not_set.account	Check, warning	{venue} has no account stored, so this draft’s account can’t be checked. Set it on the venue card.
+venue_not_set.pixel	Check, warning	{venue} has no pixel stored, so this draft’s pixel can’t be checked. Set it on the venue card.
+venue_not_set.evidence	Check, warning	Until every venue is set, this is a warning.
+venue_not_set.fix	Check, warning	Open the venue card
+venue.account	Venue card	Ad account
+venue.pixel	Venue card	Pixel
+venue.note	Venue card, foot	Facebook page and Instagram aren’t set per venue: ads often run from artist pages. Set them in creative setup.
+event.from_venue	Event settings	from the venue
+event.override	Event settings	Set for this event. The venue’s is …{last 4}.
+event.override.undo	Event settings	Use the venue’s
+event.signup_page	Event settings	Signup page
+event.signup_page.source	Event settings	from the CIRQLIN page
+event.ticket_link	Event settings	Ticket link
+creative.link	Creative setup	Link
+creative.link.sub	Creative setup	Where the ads send people
+creative.link.options	Creative setup	Event page · Ticket link · Other
+creative.page	Creative setup	Ads run from
+templates.tab	Audiences step	Audience templates
+templates.beta	Audiences step	BETA
+templates.names	Template chips	House & disco · House & garage · Techno · Commercial house
+templates.for	Template header	For {families} shows: {shows}
+templates.confirmed	Template header	confirmed by {name} {date}
+templates.account	Template header	in {account}
+templates.unconfirmed	Template card	Not confirmed yet
+templates.unconfirmed.line	Template card	Matas confirms a template before it’s used.
+templates.groups	Template body	Customer lists · Retargeting pools · Artist page engagers · Interests
+templates.reused	Item status	Reused
+templates.create	Item status	Will be created
+templates.footer	Template footer	{n} reused · {m} will be created in {account}
+templates.writes_off	Template footer	Creating audiences is switched off, so these {m} wait.
+templates.add_page	Artist page engagers	Add page to this group
+templates.changed	Template footer	{n} change since this template was saved / {n} changes since this template was saved
+templates.save	Template footer	Save to template
+tree.stages	Event › Campaigns	Signup · Presale · On sale · Show week
+tree.stage.unsorted	Event › Campaigns (last, only when it has campaigns)	Unsorted
+tree.unsorted.line	Unsorted, under its header (muted)	The name and objective don’t say the stage, so these take no stage additions.
+tree.master	Campaign row	master
+tree.campaign.no_draft	Campaign row and sheet row (muted, can’t be ticked)	No draft on this event, so additions can’t reach it.
+tree.add.creatives	Addition row	+ {n} ads added
+tree.add.creatives.one	Addition row (1 ad)	+ 1 ad added
+tree.add.audience	Addition row	+ audience added
+tree.add.line	Addition row	{date} · to {n} ad sets · {who}
+tree.add.line.one	Addition row (1 ad set)	{date} · to 1 ad set · {who}
+tree.add.audience_line	Addition row	{date} · {audience} → {n} ad sets · {who}
+tree.add.audience_line.one	Addition row (1 ad set)	{date} · {audience} → 1 ad set · {who}
+tree.add.refresh	Addition row	proposed by the on-sale refresh
+tree.action.creatives	Stage header	Add creatives to…
+tree.action.audience	Stage header	Add audience to…
+tree.sheet.title.creatives	Sheet	Add {n} creatives to {stage}
+tree.sheet.title.creatives.one	Sheet (1 creative)	Add 1 creative to {stage}
+tree.sheet.title.audience	Sheet	Add {audience} to {stage}
+tree.sheet.count	Sheet	{n} of {m} ad sets
+tree.sheet.count.one	Sheet (campaign with 1 ad set)	{n} of 1 ad set
+tree.sheet.paused	Sheet	paused
+tree.sheet.button	Sheet	Add to {n} ad sets in {m} campaigns
+tree.sheet.button.campaign	Sheet (1 campaign)	Add to {n} ad sets in 1 campaign
+tree.sheet.button.one	Sheet (1 ad set)	Add to 1 ad set in 1 campaign
+tree.sheet.button.none	Sheet (nothing ticked, button off)	Nothing ticked
+tree.sheet.note	Sheet	Logged under each campaign.
+tree.sheet.off.creatives	Creatives sheet (switch off, button off)	Adding creatives from here is switched off.
+tree.sheet.off.audience	Audience sheet (switch off, button off)	Adding audiences from here is switched off.
+tree.sheet.audience.label	Audience sheet, picker	Audience
+tree.sheet.audience.placeholder	Audience sheet, picker	Select an audience
+tree.sheet.audience.loading	Audience sheet, picker	Loading audiences…
+tree.sheet.audience.learning	Audience sheet (amber)	Changing targeting on a delivering ad set resets its learning phase.
+tree.result.heading	Sheet, after a run with misses	Not added to {n} ad sets:
+tree.result.heading.one	Sheet, after a run with misses	Not added to 1 ad set:
+tree.result.refused	Result row	{ad set}: refused, nothing changed on it
+tree.result.failed	Result row	{ad set}: didn’t go through. Try again.
+tree.error.partial	Sheet, error	Stopped part way: added to {n} ad sets, then stopped. Try again for the rest.
+tree.error.partial.one	Sheet, error	Stopped part way: added to 1 ad set, then stopped. Try again for the rest.
+tree.error.none	Sheet, error	Nothing was added. Try again.
+tree.error.log	Sheet, error (run can’t be logged)	Nothing was added: this run couldn’t be logged, so it didn’t start.
+tree.error.load	Event › Campaigns, error	The campaigns couldn’t be loaded. Reload the page.
+caption.draft	Caption state	Draft for artist team
+caption.copy	Caption action	Copy to send
+caption.record	Caption action	Record the OK
+caption.record.title	Record form	Record the artist team’s OK
+caption.record.fields	Record form	Who · When · How
+caption.record.channels	Record form	WhatsApp · Email · Instagram · In person
+caption.record.save	Record form	Save the OK
+caption.approved	Caption state	Approved by {name}, {date}, {channel}
+caption.edited	Caption state	Edited after the OK · needs a new one
+caption.venue	Caption state	Venue voice · no OK needed
+location.pin.row	Locations list, a pin’s row	{name} (pin) · {radius} km
+location.pin.chip	Locations list, under the row	{+|−} {name} (pin) · {radius} km · {latitude}, {longitude}
+location.pin.badge	Locations list, badge (added by hand)	pin
+location.pin.add	Search Locations, under the search	Add a pin
+location.pin.title	Pin form	Add a pin
+location.pin.help	Pin form	A pin targets a circle around a point. Use it where Meta has no city.
+location.pin.name	Pin form, field	Name
+location.pin.name.placeholder	Pin form, field	e.g. Leeds
+location.pin.latitude	Pin form, field	Latitude
+location.pin.longitude	Pin form, field	Longitude
+location.pin.radius	Pin form, field	Radius (km)
+location.pin.paste	Pin form, under Latitude	Paste “53.7997, -1.5492” from a map and both fill.
+location.pin.save	Pin form, button	Add pin
+location.pin.cancel	Pin form, button	Cancel
+location.pin.error.name	Pin form, error	Name the pin.
+location.pin.error.latitude	Pin form, error	Latitude is a number from -90 to 90.
+location.pin.error.longitude	Pin form, error	Longitude is a number from -180 to 180.
+location.pin.error.radius	Pin form, error	Radius is 1 to 80 km.
+location.preset.leeds	Quick presets, chip	Leeds, West Yorkshire (pin)
+location.preset.leeds.title	Quick presets, chip hover	Leeds city centre, 53.7997, -1.5492, 80 km. Meta has no Leeds city in West Yorkshire.
+location.region_mismatch	Search result and Locations row (amber)	{name}, {region}: this is in {region}, not {expected region}.
+location.region_mismatch.fix	Search result and Locations row (pin preset known)	Use the {name} pin
+location.region_mismatch.fix.none	Search result and Locations row (no pin preset)	Add a pin
+location.region_mismatch.keep	Locations row	Keep {name}, {region}
+location.region_mismatch.kept	Locations row, muted	{name}, {region} kept by {who}, {date, time}
+templates.item.held	Item, list held in another account	held in {Meta account name}
+su.line.on	Retargeting panel, Bottom: the Signups list is on Meta	Signups list · {n} signups · last sent {date, time} · rebuilt in full {date}
+su.line.on.one	Retargeting panel, Bottom: the Signups list is on Meta (1 signup)	Signups list · 1 signup · last sent {date, time} · rebuilt in full {date}
+su.line.not_on	Retargeting panel, Bottom: the show isn’t switched on (RT15, unchanged)	No signup list yet, so Bottom runs on {sources} only.
+su.line.waiting	Retargeting panel, Bottom: switched on, before the list is made	No signup list yet: it’s made on {date}, 08:00, so until then Bottom runs on {sources} only.
+su.line.switch_off	Retargeting panel, Bottom, after the list line (ochre): sending is off	Sending signups to Meta is switched off, so this list isn’t kept current.
+su.line.switch_off.none	Retargeting panel, Bottom, after the waiting line (ochre): sending is off	Sending signups to Meta is switched off, so the list won’t be made until it’s on.
+su.line.not_linked	Retargeting panel, Bottom (brick): CIRQLIN has no page with the show’s tag	CIRQLIN has no page tagged {tag}, so this show’s signups can’t be sent.
+su.line.not_configured	Retargeting panel, Bottom (brick): CIRQLIN’s read isn’t set up	The CIRQLIN read isn’t set up, so no signups are sent.
+su.line.failed.read	Retargeting panel, Bottom (brick): the last run couldn’t read CIRQLIN	The last run couldn’t read CIRQLIN, so nothing new was sent. The next run tries again tomorrow at 08:00.
+su.line.failed.send	Retargeting panel, Bottom (brick): Meta didn’t take every signup	Meta took {n} of {m} signups in the last run. The next run sends the rest tomorrow at 08:00.
+su.line.failed.send.one	Retargeting panel, Bottom (brick): Meta didn’t take the one signup	Meta didn’t take the 1 signup in the last run. The next run sends it tomorrow at 08:00.
+templates.item.signups	Template tab, a show’s Signups list, the item’s own line	Customer list · role: signups · {code} · {n} signups
+templates.item.signups.one	Template tab, a show’s Signups list (1 signup)	Customer list · role: signups · {code} · 1 signup
+templates.item.signups.none	Template tab, a show’s Signups list before it’s made, the item’s own line	Customer list · role: signups · {code}
+templates.item.signups.waiting	Template tab, a show’s Signups list, status before it’s made	Made on {date}
+event.signups	Event page, one line under the Linked campaigns tree	Signups in Meta: {n} in {code} · Signups, last sent {date, time}.
+event.signups.one	Event page, under the tree (1 signup)	Signups in Meta: 1 in {code} · Signups, last sent {date, time}.
+identity.instagram.unnamed	Any Instagram value Meta won’t give a username for, in place of @{handle}	account {id}
+templates.apply	Template tab, button	Add to this draft
+templates.apply.done	Template tab, after Add	Added {template} to {draft}: {n} audiences.
+templates.apply.done.one	Template tab, after Add (1 audience)	Added {template} to {draft}: 1 audience.
+templates.apply.left_out	Template tab, after Add, when some aren’t made yet	{m} aren’t made yet, so they’re left out.
+templates.apply.left_out.one	Template tab, after Add (1 not made yet)	1 isn’t made yet, so it’s left out.
+templates.create_button	Template tab, button	Create {m} audiences in {Meta account name}
+templates.create_button.one	Template tab, button (1 to create)	Create 1 audience in {Meta account name}
+templates.created	Template tab, after Create	Created {m} in {Meta account name}.
+templates.created.one	Template tab, after Create (1)	Created 1 in {Meta account name}.
+templates.create_failed	Template tab, after Create, some failed	{n} weren’t created. Try again.
+templates.create_failed.one	Template tab, after Create (1 failed)	1 wasn’t created. Try again.
