@@ -317,8 +317,12 @@ export const attachDriveCreativesTool: McpTool = {
       const fileName = opened.get(parent)!.open.files.find((f) => f.id === id)?.name ?? id;
       if (may === "other_client") {
         const c = await ctx.db.from("clients").select("name").in("id", owner.clientIds).limit(1);
-        const name = ((c.data ?? []) as Array<{ name: string | null }>)[0]?.name ?? "another client";
-        throw new ToolInputError(ATTACH_WORDS.otherClient(fileName, name), { draftId: loaded.row.id, refused: "other_client", fileId: id });
+        const name = ((c.error ? [] : (c.data ?? [])) as Array<{ name: string | null }>)[0]?.name?.trim();
+        throw new ToolInputError(name ? ATTACH_WORDS.otherClient(fileName, name) : ATTACH_WORDS.otherClientUnnamed(fileName), {
+          draftId: loaded.row.id,
+          refused: "other_client",
+          fileId: id,
+        });
       }
       throw new ToolInputError(ATTACH_WORDS.ownerUnknown(fileName), { draftId: loaded.row.id, refused: "owner_unknown", fileId: id });
     }

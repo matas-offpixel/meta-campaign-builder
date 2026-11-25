@@ -10,7 +10,6 @@ import { resolveMetaLaunchEntityStatus } from "../../meta/launch-status.ts";
 import { buildAdSetPayload } from "../../meta/adset.ts";
 import { buildAdPayload } from "../../meta/creative.ts";
 import { buildCampaignPayload } from "../../meta/campaign.ts";
-import type { DriveApi, DriveFile, DriveMediaFile } from "../../drive/client.ts";
 import type { CampaignDraft } from "../../types.ts";
 import { validateStep } from "../../validation.ts";
 import { META_TOOLS } from "../tools/index.ts";
@@ -23,9 +22,9 @@ import { draftMoneyADay } from "../meta/ceiling.ts";
 import { MCP_WORDS } from "../meta/words.ts";
 import { TODAY_UNDO_SHIPPED } from "../meta/today-undo.ts";
 import { ToolInputError, type McpTool, type ToolContext } from "../tool-types.ts";
-import { CLIENT_EL, D_DRAFT, EV_EL, EV_SRC, EV_TGT, UPDATED, draftCtx, fakeDrive, fakeDraftDeps, newSpies, readRow } from "./draft-fixtures.ts";
+import { CLIENT_EL, D_DRAFT, EV_EL, EV_SRC, EV_TGT, UPDATED, draftCtx, newSpies, readRow } from "./draft-fixtures.ts";
 
-import { ACCOUNT, YES, metaCtx } from "./meta-fixtures.ts";
+import { ACCOUNT, YES, driveCtx, metaCtx, widerDrive } from "./meta-fixtures.ts";
 import { CLIENT_NX } from "./fixtures.ts";
 
 async function run(tool: McpTool, ctx: ToolContext, args: Record<string, unknown>) {
@@ -329,69 +328,6 @@ test("update_event: only the fields given, times as the form saves them, links h
 
 // ── attach_drive_creatives: pairs, and folders anywhere in the shared drive ──
 
-const FOLDER = "application/vnd.google-apps.folder";
-const m = (over: Partial<DriveMediaFile> & { id: string; name: string; mimeType: string }): DriveMediaFile =>
-  ({ trashed: false, size: 2_000_000, width: 1080, height: 1920, rotation: 0, durationMs: 15_000, thumbnailLink: null, ...over }) as DriveMediaFile;
-
-/** The fixture drive plus a client folder inside the shared drive and a folder in another drive. */
-function widerDrive(spies: ReturnType<typeof newSpies>): DriveApi {
-  const base = fakeDrive(spies);
-  const folders: Record<string, DriveFile> = {
-    "drv-client": { id: "drv-client", name: "NX Live (promoter)", mimeType: FOLDER, parents: ["drive-test"], trashed: false },
-    "drv-foreign": { id: "drv-foreign", name: "Someone else's", mimeType: FOLDER, parents: ["other-drive"], trashed: false },
-    "other-drive": { id: "other-drive", name: "Other", mimeType: FOLDER, parents: [], trashed: false },
-    // Another NX Live show's tree (mapped), inside NX Live's client folder.
-    "drv-src-event": { id: "drv-src-event", name: "2026-12-20 Source show [NX26-SRC]", mimeType: FOLDER, parents: ["drv-client"], trashed: false },
-    // Electric's folders, unmapped: the "[CODE]" in a folder's name gives the event and its client.
-    "drv-el": { id: "drv-el", name: "Electric", mimeType: FOLDER, parents: ["drive-test"], trashed: false },
-    "drv-el-event": { id: "drv-el-event", name: "2027-02-26 Lock Lead [EBR27-LOCKLEAD]", mimeType: FOLDER, parents: ["drv-el"], trashed: false },
-    // The artist library, under the drive's root.
-    "drv-lib": { id: "drv-lib", name: "00 Artist Library", mimeType: FOLDER, parents: ["drive-test"], trashed: false },
-    "drv-lib-artist": { id: "drv-lib-artist", name: "Ada North", mimeType: FOLDER, parents: ["drv-lib"], trashed: false },
-    // A folder nobody's: no mapping, no code, not the library.
-    "drv-loose": { id: "drv-loose", name: "Shared bits", mimeType: FOLDER, parents: ["drive-test"], trashed: false },
-  };
-  const extra = [
-    m({ id: "file-client-916", name: "meta-date_9x16.mp4", mimeType: "video/mp4", parents: ["drv-client"] }),
-    m({ id: "file-client-45", name: "meta-date_4x5.mp4", mimeType: "video/mp4", parents: ["drv-client"], width: 1080, height: 1350 }),
-    m({ id: "file-foreign", name: "x.mp4", mimeType: "video/mp4", parents: ["drv-foreign"] }),
-    m({ id: "file-src-916", name: "source-show_9x16.mp4", mimeType: "video/mp4", parents: ["drv-src-event"] }),
-    m({ id: "file-el-916", name: "lock-lead_9x16.mp4", mimeType: "video/mp4", parents: ["drv-el-event"] }),
-    m({ id: "file-lib-916", name: "ada-north-live_9x16.mp4", mimeType: "video/mp4", parents: ["drv-lib-artist"] }),
-    m({ id: "file-loose-916", name: "loose_9x16.mp4", mimeType: "video/mp4", parents: ["drv-loose"] }),
-  ];
-  return {
-    ...base,
-    async getFile(id) {
-      return folders[id] ?? (await base.getFile(id));
-    },
-    async listChildren(parent, opts) {
-      if (parent === "drive-test") return [folders["drv-client"]!];
-      return base.listChildren(parent, opts);
-    },
-    async listMedia(parent) {
-      const own = extra.filter((f) => f.parents?.[0] === parent);
-      return own.length ? own : base.listMedia!(parent);
-    },
-    async getMediaFile(id) {
-      return extra.find((f) => f.id === id) ?? (await base.getMediaFile!(id));
-    },
-  };
-}
-
-async function driveCtx() {
-  const spies = newSpies();
-  const made = draftCtx({}, spies);
-  made.ctx.draft = fakeDraftDeps(spies, { drive: () => widerDrive(spies) });
-  // NX Live's client folder (no event) and another NX Live show's event folder, as the Drive tick maps them.
-  await made.db.from("drive_folders").insert([
-    { event_id: null, client_id: CLIENT_NX, key: "client", name: "NX Live (promoter)", drive_folder_id: "drv-client" },
-    { event_id: EV_SRC, client_id: CLIENT_NX, key: "event", name: "2026-12-20 Source show [NX26-SRC]", drive_folder_id: "drv-src-event" },
-  ]);
-  made.db.writes.length = 0;
-  // The event tree's only folder sits in the shared drive too.
-  return { ...made, spies };
-}
 
 test("pairs: a 4:5 feed file and its 9:16 make one ad with both slots, Dual, both waiting for launch", async () => {
   const { ctx, db, spies } = await driveCtx();
@@ -447,12 +383,15 @@ test("whose footage: a file in another show's tree for the same client is the cl
   const own = await attach("file-src-916", UPDATED);
   assert.equal((own.data.added as unknown[]).length, 1);
   // Electric's show, found by the "[EBR27-LOCKLEAD]" in its folder's name: another client.
-  await refused(attach("file-el-916", String(own.data.updated_at)), /^Refused: lock-lead_9x16\.mp4 is Electric’s footage, not this show’s client’s\. Only the client’s own files or the artist library can go on its drafts\. Nothing was saved\.$/);
+  await refused(attach("file-el-916", String(own.data.updated_at)), /^Refused: lock-lead_9x16\.mp4 is in Electric’s folders, and only this show’s client’s own files or the artist library can go on its drafts\. Nothing was saved\.$/);
   // The artist library: shareable artist material.
   const lib = await attach("file-lib-916", String(own.data.updated_at));
   assert.equal((lib.data.added as unknown[]).length, 1);
   // A folder that is nobody's.
-  await refused(attach("file-loose-916", String(lib.data.updated_at)), /^Refused: loose_9x16\.mp4 isn’t in a client’s folders or the artist library/);
+  await refused(attach("file-loose-916", String(lib.data.updated_at)), /^Refused: loose_9x16\.mp4 isn’t under an event, a client’s folder or 00 Artist Library, so whose it is can’t be told\. Move it into one of those and try again\. Nothing was saved\.$/);
+  // Another client with no name: the unnamed row, never a bare "another client" fill-in.
+  await db.from("clients").update({ name: null }).eq("id", CLIENT_EL);
+  await refused(attach("file-el-916", String(lib.data.updated_at)), /^Refused: lock-lead_9x16\.mp4 is in another client’s folders, and only this show’s client’s own files or the artist library can go on its drafts\. Nothing was saved\.$/);
   assert.equal(db.writes.filter((w) => w.table === "campaign_drafts").length, 2);
 });
 

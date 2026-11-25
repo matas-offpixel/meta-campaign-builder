@@ -150,14 +150,15 @@ export const ATTACH_WORDS = {
   failed: "The files couldn’t be copied in. Try again. Nothing was saved.",
   waiting: "The new ads’ files wait in Off/Pixel and go to Meta at launch, or now with upload_draft_assets.",
   pairsOff: "Per-placement ads are switched off in Off/Pixel, so each pair launches as one file in every placement until they’re switched on.",
-  /**
-   * PENDING DESIGN (no row yet, sent back with the M3a PR): a file in another
-   * client's folders, and a file whose owner can't be told. Builder's candidates.
-   */
+  /** claude.mcp.attach.other_client: the file's folders lead to another client's tree. */
   otherClient: (name: string, client: string) =>
-    `Refused: ${name} is ${client}’s footage, not this show’s client’s. Only the client’s own files or the artist library can go on its drafts. Nothing was saved.`,
+    `Refused: ${name} is in ${client}’s folders, and only this show’s client’s own files or the artist library can go on its drafts. Nothing was saved.`,
+  /** claude.mcp.attach.other_client.unnamed: the same when that client has no name. */
+  otherClientUnnamed: (name: string) =>
+    `Refused: ${name} is in another client’s folders, and only this show’s client’s own files or the artist library can go on its drafts. Nothing was saved.`,
+  /** claude.mcp.attach.owner_unknown: not under an event tree, a client folder or 00 Artist Library. */
   ownerUnknown: (name: string) =>
-    `Refused: ${name} isn’t in a client’s folders or the artist library, so whose footage it is can’t be told. Nothing was saved.`,
+    `Refused: ${name} isn’t under an event, a client’s folder or 00 Artist Library, so whose it is can’t be told. Move it into one of those and try again. Nothing was saved.`,
 } as const;
 
 /** today.mcp.result.* forms, for claude.mcp.done's {result}. */

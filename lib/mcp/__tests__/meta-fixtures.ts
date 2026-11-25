@@ -5,10 +5,11 @@
  */
 import { sendStoredDraftAssets } from "../../plan/stored-assets-meta.ts";
 import type { CampaignDraft } from "../../types.ts";
+import type { DriveApi, DriveFile, DriveMediaFile } from "../../drive/client.ts";
 import type { McpMetaDeps, ToolContext } from "../tool-types.ts";
 import { CLIENT_NX } from "./fixtures.ts";
 import { OPERATOR } from "./helpers.ts";
-import { D_DRAFT, TGT_SIGNUP, draftCtx, readRow } from "./draft-fixtures.ts";
+import { D_DRAFT, EV_SRC, TGT_SIGNUP, draftCtx, fakeDrive, fakeDraftDeps, newSpies, readRow } from "./draft-fixtures.ts";
 
 export const SCOPE_ALL = "mcp:read mcp:draft mcp:meta";
 export const YES = { asked: "Launch [NX27-GLITTERBOX] SIGNUP to Meta paused? 2 ad sets, £50 a day once switched on.", answer: "yes, paused" };
@@ -125,3 +126,69 @@ export async function metaCtx(opts: { storage?: boolean; ceiling?: number | null
   return { ...made, spy };
 }
 
+// ── attach_drive_creatives: folders anywhere in the shared drive ──
+
+const FOLDER = "application/vnd.google-apps.folder";
+const m = (over: Partial<DriveMediaFile> & { id: string; name: string; mimeType: string }): DriveMediaFile =>
+  ({ trashed: false, size: 2_000_000, width: 1080, height: 1920, rotation: 0, durationMs: 15_000, thumbnailLink: null, ...over }) as DriveMediaFile;
+
+/** The fixture drive plus a client folder inside the shared drive and a folder in another drive. */
+export function widerDrive(spies: ReturnType<typeof newSpies>): DriveApi {
+  const base = fakeDrive(spies);
+  const folders: Record<string, DriveFile> = {
+    "drv-client": { id: "drv-client", name: "NX Live (promoter)", mimeType: FOLDER, parents: ["drive-test"], trashed: false },
+    "drv-foreign": { id: "drv-foreign", name: "Someone else's", mimeType: FOLDER, parents: ["other-drive"], trashed: false },
+    "other-drive": { id: "other-drive", name: "Other", mimeType: FOLDER, parents: [], trashed: false },
+    // Another NX Live show's tree (mapped), inside NX Live's client folder.
+    "drv-src-event": { id: "drv-src-event", name: "2026-12-20 Source show [NX26-SRC]", mimeType: FOLDER, parents: ["drv-client"], trashed: false },
+    // Electric's folders, unmapped: the "[CODE]" in a folder's name gives the event and its client.
+    "drv-el": { id: "drv-el", name: "Electric", mimeType: FOLDER, parents: ["drive-test"], trashed: false },
+    "drv-el-event": { id: "drv-el-event", name: "2027-02-26 Lock Lead [EBR27-LOCKLEAD]", mimeType: FOLDER, parents: ["drv-el"], trashed: false },
+    // The artist library, under the drive's root.
+    "drv-lib": { id: "drv-lib", name: "00 Artist Library", mimeType: FOLDER, parents: ["drive-test"], trashed: false },
+    "drv-lib-artist": { id: "drv-lib-artist", name: "Ada North", mimeType: FOLDER, parents: ["drv-lib"], trashed: false },
+    // A folder nobody's: no mapping, no code, not the library.
+    "drv-loose": { id: "drv-loose", name: "Shared bits", mimeType: FOLDER, parents: ["drive-test"], trashed: false },
+  };
+  const extra = [
+    m({ id: "file-client-916", name: "meta-date_9x16.mp4", mimeType: "video/mp4", parents: ["drv-client"] }),
+    m({ id: "file-client-45", name: "meta-date_4x5.mp4", mimeType: "video/mp4", parents: ["drv-client"], width: 1080, height: 1350 }),
+    m({ id: "file-foreign", name: "x.mp4", mimeType: "video/mp4", parents: ["drv-foreign"] }),
+    m({ id: "file-src-916", name: "source-show_9x16.mp4", mimeType: "video/mp4", parents: ["drv-src-event"] }),
+    m({ id: "file-el-916", name: "lock-lead_9x16.mp4", mimeType: "video/mp4", parents: ["drv-el-event"] }),
+    m({ id: "file-lib-916", name: "ada-north-live_9x16.mp4", mimeType: "video/mp4", parents: ["drv-lib-artist"] }),
+    m({ id: "file-loose-916", name: "loose_9x16.mp4", mimeType: "video/mp4", parents: ["drv-loose"] }),
+  ];
+  return {
+    ...base,
+    async getFile(id) {
+      return folders[id] ?? (await base.getFile(id));
+    },
+    async listChildren(parent, opts) {
+      if (parent === "drive-test") return [folders["drv-client"]!];
+      return base.listChildren(parent, opts);
+    },
+    async listMedia(parent) {
+      const own = extra.filter((f) => f.parents?.[0] === parent);
+      return own.length ? own : base.listMedia!(parent);
+    },
+    async getMediaFile(id) {
+      return extra.find((f) => f.id === id) ?? (await base.getMediaFile!(id));
+    },
+  };
+}
+
+/** A draft context whose Drive has folders across the shared drive (attach_drive_creatives' owner checks). */
+export async function driveCtx() {
+  const spies = newSpies();
+  const made = draftCtx({}, spies);
+  made.ctx.draft = fakeDraftDeps(spies, { drive: () => widerDrive(spies) });
+  // NX Live's client folder (no event) and another NX Live show's event folder, as the Drive tick maps them.
+  await made.db.from("drive_folders").insert([
+    { event_id: null, client_id: CLIENT_NX, key: "client", name: "NX Live (promoter)", drive_folder_id: "drv-client" },
+    { event_id: EV_SRC, client_id: CLIENT_NX, key: "event", name: "2026-12-20 Source show [NX26-SRC]", drive_folder_id: "drv-src-event" },
+  ]);
+  made.db.writes.length = 0;
+  // The event tree's only folder sits in the shared drive too.
+  return { ...made, spies };
+}
