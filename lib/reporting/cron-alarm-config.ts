@@ -112,14 +112,20 @@ export const CRON_ALARMS: CronAlarmSpec[] = [
   { cronName: "optimisation-tick", intervalMinutes: 240, zeroRule: "never" },
   // 0 7,8 UTC, acting at 08:00 London: the creative tests' daily read (TF2, TF5–TF8). Most days it reads no running test.
   { cronName: "creative-tests-read", intervalMinutes: 1440, zeroRule: "never" },
+  // "0 7,8 * * *" UTC, acting on 08:00 London: signups into Meta customer
+  // lists (SU1, SU2). Most days it sends nothing (no enabled show is active,
+  // or nothing new), so only a missing or failed run alarms.
+  { cronName: "customer-list-sync", intervalMinutes: 1440, zeroRule: "never" },
 
-  // 15 21,1,4 UTC: three runs a London night, each stopping at the first
-  // rate limit. One row per run (rows_written = BMs scanned OK,
-  // rows_considered = BMs not under an archived client). A failed run
-  // alarms at once; a zero (rate-limited or not) only when every run that
-  // night did 0. intervalMinutes is 1440 on purpose, not the longest real
-  // gap (17 h): "not reporting" stays at 48 h without a run.
-  { cronName: "bm-page-scan", intervalMinutes: 1440, zeroRule: "night_all_zero", runsPerNight: 3 },
+  // 15 21,1,4 and 45 22 UTC: four runs a London night, each stopping at
+  // the first rate limit or at 80 % X-App-Usage, whichever comes first. One
+  // row per run (rows_written = BMs scanned OK, rows_considered = BMs not
+  // under an archived client). A failed run alarms at once; a zero
+  // (rate-limited, usage-stopped or not) only when every run that night did
+  // 0. A usage stop always finishes the BM in progress, so it is a zero only
+  // when that BM failed. intervalMinutes is 1440 on purpose, not the longest
+  // real gap (17 h): "not reporting" stays at 48 h without a run.
+  { cronName: "bm-page-scan", intervalMinutes: 1440, zeroRule: "night_all_zero", runsPerNight: 4 },
   { cronName: "budget-pacing-check", intervalMinutes: 60, zeroRule: "never" },
 
   // The watcher watches itself: if the evaluator stops running, nothing

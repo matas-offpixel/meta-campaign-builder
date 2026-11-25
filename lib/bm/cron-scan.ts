@@ -27,7 +27,9 @@ import { scanBusinessManager } from "@/lib/bm/sync";
 import { scanBusinessManagerAllAssets, type AssetScanResult } from "@/lib/bm/sync-assets";
 import {
   BM_SCAN_TIME_BUDGET_MS,
+  BM_SCAN_USAGE_STOP_PCT,
   createTokenContextCache,
+  createUsageStopLatch,
   isMetaRateLimitError,
   isMetaTokenExpiredError,
   orderForRotation,
@@ -65,6 +67,8 @@ export interface BmCronScanSummary {
   skipped: number;
   skippedRateLimited: number;
   skippedTimeBudget: number;
+  /** BMs not started because X-App-Usage reached BM_SCAN_USAGE_STOP_PCT (reason `app_usage_80`). */
+  skippedUsage: number;
   /** What ended the run early, or null when every BM was started. */
   stoppedBy: BmSkipReason | null;
   rateLimitedAt: string | null;
@@ -79,6 +83,10 @@ export interface BmCronScanSummary {
    * when the run was not rate-limited, or Meta sent no header on that response.
    */
   appUsageAtLimit: AppUsageReading | null;
+  /** True when the run stopped itself at BM_SCAN_USAGE_STOP_PCT (`stoppedBy === "app_usage_80"`). */
+  stoppedAtUsage: boolean;
+  /** The first reading at or over the stop percentage, when the run stopped on it; else null. */
+  usageAtStop: AppUsageReading | null;
   totals: { pages: number; newPages: number; missing: number; errors: number };
   assetTotals: { assets: number; newAssets: number; missing: number; errors: number };
   skippedBusinessIds: Array<{ businessId: string; reason: BmSkipReason }>;
@@ -99,8 +107,8 @@ function failedPage(bizId: string, error: string, rateLimited = false): ScanResu
 }
 
 /**
- * The daily `/api/cron/bm-page-scan` run. See `lib/bm/scan-run.ts` for why the
- * loop has a breaker, a time budget and a rotation order.
+ * The nightly `/api/cron/bm-page-scan` run. See `lib/bm/scan-run.ts` for why the
+ * loop has a breaker, an 80 % app-usage stop, a time budget and a rotation order.
  *
  * Meta reads per run, before: `/me/accounts` and `/me?fields=business_users`
  * once per BM (71 + 71), on top of each BM's own edges. After: once per
@@ -220,7 +228,11 @@ export async function runBmCronScan(
 
   // Every Graph call below is counted on this run's own meter, so another
   // request sharing the instance never shows up in meta_calls.
+  // The usage stop reads every X-App-Usage reading as it arrives, not only the
+  // last one per BM, so a BM that crossed 80 % and fell back still stops the run.
   const meter = createMetaCallMeter();
+  const usageStop = createUsageStopLatch(BM_SCAN_USAGE_STOP_PCT);
+  meter.onAppUsage = usageStop.note;
   let appUsageAtLimit: AppUsageReading | null = null;
   async function scanOneMetered(bm: BusinessManager): Promise<BmOutcome> {
     const before = meter.calls;
@@ -247,6 +259,7 @@ export async function runBmCronScan(
     startedAtMs,
     now,
     budgetMs: opts.budgetMs ?? BM_SCAN_TIME_BUDGET_MS,
+    usageStop: usageStop.tripped,
   }));
 
   const results = loop.scanned.map((s) => s.result.page);
@@ -276,13 +289,18 @@ export async function runBmCronScan(
 
   const skippedRateLimited = loop.skipped.filter((s) => s.reason === "rate_limited").length;
   const skippedTimeBudget = loop.skipped.filter((s) => s.reason === "time_budget").length;
+  const skippedUsage = loop.skipped.filter((s) => s.reason === "app_usage_80").length;
+  const stoppedAtUsage = loop.stoppedBy === "app_usage_80";
   const scannedOk = results.filter((r) => r.ok).length;
 
   console.error(
     `[bm-page-scan] done in ${elapsedMs}ms — bms=${bms.length} skipped_archived_clients=${skippedArchivedClients} ` +
       `scanned=${results.length} ok=${scannedOk} ` +
       `skipped_rate_limited=${skippedRateLimited} skipped_time_budget=${skippedTimeBudget} ` +
-      `stopped_by=${loop.stoppedBy ?? "none"}` +
+      `skipped_usage=${skippedUsage} stopped_by=${loop.stoppedBy ?? "none"}` +
+      (loop.usageAtStop
+        ? ` usage_at_stop=${loop.usageAtStop.call_count}/${loop.usageAtStop.total_time}/${loop.usageAtStop.total_cputime}`
+        : "") +
       (loop.rateLimitedAt ? ` rate_limited_at=${loop.rateLimitedAt.business_id}` : "") +
       ` token_reads=${tokenContexts.loads()} meta_calls=${meter.calls} | pages=${totals.pages} new=${totals.newPages} ` +
       `missing_access=${totals.missing} errors=${totals.errors} | ` +
@@ -300,12 +318,15 @@ export async function runBmCronScan(
     skipped: loop.skipped.length,
     skippedRateLimited,
     skippedTimeBudget,
+    skippedUsage,
     stoppedBy: loop.stoppedBy,
     rateLimitedAt: loop.rateLimitedAt?.business_id ?? null,
     tokenContextReads: tokenContexts.loads(),
     metaCalls: meter.calls,
     appUsageLast: meter.lastAppUsage,
     appUsageAtLimit: loop.stoppedBy === "rate_limited" ? appUsageAtLimit : null,
+    stoppedAtUsage,
+    usageAtStop: stoppedAtUsage ? loop.usageAtStop : null,
     totals,
     assetTotals,
     skippedBusinessIds: loop.skipped.map((s) => ({ businessId: s.bm.business_id, reason: s.reason })),

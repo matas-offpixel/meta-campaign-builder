@@ -458,7 +458,7 @@ async function applyMove(deps: ApplyDeps, line: LineRow, ledger: MetaWriteContex
  * Apply the event's accepted creative lines (or, with `retry`, its failed
  * ones). `lineIds` narrows it. The caller has checked the owner.
  */
-export async function applyAccepted(args: { deps: ApplyDeps; eventId: string; userId: string; gates: ApplyGates; retry?: boolean; lineIds?: readonly string[]; /** F3's "by {name}": a first name or an email's local part, never a full email. */ appliedByName?: string | null }): Promise<ApplyResult> {
+export async function applyAccepted(args: { deps: ApplyDeps; eventId: string; userId: string; gates: ApplyGates; retry?: boolean; lineIds?: readonly string[]; /** F3's "by {name}": a first name or an email's local part, never a full email. */ appliedByName?: string | null; /** RT16: an unarmed event applies its Retargeting lines only. */ onlyRetargeting?: boolean }): Promise<ApplyResult> {
   const { deps, gates } = args;
   const db = deps.db;
   if (gates.mode !== "live") return { ok: false, status: 409, error: APPLY_SHADOW };
@@ -469,9 +469,9 @@ export async function applyAccepted(args: { deps: ApplyDeps; eventId: string; us
   const event = eventRead.data as EventRow | null;
   if (!event || event.user_id !== args.userId) return { ok: false, status: 404, error: "Event not found on this account." };
 
-  const proposalRead = await db.from("onsale_refresh_proposals").select("id, campaign_key, campaign_ids, window_end").eq("event_id", event.id);
+  const proposalRead = await db.from("onsale_refresh_proposals").select("id, campaign_key, campaign_ids, window_end, run_kind").eq("event_id", event.id);
   if (proposalRead.error) return { ok: false, status: 500, error: proposalRead.error.message };
-  const proposals = new Map(((proposalRead.data ?? []) as ProposalRow[]).map((row) => [row.id, row]));
+  const proposals = new Map(((proposalRead.data ?? []) as (ProposalRow & { run_kind?: string | null })[]).filter((row) => !args.onlyRetargeting || row.run_kind === "retargeting").map((row) => [row.id, row]));
   if (!proposals.size) return { ok: true, applied: 0, failed: 0, lines: [] };
 
   const from = args.retry ? "failed" : "accepted";
