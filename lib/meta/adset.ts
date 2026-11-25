@@ -437,6 +437,9 @@ export function buildMetaTargeting(
 
     case "custom_group": {
       const group = audiences.customAudienceGroups.find((g) => g.id === adSet.sourceId);
+      if (group?.suggestionsOnly && !advantagePlusActive) {
+        throw new Error(`Ad set "${adSet.name}" targets "${group.name}" directly, but those audiences are Advantage+ suggestions only. Turn Advantage+ Audience on for it.`);
+      }
       if (group) {
         const realIds = audienceIdsForLaunch(group.audienceIds, group.foreignAccountById);
         if (realIds.length > 0) {

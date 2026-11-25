@@ -1,12 +1,14 @@
 /**
  * What the MCP may write. M1 (the read tools) writes nothing outside the
- * action log (mcp_actions) and the OAuth store (mcp_oauth_*). M2 (the draft
- * tools) adds campaign_drafts, from lib/mcp/drafts/write.ts only, and the
- * Drive picker's own copy (copyPickedFile: creative_assets and Storage).
- * Nothing writes Meta, TikTok, Google, Slack or D2C; the one network call is
- * the location search's GET in lib/mcp/draft-deps.ts. A grep over every file
- * the MCP server and its tools import (relative and `@/`, walked
- * transitively), plus the routes, and a check of migration 268.
+ * action log (mcp_actions) and the OAuth store (mcp_oauth_*). M2 and M2b
+ * (the draft tools) add campaign_drafts, from lib/mcp/drafts/write.ts only,
+ * and the Drive picker's own copy (copyPickedFile: creative_assets and
+ * Storage). Nothing writes Meta, TikTok, Google, Slack or D2C; the only
+ * network calls are three Graph GETs in lib/mcp/graph-reads.ts (location
+ * search, interest search, the account's page list), sent by
+ * lib/mcp/draft-deps.ts. A grep over every file the MCP server and its
+ * tools import (relative and `@/`, walked transitively), plus the routes,
+ * and a check of migration 268.
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -30,7 +32,7 @@ const ENTRIES = [
   "lib/mcp/server.ts",
   "lib/mcp/tools/index.ts",
   "lib/mcp/draft-deps.ts",
-  "lib/mcp/pending-seams.ts",
+  "lib/mcp/graph-reads.ts",
   "lib/mcp/readers.ts",
   "lib/mcp/route-deps.ts",
   "lib/mcp/oauth/http.ts",
@@ -107,7 +109,16 @@ const EXTERNAL_READERS: Record<string, readonly string[]> = {
   "lib/meta/location-search.ts": ["selectionFromGeoResult", "locationSearchQuery", "parseLocationSearchHits"],
   "lib/meta/location-radius.ts": ["clampCityRadius"],
   "lib/meta/location-targeting.ts": ["groupTier", "withGroupTier"],
-  "lib/wizard/adset-suggestions.ts": ["addLocationToEveryAdSet", "adSetsTargetingLocation", "convertAdSetBudgetsOnTypeChange", "followLocationTiers"],
+  "lib/wizard/adset-suggestions.ts": [
+    "addLocationToEveryAdSet",
+    "adSetsTargetingLocation",
+    "convertAdSetBudgetsOnTypeChange",
+    "followLocationTiers",
+    "MAX_ADSET_NAME_LENGTH",
+    "UK_NATIONWIDE_FALLBACK",
+    "appendBlankAdSet",
+    "clearUnsupportedAdvantagePlus",
+  ],
   "lib/wizard/budget-schedule-update.ts": ["mapExcludedLocations", "mapLocationGroups", "patchBudgetSchedule"],
   "lib/time.ts": ["zonedLocalToUtc"],
   // M2: the Drive picker's model and view (reads), and the creative defaults (pure).
@@ -118,6 +129,24 @@ const EXTERNAL_READERS: Record<string, readonly string[]> = {
   "lib/campaign-defaults.ts": ["createDefaultAssetVariation", "createDefaultCreative", "defaultCtaForObjective"],
   "lib/clients/channel-defaults.ts": ["loadClientChannelDefaults"],
   "lib/meta/server-token.ts": ["resolveServerMetaToken"],
+  // The launch checks (#1361): runLaunchGuard's database reads, and takeIdentity (pure).
+  "lib/launch-guard/load.ts": ["runLaunchGuard"],
+  "lib/launch-guard/check.ts": ["takeIdentity"],
+  // The wizard's own step checks (Review's validateStep(7)): pure.
+  "lib/validation.ts": ["validateStep"],
+  // M2b: the wizard's own helpers (pure).
+  "lib/wizard/objective-change.ts": ["OBJECTIVE_LABELS", "objectiveChangePatch", "stampRulesObjective"],
+  "lib/wizard/assignments.ts": ["assignAllCreatives", "assignmentCounts", "forAdSets", "withoutCreatives"],
+  "lib/wizard/generate-adset-suggestions.ts": ["generateSuggestions"],
+  "lib/wizard/follow-audience-groups.ts": ["followAudienceGroups", "groupKey"],
+  "lib/meta/advantage-plus-compat.ts": ["isAdvantageAudienceSupportedForObjective"],
+  "lib/meta/adset.ts": ["buildPromotedObject"],
+  "lib/mock-data.ts": ["CTA_OPTIONS"],
+  "lib/campaign-event.ts": ["buildDuplicatedCampaign"],
+  "lib/interest-targetability.ts": ["enrichWithTargetability"],
+  // Audience templates (#1363): the resolver and the row mapping (pure).
+  "lib/audience-templates/resolve.ts": ["dedupeKnown", "knownFromDraftAudiences", "knownFromRows", "normalizeAccount", "resolveTemplate"],
+  "lib/audience-templates/store.ts": ["templateFromRows"],
   // AL5: get_artist's reads (artists, artist_assets, event_artists, events, clients, ad_daily_insights) and its pure view and words.
   "lib/artist-library/load.ts": ["findArtist", "loadArtistData"],
   "lib/artist-library/view.ts": ["buildArtistView"],
@@ -135,8 +164,11 @@ const EXTERNAL_WRITERS: Record<string, Record<string, RegExp>> = {
   "lib/clients/asset-queue/storage-upload.ts": { uploadFileToStorageBucket: /^$/ },
 };
 
-/** lib/meta modules the MCP may import: pure helpers and the token read. No Meta write path. */
-const META_IMPORTS_ALLOWED = /\/meta\/(ad-account|location-pins|location-search|location-radius|location-targeting|server-token)(\.ts)?["']/;
+/**
+ * lib/meta modules the MCP may import: pure helpers and the token read. No
+ * Meta write path (lib/meta/client.ts, the Graph client, is never imported).
+ */
+const META_IMPORTS_ALLOWED = /\/meta\/(ad-account|location-pins|location-search|location-radius|location-targeting|server-token|advantage-plus-compat|adset)(\.ts)?["']/;
 
 const isOwn = (f: string) => f.startsWith("lib/mcp/") || f.startsWith("app/") || f.startsWith("components/mcp/");
 
@@ -226,13 +258,14 @@ test("the outside writers M2 calls write only what the Drive picker's copy write
   }
 });
 
-test("the tools and the server make no network calls and import no write paths; the one GET is the location search", () => {
+test("the tools and the server make no network calls and import no write paths; the only requests are graph-reads' three GETs", () => {
   const files = walk();
   const hits: string[] = [];
+  const SENDERS = new Set(["lib/mcp/graph-reads.ts", "lib/mcp/draft-deps.ts"]);
   for (const [file, src] of files) {
     if (!isOwn(file)) continue;
     const code = strip(src);
-    if (file !== "lib/mcp/draft-deps.ts" && NETWORK.test(code)) hits.push(`${file}: network`);
+    if (!SENDERS.has(file) && (NETWORK.test(code) || /\bfetchImpl\s*\(/.test(code))) hits.push(`${file}: network`);
     for (const m of code.matchAll(/from\s+["']((?:@\/|\.\.?\/)[^"']*)["']/g)) {
       const spec = m[1]!;
       if (/\b(tiktok|google-ads|notify|d2c|actions)\//.test(spec)) hits.push(`${file}: write-path import ${spec}`);
@@ -240,11 +273,18 @@ test("the tools and the server make no network calls and import no write paths; 
     }
   }
   assert.deepEqual(hits, []);
+  assert.ok(!files.has("lib/meta/client.ts"), "the Graph client is never imported");
+  // graph-reads: one request site, GET only, to /search and /{act}/promote_pages.
+  const reads = strip(readFileSync(join(ROOT, "lib/mcp/graph-reads.ts"), "utf8"));
+  assert.equal([...reads.matchAll(/\bfetchImpl\s*\(/g)].length, 1, "one request site");
+  assert.match(reads, /fetchImpl\(url\.toString\(\), \{ method: "GET", cache: "no-store" \}\)/);
+  assert.doesNotMatch(reads, /\bfetch\s*\(|graphPost|method:\s*"(POST|DELETE|PUT|PATCH)"/);
+  const paths = [...reads.matchAll(/graphGet\(fetchImpl, version, (["`])([^"`]+)\1/g)].map((m) => m[2]);
+  assert.deepEqual(paths.sort(), ["/act_${digits}/promote_pages", "/search", "/search"]);
+  // draft-deps passes the global fetch through, and sends nothing itself.
   const deps = strip(readFileSync(join(ROOT, "lib/mcp/draft-deps.ts"), "utf8"));
-  const fetches = [...deps.matchAll(/\bfetch\s*\(/g)];
-  assert.equal(fetches.length, 1, "one fetch: the location search");
-  assert.match(deps, /graph\.facebook\.com\/\$\{API_VERSION\}\/search/);
-  assert.match(deps, /fetch\(url\.toString\(\), \{ method: "GET"/);
+  assert.equal([...deps.matchAll(/\bfetch\s*\(/g)].length, 1, "one fetch: the GET-only pass-through");
+  assert.match(deps, /const getOnly: FetchLike = \(url, init\) => globalThis\.fetch\(url, init\);/);
   assert.doesNotMatch(deps, /graphPost|method:\s*"(POST|DELETE|PUT|PATCH)"/);
 });
 

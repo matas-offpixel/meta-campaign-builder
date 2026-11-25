@@ -1,15 +1,14 @@
 /**
  * lib/mcp/tools/pending.ts — get_campaign_tree and run_launch_checks.
  *
- * Their readers land with #1364 (campaign tree, R7) and #1361 (launch
- * checks, R4). get_campaign_tree answers "not available yet" until #1364 is
- * wired. run_launch_checks runs through the same seam as M2's after-write
- * checks (ctx.draft.launchChecks, lib/mcp/pending-seams.ts): "not available
- * yet" while it is null, the checks once #1361 is wired there.
+ * get_campaign_tree answers "not available yet" until #1364's reader is
+ * wired. run_launch_checks is runLaunchGuard (#1361, R4), the same check
+ * POST /api/launch-guard runs and every draft tool returns after a write:
+ * database reads only, no Meta call.
  */
 import { z } from "zod";
-import type { McpTool } from "../tool-types.ts";
-import { launchChecksFor } from "../drafts/common.ts";
+import { ToolInputError, type McpTool } from "../tool-types.ts";
+import { checksSummary, launchChecksFor } from "../drafts/common.ts";
 import { migratedDraft, readDraftRow } from "../drafts/write.ts";
 import { normaliseCode } from "./shared.ts";
 
@@ -38,8 +37,8 @@ export const runLaunchChecksTool: McpTool = {
   title: "Run launch checks on a draft",
   kind: "read",
   description: [
-    "Runs the launch checks on one campaign draft without launching anything: account, pixel, page, link, dates and audiences against its show.",
-    `Not available yet: it answers "${NOT_YET}" until the launch checks (PR #1361) are merged.`,
+    "Runs the launch checks on one campaign draft without launching anything (the checks Review & launch shows): account, pixel, page, Instagram, link, code, dates and locations against its show.",
+    "Each check comes back as the app words it: label, sentence, evidence, and the fix buttons. Blockers stop a launch; warnings don't.",
     'Example: run_launch_checks({ draft_id: "3f2c…-uuid" }).',
   ].join(" "),
   inputSchema: {
@@ -47,15 +46,9 @@ export const runLaunchChecksTool: McpTool = {
   },
   async run(ctx, args) {
     const draftId = String(args.draft_id ?? "");
-    if (!ctx.draft?.launchChecks) {
-      return {
-        data: { available: false, status: NOT_YET, waitingOn: "PR #1361 (launch checks)", draftId },
-        summary: { available: false },
-      };
-    }
     const row = /^[0-9a-f-]{36}$/i.test(draftId) ? await readDraftRow(ctx.db, draftId) : null;
-    if (!row) return { data: { error: `No draft with id ${draftId}.` }, summary: { draftId, found: false } };
+    if (!row) throw new ToolInputError(`No draft with id ${draftId}.`, { draftId, found: false });
     const checks = await launchChecksFor(ctx, migratedDraft(ctx, row));
-    return { data: { draftId, launchChecks: checks }, eventId: row.event_id, clientId: row.client_id, summary: { draftId, available: true } };
+    return { data: { draftId, status: row.status, launchChecks: checks }, eventId: row.event_id, clientId: row.client_id, summary: { draftId, ...checksSummary(checks) } };
   },
 };

@@ -179,6 +179,46 @@ export function createBlankAdSetSuggestion(
   );
 }
 
+/** UK nationwide: Step 5's location when the draft has none (country-level, no Meta call). */
+export const UK_NATIONWIDE_FALLBACK: LocationTargetingGroup = {
+  id: "preset_gb_nationwide",
+  label: "UK (nationwide)",
+  source: "preset",
+  selections: [
+    {
+      id: "gb_nationwide_include",
+      source: "preset",
+      label: "United Kingdom",
+      mode: "include",
+      locationType: "country",
+      countryCode: "GB",
+    },
+  ],
+};
+
+/**
+ * Step 5's "+ Blank ad set": the row {@link createBlankAdSetSuggestion} makes
+ * at {@link defaultBlankAdSetBudget}, its budget moved to the lifetime share
+ * when the draft's budget is lifetime, appended. Shared by the Budget step
+ * and the MCP's set_draft_ad_sets add_broad.
+ */
+export function appendBlankAdSet(
+  suggestions: AdSetSuggestion[],
+  budget: { budgetType: "daily" | "lifetime"; budgetAmount: number },
+  locationGroups: LocationTargetingGroup[],
+): AdSetSuggestion[] {
+  const budgetRows =
+    budget.budgetType === "lifetime"
+      ? suggestions.map((row) => ({ ...row, budgetPerDay: row.budgetLifetime ?? 0 }))
+      : suggestions;
+  const defaultBudget = defaultBlankAdSetBudget(budgetRows, budget.budgetAmount);
+  const blank = createBlankAdSetSuggestion(locationGroups, UK_NATIONWIDE_FALLBACK, defaultBudget);
+  return [
+    ...suggestions,
+    budget.budgetType === "lifetime" ? { ...blank, budgetLifetime: blank.budgetPerDay, budgetPerDay: 0 } : blank,
+  ];
+}
+
 /**
  * Truncate `name` to fit within {@link MAX_ADSET_NAME_LENGTH} once `suffix`
  * is appended, using an ellipsis rather than a hard cut so it's clear the

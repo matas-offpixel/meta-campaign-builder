@@ -17,7 +17,9 @@ import { DRAFT_REFUSALS, instantKey, keepUnmigratedFields, loadWritableDraft, sa
 import { migrateDraft } from "../../autosave.ts";
 import { ToolInputError, type McpTool, type ToolContext } from "../tool-types.ts";
 import type { CampaignDraft } from "../../types.ts";
+import { fakeDb } from "./fake-db.ts";
 import {
+  draftTables,
   D_ARCH,
   D_DRAFT,
   D_PUB,
@@ -29,8 +31,6 @@ import {
   TGT_TICKETS,
   UPDATED,
   draftCtx,
-  fakeDraftDeps,
-  newSpies,
   readRow,
 } from "./draft-fixtures.ts";
 import { OPERATOR } from "./helpers.ts";
@@ -70,17 +70,26 @@ async function refused(p: Promise<unknown>, re: RegExp): Promise<ToolInputError>
 
 const draftWrites = (db: { writes: Array<{ table: string; op: string }> }) => db.writes.filter((w) => w.table === "campaign_drafts");
 
-test("seventeen tools: nine read, eight draft; draft tools say what they change, one example each", () => {
-  assert.equal(MCP_TOOLS.length, 17);
+test("twenty-six tools: nine read, seventeen draft (M2 + M2b); draft tools say what they change, one example each", async () => {
+  assert.equal(MCP_TOOLS.length, 26);
   assert.deepEqual(DRAFT_TOOLS.map((t) => t.name).sort(), [
     "apply_audience_template",
     "archive_draft",
     "attach_drive_creatives",
+    "duplicate_draft",
     "list_drive_creatives",
+    "remove_draft_creatives",
     "replicate_to_event",
+    "set_draft_ad_names",
+    "set_draft_ad_sets",
+    "set_draft_audiences",
     "set_draft_budget",
+    "set_draft_copy",
+    "set_draft_identity",
     "set_draft_link",
     "set_draft_locations",
+    "set_draft_objective",
+    "set_draft_schedule",
   ]);
   for (const t of READ_TOOLS) assert.equal(t.kind, "read", t.name);
   for (const t of DRAFT_TOOLS) {
@@ -116,7 +125,7 @@ test("replicate_to_event: a published draft to an upcoming same-client event mak
   const texts = (out.data.changes as Array<{ text: string }>).map((c) => c.text);
   assert.ok(texts.includes("NX27-GLITTERBOX · NX Newcastle (was NX26-SRC)"), texts.join(" | "));
   assert.ok(texts.some((t) => t.startsWith("Link: crqln.com/l/glitterbox-newcastle · 2 ads")), texts.join(" | "));
-  assert.deepEqual(out.data.launchChecks, { available: false, status: "not available yet", waitingOn: "PR #1361 (launch checks)" });
+  assert.equal((out.data.launchChecks as { ran: boolean }).ran, true);
   // The source is untouched.
   assert.equal((await readRow(db, D_PUB))!.status, "published");
   assert.deepEqual(draftWrites(db).map((w) => w.op), ["insert"]);
@@ -319,14 +328,6 @@ test("set_draft_budget: a start in the past and an end before the start are refu
 
 // ── apply_audience_template ─────────────────────────────────────────────────
 
-test("apply_audience_template: not available yet until #1363, and changes nothing", async () => {
-  const { ctx, db } = draftCtx();
-  const out = await run(applyAudienceTemplateTool, ctx, { draft_id: D_DRAFT, updated_at: UPDATED, template: "Techno" });
-  assert.equal(out.data.status, "not available yet");
-  assert.equal(out.data.changed, false);
-  assert.deepEqual(draftWrites(db), []);
-});
-
 // ── Drive ───────────────────────────────────────────────────────────────────
 
 test("list_drive_creatives: a folder with kind, aspect, size and whether each can be an ad", async () => {
@@ -420,41 +421,48 @@ test("a read-only scope can't run a draft tool, even called directly", async () 
   }
 });
 
-test("launch checks run after every write on the draft as saved, and come back with the answer", async () => {
-  const seen: Array<{ id: string; updatedAt: string }> = [];
-  const spies = newSpies();
-  const deps = fakeDraftDeps(spies, {
-    launchChecks: async (_db, draft) => {
-      seen.push({ id: String(draft.id), updatedAt: String(draft.updatedAt) });
-      return { blockers: 1, warnings: 2, checks: [{ key: "link_not_event" }] };
-    },
-  });
+test("launch checks: runLaunchGuard's real result after every write, on the draft as saved, in the record's words", async () => {
   const calls: Array<[McpTool, Record<string, unknown>]> = [
-    [setDraftLinkTool, { url: TGT_SIGNUP }],
+    [setDraftLinkTool, { url: "https://example.com/other-show" }],
     [setDraftLocationsTool, { add: [{ preset: "leeds" }] }],
     [setDraftBudgetTool, { type: "daily", amount_gbp: 10, start: "2026-12-01" }],
     [attachDriveCreativesTool, { file_ids: ["file-clip-916"] }],
     [archiveDraftTool, {}],
   ];
   for (const [tool, args] of calls) {
-    const { ctx } = draftCtx({ draft: deps }, spies);
+    const { ctx } = draftCtx();
     const out = await run(tool, ctx, { draft_id: D_DRAFT, updated_at: UPDATED, ...args });
-    assert.deepEqual(out.data.launchChecks, { available: true, blockers: 1, warnings: 2, checks: [{ key: "link_not_event" }] }, tool.name);
-    assert.deepEqual(out.summary.launchChecks, { blockers: 1, warnings: 2 }, tool.name);
+    const checks = out.data.launchChecks as { ran: boolean; blockers: number; warnings: number; checks: Array<{ key: string; sentence: string; label: string }> };
+    assert.equal(checks.ran, true, tool.name);
+    assert.equal(typeof checks.blockers, "number", tool.name);
+    for (const c of checks.checks) assert.ok(c.label && c.sentence, `${tool.name}: ${c.key} has the record's words`);
+    assert.deepEqual((out.summary.launchChecks as { blockers: number }).blockers, checks.blockers, tool.name);
   }
-  const { ctx } = draftCtx({ draft: deps }, spies);
-  const rep = await run(replicateToEventTool, ctx, { source_draft_id: D_PUB, target_event_code: "NX27-GLITTERBOX" });
-  assert.equal((rep.data.launchChecks as { available: boolean }).available, true);
-  assert.equal(seen.length, 6);
-  // run_launch_checks reads through the same seam.
+  // The link isn't the event's: the check says so after set_draft_link.
+  const { ctx } = draftCtx();
+  const linked = await run(setDraftLinkTool, ctx, { draft_id: D_DRAFT, updated_at: UPDATED, url: "https://example.com/other-show" });
+  const keys = (linked.data.launchChecks as { checks: Array<{ key: string }> }).checks.map((c) => c.key);
+  assert.ok(keys.includes("link_not_event"), keys.join(","));
+  // run_launch_checks gives the same result for the saved draft.
   const read = await run(runLaunchChecksTool, ctx, { draft_id: D_DRAFT });
-  assert.equal((read.data.launchChecks as { blockers: number }).blockers, 1);
-  // A check run that throws is reported; the change stays saved.
-  const broken = fakeDraftDeps(newSpies(), { launchChecks: async () => { throw new Error("boom"); } });
-  const b = draftCtx({ draft: broken });
-  const out = await run(setDraftLinkTool, b.ctx, { draft_id: D_DRAFT, updated_at: UPDATED, url: TGT_SIGNUP });
-  assert.deepEqual(out.data.launchChecks, { available: true, error: "The launch checks couldn't run. The change is saved." });
+  assert.deepEqual(read.data.launchChecks, linked.data.launchChecks);
+  const rep = await run(replicateToEventTool, ctx, { source_draft_id: D_PUB, target_event_code: "NX27-GLITTERBOX" });
+  assert.equal((rep.data.launchChecks as { ran: boolean }).ran, true);
+  // A check run that can't read is reported; the change stays saved.
+  const b = draftCtx();
+  const broken = { ...b.ctx, db: fakeDb(draftTablesForBroken()) } as ToolContext;
+  const out = await run(setDraftLinkTool, broken, { draft_id: D_DRAFT, updated_at: UPDATED, url: TGT_SIGNUP });
+  const failed = out.data.launchChecks as { ran: boolean; error: string; wizard: { blockers: string[] } };
+  assert.deepEqual([failed.ran, failed.error], [false, "The launch checks couldn't run. The change is saved."]);
+  // The wizard's step checks still come back on their own list.
+  assert.ok(Array.isArray(failed.wizard.blockers));
 });
+
+function draftTablesForBroken() {
+  const t = draftTables() as Record<string, unknown>;
+  delete t.campaign_plan_meta_launch;
+  return t as Record<string, Array<Record<string, unknown>>>;
+}
 
 test("no Meta call: the draft tools and their write path never import a Meta write or call Graph", () => {
   const files = [
