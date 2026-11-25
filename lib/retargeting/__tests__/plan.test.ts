@@ -357,6 +357,6 @@ describe("RT8 acceptance (revised 17 Nov): no \"Connect ticketing\" anywhere on 
     assert.equal(words.POOL_BEFORE_CREATE, "Known after create");
     assert.equal(words.POOL_BEFORE_CREATE_NARROW, "Pool known after create");
     const panel = readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../components/dashboard/events/retargeting-panel.tsx"), "utf8");
-    assert.match(panel, /created \? figure\(row\.pool\) : POOL_BEFORE_CREATE/);
+    assert.match(panel, /created \? k\(figure\(row\.pool\)\) : POOL_BEFORE_CREATE/);
   });
 });

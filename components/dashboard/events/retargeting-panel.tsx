@@ -6,6 +6,7 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { REJECT_REASONS, appliesNow, panelText, rejectReasonsFor, stateText, type RejectReason } from "@/lib/onsale-refresh/line-states";
 import type { PanelApply, PanelLine } from "@/lib/onsale-refresh/read";
+import { keepWhole } from "@/lib/retargeting/keep-whole";
 import type { ArmView, MissingLine, RetargetingView, TestView, TierRow } from "@/lib/retargeting/plan";
 import { armTierNarrow, budgetHeader, createHead, LAST_7_DAYS, POOLED_TITLE, spentText, endsLine, NO_FIGURE, pence, POOL_BEFORE_CREATE, POOL_BEFORE_CREATE_NARROW, runningLine, tierBudget } from "@/lib/retargeting/words";
 
@@ -27,7 +28,8 @@ export type RetargetingActions = {
   error?: string | null;
 };
 
-const k = panelText;
+/** Figures grouped, dates kept together, and each number kept with its unit (keep-whole.ts). */
+const k = (text: string) => keepWhole(panelText(text));
 
 /** RT8's actions open the client page's customer-audience wizard with the role and this show chosen. */
 export function wizardHref(clientId: string | null, eventId: string | null, role: "signups" | "buyers"): string {
@@ -111,12 +113,12 @@ function TierTable({ rows, budgets, clientId, eventId, created }: { rows: TierRo
                 <Missing key={line.text} line={line} clientId={clientId} eventId={eventId} />
               ))}
             </td>
-            <td className="py-2 pr-2 tabular-nums" data-pool>{created ? figure(row.pool) : POOL_BEFORE_CREATE}</td>
+            <td className="py-2 pr-2 tabular-nums" data-pool>{created ? k(figure(row.pool)) : POOL_BEFORE_CREATE}</td>
             <td className={`py-2 pr-2 tabular-nums ${row.frequency != null && row.frequency >= 4 ? "text-destructive" : ""}`}>{figure(row.frequency, (v) => v.toFixed(1))}</td>
-            <td className="py-2 pr-2">{row.leavesOut || NO_FIGURE}</td>
+            <td className="py-2 pr-2">{row.leavesOut ? k(row.leavesOut) : NO_FIGURE}</td>
             <td className="py-2 pr-2 tabular-nums">{k(tierBudget(budgets(row)))}</td>
             <td className="py-2 pr-2 tabular-nums">{row.cost == null ? NO_FIGURE : k(pence(row.cost))}</td>
-            <td className="py-2 tabular-nums">{figure(row.purchases)}</td>
+            <td className="py-2 tabular-nums">{k(figure(row.purchases))}</td>
           </tr>
         ))}
       </tbody>
@@ -140,7 +142,7 @@ function TierCards({ rows, budgets, clientId, eventId, created }: { rows: TierRo
               <>
                 <p className="mt-0.5">{row.cost == null ? NO_FIGURE : k(`${pence(row.cost)} per attributed purchase · ${row.purchases ?? 0}`)}</p>
                 <p className={`mt-0.5 ${row.frequency != null && row.frequency >= 4 ? "text-destructive" : ""}`}>{k(`${pool} · frequency ${row.frequency == null ? NO_FIGURE : row.frequency.toFixed(1)}`)}</p>
-                {row.leavesOut ? <p className="mt-0.5">Leaves out {row.leavesOut.replace(/^Buyers$/, "buyers")}</p> : null}
+                {row.leavesOut ? <p className="mt-0.5">{k(`Leaves out ${row.leavesOut.replace(/^Buyers$/, "buyers")}`)}</p> : null}
               </>
             ) : (
               <p className="mt-0.5 text-muted-foreground">{k(row.leavesOut ? `${pool} · leaves out ${row.leavesOut}` : pool)}</p>
@@ -280,11 +282,11 @@ function ArmTable({ arm }: { arm: ArmView }) {
                   <p key={line}>{k(line)}</p>
                 ))}
               </td>
-              <td className="py-2 pr-2 tabular-nums">{figure(row.pool)}</td>
+              <td className="py-2 pr-2 tabular-nums">{k(figure(row.pool))}</td>
               <td className={`py-2 pr-2 tabular-nums ${row.frequency != null && row.frequency >= 4 ? "text-destructive" : ""}`}>{figure(row.frequency, (v) => v.toFixed(1))}</td>
               <td className="py-2 pr-2 tabular-nums">{k(tierBudget(row.budgetMinor))}</td>
               <td className="py-2 pr-2 tabular-nums">{row.cost == null ? NO_FIGURE : k(pence(row.cost))}</td>
-              <td className="py-2 tabular-nums">{figure(row.purchases)}</td>
+              <td className="py-2 tabular-nums">{k(figure(row.purchases))}</td>
             </tr>
           ))}
           <tr className="align-top text-muted-foreground" data-total>
