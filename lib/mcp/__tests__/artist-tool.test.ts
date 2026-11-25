@@ -146,7 +146,7 @@ test("with an Electric event: the record's shape, shareable plus Electric's own,
       "- NX26-ENZO · Electric Brixton · NX Newcastle, Newcastle upon Tyne · Sat 31 Oct 2026 · Done · £26 on Enzo Siragusa’s ads · 10 signups",
       "",
       "Best for Signup",
-      "1. Enzo Siragusa - UGC 2 · render · P26-BDAY · £2.10 per signup · Shareable · https://drive.google.com/file/d/DRV-UGC2",
+      "1. Enzo Siragusa - UGC 2 · render · £2.10 per signup · Shareable · https://drive.google.com/file/d/DRV-UGC2",
       "2. Enzo Siragusa closing out NX · clip · NX26-ENZO · £2.60 per signup · This client only · Electric Brixton",
       "",
       "Other files",
@@ -164,6 +164,32 @@ test("with an Electric event: the record's shape, shareable plus Electric's own,
   for (const s of ["Lineup Push", "DRV-LP", "Puzzle crowd", "DRV-CROWD", "Back in Southampton", "Old render", "DRV-OLD"]) assert.ok(!text.includes(s), s);
   assert.equal(out.clientId, ELECTRIC);
   assert.deepEqual(c.db.writes, [], "reads only");
+});
+
+/** The file, caption and copy lines: every line outside the summary, rights and Shows blocks. */
+function fileLines(text: string): string[] {
+  const out: string[] = [];
+  let section = "";
+  for (const line of text.split("\n")) {
+    if (!line.startsWith("- ") && !/^\d+\. /.test(line)) {
+      section = line;
+      continue;
+    }
+    if (section !== "Shows") out.push(line);
+  }
+  return out;
+}
+
+test("ES27: no file line names Puzzle, its show or its venue; a shareable file's Puzzle-show figure prints without the show", async () => {
+  const text = (await getArtistTool.run(ctx(), { name: "Enzo Siragusa", event: "ES27-ENZOSIRAGUSA" })).data as string;
+  const lines = fileLines(text);
+  assert.ok(lines.some((l) => l.includes("Enzo Siragusa - UGC 2") && l.includes("£2.10 per signup")), "UGC 2 is offered, with its figure");
+  for (const line of lines) {
+    for (const puzzle of ["Puzzle", "P26-BDAY", "Circuit & Engine Rooms", "Southampton", "DRV-LP", "DRV-CROWD"]) assert.ok(!line.includes(puzzle), `${puzzle} in: ${line}`);
+  }
+  // Puzzle is named only in the two rights lines Claude reads first (AL5), and in Shows (AL-E): never next to a file.
+  const named = text.split("\n").filter((l) => l.includes("Puzzle"));
+  assert.deepEqual(named.filter((l) => !l.startsWith("Not listed:") && !l.startsWith("Insight numbers") && !l.startsWith("- P26-BDAY · Puzzle ·")), []);
 });
 
 test("a mixed render is never shareable, and Puzzle's own show sees it with its brick badge", async () => {

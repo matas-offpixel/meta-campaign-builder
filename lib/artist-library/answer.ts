@@ -112,9 +112,11 @@ export function artistAnswer(input: AnswerInput): string {
     out.push("", alWord("al.mcp.best", { stage: STAGE_LABEL[stage] }));
     ranked.forEach((r, i) => {
       const link = r.group.driveFileId ? driveFileLink(r.group.driveFileId) : null;
+      // A shareable file whose results come from another client's show prints its figure without that show.
+      const otherShow = input.event != null && r.group.resultClientIds.some((id) => id !== eventClient);
       out.push(
         withLink(
-          alWord("al.mcp.asset", { rank: i + 1, name: r.group.name, kind: KIND_WORDS[r.group.kind], code: r.group.code ?? "", cost: costWords(stage, r.cost), badge: badge(r.group), link: link ?? "" }),
+          tidy(alWord("al.mcp.asset", { rank: i + 1, name: r.group.name, kind: KIND_WORDS[r.group.kind], code: otherShow ? "" : r.group.code ?? "", cost: costWords(stage, r.cost), badge: badge(r.group), link: link ?? "" })),
           link,
         ),
       );

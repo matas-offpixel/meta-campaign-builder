@@ -91,6 +91,8 @@ export interface AssetGroup {
   byStage: Partial<Record<RankedStage, StageFigures>>;
   /** It ran as at least one ad. */
   ran: boolean;
+  /** The clients whose shows its ads ran on: a shareable file's results can come from another client's show. */
+  resultClientIds: string[];
   newestAt: string | null;
 }
 
@@ -206,6 +208,7 @@ export function buildArtistView(input: {
         heldReason: row.held_reason,
         byStage: {},
         ran: false,
+        resultClientIds: [],
         newestAt: null,
         adIds: new Map(),
       };
@@ -226,6 +229,8 @@ export function buildArtistView(input: {
     group.newestAt = later(group.newestAt, row.material_at);
     if (!row.meta_ad_id) continue;
     group.ran = true;
+    const resultClient = row.source_client_id ?? (event?.client_id ?? null);
+    if (resultClient && !group.resultClientIds.includes(resultClient)) group.resultClientIds.push(resultClient);
     for (const day of insightsByAd.get(row.meta_ad_id) ?? []) {
       const stage = rankedStageOf(day.campaign_name, day.campaign_objective);
       if (!group.code) group.code = codeInName(day.campaign_name);
