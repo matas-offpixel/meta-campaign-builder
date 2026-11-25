@@ -229,3 +229,62 @@ test("cancelling an upgrade keeps the read grant and its tokens: no new grant, c
   assert.equal((refreshed.body as { scope: string }).scope, "mcp:read");
   assert.ok(state.tokens.get(sha256Hex(tokens.refresh_token)));
 });
+
+test("allowing an upgrade leaves one live grant for the connection: the read grant is revoked once the new one is issued", async () => {
+  const state = { clients: new Map(), grants: new Map(), codes: new Map(), tokens: new Map() };
+  const deps = { ...makeDeps(), store: createMemoryStore(state as never) };
+  const { clientId, tokens: old } = await connect(deps);
+  const other = await connect(deps); // another connector of the same operator, read only
+  assert.equal(old.scope, "mcp:read");
+  const oldGrantId = [...state.grants.values()].find((g) => g.client_id === clientId)!.id;
+
+  const params = {
+    response_type: "code",
+    client_id: clientId,
+    redirect_uri: CLAUDE_CALLBACK,
+    code_challenge: pkceChallengeFor(VERIFIER),
+    code_challenge_method: "S256",
+    state: "up9rade",
+    scope: "mcp:read mcp:draft",
+    resource: urls.resource,
+  };
+  const check = await checkAuthorizeRequest(params, urls, deps);
+  assert.ok(check.ok);
+  assert.equal(isUpgradeConsent(await deps.store.listLiveGrants({ userId: OPERATOR }), clientId, check.request.scope), true);
+
+  const out = await decideConsentRequest(params, "allow", OPERATOR, urls, deps);
+  assert.ok("redirectTo" in out);
+  const code = new URL(out.redirectTo).searchParams.get("code")!;
+  assert.ok(code);
+  // Allow alone (a code not yet exchanged) leaves the read grant live.
+  assert.equal(state.grants.get(oldGrantId)!.revoked_at, null);
+  assert.ok((await checkBearer(`Bearer ${old.access_token}`, urls, deps)).ok);
+
+  const tok = await exchangeToken(
+    new URLSearchParams({ grant_type: "authorization_code", code, code_verifier: VERIFIER, client_id: clientId, redirect_uri: CLAUDE_CALLBACK, resource: urls.resource }),
+    urls,
+    deps,
+  );
+  assert.equal(tok.status, 200);
+  const fresh = tok.body as { access_token: string; scope: string };
+  assert.equal(fresh.scope, "mcp:read mcp:draft");
+
+  // Exactly one live grant for this connection, and it is the new one.
+  const live = await deps.store.listLiveGrants({ userId: OPERATOR });
+  const mine = live.filter((g) => g.client_id === clientId);
+  assert.equal(mine.length, 1);
+  assert.equal(mine[0]!.scope, "mcp:read mcp:draft");
+  assert.notEqual(mine[0]!.id, oldGrantId);
+  assert.ok(state.grants.get(oldGrantId)!.revoked_at, "the read grant is revoked");
+
+  // The old tokens stop working; the new one reads and drafts.
+  assert.equal((await checkBearer(`Bearer ${old.access_token}`, urls, deps)).ok, false);
+  const refresh = await exchangeToken(new URLSearchParams({ grant_type: "refresh_token", refresh_token: old.refresh_token, client_id: clientId }), urls, deps);
+  assert.equal(refresh.status, 400);
+  const bearer = await checkBearer(`Bearer ${fresh.access_token}`, urls, deps, "mcp:draft");
+  assert.ok(bearer.ok);
+
+  // Another client's grant is never touched.
+  assert.equal(live.filter((g) => g.client_id === other.clientId).length, 1);
+  assert.ok((await checkBearer(`Bearer ${other.tokens.access_token}`, urls, deps)).ok);
+});

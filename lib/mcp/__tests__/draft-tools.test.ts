@@ -124,6 +124,40 @@ test("replicate_to_event: a published draft to an upcoming same-client event mak
   assert.equal(out.summary.targetCode, "NX27-GLITTERBOX");
 });
 
+/** The source's stored code and name, as a draft written for NX26-SRC can hold them. */
+async function nameSource(db: ReturnType<typeof draftCtx>["db"], campaignCode: string, campaignName: string) {
+  const row = (await readRow(db, D_PUB))!;
+  const json = row.draft_json as CampaignDraft;
+  await db.from("campaign_drafts").update({ name: campaignName, draft_json: { ...json, settings: { ...json.settings, campaignCode, campaignName } } }).eq("id", D_PUB).select("id");
+}
+
+for (const [label, stored] of [["a short stored code", "SRC"], ["the full stored code", "NX26-SRC"]] as const) {
+  test(`replicate_to_event: the name's [CODE] becomes the target's with ${label} ("${stored}")`, async () => {
+    const { ctx, db } = draftCtx();
+    await nameSource(db, stored, "[NX26-SRC] SRC - On sale");
+    const out = await run(replicateToEventTool, ctx, { source_draft_id: D_PUB, target_event_code: "NX27-GLITTERBOX" });
+    const row = (await readRow(db, String(out.data.draft_id)))!;
+    assert.equal(row.name, "[NX27-GLITTERBOX] SRC - On sale");
+    const settings = (row.draft_json as CampaignDraft).settings;
+    assert.equal(settings.campaignName, "[NX27-GLITTERBOX] SRC - On sale");
+    assert.equal(settings.campaignCode, "NX27-GLITTERBOX");
+    const texts = (out.data.changes as Array<{ text: string }>).map((c) => c.text);
+    assert.ok(texts.includes("[NX27-GLITTERBOX] SRC - On sale (was [NX26-SRC] SRC - On sale)"), texts.join(" | "));
+    // The source keeps its own name and code.
+    const src = (await readRow(db, D_PUB))!.draft_json as CampaignDraft;
+    assert.equal(src.settings.campaignCode, stored);
+    assert.equal(src.settings.campaignName, "[NX26-SRC] SRC - On sale");
+  });
+}
+
+test("replicate_to_event: a [CODE] that isn't the source event's is kept, as replaceEventCodePrefix keeps it", async () => {
+  const { ctx, db } = draftCtx();
+  await nameSource(db, "SRC", "[NX26-OTHER] SRC - On sale");
+  const out = await run(replicateToEventTool, ctx, { source_draft_id: D_PUB, target_event_code: "NX27-GLITTERBOX" });
+  const row = (await readRow(db, String(out.data.draft_id)))!;
+  assert.equal(row.name, "[NX26-OTHER] SRC - On sale");
+});
+
 test("replicate_to_event: same client only (RC11), upcoming only, own drafts only", async () => {
   const { ctx, db } = draftCtx();
   const other = await refused(run(replicateToEventTool, ctx, { source_draft_id: D_PUB, target_event_code: "EBR27-LOCKLEAD" }), /same client's events only/);

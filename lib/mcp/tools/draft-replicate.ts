@@ -26,6 +26,23 @@ import { checksSummary, launchChecksFor, requireDraftScope } from "../drafts/com
 import { DRAFT_REFUSALS, assertDraftId, insertDraft, migratedDraft, readDraftRow } from "../drafts/write.ts";
 import { loadEventByCode, normaliseCode } from "./shared.ts";
 
+/**
+ * The source as replicateDraft should read its name. applyEventToCampaignSettings
+ * swaps the name's `[CODE]` only when the stored campaignCode agrees with it
+ * (replaceEventCodePrefix's currentCode). A draft can store a short code
+ * ("DOD") under a name written for its event ("[NX26-DOD] DOD - On sale"); the
+ * stored code then disagrees with the prefix and the copy kept the source's
+ * code. The code the name was written for is the source event's, the same
+ * sourceCode replicateDraft uses for its change line (event code first, then
+ * the stored one), so that is the currentCode it is given. A hand-written
+ * prefix that isn't the source event's code still disagrees and is kept.
+ */
+export function sourceNamedForItsEvent(source: CampaignDraft, sourceEventCode: string | null): CampaignDraft {
+  const code = (sourceEventCode ?? "").trim();
+  if (!code || code === (source.settings.campaignCode ?? "").trim()) return source;
+  return { ...source, settings: { ...source.settings, campaignCode: code } };
+}
+
 export const replicateToEventTool: McpTool = {
   name: "replicate_to_event",
   title: "Replicate a draft to another event",
@@ -87,7 +104,7 @@ export const replicateToEventTool: McpTool = {
     );
 
     const result = replicateDraft(
-      source,
+      sourceNamedForItsEvent(source, sourceEvent?.event_code ?? null),
       { event: target, venue, eventOverrides: {} },
       { sourceEvent, sourceVenue, audienceRows, accountNames, pageNames, now: ctx.now, id: deps.newId() },
     );

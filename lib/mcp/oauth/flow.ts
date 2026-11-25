@@ -271,6 +271,29 @@ async function issueTokens(grant: GrantRow, deps: FlowDeps): Promise<{ response:
   };
 }
 
+/**
+ * One live grant per connection. When a code is exchanged, the user's other
+ * live grants from the same client for the same resource whose scope the new
+ * grant covers are revoked (reason 'user': the operator pressed Allow on a page
+ * that replaces them), tokens and all. This is what makes an upgrade's Allow
+ * replace the read-only grant rather than sit beside it. It runs only once the
+ * new grant and its tokens exist, so a consent that is cancelled, or a code
+ * that is never exchanged, leaves the old grant as it was. Another client's
+ * grant, and a grant with a scope the new one lacks, are never touched.
+ */
+export async function revokeReplacedGrants(grant: GrantRow, deps: FlowDeps, nowIso: string): Promise<string[]> {
+  const live = await deps.store.listLiveGrants({ userId: grant.user_id });
+  const replaced = live.filter(
+    (g) =>
+      g.id !== grant.id &&
+      g.client_id === grant.client_id &&
+      normaliseResource(g.resource) === normaliseResource(grant.resource) &&
+      g.scope.split(/\s+/).filter(Boolean).every((s) => scopeIncludes(grant.scope, s)),
+  );
+  for (const g of replaced) await deps.store.revokeGrant(g.id, "user", nowIso);
+  return replaced.map((g) => g.id);
+}
+
 export async function exchangeToken(
   form: URLSearchParams,
   urls: McpUrls,
@@ -298,6 +321,7 @@ export async function exchangeToken(
     if (!deps.isOperator(row.user_id)) return oauthError(400, "invalid_grant");
     const grant = await deps.store.insertGrant({ user_id: row.user_id, client_id: row.client_id, scope: row.scope, resource: row.resource });
     const { response } = await issueTokens(grant, deps);
+    await revokeReplacedGrants(grant, deps, nowIso);
     return { status: 200, body: response };
   }
 
