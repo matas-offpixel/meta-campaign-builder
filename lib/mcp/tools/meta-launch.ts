@@ -24,7 +24,7 @@
 import { z } from "zod";
 import type { CampaignDraft, LaunchSummary } from "../../types.ts";
 import { checksSummary, launchChecksFor } from "../drafts/common.ts";
-import { DRAFT_REFUSALS, assertDraftId, migratedDraft, readDraftRow, saveDraft, type WritableDraft } from "../drafts/write.ts";
+import { assertDraftId, migratedDraft, readDraftRow, saveDraft, type WritableDraft } from "../drafts/write.ts";
 import { approvalInput, requireMetaApproval } from "../meta/approval.ts";
 import { checkSpendCeiling, draftMoneyADay } from "../meta/ceiling.ts";
 import { ToolInputError, type LaunchChecksOutcome, type McpMetaDeps, type McpTool, type ToolContext } from "../tool-types.ts";
@@ -33,10 +33,15 @@ import { LAUNCH_WORDS, MCP_WORDS, RESULT_WORDS, THINGS, UPLOAD_WORDS } from "../
 
 /** The draft a meta tool acts on: the caller's own, status draft. No updated_at: the tool reads it fresh. */
 async function loadOwnDraft(ctx: ToolContext, idArg: unknown): Promise<WritableDraft> {
-  const id = assertDraftId(idArg);
+  let id: string;
+  try {
+    id = assertDraftId(idArg);
+  } catch {
+    throw new ToolInputError(MCP_WORDS.refusedDraftId, { refused: "bad_draft_id" });
+  }
   const row = await readDraftRow(ctx.db, id);
-  if (!row) throw new ToolInputError(DRAFT_REFUSALS.notFound(id), { draftId: id, refused: "not_found" });
-  if (row.user_id !== ctx.userId) throw new ToolInputError(DRAFT_REFUSALS.notYours, { draftId: id, refused: "not_owner" });
+  if (!row) throw new ToolInputError(MCP_WORDS.refusedDraftUnknown(id), { draftId: id, refused: "not_found" });
+  if (row.user_id !== ctx.userId) throw new ToolInputError(MCP_WORDS.refusedDraftOtherAccount, { draftId: id, refused: "not_owner" });
   const status = row.status ?? "draft";
   if (status !== "draft") {
     throw new ToolInputError(MCP_WORDS.refusedNotDraft(status), {
@@ -120,7 +125,16 @@ async function sendAndSave(
       };
     }
   }
-  const saved = await saveDraft(ctx, loaded, out.draft);
+  // The files are on Meta now: a draft that changed underneath (edited, launched, archived) is claude.mcp.draft_changed.
+  let saved: Awaited<ReturnType<typeof saveDraft>>;
+  try {
+    saved = await saveDraft(ctx, loaded, out.draft);
+  } catch (e) {
+    if (e instanceof ToolInputError) {
+      throw new ToolInputError(MCP_WORDS.draftChanged, { draftId: loaded.row.id, refused: "changed_after_send", was: e.summary?.refused ?? null, files: filesSummary(out) });
+    }
+    throw e;
+  }
   return {
     loaded: { row: { ...loaded.row, updated_at: saved.updatedAt, draft_json: saved.draft as unknown as Record<string, unknown> }, draft: saved.draft },
     out,
@@ -166,6 +180,7 @@ export const uploadDraftAssetsTool: McpTool = {
   name: "upload_draft_assets",
   title: "Send a draft's files to Meta",
   kind: "meta",
+  failedText: MCP_WORDS.uploadThrew,
   readOnly: false,
   idempotent: true,
   description: [

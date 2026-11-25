@@ -15,7 +15,7 @@ import { errorAnswer } from "../server.ts";
 import { launchDraftTool, uploadDraftAssetsTool } from "../tools/meta-launch.ts";
 import { updateEventTool } from "../tools/meta-event.ts";
 import type { McpTool, ToolContext } from "../tool-types.ts";
-import { D_DRAFT } from "./draft-fixtures.ts";
+import { D_DRAFT, D_STAFF } from "./draft-fixtures.ts";
 import { LAUNCHED, YES, metaCtx } from "./meta-fixtures.ts";
 
 const FIXTURE = new URL("./fixtures/words-mcp-today-2026-11-25.tsv", import.meta.url);
@@ -144,10 +144,62 @@ test("thrown errors in the send step: launch_draft answers its failure row", asy
   assertClean(await answer(launchDraftTool, ctx, launch("paused")), "launch_draft send threw");
 });
 
-test("thrown errors in the send step: upload_draft_assets has no failure row yet (sent to design)", { todo: "claude.mcp.upload.failed has no form for a send step that threw before any file was tried" }, async () => {
+test("thrown errors in the send step: upload_draft_assets answers claude.mcp.upload.threw", async () => {
   const { ctx } = await metaCtx();
   ctx.meta = { ...ctx.meta!, sendAssets: async () => { throw new Error(NETWORK); } };
-  assertClean(await answer(uploadDraftAssetsTool, ctx, { draft_id: D_DRAFT, approval: YES }), "upload_draft_assets send threw");
+  const a = await answer(uploadDraftAssetsTool, ctx, { draft_id: D_DRAFT, approval: YES });
+  assertClean(a, "upload_draft_assets send threw");
+  assert.equal(a.error, "The files couldn’t be sent to Meta. Try again: a file already on the account won’t be sent twice.");
+});
+
+test("the draft refusals, through both tools: no such draft, another account's, not a draft id, and a draft that changed while its files went", async () => {
+  for (const tool of [launchDraftTool, uploadDraftAssetsTool]) {
+    const args = (id: string) => (tool === launchDraftTool ? { draft_id: id, mode: "paused", approval: YES } : { draft_id: id, approval: YES });
+    {
+      const { ctx } = await metaCtx();
+      const a = await answer(tool, ctx, args("d0000000-0000-4000-8000-0000000000ff"));
+      assertClean(a, `${tool.name} unknown`);
+      assert.equal(a.error, "Refused: no draft with id d0000000-0000-4000-8000-0000000000ff. Nothing was sent to Meta.");
+    }
+    {
+      const { ctx } = await metaCtx();
+      const a = await answer(tool, ctx, args(D_STAFF));
+      assertClean(a, `${tool.name} other account`);
+      assert.equal(a.error, "Refused: this draft belongs to another account, so it can’t be launched or have files sent from here. Nothing was sent to Meta.");
+    }
+    {
+      const { ctx } = await metaCtx();
+      const a = await answer(tool, ctx, args("not-a-uuid"));
+      assertClean(a, `${tool.name} bad id`);
+      assert.equal(a.error, "Refused: give a draft id (a UUID) from get_drafts. Nothing was sent to Meta.");
+    }
+    {
+      // Someone edits the draft in the app while its files go to Meta: the guarded save misses.
+      const { ctx, db } = await metaCtx();
+      const deps = ctx.meta!;
+      ctx.meta = {
+        ...deps,
+        sendAssets: async (input) => {
+          const out = await deps.sendAssets(input);
+          await db.from("campaign_drafts").update({ updated_at: "2026-11-25T23:59:00.000000+00:00" }).eq("id", D_DRAFT);
+          return out;
+        },
+      };
+      const a = await answer(tool, ctx, args(D_DRAFT));
+      assertClean(a, `${tool.name} changed`);
+      assert.equal(
+        a.error,
+        "The draft changed while its files went to Meta, so their ids weren’t saved on it and nothing was launched. Read it again with get_draft and try again: the files are already on the account and won’t be sent twice.",
+      );
+    }
+  }
+});
+
+test("update_event: not an event code", async () => {
+  const { ctx } = await metaCtx();
+  const a = await answer(updateEventTool, ctx, { event_code: "!!", changes: { presale_at: "2027-01-15T10:00:00Z" }, approval: YES });
+  assertClean(a, "update_event bad code");
+  assert.equal(a.error, "Refused: give an event code such as NX26-DOD. Nothing changed.");
 });
 
 test("database errors: the ceiling read (live launch) and update_event's read and save", async () => {
