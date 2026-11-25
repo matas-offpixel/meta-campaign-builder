@@ -8,7 +8,7 @@ import { RenderPackagePicker, RenderRowsList, TodayClaudeLog, type TodayLogEntry
 /** The frames for M4a (RT-A, RT-B, RY-A), drawn by the live components from fixtures. */
 export function RenderPackageFrameMount({ id }: { id: RenderPackageFrameId }) {
   const shell = (title: string, body: React.ReactNode) => (
-    <main data-frame-ready={`render-package/${id}`} className="mx-auto max-w-5xl space-y-4 px-4 py-6">
+    <main data-frame-ready={`render-package/${id}`} className="mx-auto w-full max-w-[1280px] space-y-4 px-4 py-6">
       <p className="text-xs text-muted-foreground">{title}</p>
       {body}
     </main>
