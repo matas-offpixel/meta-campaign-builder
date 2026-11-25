@@ -173,9 +173,10 @@ describe("SU2: shows' Signups lists in the tab (SU-C, SU-C-held)", () => {
   it("a waiting list is never Will be created, and Create never counts it", () => {
     const v = buildTemplateView(SU_C_TEMPLATE, SU_C_DATA.known, ctx);
     assert.equal(v.waiting, 1);
-    assert.equal(v.toCreate, 1, "video viewers only");
+    // Video viewers are the only item left to make, and they're out of both counts (Matas, 25 Nov).
+    assert.equal(v.toCreate, 0);
     assert.equal(v.createCount, 0);
-    assert.equal(v.footer, "10 reused · 1 will be created in NX Promoter. Creating audiences is switched off, so these 1 wait.");
+    assert.equal(v.footer, "10 reused · 0 will be created in NX Promoter");
   });
 
   it("SU-C-held: in Sheffield every list reads held in NX Promoter, the waiting list still Made on", () => {
@@ -191,12 +192,44 @@ describe("SU2: shows' Signups lists in the tab (SU-C, SU-C-held)", () => {
       ],
     );
     assert.equal(v.held, 3);
-    assert.equal(v.toCreate, 5);
+    assert.equal(v.toCreate, 6);
     assert.equal(v.createCount, 6);
     assert.equal(v.addCount, 3);
     assert.equal(v.leftOut, 9);
-    assert.equal(v.footer, "3 reused · 5 will be created in Electric Studios Sheffield. Creating audiences is switched off, so these 5 wait.");
+    assert.equal(v.footer, "3 reused · 6 will be created in Electric Studios Sheffield. Creating audiences is switched off, so these 6 wait.");
   });
 });
 
+
+  describe("the footer and Create count the same audiences (one function)", () => {
+    const sheffield = { ...ctx, accountId: SU_C_HELD_DATA.accountId, accountName: SU_C_HELD_DATA.accountName, pixelId: SU_C_HELD_DATA.pixelId, pixelName: SU_C_HELD_DATA.pixelName };
+    const cases: Array<[string, ReturnType<typeof buildTemplateView>]> = [
+      ["RC-E", buildTemplateView(HOUSE_DISCO, RC_E_KNOWN, ctx, RC_E_PENDING)],
+      ["SU-C", buildTemplateView(SU_C_TEMPLATE, SU_C_DATA.known, ctx)],
+      ["SU-C-held", buildTemplateView(SU_C_HELD_TEMPLATE, SU_C_HELD_DATA.known, sheffield)],
+      ["writes on", buildTemplateView(HOUSE_DISCO, RC_E_KNOWN, { ...ctx, writesEnabled: true }, RC_E_PENDING)],
+    ];
+    for (const [name, v] of cases) {
+      it(`${name}: toCreate === createCount`, () => assert.equal(v.toCreate, v.createCount));
+    }
+
+    it("video viewers are in none of them, though their row still reads Will be created", () => {
+      // Every template above holds a video-viewers pool that no account has.
+      for (const [, v] of cases) {
+        const row = v.groups[1]!.rows.find((r) => r.title === "Video viewers")!;
+        assert.equal(row.status, "create");
+        assert.equal(row.statusLabel, "Will be created");
+      }
+      const videoOnly = { ...HOUSE_DISCO, items: HOUSE_DISCO.items.filter((i) => i.listRole === "video_viewers") };
+      const v = buildTemplateView(videoOnly, [], ctx);
+      assert.equal(v.toCreate, 0);
+      assert.equal(v.createCount, 0);
+      assert.equal(v.footer, "0 reused · 0 will be created in NX Promoter");
+    });
+
+    it("RC-E's footer reads as before: Ewan McVicar's two, no video viewers", () => {
+      assert.equal(cases[0]![1].footer, "9 reused · 2 will be created in NX Promoter. Creating audiences is switched off, so these 2 wait.");
+    });
+  });
 });
+

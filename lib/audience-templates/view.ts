@@ -8,6 +8,7 @@
 
 import { TEMPLATE_NAMES, GROUP_LABEL, changedLine, footerLine, fw, heldLine, madeOnLine, signupsLine, tw } from "./words.ts";
 import { createTargets } from "./create.ts";
+import { audienceBuilderHref } from "../audiences/initial-selection.ts";
 import { normalizeAccount, resolveTemplate, type ResolvedTemplate, type AudienceTemplate, type KnownAudience, type ResolvedItem, type TemplateItem, type TemplateItemKind } from "./resolve.ts";
 
 export const GROUP_ORDER: readonly TemplateItemKind[] = ["customer_list", "retargeting_pool", "page_engagers", "interest"];
@@ -49,7 +50,7 @@ export interface TemplateView {
   groups: TemplateGroup[];
   footer: string;
   reused: number;
-  /** Items that will be created; held lists aren't among them. */
+  /** The footer's "{m} will be created": the audiences Create makes (willBeCreated), the same number as createCount. */
   toCreate: number;
   /** Customer lists held in another account (templates.item.held). */
   held: number;
@@ -58,7 +59,7 @@ export interface TemplateView {
   /** "Add to this draft": the made items it adds ({n}), and the ones left out ({m}). */
   addCount: number;
   leftOut: number;
-  /** Audiences "Create" would ask Meta for: pixel pools and page engagers only. */
+  /** Create's button "{m}": the same number as toCreate, from willBeCreated. */
   createCount: number;
   /** The template resolved in the account, for "Add to this draft". */
   resolved: ResolvedTemplate;
@@ -111,6 +112,31 @@ export function headerFor(t: AudienceTemplate, ctx: Pick<ViewContext, "accountNa
 function pixelLabel(ctx: ViewContext): string {
   if (ctx.pixelName) return ctx.pixelName;
   return ctx.pixelId ? `…${ctx.pixelId.slice(-4)}` : "";
+}
+
+/**
+ * Video viewers' way to be made (Matas, 25 Nov): the audience builder opened
+ * on Video views at the item's threshold and days, where the operator picks
+ * the videos (the picker's own reads). Built and tested, not drawn: the row
+ * shows no link until design rules its words.
+ */
+export function videoViewersBuilderHref(clientId: string, it: TemplateItem): string | null {
+  if (it.kind !== "retargeting_pool" || it.listRole !== "video_viewers") return null;
+  const t = it.detail.threshold;
+  return audienceBuilderHref(clientId, {
+    subtype: "video_views",
+    ...(t === 25 || t === 50 || t === 75 || t === 95 || t === 100 ? { threshold: t } : {}),
+    ...(it.retentionDays ? { retentionDays: it.retentionDays } : {}),
+  });
+}
+
+/**
+ * The one count of what's to create (Matas, 25 Nov): the footer's
+ * "{m} will be created" and Create's "{m}" both read it, so they are always
+ * the same audiences. A page counts once per platform it lacks.
+ */
+export function willBeCreated(resolved: ResolvedTemplate, pixelId: string | null): number {
+  return createTargets(resolved.items, pixelId).length;
 }
 
 /** The account holding a list the target can't use, when it isn't the target. */
@@ -223,7 +249,9 @@ export function buildTemplateView(
   const held = resolved.items.filter((r) => heldElsewhere(r, ctx.accountId)).length;
   // A show's list the sync hasn't made: not created here either (SU2: "Create never counts it").
   const waiting = resolved.items.filter((r) => r.status === "create" && isShowSignups(r.item) && !r.item.metaAudienceId).length;
-  const toCreate = resolved.toCreate - held - waiting;
+  // One count for the footer's "{m} will be created" and Create's button (Matas, 25 Nov): the audiences
+  // Create makes. Held lists, a show's list not made yet and video viewers are none of them.
+  const toCreate = willBeCreated(resolved, ctx.pixelId);
   return {
     header: headerFor(t, ctx),
     groups,
@@ -234,7 +262,7 @@ export function buildTemplateView(
     waiting,
     addCount: resolved.reused,
     leftOut: resolved.items.length - resolved.reused,
-    createCount: createTargets(resolved.items, ctx.pixelId).length,
+    createCount: toCreate,
     resolved,
     metaCreates: resolved.metaCreates,
     changed: added.length > 0 ? changedLine(added.length) : null,

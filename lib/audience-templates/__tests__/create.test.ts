@@ -29,6 +29,13 @@ describe("what Create makes", () => {
     );
   });
 
+  it("video viewers are never in Create's {m}, in any account", () => {
+    assert.ok(sheffield.items.some((r) => r.item.listRole === "video_viewers" && r.status === "create"));
+    assert.ok(!targets.some((t) => t.item.listRole === "video_viewers"));
+    const nx = resolveTemplate(HOUSE_DISCO.items, RC_E_DATA.accountId, RC_E_KNOWN, RC_E_DATA.pixelId);
+    assert.deepEqual(createTargets(nx.items, RC_E_DATA.pixelId), [], "in NX only video viewers are missing");
+  });
+
   it("only the platforms the account lacks", () => {
     const nx = resolveTemplate([...HOUSE_DISCO.items, ...RC_E_PENDING], RC_E_DATA.accountId, RC_E_KNOWN, RC_E_DATA.pixelId);
     const t = createTargets(nx.items, RC_E_DATA.pixelId);
