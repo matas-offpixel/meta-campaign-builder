@@ -42,12 +42,20 @@ export interface ActionRow {
   event_id?: string | null;
   tool: string;
   args: unknown;
-  kind: "read" | "draft" | "meta";
+  kind: "read" | "draft" | "meta" | "render";
   status: "requested" | "approved" | "rejected" | "done" | "failed";
   result?: Record<string, unknown> | null;
   error?: string | null;
   duration_ms: number;
   result_bytes: number;
+  /**
+   * M3a: the chat yes a meta call ran on. Written whole into args.approval
+   * (each up to 1,000 characters, not the 200 other strings are cut to),
+   * with approved_by = user_id, approved_at and approval_source
+   * 'claude_prompt' (migration 268's three approval columns, all or none).
+   */
+  approval?: { asked: string; answer: string } | null;
+  approved_at?: string;
 }
 
 export function isMissingTable(message: string | undefined): boolean {
@@ -62,11 +70,18 @@ export interface ActionLogger {
 export function createActionLogger(db: Db | null, out: (line: string) => void = (l) => console.log(l)): ActionLogger {
   return {
     async log(row) {
+      const { approval, approved_at, ...rest } = row;
+      const args = stripSecrets(row.args ?? {}) as Record<string, unknown>;
       const clean = {
-        ...row,
-        args: stripSecrets(row.args ?? {}),
+        ...rest,
+        args: approval
+          ? { ...args, approval: { asked: [...approval.asked].slice(0, 1000).join(""), answer: [...approval.answer].slice(0, 1000).join("") } }
+          : args,
         result: row.result ? (stripSecrets(row.result) as Record<string, unknown>) : null,
         error: row.error ? String(stripSecrets(row.error)).slice(0, 2000) : null,
+        ...(approval
+          ? { approved_by: row.user_id, approved_at: approved_at ?? new Date().toISOString(), approval_source: "claude_prompt" as const }
+          : {}),
       };
       if (db) {
         const res = await db.from("mcp_actions").insert(clean);

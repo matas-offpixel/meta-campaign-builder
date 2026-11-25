@@ -12,12 +12,24 @@
  *      scratch" attempt when Meta's create-time validator disagrees with
  *      its own availability read endpoint even after every "clean"
  *      survivor has been re-checked (task #124 — "Meta lies").
- *   2. Subcode 1870196 ("invalid targeting automation type") — retry with
- *      Advantage+ Audience stripped and `targeting_automation` REPLACED
- *      (never deleted — see task #124's fix) with an explicit
- *      `{ advantage_audience: 0 }`.
+ *   2a. The age suggestion refused (step 2 of the Advantage+ age order) —
+ *      a payload with age_range + individual_setting.age refused as an
+ *      invalid targeting automation is retried once as Advantage+ with the
+ *      age_min control and age_max 65, no suggestion; audiences stay
+ *      suggestions. `ageSuggestionDropped` says the age widened.
+ *   2. Subcode 1870196 ("invalid targeting automation type") on a payload
+ *      with no age suggestion — Advantage+ itself refused — NO retry.
+ *      This tier used to retry with Advantage+ Audience stripped
+ *      (`advantage_audience: 0`) and strict ages. That retry changed who
+ *      the ad set reaches: its Advantage+ suggestion audiences became hard
+ *      targeting (ES27-ENZOSIRAGUSA arm B, 25 Nov 2026 — "Broad +
+ *      suggestions" went live as a strict duplicate of "Crossover pages").
+ *      The ad set now fails with Meta's own error (code, subcode, message)
+ *      so the operator sees the refusal instead of a different audience.
  *   3. Subcode 1870227 ("missing advantage_audience flag") — retry with
- *      the flag forced explicitly per `adSet.advantagePlus`.
+ *      the flag forced explicitly per `adSet.advantagePlus`, keeping the
+ *      rest of `targeting_automation` (the age suggestion flag) as sent.
+ *      The audience is unchanged.
  *   4. Fallthrough diagnostic — logs `code`/`subcode`/`message` for any
  *      Meta error none of the above recognised, so a future refusal (or a
  *      classifier that stops matching because Meta changed wording) is
@@ -56,7 +68,8 @@
  */
 
 import type { AdSetSuggestion, EngagementType, PageAudienceGroup } from "@/lib/types";
-import type { MetaAdSetPayload } from "../meta/adset.ts";
+import type { AgeSuggestionDropped, MetaAdSetPayload } from "../meta/adset.ts";
+import { withoutAgeSuggestion } from "../meta/adset.ts";
 import type { AudienceReadinessWaitResult, CustomAudienceAvailability } from "../meta/client.ts";
 import {
   isDeletedCustomAudienceError,
@@ -83,6 +96,40 @@ function isMetaErrorLike(
   err: unknown,
 ): err is { code?: number; subcode?: number; message?: string } {
   return !!err && typeof err === "object" && ("subcode" in err || "code" in err) && "message" in err;
+}
+
+/** Meta's own refusal, as the launch result and logs carry it. Never a token. */
+export interface MetaErrorFacts {
+  code: number | null;
+  subcode: number | null;
+  message: string;
+}
+
+/** code / subcode / message of a Meta error (MetaApiError or Graph-shaped), else just the message. */
+export function metaErrorFacts(err: unknown): MetaErrorFacts {
+  const e = (err && typeof err === "object" ? err : {}) as Record<string, unknown>;
+  const raw = (e.rawErrorData && typeof e.rawErrorData === "object" ? e.rawErrorData : {}) as Record<string, unknown>;
+  const n = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
+  return {
+    code: n(e.code) ?? n(raw.code),
+    subcode: n(e.subcode) ?? n(raw.error_subcode),
+    message: messageOf(err),
+  };
+}
+
+/** One log line's worth of Meta's error — `code=… subcode=… message=…`. */
+export function formatMetaErrorFacts(f: MetaErrorFacts): string {
+  return `code=${f.code ?? "n/a"} subcode=${f.subcode ?? "n/a"} message=${f.message}`;
+}
+
+/** The payload carries the Advantage+ age suggestion (step 1). */
+function hasAgeSuggestion(payload: MetaAdSetPayload): boolean {
+  return payload.targeting.age_range != null || payload.targeting.targeting_automation?.individual_setting?.age === 1;
+}
+
+/** A refusal that may be of the age suggestion rather than of Advantage+ itself. */
+function isAgeSuggestionRefusal(err: unknown): boolean {
+  return isInvalidTargetingAutomationError(err) || /age_range|individual_setting/i.test(messageOf(err));
 }
 
 export interface RecreateEngagementAudiencesResult {
@@ -267,8 +314,18 @@ export interface CreateAdSetWithSalvageResult {
   metaAdSetId: string;
   durationMs: number;
   note?: string;
-  /** Set to "strict" when the 1870196 salvage downgraded an Advantage+ ad set to manual ages — see the route's ageMode bookkeeping. */
-  ageModeOverride?: "strict";
+  /**
+   * The Meta refusal this salvage recovered from (the first attempt's
+   * error), carried next to `note` so the launch result and logs show what
+   * Meta actually said, not only the app's summary of the retry.
+   */
+  metaError?: MetaErrorFacts;
+  /**
+   * Step 2: Meta refused the age suggestion, so the ad set was created
+   * Advantage+ with the age_min control and age_max 65, no age suggestion.
+   * Its age range is wider than the draft's; the launch result says so.
+   */
+  ageSuggestionDropped?: AgeSuggestionDropped;
 }
 
 /**
@@ -280,6 +337,21 @@ export interface CreateAdSetWithSalvageResult {
  * a plain catch for a sequential loop).
  */
 export async function createAdSetWithSalvage(
+  params: CreateAdSetWithSalvageParams,
+  deps: CreateAdSetWithSalvageDeps,
+): Promise<CreateAdSetWithSalvageResult> {
+  const result = await runSalvageLadder(params, deps);
+  if (result.metaError) {
+    console.warn(
+      `[launch-campaign] ${params.logPrefix} ⚠  "${params.adSet.name}" — created after a salvage retry;` +
+        ` Meta's first refusal: ${formatMetaErrorFacts(result.metaError)}` +
+        (result.note ? ` — note: ${result.note}` : ""),
+    );
+  }
+  return result;
+}
+
+async function runSalvageLadder(
   params: CreateAdSetWithSalvageParams,
   deps: CreateAdSetWithSalvageDeps,
 ): Promise<CreateAdSetWithSalvageResult> {
@@ -412,7 +484,8 @@ export async function createAdSetWithSalvage(
                 return {
                   metaAdSetId: finalRes.id,
                   durationMs: dur,
-                  note:
+                  metaError: metaErrorFacts(initialError),
+note:
                     `Recreated ${recreated.ids.length} engagement audience(s) after Meta refused` +
                     ` all availability-clean custom audiences (subcode 1359207 naming no` +
                     ` offending ids, after ${priorDropCount} audience(s) already dropped via` +
@@ -468,7 +541,8 @@ export async function createAdSetWithSalvage(
         return {
           metaAdSetId: retryRes.id,
           durationMs: dur,
-          note:
+          metaError: metaErrorFacts(initialError),
+note:
             `Launched without ${allDroppedIds.length} unavailable audience` +
             `${allDroppedIds.length === 1 ? "" : "s"} across ${pass} salvage pass` +
             `${pass === 1 ? "" : "es"} (` +
@@ -506,54 +580,63 @@ export async function createAdSetWithSalvage(
     throw currentErr;
   }
 
-  // ── Tier 2: subcode 1870196 — invalid targeting_automation VALUE ─────────
-  if (isInvalidTargetingAutomationError(initialError)) {
+  // ── Tier 2a: Meta refused the AGE SUGGESTION — step 2 of the Advantage+ age order ──
+  // A payload that carries the age suggestion (age_range +
+  // individual_setting.age) and is refused as an invalid targeting
+  // automation — an objective that can't take it, or an advertiser the
+  // suggestion hasn't rolled out to — is retried ONCE as Advantage+
+  // Audience without the suggestion: age_min control, age_max 65, custom
+  // audiences still suggestions. That widens the age to 65, so the result
+  // carries ageSuggestionDropped. Meta's exact refusal for a suggestion is
+  // undocumented, so this keys on the same invalid-targeting-automation
+  // classifier (1870196) or a message naming age_range. If the retry is
+  // refused too, the ladder runs again on it — Tier 2 then fails the ad
+  // set with Meta's error (step 3); the retry payload has no suggestion,
+  // so this tier never loops.
+  if (hasAgeSuggestion(initialPayload) && isAgeSuggestionRefusal(initialError)) {
+    const retryPayload: MetaAdSetPayload = {
+      ...initialPayload,
+      targeting: withoutAgeSuggestion(initialPayload.targeting),
+    };
+    console.warn(
+      `[launch-campaign] ${logPrefix} ✗  "${adSet.name}" — Meta refused the age suggestion` +
+        ` (${formatMetaErrorFacts(metaErrorFacts(initialError))}) — retrying as Advantage+ Audience` +
+        ` with age_min ${retryPayload.targeting.age_min} and age_max ${retryPayload.targeting.age_max}, no age suggestion`,
+    );
+    let retryRes: { id: string };
     try {
-      // task #124 — REPLACE targeting_automation with an explicit
-      // { advantage_audience: 0 }, never delete it: Meta's Marketing API
-      // v23.0+ requires the field present on EVERY ad-set-create call, so
-      // omitting it just trades this rejection for subcode 1870227 (see
-      // Tier 3 below) on the SAME retry — which this same catch used to
-      // swallow before that sibling handler ever got a chance to run.
-      // `advantage_audience: 0` (not 1) is the only value consistent with
-      // the strict top-level age_min/age_max this retry commits to — Meta
-      // rejects `advantage_audience: 1` paired with an age_max under 65.
-      const retryPayload = {
-        ...initialPayload,
-        targeting: {
-          ...initialPayload.targeting,
-          age_min: adSet.ageMin,
-          age_max: adSet.ageMax,
-          targeting_automation: { advantage_audience: 0 as const },
-        },
-      };
-      console.log(
-        `[launch-campaign] ${logPrefix} ✗  "${adSet.name}" — Meta subcode 1870196 (invalid targeting` +
-          ` automation) — retrying without Advantage+ Audience (advantage_audience explicitly 0)`,
-      );
-      const retryRes = await deps.createMetaAdSet(adAccountId, retryPayload, launchToken);
-      const dur = Date.now() - asStart;
-      console.log(
-        `[launch-campaign] ${logPrefix} ✓  ad set (Advantage+ stripped retry): ${adSet.name} → ${retryRes.id} (${dur}ms)`,
-      );
-      return {
-        metaAdSetId: retryRes.id,
-        durationMs: dur,
-        note:
-          `Launched without Advantage+ Audience — Meta rejected the automated targeting type for ` +
-          `this campaign's objective; targeted ages ${adSet.ageMin}–${adSet.ageMax} manually instead, ` +
-          `with advantage_audience explicitly set to 0 (required by Meta API v23.0+ on every ad-set-create call).`,
-        ageModeOverride: "strict",
-      };
-    } catch (recoveryErr) {
-      // Log a failed RETRY distinctly from a failed FIRST attempt — see
-      // Tier 3's identical comment for why this matters.
-      console.error(
-        `[launch-campaign] ${logPrefix} ✗  "${adSet.name}" (Advantage+-stripped retry):`,
-        deps.formatError(recoveryErr),
-      );
-      throw recoveryErr;
+      retryRes = await deps.createMetaAdSet(adAccountId, retryPayload, launchToken);
+    } catch (retryErr) {
+      const salvaged = await runSalvageLadder({ ...params, initialPayload: retryPayload, initialError: retryErr }, deps);
+      return { ...salvaged, ageSuggestionDropped: "meta_refused", metaError: salvaged.metaError ?? metaErrorFacts(initialError) };
     }
+    const dur = Date.now() - asStart;
+    console.log(
+      `[launch-campaign] ${logPrefix} ✓  ad set (no age suggestion retry): ${adSet.name} → ${retryRes.id} (${dur}ms)`,
+    );
+    return {
+      metaAdSetId: retryRes.id,
+      durationMs: dur,
+      metaError: metaErrorFacts(initialError),
+      ageSuggestionDropped: "meta_refused",
+    };
+  }
+
+  // ── Tier 2: subcode 1870196 — invalid targeting_automation: FAIL, never retry strict ──
+  // A refused Advantage+ ad set must not be retried as strict targeting:
+  // that retry (removed 25 Nov 2026) sent `advantage_audience: 0` with the
+  // draft's ages as hard limits, which turned its Advantage+ suggestion
+  // audiences into hard targeting and changed who the ad set reaches
+  // without the operator choosing it. The ad set fails instead, with Meta's
+  // own error rethrown UNCHANGED so the caller's `formatMetaError` puts
+  // Meta's message, code and subcode in the launch result.
+  if (isInvalidTargetingAutomationError(initialError)) {
+    console.error(
+      `[launch-campaign] ${logPrefix} ✗  "${adSet.name}" — Meta refused Advantage+ Audience` +
+        ` (${formatMetaErrorFacts(metaErrorFacts(initialError))}) — not retried as strict targeting;` +
+        ` this ad set fails`,
+    );
+    throw initialError;
   }
 
   // ── Tier 3: subcode 1870227 — missing advantage_audience flag ────────────
@@ -564,7 +647,12 @@ export async function createAdSetWithSalvage(
         ...initialPayload,
         targeting: {
           ...initialPayload.targeting,
-          targeting_automation: { advantage_audience: advantageAudience as 0 | 1 },
+          // Keep whatever else was sent (the age suggestion flag in
+          // individual_setting): only the missing flag is added.
+          targeting_automation: {
+            ...initialPayload.targeting.targeting_automation,
+            advantage_audience: advantageAudience as 0 | 1,
+          },
         },
       };
       console.log(
@@ -580,6 +668,7 @@ export async function createAdSetWithSalvage(
         metaAdSetId: retryRes.id,
         durationMs: dur,
         note: `Set advantage_audience=${advantageAudience} explicitly per Meta requirement.`,
+        metaError: metaErrorFacts(initialError),
       };
     } catch (recoveryErr) {
       // Previously this branch rethrew silently, making "classifier never

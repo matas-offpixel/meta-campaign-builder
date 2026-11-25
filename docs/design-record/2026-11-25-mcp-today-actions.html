@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Claude’s requests on Today — 25 Nov 2026</title>
+<style>
+:root{
+  --sand:#F0C9A8; --card:#e8d4c0; --edit:#f6ebe0; --paper:#fff8f0; --ink:#1e1810; --ink-2:#4a3d30; --ink-3:#6f6052;
+  --border:rgba(30,24,16,.10); --border-strong:rgba(30,24,16,.18); --muted:rgba(30,24,16,.06);
+  --olive:#4f5a1f; --ochre:#8a560c; --brick:#8f3424;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--sand);color:var(--ink);font:14px/1.5 var(--sans);font-feature-settings:"calt" 0}
+.wrap{max-width:1360px;margin:0 auto;padding:40px 24px 120px}
+h1{font-size:24px;font-weight:600;margin:0 0 6px}
+h2{font-size:20px;font-weight:600;margin:56px 0 8px}
+h3{font-size:13px;font-weight:600;margin:20px 0 6px}
+p{margin:0 0 10px;max-width:86ch}
+.lead{font-size:13px;color:var(--ink-2)}
+.k{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+code{font:12px var(--mono);background:var(--muted);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+figure{margin:0;min-width:0;max-width:100%}
+figcaption{font:700 9px/1.5 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+table.t{border-collapse:collapse;width:100%;font-size:12.5px;margin:10px 0 22px;background:var(--card);border-radius:8px;overflow:hidden;table-layout:fixed}
+table.t th,table.t td{text-align:left;vertical-align:top;padding:8px 12px;border-bottom:1px solid var(--border);overflow-wrap:anywhere}
+table.t th{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.t td:first-child{font-weight:600;width:190px}
+table.t ul{margin:4px 0 0 16px;padding:0}table.t li{margin:0 0 4px}
+.open{background:#f3e3c8;border:1px dashed var(--ochre);border-radius:8px;padding:10px 14px;font-size:12.5px;margin:10px 0 16px}
+.notes{font-size:12.5px;color:var(--ink-2)}.notes li{margin:0 0 6px;max-width:96ch}
+.frame{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start;margin:12px 0 24px}
+.vp{background:var(--paper);border:1px solid var(--border-strong);border-radius:8px;overflow:hidden;max-width:100%;padding:16px;font-size:13px}
+.vp.wide{width:760px}.vp.w393{width:393px}
+.ph{font:700 9px/1.4 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+.h{font-weight:600;font-size:14px;margin:0 0 4px}
+.sub{font-size:12px;color:var(--ink-2);margin:0 0 10px}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 10px}
+.chip{border:1px solid var(--border-strong);border-radius:999px;padding:3px 10px;font-size:12px;background:#fff}
+.chip.on{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.mono{font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase}
+.row{display:grid;grid-template-columns:22px 26px 1fr auto;gap:8px;align-items:center;padding:7px 0;border-top:1px solid var(--border)}
+.row .n{color:var(--ink-3);font:12px var(--mono)}
+.box{width:16px;height:16px;border:1.5px solid var(--ink);border-radius:3px;display:inline-block}
+.box.on{background:var(--ink)}
+.box.off{border-color:var(--ink-3);opacity:.45}
+.fs{font-size:11.5px;color:var(--ink-2)}
+.fs.warn{color:var(--brick)}
+.ok{color:var(--olive)}
+.btn{display:inline-block;border:1px solid var(--ink);border-radius:4px;padding:5px 10px;font:700 10px var(--mono);letter-spacing:.1em;text-transform:uppercase;background:var(--ink);color:var(--paper)}
+.btn.ghost{background:transparent;color:var(--ink)}
+.btn.dis{opacity:.4}
+.wave{position:relative;height:64px;background:repeating-linear-gradient(90deg,var(--ink-3) 0 2px,transparent 2px 5px);border-radius:4px;margin:26px 0 4px;opacity:.9}
+.wave .win{position:absolute;top:-4px;bottom:-4px;border:2px solid var(--ink);background:rgba(232,212,192,.55);border-radius:4px}
+.wave .drop{position:absolute;top:-10px;bottom:-10px;width:2px;background:var(--brick)}
+.wave .drop span{position:absolute;top:-16px;left:-20px;font:700 9px var(--mono);letter-spacing:.1em;color:var(--brick);white-space:nowrap}
+.tl{display:flex;justify-content:space-between;font:11px var(--mono);color:var(--ink-3)}
+.pv{width:150px;height:267px;background:#222;border-radius:6px;position:relative;flex:none;display:flex;align-items:center;justify-content:center;color:#fff;font:700 9px var(--mono);letter-spacing:.12em}
+.pv .play{position:absolute;bottom:10px;left:10px;width:28px;height:28px;border-radius:50%;background:#fff}
+.split{display:flex;gap:16px;align-items:flex-start}
+table.v{border-collapse:collapse;width:100%;font-size:12px;margin:6px 0}
+table.v th{font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);text-align:left;padding:4px 6px;border-bottom:1px solid var(--border-strong)}
+table.v td{padding:6px;border-bottom:1px solid var(--border)}
+table.v td.r,table.v th.r{text-align:right}
+.st{display:inline-block;border:1px solid var(--border-strong);border-radius:10px;padding:2px 8px;font:700 9px/1.5 var(--mono);letter-spacing:.1em;text-transform:uppercase}
+.st.run{border-style:dashed}
+.st.win{background:var(--olive);color:#fff;border-color:var(--olive)}
+.test{border:1px solid var(--border);border-radius:6px;padding:10px 12px;margin:8px 0;background:#fff}
+.test.dim{opacity:.55}
+.line{background:var(--card);border-radius:6px;padding:8px 10px;margin:6px 0;font-size:12px}
+.inv{text-decoration:underline dotted var(--brick);text-decoration-thickness:1.5px;text-underline-offset:3px}
+table.t table.t td:first-child{width:auto;font-weight:400}
+@media (max-width:560px){table.t th[style]{width:100px!important}table.t td:first-child{width:100px}}
+.st.fail{border-color:var(--brick);color:var(--brick)}
+.line .acts{float:right;font:700 9px var(--mono);letter-spacing:.1em;text-transform:uppercase}
+.line.wait{opacity:.6}
+.line.failed{border:1px solid var(--brick);background:#f6e3dc}
+.tick{display:inline-block;width:11px;height:11px;border:1.5px solid var(--ink);border-radius:2px;margin-right:6px;vertical-align:-1px}
+.tick.on{background:var(--ink)}
+.bar{display:inline-block;height:8px;background:var(--ink-3);border-radius:2px;vertical-align:middle;margin-right:6px}
+.sbar{position:relative;display:inline-block;width:100px;height:8px;background:var(--muted);border-radius:2px;vertical-align:middle;margin-right:8px}
+.sbar i{position:absolute;left:0;top:0;bottom:0;background:var(--ink-3);border-radius:2px}
+.sbar i.lead{background:var(--olive)}
+.sbar b{position:absolute;left:60px;top:-3px;bottom:-3px;width:1px;background:var(--ink)}
+.sbar s{position:absolute;left:10px;top:-3px;bottom:-3px;width:1px;background:var(--ink-3);opacity:.6}
+
+/* ---------- campaign creator: replicate record ---------- */
+.scrollx{overflow-x:auto;max-width:100%}
+.vp.w1280{width:1280px;padding:0}
+.vp.w393{padding:0}
+.bar1{display:flex;justify-content:space-between;align-items:center;padding:12px 18px;border-bottom:1px solid var(--border);background:#fff}
+.bar1 .bc{font:700 9px var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3)}
+.bar1 .bc b{color:var(--ink)}
+.body1{padding:18px}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.g3{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.g4{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.card2{background:#fff;border:1px solid var(--border-strong);border-radius:8px;padding:14px 16px;min-width:0}
+.card2 .ttl{font-weight:600;font-size:14px;margin:0 0 2px}
+.card2 .s{font-size:12px;color:var(--ink-2)}
+.menu{width:260px;background:#fff;border:1px solid var(--border-strong);border-radius:8px;box-shadow:0 8px 28px rgba(30,24,16,.14);padding:6px 0}
+.menu .mi{padding:8px 14px;font-size:13px}
+.menu .mi small{display:block;font-size:11.5px;color:var(--ink-2)}
+.menu .mi.hi{background:var(--edit)}
+.menu hr{border:0;border-top:1px solid var(--border);margin:4px 0}
+.dlg{background:#fff;border:1px solid var(--border-strong);border-radius:10px;box-shadow:0 12px 40px rgba(30,24,16,.18);overflow:hidden}
+.dlg .dh{padding:14px 18px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}
+.dlg .dh b{font-size:15px}
+.dlg .db{padding:14px 18px}
+.dlg .df{padding:12px 18px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:8px;align-items:center;background:var(--paper)}
+.dlg .df .fs{margin-right:auto}
+.ev{display:grid;grid-template-columns:1fr auto;gap:2px 10px;padding:9px 10px;border:1px solid var(--border);border-radius:6px;margin:0 0 6px;font-size:13px;background:#fff}
+.ev.on{border:1.5px solid var(--ink);background:var(--edit)}
+.ev small{grid-column:1/-1;font-size:11.5px;color:var(--ink-2)}
+.ev .code{font:700 10px var(--mono);letter-spacing:.08em}
+.search{border:1px solid var(--border-strong);border-radius:6px;padding:8px 10px;font-size:13px;color:var(--ink-3);margin:0 0 10px;background:#fff}
+.chg{display:grid;grid-template-columns:96px 1fr;gap:4px 12px;padding:8px 0;border-top:1px solid var(--border);font-size:13px;align-items:baseline}
+.chg .l{font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3)}
+.chg .was{color:var(--ink-3)}
+.chg.amb{background:#f3e3c8;margin:0 -10px;padding:8px 10px;border-radius:6px;border-top:0}
+.sec2{font:700 9px var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin:14px 0 4px}
+.ask{border:1.5px solid var(--ink);border-radius:8px;padding:10px 12px;margin:10px 0 0;font-size:13px}
+.ask .btns{display:flex;gap:8px;margin-top:8px}
+.chk{border:1px solid var(--border-strong);border-left:4px solid var(--brick);border-radius:6px;padding:10px 12px;margin:0 0 8px;background:#fff;font-size:13px}
+.chk.warn{border-left-color:var(--ochre)}
+.chk .key{font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--brick);margin:0 0 3px}
+.chk.warn .key{color:var(--ochre)}
+.chk .ev2{font-size:11.5px;color:var(--ink-2);margin:4px 0 6px}
+.chk .acts{display:flex;gap:8px;flex-wrap:wrap}
+.sum{display:flex;gap:10px;align-items:center;font:700 10px var(--mono);letter-spacing:.1em;text-transform:uppercase;margin:0 0 10px}
+.sum .r{color:var(--brick)}.sum .a{color:var(--ochre)}
+.vc{background:#fff;border:1px solid var(--border-strong);border-radius:8px;padding:12px 14px}
+.vc .ttl{font-weight:600}
+.kv2{display:grid;grid-template-columns:90px 1fr;gap:6px 10px;font-size:12.5px;margin-top:8px;align-items:baseline}
+.kv2 .l{font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3)}
+.sel{display:inline-block;border:1px solid var(--border-strong);border-radius:6px;padding:4px 8px;background:var(--paper);font-size:12.5px}
+.ovr{border:1px dashed var(--ochre);background:#f7ecda}
+.tabs2{display:flex;gap:2px;border-bottom:1px solid var(--border-strong);margin:0 0 12px}
+.tabs2>span{padding:8px 14px;font:700 10px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3)}
+.tabs2>span.on{color:var(--ink);box-shadow:inset 0 -2px 0 var(--ink)}
+.beta{font:700 8px var(--mono);letter-spacing:.12em;border:1px solid var(--ochre);color:var(--ochre);border-radius:8px;padding:1px 5px;margin-left:5px;vertical-align:1px}
+.ti{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:7px 0;border-top:1px solid var(--border);font-size:13px}
+.ti small{display:block;font-size:11.5px;color:var(--ink-2)}
+.st.reuse{background:var(--olive);color:#fff;border-color:var(--olive)}
+.st.make{border-style:dashed;color:var(--ink-2)}
+.st.amb{border-color:var(--ochre);color:var(--ochre);background:#f7ecda}
+.st.ok2{border-color:var(--olive);color:var(--olive)}
+.tree{font-size:13px}
+.tree .stg{display:flex;justify-content:space-between;align-items:center;padding:10px 0 6px;border-top:1px solid var(--border-strong)}
+.tree .stg b{font:700 10px var(--mono);letter-spacing:.14em;text-transform:uppercase}
+.tree .cmp{margin-left:14px;padding:7px 0 7px 12px;border-left:2px solid var(--border-strong)}
+.tree .cmp .nm{font-weight:600}
+.tree .add{margin-left:30px;padding:4px 0 4px 12px;border-left:2px dashed var(--border-strong);font-size:12px;color:var(--ink-2)}
+.tree .add b{color:var(--ink);font-weight:600}
+.tk{display:flex;align-items:center;gap:8px;padding:6px 0;border-top:1px solid var(--border);font-size:13px}
+.tk.sub{padding-left:22px;font-size:12.5px;color:var(--ink-2)}
+.cap{border:1px solid var(--border-strong);border-radius:8px;padding:10px 12px;margin:0 0 8px;background:#fff;font-size:13px}
+.cap .meta{display:flex;justify-content:space-between;align-items:center;gap:8px;margin:0 0 6px}
+.cap .lock{background:var(--card);border-radius:3px;padding:0 3px}
+.form3{display:grid;grid-template-columns:80px 1fr;gap:8px;align-items:center;font-size:12.5px;margin:8px 0}
+.form3 .l{font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3)}
+.seg{display:inline-flex;border:1px solid var(--ink);border-radius:4px;overflow:hidden}
+.seg span{padding:3px 8px;font-size:12px}.seg span.on{background:var(--ink);color:#fff}
+table.w{border-collapse:collapse;width:100%;min-width:900px;font-size:12px;background:var(--card);table-layout:fixed}
+table.w th,table.w td{text-align:left;vertical-align:top;padding:6px 10px;border-bottom:1px solid var(--border);overflow-wrap:anywhere}
+table.w th{font:700 9px var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.w td:first-child{font:11px var(--mono)}
+.cap .meta{flex-wrap:wrap}.cap .meta .st{white-space:nowrap}
+.seg{flex-wrap:wrap}.seg span{white-space:nowrap}
+</style>
+</head><body>
+<div class="wrap">
+
+<p class="k">Off/Pixel · design record · MCP · Claude’s requests on Today, and the connector page · 25 November 2026 · before M3</p>
+<h1>Claude asks; Matas approves on Today</h1>
+<p class="lead">M3 is request-then-confirm. Claude asks for a Meta change through the connector. The change happens only after Matas approves it on Today, in Off/Pixel, and never on the strength of the Claude chat alone. This record gives the words and frames for:</p>
+<ul class="notes">
+<li>the request list on Today;</li>
+<li>Approve and Reject, and what Claude is told back;</li>
+<li>each client’s daily ceiling (<code>client_spend_ceilings</code>) and the refusal when a request would pass it;</li>
+<li>the connector page in Settings.</li>
+</ul>
+<p class="lead">Words appear only where Matas sees them. Tool names, scopes and ids stay in the log, never on screen. M3’s Meta line on the consent page is M3’s own record, not this one.</p>
+
+<h2>Rulings</h2>
+<table class="t">
+<tr><th style="width:190px">#</th><th>Ruling</th></tr>
+<tr><td>TD1 · Claude’s requests on Today</td><td>
+<ul>
+<li>A section titled “Claude’s requests”, first on Today while anything waits, with “{n} waiting for you” beside the title. When nothing waits, it reads “Nothing waiting from Claude.” and moves below the day’s brief.</li>
+<li><b>Each request is one row:</b>
+<ul>
+<li>the action and the show’s code, “Change budget · NX27-GLITTERBOX”, with the action in plain words, never the tool’s name;</li>
+<li>what changes: “[NX27-GLITTERBOX] ON SALE: £40.00 → £55.00 a day”;</li>
+<li>who and when: “Requested by Claude for Matas · Wed 25 Nov, 10:14”.</li>
+</ul></li>
+<li><b>Five states,</b> each one line in its colour:
+<ul>
+<li><b>Requested</b> (ochre edge): Approve and Reject;</li>
+<li><b>Approved</b> (ink): “Approved by Matas · …”, while Meta runs it;</li>
+<li><b>Done</b> (olive): “Done · 1 ad set changed · 120251748789350755”;</li>
+<li><b>Failed</b> (brick): “Failed · 2 of 3 ad sets changed · …”. Counts and ids only, never Meta’s message;</li>
+<li><b>Rejected</b> (muted): “Rejected by Matas · …”, with the note in quotes when there is one.</li>
+</ul></li>
+<li><b>Two outcomes Matas never had to act on</b> show muted, in the same list:
+<ul>
+<li>Expired: a request not approved within 24 hours is dropped, and nothing is sent;</li>
+<li>Refused (brick): a request that would pass the client’s ceiling (TD3) never waits for approval.</li>
+</ul></li>
+<li>Requests run oldest first while waiting. Finished ones run newest first under them, for today only. Older ones stay in the action log.</li>
+</ul></td></tr>
+<tr><td>TD2 · Approve and Reject</td><td>
+<ul>
+<li>Approve runs the change at once, with no second confirm: the row already says exactly what changes.</li>
+<li>Reject opens one optional field, “Why (Claude sees this)”, and its own Reject button.</li>
+<li><b>What Claude is told</b> (the tool’s answer, which Matas reads in Claude):
+<ul>
+<li>on request: “Waiting for Matas to approve this on Today.”;</li>
+<li>then the outcome: done, failed (with its counts), rejected (with the note), expired, or refused.</li>
+</ul>
+Claude never hears that something is done before Meta has answered.</li>
+<li>Only an approval on Today counts. A “yes” typed in Claude changes nothing.</li>
+</ul></td></tr>
+<tr><td>TD3 · Each client’s daily ceiling</td><td>
+<ul>
+<li>Under the section title, one line per client with waiting or recent requests: “Electric: £96.00 of £150.00 a day”. That’s planned daily spend against the ceiling.</li>
+<li><b>A request that would pass the ceiling</b> is refused before it reaches Matas. Its row reads “Refused · it would take Electric to £162.00 a day, over its £150.00 ceiling”, and Claude is told the same, with “Nothing was sent to Meta.”</li>
+<li><b>A client with no ceiling</b> reads “Puzzle: no daily ceiling, so Claude’s Meta requests are refused”. With no ceiling set, nothing is allowed, rather than everything.</li>
+<li>Only Matas sets a ceiling (<code>MATAS_USER_IDS</code>). Where it’s set is its own surface, not drawn here.</li>
+</ul></td></tr>
+<tr><td>TD4 · The connector page</td><td>
+<ul>
+<li>Settings gains a “Claude” section, for operators.</li>
+<li><b>Not connected:</b> it gives the address to add in Claude, with Copy. The connection is always made from Claude, never from this page.</li>
+<li><b>Connected:</b>
+<ul>
+<li>“Connected since {date} · last used {date, time}”;</li>
+<li>three scope rows (Read, Drafts, Meta), each Allowed or Not allowed. Meta reads “Not built yet” until M3.</li>
+</ul></li>
+<li><b>After an upgrade</b> (#1372’s fix): one muted line, “Drafts allowed since {date}; the read-only connection it replaced is closed.”</li>
+<li><b>Disconnect</b> asks once: “Disconnect Claude? It stops at once. Nothing it made is undone.” It revokes every grant for the user. The page then reads “Disconnected {date, time}.” over the not-connected state.</li>
+</ul></td></tr>
+</table>
+<h2>Frames</h2><h3>TD-A · Claude’s requests on Today (TD1, TD3)</h3><div class="frame"><figure><figcaption>TD-A · 1280</figcaption><div class="scrollx"><div class="vp w1280"><div class="bar1"><span class="bc">Today</span><span class="bc">OFF/PIXEL</span></div><div class="body1"><div style="max-width:720px"><div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:6px"><b style="font-size:15px">Claude’s requests</b><span class="fs">1 waiting for you</span></div><p class="fs" style="margin:4px 0 0">Electric: £96.00 of £150.00 a day</p><p class="fs" style="margin:2px 0 10px">Puzzle: no daily ceiling, so Claude’s Meta requests are refused</p><div style="border:1px solid var(--border-strong);border-left:4px solid var(--ochre);border-radius:8px;padding:10px 12px;background:#fff;margin:0 0 8px;"><div style="font-weight:600;font-size:13.5px">Change budget · <span style="white-space:nowrap">NX27-GLITTERBOX</span></div><div style="font-size:13px;margin-top:2px"><span style="white-space:nowrap">[NX27-GLITTERBOX]</span> ON SALE: £40.00 → £55.00 a day</div><div class="fs" style="margin-top:3px">Requested by Claude for Matas · Wed 25 Nov, 10:14</div><div style="display:flex;gap:8px;margin-top:8px"><span class="btn">Approve</span><span class="btn ghost">Reject</span></div></div><div style="border:1px solid var(--border-strong);border-left:4px solid var(--olive);border-radius:8px;padding:10px 12px;background:#fff;margin:0 0 8px;"><div style="font-weight:600;font-size:13.5px">Pause ad set · <span style="white-space:nowrap">NX27-SILVABUMPA</span></div><div style="font-size:13px;margin-top:2px">Broad · 25–44: live → paused</div><div class="fs" style="margin-top:3px">Approved by Matas · Wed 25 Nov, 09:02</div><div class="fs" style="margin-top:2px"><span style="color:var(--olive)">Done · 1 ad set changed · 120251748789350755</span></div></div><div style="border:1px solid var(--border-strong);border-left:4px solid var(--brick);border-radius:8px;padding:10px 12px;background:#fff;margin:0 0 8px;"><div style="font-weight:600;font-size:13.5px">Change budget · <span style="white-space:nowrap">NX27-GLITTERBOX</span></div><div style="font-size:13px;margin-top:2px"><span style="white-space:nowrap">[NX27-GLITTERBOX]</span> SIGNUP: £60.00 → £82.00 a day</div><div class="fs" style="margin-top:3px"><span style="color:var(--brick)">Refused · it would take Electric to £162.00 a day, over its £150.00 ceiling</span></div></div><div style="border:1px solid var(--border-strong);border-left:4px solid var(--brick);border-radius:8px;padding:10px 12px;background:#fff;margin:0 0 8px;"><div style="font-weight:600;font-size:13.5px">Change budget · <span style="white-space:nowrap">ES27-LPRHYTHM</span></div><div style="font-size:13px;margin-top:2px"><span style="white-space:nowrap">[ES27-LPRHYTHM]</span> On Sale: 3 ad sets, £10.00 → £12.00 a day each</div><div class="fs" style="margin-top:3px">Approved by Matas · Wed 25 Nov, 08:47</div><div class="fs" style="margin-top:2px"><span style="color:var(--brick)">Failed · 2 of 3 ad sets changed · 120250929171350771, 120250929171350772</span></div></div><div style="border:1px solid var(--border-strong);border-left:4px solid var(--border-strong);border-radius:8px;padding:10px 12px;background:#fff;margin:0 0 8px;opacity:.7;"><div style="font-weight:600;font-size:13.5px">Pause ad set · <span style="white-space:nowrap">NX26-DOD</span></div><div style="font-size:13px;margin-top:2px">Retargeting · 30 days: live → paused</div><div class="fs" style="margin-top:3px">Rejected by Matas · Wed 25 Nov, 08:30</div><div class="fs" style="margin-top:2px">“Leave it until the presale reminder goes out.”</div></div><div style="border:1px solid var(--border-strong);border-left:4px solid var(--border-strong);border-radius:8px;padding:10px 12px;background:#fff;margin:0 0 8px;opacity:.7;"><div style="font-weight:600;font-size:13.5px">Change budget · <span style="white-space:nowrap">NX27-PAULVANDYK</span></div><div style="font-size:13px;margin-top:2px"><span style="white-space:nowrap">[NX27-PAULVANDYK]</span> Signup: £30.00 → £36.00 a day</div><div class="fs" style="margin-top:3px">Expired · not approved within 24 hours, so nothing was sent</div></div></div></div></div></div><p class="fs" style="max-width:640px;margin-top:8px">One waiting request with Approve and Reject, then today’s outcomes: done, refused over the ceiling, failed, rejected with a note, expired. Ceilings under the title. Figures, ids and times invented.</p></figure><figure><figcaption>TD-A · 393</figcaption><div class="vp w393"><div class="bar1"><span class="bc">Today</span></div><div class="body1" style="padding:14px"><div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:6px"><b style="font-size:15px">Claude’s requests</b><span class="fs">1 waiting for you</span></div><p class="fs" style="margin:4px 0 0">Electric: £96.00 of £150.00 a day</p><p class="fs" style="margin:2px 0 10px">Puzzle: no daily ceiling, so Claude’s Meta requests are refused</p><div style="border:1px solid var(--border-strong);border-left:4px solid var(--ochre);border-radius:8px;padding:10px 12px;background:#fff;margin:0 0 8px;"><div style="font-weight:600;font-size:13.5px">Change budget · <span style="white-space:nowrap">NX27-GLITTERBOX</span></div><div style="font-size:13px;margin-top:2px"><span style="white-space:nowrap">[NX27-GLITTERBOX]</span> ON SALE: £40.00 → £55.00 a day</div><div class="fs" style="margin-top:3px">Requested by Claude for Matas · Wed 25 Nov, 10:14</div><div style="display:flex;gap:8px;margin-top:8px"><span class="btn">Approve</span><span class="btn ghost">Reject</span></div></div><div style="border:1px solid var(--border-strong);border-left:4px solid var(--olive);border-radius:8px;padding:10px 12px;background:#fff;margin:0 0 8px;"><div style="font-weight:600;font-size:13.5px">Pause ad set · <span style="white-space:nowrap">NX27-SILVABUMPA</span></div><div style="font-size:13px;margin-top:2px">Broad · 25–44: live → paused</div><div class="fs" style="margin-top:3px">Approved by Matas · Wed 25 Nov, 09:02</div><div class="fs" style="margin-top:2px"><span style="color:var(--olive)">Done · 1 ad set changed · 120251748789350755</span></div></div><div style="border:1px solid var(--border-strong);border-left:4px solid var(--brick);border-radius:8px;padding:10px 12px;background:#fff;margin:0 0 8px;"><div style="font-weight:600;font-size:13.5px">Change budget · <span style="white-space:nowrap">NX27-GLITTERBOX</span></div><div style="font-size:13px;margin-top:2px"><span style="white-space:nowrap">[NX27-GLITTERBOX]</span> SIGNUP: £60.00 → £82.00 a day</div><div class="fs" style="margin-top:3px"><span style="color:var(--brick)">Refused · it would take Electric to £162.00 a day, over its £150.00 ceiling</span></div></div><div style="border:1px solid var(--border-strong);border-left:4px solid var(--brick);border-radius:8px;padding:10px 12px;background:#fff;margin:0 0 8px;"><div style="font-weight:600;font-size:13.5px">Change budget · <span style="white-space:nowrap">ES27-LPRHYTHM</span></div><div style="font-size:13px;margin-top:2px"><span style="white-space:nowrap">[ES27-LPRHYTHM]</span> On Sale: 3 ad sets, £10.00 → £12.00 a day each</div><div class="fs" style="margin-top:3px">Approved by Matas · Wed 25 Nov, 08:47</div><div class="fs" style="margin-top:2px"><span style="color:var(--brick)">Failed · 2 of 3 ad sets changed · 120250929171350771, 120250929171350772</span></div></div><div style="border:1px solid var(--border-strong);border-left:4px solid var(--border-strong);border-radius:8px;padding:10px 12px;background:#fff;margin:0 0 8px;opacity:.7;"><div style="font-weight:600;font-size:13.5px">Pause ad set · <span style="white-space:nowrap">NX26-DOD</span></div><div style="font-size:13px;margin-top:2px">Retargeting · 30 days: live → paused</div><div class="fs" style="margin-top:3px">Rejected by Matas · Wed 25 Nov, 08:30</div><div class="fs" style="margin-top:2px">“Leave it until the presale reminder goes out.”</div></div><div style="border:1px solid var(--border-strong);border-left:4px solid var(--border-strong);border-radius:8px;padding:10px 12px;background:#fff;margin:0 0 8px;opacity:.7;"><div style="font-weight:600;font-size:13.5px">Change budget · <span style="white-space:nowrap">NX27-PAULVANDYK</span></div><div style="font-size:13px;margin-top:2px"><span style="white-space:nowrap">[NX27-PAULVANDYK]</span> Signup: £30.00 → £36.00 a day</div><div class="fs" style="margin-top:3px">Expired · not approved within 24 hours, so nothing was sent</div></div></div></div></figure></div><h3>TD-B · Reject, and what Claude is told (TD2)</h3><div class="frame"><figure><figcaption>TD-B · 1280</figcaption><div class="scrollx"><div class="vp w1280"><div class="bar1"><span class="bc">Today</span><span class="bc">OFF/PIXEL</span></div><div class="body1"><div style="display:grid;grid-template-columns:1fr 1fr;gap:22px;align-items:start"><div style="border:1px solid var(--border-strong);border-left:4px solid var(--ochre);border-radius:8px;padding:10px 12px;background:#fff;margin:0 0 8px;"><div style="font-weight:600;font-size:13.5px">Change budget · <span style="white-space:nowrap">NX27-GLITTERBOX</span></div><div style="font-size:13px;margin-top:2px"><span style="white-space:nowrap">[NX27-GLITTERBOX]</span> ON SALE: £40.00 → £55.00 a day</div><div class="fs" style="margin-top:3px">Requested by Claude for Matas · Wed 25 Nov, 10:14</div><div style="margin-top:8px"><div style="font-size:12px;font-weight:600;margin-bottom:3px">Why (Claude sees this)</div><div class="search" style="color:var(--ink);margin:0">Wait for the on-sale numbers tomorrow</div></div><div style="display:flex;gap:8px;margin-top:8px"><span class="btn">Reject</span><span class="btn ghost">Cancel</span></div></div><div style="border:1px dashed var(--border-strong);border-radius:8px;padding:10px 12px;font-size:13px;margin-top:6px"><div class="fs" style="font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase;margin-bottom:6px">In Claude</div><div>Waiting for Matas to approve this on Today.</div><div style="margin-top:6px">Rejected by Matas at 10:21: “Wait for the on-sale numbers tomorrow”</div></div></div></div></div></div><p class="fs" style="max-width:640px;margin-top:8px">Reject opens one optional note, which Claude sees. Claude hears “Waiting…” on request, then the outcome.</p></figure><figure><figcaption>TD-B · 393</figcaption><div class="vp w393"><div class="bar1"><span class="bc">Today</span></div><div class="body1" style="padding:14px"><div style="border:1px solid var(--border-strong);border-left:4px solid var(--ochre);border-radius:8px;padding:10px 12px;background:#fff;margin:0 0 8px;"><div style="font-weight:600;font-size:13.5px">Change budget · <span style="white-space:nowrap">NX27-GLITTERBOX</span></div><div style="font-size:13px;margin-top:2px"><span style="white-space:nowrap">[NX27-GLITTERBOX]</span> ON SALE: £40.00 → £55.00 a day</div><div class="fs" style="margin-top:3px">Requested by Claude for Matas · Wed 25 Nov, 10:14</div><div style="margin-top:8px"><div style="font-size:12px;font-weight:600;margin-bottom:3px">Why (Claude sees this)</div><div class="search" style="color:var(--ink);margin:0">Wait for the on-sale numbers tomorrow</div></div><div style="display:flex;gap:8px;margin-top:8px"><span class="btn">Reject</span><span class="btn ghost">Cancel</span></div></div><div style="border:1px dashed var(--border-strong);border-radius:8px;padding:10px 12px;font-size:13px;margin-top:6px"><div class="fs" style="font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase;margin-bottom:6px">In Claude</div><div>Waiting for Matas to approve this on Today.</div><div style="margin-top:6px">Rejected by Matas at 10:21: “Wait for the on-sale numbers tomorrow”</div></div></div></div></figure></div><h3>TD-C · The connector page (TD4)</h3><div class="frame"><figure><figcaption>TD-C · 1280 · connected, and after Disconnect</figcaption><div class="scrollx"><div class="vp w1280"><div class="bar1"><span class="bc">Settings › Claude</span><span class="bc">OFF/PIXEL</span></div><div class="body1"><div style="display:grid;grid-template-columns:1fr 1fr;gap:28px;align-items:start"><div><div style="font-weight:700;font-size:15px">Claude</div><p class="fs" style="margin:4px 0 10px">Claude reaches Off/Pixel through a connector you add in Claude. Any Meta change it asks for waits for you on Today.</p><p style="margin:0 0 6px;font-size:13px">Connected since Tue 24 Nov · last used Wed 25 Nov, 10:14</p><div style="display:flex;justify-content:space-between;gap:10px;padding:9px 0;border-top:1px solid var(--border);font-size:13px"><div><b>Read</b> · events, spend, signup and ticket counts, drafts and learnings</div><span style="color:var(--olive);white-space:nowrap">Allowed</span></div><div style="display:flex;justify-content:space-between;gap:10px;padding:9px 0;border-top:1px solid var(--border);font-size:13px"><div><b>Drafts</b> · make, change and archive drafts that aren’t published</div><span style="color:var(--olive);white-space:nowrap">Allowed</span></div><div style="display:flex;justify-content:space-between;gap:10px;padding:9px 0;border-top:1px solid var(--border);font-size:13px"><div><b>Meta</b> · ask to change live campaigns, each one approved by you on Today</div><span style="color:var(--ink-3);white-space:nowrap">Not built yet</span></div><p class="fs" style="margin:8px 0 10px">Drafts allowed since Wed 25 Nov; the read-only connection it replaced is closed.</p><span class="btn ghost">Disconnect</span><div class="dlg" style="box-shadow:none;margin-top:12px"><div class="db"><p style="margin:0 0 10px;font-size:13px">Disconnect Claude? It stops at once. Nothing it made is undone.</p><div style="display:flex;gap:8px;justify-content:flex-end"><span class="btn ghost">Cancel</span><span class="btn">Disconnect</span></div></div></div></div><div><div style="font-weight:700;font-size:15px">Claude</div><p class="fs" style="margin:4px 0 10px">Claude reaches Off/Pixel through a connector you add in Claude. Any Meta change it asks for waits for you on Today.</p><p class="fs" style="margin:0 0 6px">Disconnected Wed 25 Nov, 11:02.</p><p style="margin:0 0 6px;font-size:13px">Not connected. In Claude, add a connector with this address:</p><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><div class="search" style="color:var(--ink);margin:0;font-family:var(--mono);font-size:12px">app.offpixel.co.uk/api/mcp</div><span class="btn ghost">Copy</span></div></div></div></div></div></div><p class="fs" style="max-width:640px;margin-top:8px">Scopes as rows. Meta reads “Not built yet” until M3. The upgrade line after #1372’s fix. Disconnect asks once.</p></figure><figure><figcaption>TD-C · 393 · connected</figcaption><div class="vp w393"><div class="bar1"><span class="bc">Settings › Claude</span></div><div class="body1" style="padding:14px"><div style="font-weight:700;font-size:15px">Claude</div><p class="fs" style="margin:4px 0 10px">Claude reaches Off/Pixel through a connector you add in Claude. Any Meta change it asks for waits for you on Today.</p><p style="margin:0 0 6px;font-size:13px">Connected since Tue 24 Nov · last used Wed 25 Nov, 10:14</p><div style="display:flex;justify-content:space-between;gap:10px;padding:9px 0;border-top:1px solid var(--border);font-size:13px"><div><b>Read</b> · events, spend, signup and ticket counts, drafts and learnings</div><span style="color:var(--olive);white-space:nowrap">Allowed</span></div><div style="display:flex;justify-content:space-between;gap:10px;padding:9px 0;border-top:1px solid var(--border);font-size:13px"><div><b>Drafts</b> · make, change and archive drafts that aren’t published</div><span style="color:var(--olive);white-space:nowrap">Allowed</span></div><div style="display:flex;justify-content:space-between;gap:10px;padding:9px 0;border-top:1px solid var(--border);font-size:13px"><div><b>Meta</b> · ask to change live campaigns, each one approved by you on Today</div><span style="color:var(--ink-3);white-space:nowrap">Not built yet</span></div><p class="fs" style="margin:8px 0 10px">Drafts allowed since Wed 25 Nov; the read-only connection it replaced is closed.</p><span class="btn ghost">Disconnect</span><div class="dlg" style="box-shadow:none;margin-top:12px"><div class="db"><p style="margin:0 0 10px;font-size:13px">Disconnect Claude? It stops at once. Nothing it made is undone.</p><div style="display:flex;gap:8px;justify-content:flex-end"><span class="btn ghost">Cancel</span><span class="btn">Disconnect</span></div></div></div></div></div></figure><figure><figcaption>TD-C · 393 · not connected</figcaption><div class="vp w393"><div class="bar1"><span class="bc">Settings › Claude</span></div><div class="body1" style="padding:14px"><div style="font-weight:700;font-size:15px">Claude</div><p class="fs" style="margin:4px 0 10px">Claude reaches Off/Pixel through a connector you add in Claude. Any Meta change it asks for waits for you on Today.</p><p class="fs" style="margin:0 0 6px">Disconnected Wed 25 Nov, 11:02.</p><p style="margin:0 0 6px;font-size:13px">Not connected. In Claude, add a connector with this address:</p><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><div class="search" style="color:var(--ink);margin:0;font-family:var(--mono);font-size:12px">app.offpixel.co.uk/api/mcp</div><span class="btn ghost">Copy</span></div></div></div><p class="fs" style="max-width:640px;margin-top:8px">The connection is always made from Claude; this page gives the address.</p></figure></div>
+<h2>The words</h2>
+<p class="lead">This is a new list: <code>scratch/mcp/words-mcp-today-2026-11-25.tsv</code>. {action}, {object}, {thing} and {things} are plain words chosen for each tool, such as “Change budget”, “ad set” and “ad sets”. M3 lists them with its tools, and they come back to design.</p>
+<div class="scrollx"><table class="w"><tr><th style="width:280px">Key</th><th style="width:240px">Where</th><th>Words</th></tr><tr><td>today.mcp.title</td><td>Today, section</td><td>Claude’s requests</td></tr><tr><td>today.mcp.count</td><td>Today, section header</td><td>{n} waiting for you</td></tr><tr><td>today.mcp.count.one</td><td>Today, section header (1)</td><td>1 waiting for you</td></tr><tr><td>today.mcp.empty</td><td>Today, section, nothing waiting</td><td>Nothing waiting from Claude.</td></tr><tr><td>today.mcp.row.title</td><td>Request row, title</td><td>{action} · {code}</td></tr><tr><td>today.mcp.row.change</td><td>Request row, what changes</td><td>{object}: {before} → {after}</td></tr><tr><td>today.mcp.row.requested</td><td>Request row, state</td><td>Requested by Claude for {name} · {date, time}</td></tr><tr><td>today.mcp.row.approved</td><td>Request row, state</td><td>Approved by {name} · {date, time}</td></tr><tr><td>today.mcp.row.rejected</td><td>Request row, state</td><td>Rejected by {name} · {date, time}</td></tr><tr><td>today.mcp.row.rejected.note</td><td>Request row, under Rejected</td><td>“{note}”</td></tr><tr><td>today.mcp.row.done</td><td>Request row, result</td><td>Done · {result}</td></tr><tr><td>today.mcp.row.failed</td><td>Request row, result (brick)</td><td>Failed · {result}</td></tr><tr><td>today.mcp.row.expired</td><td>Request row, state (muted)</td><td>Expired · not approved within 24 hours, so nothing was sent</td></tr><tr><td>today.mcp.row.refused</td><td>Request row, state (brick), refused before it reached you</td><td>Refused · it would take {client} to £{x} a day, over its £{c} ceiling</td></tr><tr><td>today.mcp.row.refused.none</td><td>Request row, state (brick), client has no ceiling</td><td>Refused · {client} has no daily ceiling set</td></tr><tr><td>today.mcp.result</td><td>Result, counts and ids</td><td>{n} {things} changed · {ids}</td></tr><tr><td>today.mcp.result.one</td><td>Result (1)</td><td>1 {thing} changed · {id}</td></tr><tr><td>today.mcp.result.partial</td><td>Result, part taken</td><td>{n} of {m} {things} changed · {ids}</td></tr><tr><td>today.mcp.approve</td><td>Request row, button</td><td>Approve</td></tr><tr><td>today.mcp.reject</td><td>Request row, button</td><td>Reject</td></tr><tr><td>today.mcp.reject.note</td><td>Reject, optional field</td><td>Why (Claude sees this)</td></tr><tr><td>today.mcp.reject.confirm</td><td>Reject, button</td><td>Reject</td></tr><tr><td>today.mcp.reject.cancel</td><td>Reject, button</td><td>Cancel</td></tr><tr><td>today.mcp.ceiling</td><td>Today, section header, per client</td><td>{client}: £{s} of £{c} a day</td></tr><tr><td>today.mcp.ceiling.none</td><td>Today, section header, client with no ceiling</td><td>{client}: no daily ceiling, so Claude’s Meta requests are refused</td></tr><tr><td>claude.mcp.waiting</td><td>Told to Claude, on request</td><td>Waiting for {name} to approve this on Today.</td></tr><tr><td>claude.mcp.done</td><td>Told to Claude, approved and done</td><td>Approved by {name} at {time}. Done: {result}.</td></tr><tr><td>claude.mcp.failed</td><td>Told to Claude, approved and failed</td><td>Approved by {name} at {time}, but Meta didn’t take it all: {result}.</td></tr><tr><td>claude.mcp.rejected</td><td>Told to Claude, rejected</td><td>Rejected by {name} at {time}.</td></tr><tr><td>claude.mcp.rejected.note</td><td>Told to Claude, rejected with a note</td><td>Rejected by {name} at {time}: “{note}”</td></tr><tr><td>claude.mcp.expired</td><td>Told to Claude, expired</td><td>Not approved within 24 hours, so nothing was sent.</td></tr><tr><td>claude.mcp.refused</td><td>Told to Claude, over the ceiling</td><td>Refused before approval: this would take {client} to £{x} a day, over its £{c} daily ceiling. Nothing was sent to Meta.</td></tr><tr><td>claude.mcp.refused.none</td><td>Told to Claude, no ceiling</td><td>Refused before approval: {client} has no daily ceiling set, so Meta changes for it aren’t allowed. Nothing was sent to Meta.</td></tr><tr><td>settings.claude.title</td><td>Settings, section</td><td>Claude</td></tr><tr><td>settings.claude.lead</td><td>Settings, Claude</td><td>Claude reaches Off/Pixel through a connector you add in Claude. Any Meta change it asks for waits for you on Today.</td></tr><tr><td>settings.claude.none</td><td>Settings, Claude, not connected</td><td>Not connected. In Claude, add a connector with this address:</td></tr><tr><td>settings.claude.copy</td><td>Settings, Claude, button</td><td>Copy</td></tr><tr><td>settings.claude.copied</td><td>Settings, Claude, after Copy</td><td>Copied</td></tr><tr><td>settings.claude.connected</td><td>Settings, Claude, connected</td><td>Connected since {date} · last used {date, time}</td></tr><tr><td>settings.claude.scope.read</td><td>Settings, Claude, scope row</td><td>Read · events, spend, signup and ticket counts, drafts and learnings</td></tr><tr><td>settings.claude.scope.drafts</td><td>Settings, Claude, scope row</td><td>Drafts · make, change and archive drafts that aren’t published</td></tr><tr><td>settings.claude.scope.meta</td><td>Settings, Claude, scope row</td><td>Meta · ask to change live campaigns, each one approved by you on Today</td></tr><tr><td>settings.claude.scope.allowed</td><td>Settings, Claude, scope status</td><td>Allowed</td></tr><tr><td>settings.claude.scope.not_allowed</td><td>Settings, Claude, scope status</td><td>Not allowed</td></tr><tr><td>settings.claude.scope.later</td><td>Settings, Claude, scope status (Meta, before M3)</td><td>Not built yet</td></tr><tr><td>settings.claude.upgraded</td><td>Settings, Claude, after drafts were added</td><td>Drafts allowed since {date}; the read-only connection it replaced is closed.</td></tr><tr><td>settings.claude.disconnect</td><td>Settings, Claude, button</td><td>Disconnect</td></tr><tr><td>settings.claude.disconnect.confirm</td><td>Settings, Claude, confirm</td><td>Disconnect Claude? It stops at once. Nothing it made is undone.</td></tr><tr><td>settings.claude.disconnect.cancel</td><td>Settings, Claude, confirm button</td><td>Cancel</td></tr><tr><td>settings.claude.disconnected</td><td>Settings, Claude, after Disconnect</td><td>Disconnected {date, time}.</td></tr></table></div>
+
+<h2>Acceptance</h2>
+<ul class="notes">
+<li>A request reaches Meta only after Approve on Today. A test shows Claude’s request alone writes nothing.</li>
+<li>Every state shows its words exactly, with counts and ids only.</li>
+<li>Claude is told “Waiting…”, then the outcome, never “done” before Meta answers.</li>
+<li>A request over the ceiling, or for a client with none, is refused before it’s listed as waiting, and nothing is sent.</li>
+<li>Disconnect revokes every grant for the user. After an upgrade, the old read grant is already revoked (#1372).</li>
+</ul>
+
+<h2>Invented here</h2>
+<ul class="notes">
+<li>The 24-hour expiry.</li>
+<li>No ceiling meaning no Meta changes.</li>
+<li>The order of rows.</li>
+<li>Every word.</li>
+<li>The figures, ids and times in the frames.</li>
+</ul>
+
+<h2>Hand-back</h2>
+<table class="t">
+<tr><th style="width:190px">To</th><th>What</th></tr>
+<tr><td>MCP builder (M3)</td><td>
+<ul>
+<li>Build TD1–TD4 from <code>mcp_actions</code> and <code>client_spend_ceilings</code>.</li>
+<li>Add the words for each tool’s {action}, {object} and {thing} to the list, and send them to design.</li>
+<li>Shoot TD-A to TD-C at 1280 and 393.</li>
+</ul></td></tr>
+<tr><td>Matas</td><td>Confirm the 24-hour expiry, and that a client with no ceiling gets no Meta changes.</td></tr>
+</table>
+
+</div>
+</body>
+</html>

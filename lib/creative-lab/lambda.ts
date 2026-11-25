@@ -129,10 +129,14 @@ async function lambdaClient(deps?: LambdaDeps): Promise<NonNullable<LambdaDeps["
 
 export type CompositionRender = {
   /** StillWithAudio is the CT1 snippet static, rendered silent (lib/creative-tests/snippet-render.ts). */
-  composition: "CaptionOnClip" | "TripleFitOnClip" | "StillWithAudio";
+  composition: "CaptionOnClip" | "TripleFitOnClip" | "StillWithAudio" | "Montage";
   inputProps: Record<string, unknown>;
   muted: boolean;
   frameCount: number;
+  /** M4a's delivery: CRF 18, yuv420p, AAC 192 kbps. Unset keeps Remotion's defaults (every caption render). */
+  crf?: number;
+  pixelFormat?: "yuv420p";
+  audioBitrate?: string;
 };
 
 /** Render, poll once through to the end, and download the mp4. Deletes a partial S3 render if the poll fails. */
@@ -160,6 +164,9 @@ export async function renderCompositionViaLambda(req: CompositionRender, serveUr
       muted: req.muted,
       framesPerLambda: chunking.framesPerLambda,
       concurrencyPerLambda: chunking.concurrencyPerLambda,
+      ...(req.crf != null ? { crf: req.crf } : {}),
+      ...(req.pixelFormat ? { pixelFormat: req.pixelFormat } : {}),
+      ...(req.audioBitrate ? { audioBitrate: req.audioBitrate, audioCodec: "aac" as const } : {}),
     });
     started = { bucketName: output.bucketName, renderId: output.renderId };
 

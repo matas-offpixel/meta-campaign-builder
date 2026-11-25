@@ -100,6 +100,9 @@ import {
 } from "@/lib/meta/budget-launch";
 import {
   buildAdSetPayload,
+  ageSuggestionDroppedForObjective,
+  ADVANTAGE_AUDIENCE_AGE_MIN_CONTROL_MAX,
+  type AgeSuggestionDropped,
   extractDeprecatedReplacements,
   applyInterestReplacements,
   sanitiseInterests,
@@ -185,6 +188,7 @@ import { buildAttachAllAdSetsMap } from "@/lib/meta/attach-all-adsets";
 import { stampPublishedCreatives } from "@/lib/meta/persist-launch-creatives";
 import { isObjectiveIncompatibilityError } from "@/lib/meta/error-classify";
 import { findAdSetLocationProblems } from "@/lib/meta/location-targeting";
+import { runLaunchGuard } from "@/lib/launch-guard/load";
 import {
   bindLaunchAdSetRecorder,
   type RecordCreatedAdSet,
@@ -461,6 +465,27 @@ function rateLimitJsonResponse(
   });
 }
 
+/**
+ * Step 2 of the Advantage+ age order went out: the ad set is Advantage+
+ * with age_max 65 and no age suggestion, wider than the draft's range.
+ * Carried in the launch result with the ages the panel's ruled line
+ * (launch.adset.age_widened, lib/launch-guard/adset-row.ts) fills in.
+ */
+function ageSuggestionLaunchField(
+  dropped: AgeSuggestionDropped | null | undefined,
+  adSet: AdSetSuggestion,
+): { ageSuggestionDropped?: AgeSuggestionDropped; ageWidened?: { min: number; max: number; control: number } } {
+  if (!dropped) return {};
+  return {
+    ageSuggestionDropped: dropped,
+    ageWidened: {
+      min: adSet.ageMin,
+      max: adSet.ageMax,
+      control: Math.min(adSet.ageMin, ADVANTAGE_AUDIENCE_AGE_MIN_CONTROL_MAX),
+    },
+  };
+}
+
 function formatMetaError(err: unknown, campaignId?: string): string {
   if (err instanceof MetaApiError) {
     const archived = archivedCampaignMessage(campaignId ?? "", err);
@@ -536,20 +561,41 @@ export type LaunchCampaignResult = LaunchSummary;
 export const maxDuration = 800;
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
-  return launchWriteState.run({ sent: false }, () => launchCampaign(req));
+  return launchWriteState.run({ sent: false }, () => launchCampaign(req, null));
 }
 
-async function launchCampaign(req: NextRequest): Promise<NextResponse> {
+/**
+ * The same launch for an operator without a browser session: the Off/Pixel
+ * connector's launch_draft (lib/mcp/meta-deps.ts, M3a). Everything below
+ * runs as it does for the wizard, with `supabase` the service-role client
+ * and `user` the connector's operator: every user-scoped read and write in
+ * this route names `user.id` itself, and the launch checks, the token, the
+ * ledger and the paused path are the route's own. The body is the wizard's
+ * (`draft`, `createPaused`, `igAccountMap`).
+ */
+export async function launchCampaignAs(
+  req: NextRequest,
+  auth: { supabase: Awaited<ReturnType<typeof createClient>>; user: { id: string } },
+): Promise<NextResponse> {
+  return launchWriteState.run({ sent: false }, () => launchCampaign(req, auth));
+}
+
+async function launchCampaign(
+  req: NextRequest,
+  auth: { supabase: Awaited<ReturnType<typeof createClient>>; user: { id: string } } | null,
+): Promise<NextResponse> {
   const launchStart = Date.now();
   const phaseDurations: Record<string, number> = {};
   // Unique ID for this launch run — lets callers distinguish results across re-launches
   const launchRunId = crypto.randomUUID();
 
   // ── Auth ───────────────────────────────────────────────────────────────────
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const supabase = auth?.supabase ?? (await createClient());
+  const user = auth
+    ? auth.user
+    : (
+        await supabase.auth.getUser()
+      ).data.user;
 
   if (!user) {
     return launchJson({ error: "Unauthorised" }, { status: 401 });
@@ -620,6 +666,36 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
     payload: Parameters<typeof createMetaAd>[1],
     token?: string,
   ) => runMetaWrite("ad_create", payload, () => createMetaAd(accountId, payload, token));
+
+  // ── Pre-launch check (lib/launch-guard, record RC3) ───────────────────────
+  // Account, pixel, other shows' references and the name code against the
+  // draft's event. A blocker refuses the launch before any Graph call, for
+  // the wizard and the plan fan-out alike. A failed read is logged and does
+  // not hold the launch: the same check runs on Review first.
+  try {
+    const guard = await runLaunchGuard(supabase, draft);
+    if (guard.blockers > 0) {
+      console.error(
+        `[launch-campaign] ✗ launch checks: ${guard.checks
+          .filter((check) => check.severity === "blocker")
+          .map((check) => check.key)
+          .join(", ")}`,
+      );
+      return launchJson(
+        {
+          error: guard.checks
+            .filter((check) => check.severity === "blocker")
+            .map((check) => check.sentence)
+            .join("\n"),
+          source: "preflight",
+          launchGuard: guard,
+        },
+        { status: 400 },
+      );
+    }
+  } catch (err) {
+    console.error("[launch-campaign] launch checks could not run:", err);
+  }
 
   // ── Fetch user's Facebook OAuth token ─────────────────────────────────────
   // We select provider_token + updated_at.  expires_at is fetched separately
@@ -3908,7 +3984,8 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
                 metaAdSetId: salvaged.metaAdSetId,
                 durationMs: salvaged.durationMs,
                 note: salvaged.note,
-                ageModeOverride: salvaged.ageModeOverride,
+                metaError: salvaged.metaError,
+                ageSuggestionDropped: salvaged.ageSuggestionDropped,
               };
             } catch (salvageErr) {
               throw { adSet, err: salvageErr };
@@ -3919,17 +3996,18 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
 
       for (const r of results) {
         if (r.status === "fulfilled") {
-          const { adSet, metaAdSetId, durationMs, note, ageModeOverride } = r.value;
+          const { adSet, metaAdSetId, durationMs, note, ageModeOverride, metaError, ageSuggestionDropped } = r.value;
           adSetsCreated.push({
             name: adSetDisplayName(adSet, draft.audiences),
             metaAdSetId,
-            // ageModeOverride: the subcode-1870196 salvage retry strips
-            // Advantage+ Audience and sends explicit ages, so the ad set is
-            // actually "strict" on Meta's side even though `advantagePlus`
-            // is still true in the draft (unchanged — see the note).
+            // A refused Advantage+ Audience (1870196) is no longer retried
+            // as strict targeting, so the draft's advantagePlus is what Meta
+            // got. metaError: Meta's own refusal next to any salvage note.
             ageMode: ageModeOverride ?? (adSet.advantagePlus ? "suggested" : "strict"),
             durationMs,
             ...(note ? { note } : {}),
+            ...(metaError ? { metaError } : {}),
+            ...ageSuggestionLaunchField(ageSuggestionDropped ?? ageSuggestionDroppedForObjective(adSet, phase2Objective), adSet),
           });
           adSetMetaIds.set(adSet.id, metaAdSetId);
           adSetLaunchResults[adSet.id] = { launchStatus: "created", metaAdSetId };
@@ -4375,6 +4453,7 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
           ageMode: adSet.advantagePlus ? "suggested" : "strict",
           durationMs: dur,
           ...(prep2b.preflightDroppedNote ? { note: prep2b.preflightDroppedNote } : {}),
+          ...ageSuggestionLaunchField(ageSuggestionDroppedForObjective(adSet, phase2Objective), adSet),
         });
         adSetMetaIds.set(adSet.id, adSetRes.id);
         adSetLaunchResults[adSet.id] = { launchStatus: "created", metaAdSetId: adSetRes.id };
@@ -4416,14 +4495,15 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
           adSetsCreated.push({
             name: adSetDisplayName(adSet, draft.audiences),
             metaAdSetId: salvaged.metaAdSetId,
-            ageMode: salvaged.ageModeOverride ?? (adSet.advantagePlus ? "suggested" : "strict"),
+            ageMode: adSet.advantagePlus ? "suggested" : "strict",
             durationMs: salvaged.durationMs,
             ...(salvaged.note ? { note: salvaged.note } : {}),
+            ...(salvaged.metaError ? { metaError: salvaged.metaError } : {}),
+            ...ageSuggestionLaunchField(salvaged.ageSuggestionDropped ?? ageSuggestionDroppedForObjective(adSet, phase2Objective), adSet),
           });
           adSetMetaIds.set(adSet.id, salvaged.metaAdSetId);
           adSetLaunchResults[adSet.id] = { launchStatus: "created", metaAdSetId: salvaged.metaAdSetId };
           await recordCreatedAdSet(metaCampaignId, adSet, salvaged.metaAdSetId, {
-            ageModeOverride: salvaged.ageModeOverride,
             note: salvaged.note,
             droppedNote: prep2b?.preflightDroppedNote,
           });
@@ -4784,7 +4864,8 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
                   metaAdSetId: salvaged.metaAdSetId,
                   durationMs: salvaged.durationMs,
                   note: salvaged.note,
-                  ageModeOverride: salvaged.ageModeOverride,
+                  metaError: salvaged.metaError,
+                  ageSuggestionDropped: salvaged.ageSuggestionDropped,
                 };
               } catch (salvageErr) {
                 throw { adSet, err: salvageErr };
@@ -4795,13 +4876,15 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
 
         for (const r of batchResults) {
           if (r.status === "fulfilled") {
-            const { adSet, metaAdSetId, durationMs, note, ageModeOverride } = r.value;
+            const { adSet, metaAdSetId, durationMs, note, ageModeOverride, metaError, ageSuggestionDropped } = r.value;
             ciAdSetsCreated.push({
               name: adSetDisplayName(adSet, draft.audiences),
               metaAdSetId,
               ageMode: ageModeOverride ?? (adSet.advantagePlus ? "suggested" : "strict"),
               durationMs,
               ...(note ? { note } : {}),
+              ...(metaError ? { metaError } : {}),
+              ...ageSuggestionLaunchField(ageSuggestionDropped ?? ageSuggestionDroppedForObjective(adSet, ciObjective), adSet),
             });
             ciAdSetMetaIds.set(adSet.id, metaAdSetId);
             await recordCreatedAdSet(nextCampaign.id, adSet, metaAdSetId, {
@@ -4880,6 +4963,7 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
             ageMode: adSet.advantagePlus ? "suggested" : "strict",
             durationMs: dur,
             ...(prep2b.preflightDroppedNote ? { note: prep2b.preflightDroppedNote } : {}),
+            ...ageSuggestionLaunchField(ageSuggestionDroppedForObjective(adSet, ciObjective), adSet),
           });
           ciAdSetMetaIds.set(adSet.id, adSetRes.id);
           await recordCreatedAdSet(nextCampaign.id, adSet, adSetRes.id, {
@@ -4916,13 +5000,14 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
             ciAdSetsCreated.push({
               name: adSetDisplayName(adSet, draft.audiences),
               metaAdSetId: salvaged.metaAdSetId,
-              ageMode: salvaged.ageModeOverride ?? (adSet.advantagePlus ? "suggested" : "strict"),
+              ageMode: adSet.advantagePlus ? "suggested" : "strict",
               durationMs: salvaged.durationMs,
               ...(salvaged.note ? { note: salvaged.note } : {}),
+              ...(salvaged.metaError ? { metaError: salvaged.metaError } : {}),
+              ...ageSuggestionLaunchField(salvaged.ageSuggestionDropped ?? ageSuggestionDroppedForObjective(adSet, ciObjective), adSet),
             });
             ciAdSetMetaIds.set(adSet.id, salvaged.metaAdSetId);
             await recordCreatedAdSet(nextCampaign.id, adSet, salvaged.metaAdSetId, {
-              ageModeOverride: salvaged.ageModeOverride,
               note: salvaged.note,
               droppedNote: prep2b?.preflightDroppedNote,
             });

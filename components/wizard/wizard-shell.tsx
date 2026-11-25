@@ -25,10 +25,22 @@ import type {
 } from "@/lib/types";
 import { attachedAdSetKey, getVisibleSteps } from "@/lib/types";
 import { validateStep } from "@/lib/validation";
+import {
+  UPLOAD_FAILED_SUFFIX,
+  applyStoredSlotResults,
+  filesToSendAtLaunch,
+  storedSlotsToSend,
+  type StoredSendProgress,
+  type StoredSlotResult,
+} from "@/lib/creatives/stored-at-launch";
+import { failVideos } from "@/lib/plan/stored-assets-meta";
 import { saveDraftToStorage } from "@/lib/autosave";
 import { applyTemplate } from "@/lib/templates";
 import { loadTemplatesFromDb, saveTemplateToDb, deleteTemplateFromDb } from "@/lib/db/templates";
 import { useLaunchCampaign } from "@/lib/hooks/useLaunchCampaign";
+import { useLaunchGuard } from "@/lib/hooks/useLaunchGuard";
+import { applyLaunchCheckFix, blockedLaunchLabel } from "@/lib/launch-guard/check";
+import type { LaunchCheck, LaunchCheckFix } from "@/lib/launch-guard/types";
 import { useBucCooldown } from "@/lib/hooks/useBucCooldown";
 import { getCachedUserPages } from "@/lib/hooks/useMeta";
 import { FacebookConnectionBanner } from "@/components/facebook-connection-banner";
@@ -77,8 +89,12 @@ export function WizardShell({ draftId, linkedPlan = null }: WizardShellProps) {
   } = draftController;
 
   // Launch state
-  const { mutate: launchCampaign, loading: launching, error: launchError, errorSource: launchErrorSource, rateLimit: launchRateLimit, resetError: dismissLaunchError } = useLaunchCampaign();
+  const { mutate: launchCampaign, loading: launchRunning, error: launchError, errorSource: launchErrorSource, rateLimit: launchRateLimit, resetError: dismissLaunchError } = useLaunchCampaign();
   const [launchSummary, setLaunchSummary] = useState<LaunchSummary | null>(null);
+  // FC4: files already in Storage go to Meta first, as two launch steps; the panel reads "Launching…" throughout.
+  const [storedSend, setStoredSend] = useState<StoredSendProgress | null>(null);
+  const [uploadStopped, setUploadStopped] = useState<{ files: number; lines: string[] } | null>(null);
+  const launching = launchRunning || storedSend != null;
   const launchAccountId = draft.settings.metaAdAccountId || draft.settings.adAccountId || null;
   const launchCooldown = useBucCooldown(launchAccountId, launchRateLimit);
 
@@ -231,6 +247,7 @@ export function WizardShell({ draftId, linkedPlan = null }: WizardShellProps) {
 
   const handleLaunch = async () => {
     if (launchCooldown.blocked) return;
+    if ((launchGuard.result?.blockers ?? 0) > 0) return;
     const review = validateStep(7, draft);
     if (!review.valid) {
       alert(`Cannot launch:\n${review.errors.join("\n")}`);
@@ -246,6 +263,72 @@ export function WizardShell({ draftId, linkedPlan = null }: WizardShellProps) {
     if (!adAccountId) {
       alert("No ad account selected. Go back to Account Setup.");
       return;
+    }
+
+    // FC4: files attached from Drive or through the connector are in Storage,
+    // not yet on Meta. Send them first (the MML path), wait for Meta to finish
+    // the videos, then launch. A file that doesn't reach Meta stops the launch.
+    let launchDraft = draft;
+    const toSend = filesToSendAtLaunch(draft);
+    setUploadStopped(null);
+    if (toSend.files > 0) {
+      const stop = (stamped: CampaignDraft, failedFiles: number) => {
+        setUploadStopped({
+          files: failedFiles,
+          lines: validateStep(7, stamped).errors.filter((e) => e.endsWith(UPLOAD_FAILED_SUFFIX)),
+        });
+        setStoredSend(null);
+      };
+      setStoredSend({ phase: "files", ...toSend });
+      let videoIds: string[] = [];
+      try {
+        const res = await fetch("/api/meta/draft-assets", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ draft }),
+        });
+        const json = (await res.json().catch(() => null)) as { results?: StoredSlotResult[]; videoIds?: string[] } | null;
+        if (!res.ok || !json?.results) {
+          stop(draft, toSend.files);
+          return;
+        }
+        launchDraft = applyStoredSlotResults(draftRef.current, json.results);
+        videoIds = json.videoIds ?? [];
+      } catch {
+        stop(draft, toSend.files);
+        return;
+      }
+      const failedFiles = storedSlotsToSend(launchDraft).length;
+      if (failedFiles > 0) {
+        setDraft(launchDraft);
+        autosave(launchDraft);
+        stop(launchDraft, failedFiles);
+        return;
+      }
+      if (toSend.videos > 0 && videoIds.length > 0) {
+        setStoredSend({ phase: "videos", ...toSend });
+        try {
+          const res = await fetch("/api/meta/draft-assets", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "wait_videos", videoIds }),
+          });
+          const json = (await res.json().catch(() => null)) as { errored?: string[] } | null;
+          if (json?.errored?.length) {
+            const marked = failVideos(launchDraft, json.errored);
+            launchDraft = marked.draft;
+            setDraft(launchDraft);
+            autosave(launchDraft);
+            stop(launchDraft, marked.failed.length);
+            return;
+          }
+        } catch {
+          // Still processing is not a failure: the upload handler's own wait goes on the same way.
+        }
+      }
+      setDraft(launchDraft);
+      autosave(launchDraft);
+      setStoredSend({ phase: "launch", ...toSend });
     }
 
     try {
@@ -286,13 +369,13 @@ export function WizardShell({ draftId, linkedPlan = null }: WizardShellProps) {
       );
 
       // Single server-side call — runs all 4 phases and saves to Supabase
-      const result = await launchCampaign(draft, { igAccountMap });
+      const result = await launchCampaign(launchDraft, { igAccountMap });
 
       // Store launch summary on the draft without overwriting editable fields.
       // adSetSuggestions and creatives are left intact so re-launches start
       // from a clean state without stale metaAdSetId / metaCreativeId values.
       const published: CampaignDraft = {
-        ...draft,
+        ...launchDraft,
         metaCampaignId: result.metaCampaignId,
         launchSummary: result,
         status: "published",
@@ -305,6 +388,8 @@ export function WizardShell({ draftId, linkedPlan = null }: WizardShellProps) {
       // Supabase persistence is handled by the server route — no client-side save needed
     } catch {
       // Error is captured in launchError from the hook — ReviewLaunch renders the error modal
+    } finally {
+      setStoredSend(null);
     }
   };
 
@@ -378,6 +463,38 @@ export function WizardShell({ draftId, linkedPlan = null }: WizardShellProps) {
       planLaunchStatus: linkedPlan.metaLaunchStatus,
       draftStatus: draft.status,
     });
+
+  // Launch checks (record RC3), on Review only, before a launch.
+  const launchGuard = useLaunchGuard(draft, step === 7 && !launchSummary);
+  const launchGuardBlockedLabel = blockedLaunchLabel(launchGuard.result?.blockers ?? 0);
+  const handleLaunchGuardFix = (_check: LaunchCheck, fix: LaunchCheckFix) => {
+    if (fix.action === "show_ads") {
+      changeStep(fix.field === "audience_name" ? 3 : 4);
+      return;
+    }
+    if (fix.action === "change_identity") {
+      // The settings' page and Instagram are picked in account setup; an ad's own in creatives.
+      changeStep(fix.where === "settings" ? 0 : 4);
+      return;
+    }
+    if (fix.action === "open_locations") {
+      // "Add a pin" for a city with no preset: the pin form is on Locations.
+      changeStep(5);
+      return;
+    }
+    // "Use the live ads' page" and "Keep {page}" change the draft only (applyLaunchCheckFix), never Meta.
+    if (fix.action === "open_venue_card") {
+      // TODO(R2): the venue card's own route once it exists.
+      if (fix.clientId) window.open(`/clients/${fix.clientId}`, "_blank", "noopener");
+      return;
+    }
+    updateDraft((current) =>
+      applyLaunchCheckFix(current, fix, {
+        keptBy: launchGuard.viewer ?? userId ?? "operator",
+        now: new Date(),
+      }),
+    );
+  };
 
   // ─── Loading gate ────────────────────────────────────────────────────────────
   if (!hydrated) {
@@ -568,6 +685,8 @@ export function WizardShell({ draftId, linkedPlan = null }: WizardShellProps) {
           <ReviewLaunch
             draft={draft}
             isLaunching={launching}
+            storedSend={storedSend}
+            uploadStopped={uploadStopped}
             launchError={launchError}
             launchErrorSource={launchErrorSource}
             launchRateLimit={launchRateLimit}
@@ -579,6 +698,8 @@ export function WizardShell({ draftId, linkedPlan = null }: WizardShellProps) {
             onUpdateSettings={canvasOwnsLaunch ? undefined : updateSettings}
             onRetryFailedAds={canvasOwnsLaunch ? undefined : handleLaunch}
             onRetryLaunch={canvasOwnsLaunch ? undefined : handleLaunch}
+            launchGuard={launchGuard.result}
+            onLaunchGuardFix={canvasOwnsLaunch ? undefined : handleLaunchGuardFix}
           />
         )}
       </main>
@@ -591,6 +712,7 @@ export function WizardShell({ draftId, linkedPlan = null }: WizardShellProps) {
         saveStatus={saveStatus}
         launching={launching}
         launchCooldownLabel={launchCooldown.label}
+        launchBlockedLabel={launchGuardBlockedLabel}
         showLaunch={!canvasOwnsLaunch}
         planHref={canvasOwnsLaunch && linkedPlan ? mmlPlanHref(linkedPlan.id) : null}
         onBack={handleBack}

@@ -203,9 +203,10 @@ export function isObjectiveIncompatibilityError(err: unknown): boolean {
  * ad set (`advantagePlus: true`) under a Registration campaign that launched
  * as `OUTCOME_LEADS` — rejected outright. Registration now launches as
  * `OUTCOME_SALES`, which accepts the flag; awareness still does not. This
- * classifier stays objective-agnostic: any 1870196 still retries without
- * Advantage+ rather than guessing a field substitution. The request shape
- * was already correct (the flag nested inside `targeting`).
+ * classifier stays objective-agnostic. A match is never retried: the
+ * salvage ladder (`lib/audiences/adset-create-with-salvage.ts`) fails the
+ * ad set with Meta's error, because the old retry without Advantage+ turned
+ * suggestion audiences into hard targeting (ES27-ENZOSIRAGUSA, 25 Nov 2026).
  *
  * Duck-typed against `{ code, subcode, message, userMsg }`, same rationale
  * as `isObjectiveIncompatibilityError` above.
@@ -241,9 +242,9 @@ export function isInvalidTargetingAutomationError(err: unknown): boolean {
  * the "Wide" ad set was rejected with this subcode even though
  * `buildMetaTargeting` (`lib/meta/adset.ts`) already sets
  * `targeting_automation.advantage_audience` on every payload; the retry in
- * `launch-campaign/route.ts` re-sends it as a standalone
- * `{ advantage_audience: 0 | 1 }` object (no `individual_setting`) per
- * Meta's exact ask, in case some other payload mutation upstream ever
+ * salvage ladder re-sends `targeting_automation` with the flag set
+ * explicitly (keeping the rest of it, e.g. the age suggestion's
+ * `individual_setting`), in case some other payload mutation upstream ever
  * drops or restructures the field before this ad set reaches Meta.
  *
  * Duck-typed against `{ code, subcode, message, userMsg }`, same rationale

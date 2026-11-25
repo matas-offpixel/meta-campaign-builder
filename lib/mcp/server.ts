@@ -12,19 +12,26 @@
  *
  * M2: a tools/call naming a draft tool needs `mcp:draft` on the grant. A
  * read-only grant gets 403 insufficient_scope with the step-up challenge
- * (scope="mcp:read mcp:draft") before the SDK runs, and the refusal is an
- * mcp_actions row. Its reads keep working.
+ * before the SDK runs, and the refusal is an mcp_actions row. Its reads
+ * keep working.
+ *
+ * M3a: a meta tool (launch, uploads to Meta, event edits) needs `mcp:meta`
+ * on the grant AND the user still in MATAS_USER_IDS; anything else is the
+ * same 403. Every meta call's row carries the approval it was given
+ * (`approval: { asked, answer }`, Matas's chat yes) with approval_source
+ * 'claude_prompt' (lib/mcp/meta/approval.ts).
  *
  * Relative imports only, so the whole request path runs under node:test.
  */
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
-import { SCOPE_DRAFT, isMcpEnabled, mcpUrls } from "./config.ts";
+import { SCOPE_DRAFT, SCOPE_META, SCOPE_RENDER, isMcpEnabled, mcpUrls } from "./config.ts";
+import { parseApproval } from "./meta/approval.ts";
 import { checkBearer, scopeIncludes, wwwAuthenticate, type FlowDeps } from "./oauth/flow.ts";
 import type { ActionLogger } from "./action-log.ts";
 import { checkRateLimit } from "./rate-limit.ts";
 import { MCP_TOOLS } from "./tools/index.ts";
-import { ToolInputError, type Db, type McpDraftDeps, type McpReaders, type McpTool, type ToolContext } from "./tool-types.ts";
+import { ToolInputError, type Db, type McpDraftDeps, type McpMetaDeps, type McpReaders, type McpRenderDeps, type McpTool, type ToolContext } from "./tool-types.ts";
 
 /** Claude's result limit is about 150,000 characters; stay under it. */
 export const MAX_RESULT_CHARS = 140_000;
@@ -41,6 +48,10 @@ export interface McpHandlerDeps extends FlowDeps {
   tools?: readonly McpTool[];
   /** M2's Meta search, Drive, Storage and pending-PR seams (lib/mcp/draft-deps.ts). */
   draft?: McpDraftDeps;
+  /** M3a's Meta reach: uploads and the launch route (lib/mcp/meta-deps.ts). */
+  meta?: McpMetaDeps;
+  /** M4a's render reach (lib/mcp/render-deps.ts). */
+  render?: McpRenderDeps;
 }
 
 const ALLOWED_ORIGINS = new Set(["https://claude.ai", "https://claude.com"]);
@@ -57,13 +68,22 @@ const INSTRUCTIONS = [
   "Shows are identified by event codes such as NX26-DOD. Start with morning_topline for the day, list_events to find a code, get_event for one show.",
   "Money is GBP. Phases: teaser, announced, presale, general sale (on sale), show week.",
   "The read tools only read. The draft tools change campaign drafts in the app (status draft only) and never Meta: nothing launches or spends.",
-  "Before a draft tool, call get_draft and pass its updatedAt as updated_at; every draft tool answers with the new updated_at and the launch checks.",
+  "The Meta tools (launch_draft, upload_draft_assets, update_event) run only after Matas says yes in this chat: ask him exactly what will change, where, the money a day and paused or live, then pass approval with your question and his reply word for word. Never fill in approval yourself. A live launch is refused over the client's daily ceiling.",
+  "render_package renders a package (the 15 s montage, 9 files) and files it in the event's Drive folder, only after Matas says yes in this chat: ask him the recipe and file count, whose clips they are, the claim and any text in the artist's voice, then pass approval with your question and his reply word for word. get_render_package reads where it is.",
+  "Before a draft tool, call get_draft and pass its updatedAt as updated_at; every draft tool answers with the new updated_at and the launch checks. get_draft gives the ids the draft tools take (ads, ad sets, audience groups).",
 ].join(" ");
 
 function failedText(tool: McpTool): string {
+  if (tool.failedText) return tool.failedText;
+  if (tool.kind === "meta") return "The Meta tool failed partway. Read the draft again with get_draft (or get_campaign_tree) to see what was sent before trying again.";
   return tool.kind === "draft"
     ? "The draft tool failed and nothing was saved. Try again, or read the draft again with get_draft."
     : "The read failed. Try again, or narrow the request.";
+}
+
+/** What Claude gets for a failed call: a refusal's own words and data, else the tool's failure row. Never the raw error. */
+export function errorAnswer(tool: McpTool, e: unknown): string {
+  return JSON.stringify(e instanceof ToolInputError ? { error: e.message, ...(e.data ?? {}) } : { error: failedText(tool) });
 }
 
 function buildServer(ctx: ToolContext, deps: McpHandlerDeps, grantId: string): McpServer {
@@ -94,7 +114,8 @@ function buildServer(ctx: ToolContext, deps: McpHandlerDeps, grantId: string): M
         let clientId: string | null = null;
         try {
           const out = await tool.run(ctx, args ?? {});
-          text = JSON.stringify(out.data);
+          // A plain-text answer (get_artist, AL5) goes as written; everything else as JSON.
+          text = typeof out.data === "string" ? out.data : JSON.stringify(out.data);
           if (text.length > MAX_RESULT_CHARS) {
             text = JSON.stringify({ error: "The answer is too large. Narrow the request (a client, a stage or one code)." });
             isError = true;
@@ -110,7 +131,16 @@ function buildServer(ctx: ToolContext, deps: McpHandlerDeps, grantId: string): M
           const message = e instanceof Error ? e.message : String(e);
           error = message;
           if (e instanceof ToolInputError) result = e.summary;
-          text = JSON.stringify(e instanceof ToolInputError ? { error: message, ...(e.data ?? {}) } : { error: failedText(tool) });
+          text = errorAnswer(tool, e);
+        }
+        // A meta call's row carries the chat yes it ran on (approval_source claude_prompt).
+        let approval: { asked: string; answer: string } | null = null;
+        if (tool.kind === "meta" || tool.kind === "render") {
+          try {
+            approval = parseApproval((args ?? {}).approval);
+          } catch {
+            approval = null;
+          }
         }
         await deps.logger
           .log({
@@ -126,6 +156,7 @@ function buildServer(ctx: ToolContext, deps: McpHandlerDeps, grantId: string): M
             error,
             duration_ms: Date.now() - started,
             result_bytes: Buffer.byteLength(text, "utf8"),
+            ...(approval ? { approval, approved_at: new Date().toISOString() } : {}),
           })
           .catch(() => "stdout");
         return { content: [{ type: "text" as const, text }], isError };
@@ -135,9 +166,9 @@ function buildServer(ctx: ToolContext, deps: McpHandlerDeps, grantId: string): M
   return server;
 }
 
-/** The draft tools a JSON-RPC body (one message or a batch) calls with tools/call. */
-async function draftToolsCalled(req: Request, tools: readonly McpTool[]): Promise<string[]> {
-  const draft = new Set(tools.filter((t) => t.kind === "draft").map((t) => t.name));
+/** The tools of one kind a JSON-RPC body (one message or a batch) calls with tools/call. */
+async function toolsCalled(req: Request, tools: readonly McpTool[], kind: McpTool["kind"]): Promise<string[]> {
+  const draft = new Set(tools.filter((t) => t.kind === kind).map((t) => t.name));
   let body: unknown;
   try {
     body = await req.clone().json();
@@ -177,11 +208,21 @@ export async function handleMcpRequest(req: Request, deps: McpHandlerDeps): Prom
   if (!rate.ok) return json(429, { error: "rate_limited" }, { "retry-after": String(rate.retryAfterSeconds) });
 
   const tools = deps.tools ?? MCP_TOOLS;
-  const needsDraft = await draftToolsCalled(req, tools);
-  if (needsDraft.length > 0 && !scopeIncludes(auth.scope, SCOPE_DRAFT)) {
-    for (const name of needsDraft) {
+  const isMatas = deps.isMatas(auth.userId);
+  const needsDraft = await toolsCalled(req, tools, "draft");
+  const needsMeta = await toolsCalled(req, tools, "meta");
+  const needsRender = await toolsCalled(req, tools, "render");
+  const refuse = [
+    ...(needsDraft.length > 0 && !scopeIncludes(auth.scope, SCOPE_DRAFT) ? needsDraft.map((name) => ({ name, kind: "draft" as const })) : []),
+    // mcp:meta on the grant, and the user still Matas (MATAS_USER_IDS), on every call.
+    ...(needsMeta.length > 0 && !(scopeIncludes(auth.scope, SCOPE_META) && isMatas) ? needsMeta.map((name) => ({ name, kind: "meta" as const })) : []),
+    // M4a: mcp:render on the grant, and the user still Matas, on every call.
+    ...(needsRender.length > 0 && !(scopeIncludes(auth.scope, SCOPE_RENDER) && isMatas) ? needsRender.map((name) => ({ name, kind: "render" as const })) : []),
+  ];
+  if (refuse.length > 0) {
+    for (const { name, kind } of refuse) {
       await deps.logger
-        .log({ user_id: auth.userId, grant_id: auth.grantId, tool: name, args: {}, kind: "draft", status: "failed", result: { refused: "insufficient_scope" }, error: "insufficient_scope", duration_ms: 0, result_bytes: 0 })
+        .log({ user_id: auth.userId, grant_id: auth.grantId, tool: name, args: {}, kind, status: "failed", result: { refused: "insufficient_scope" }, error: "insufficient_scope", duration_ms: 0, result_bytes: 0 })
         .catch(() => "stdout");
     }
     return json(403, { error: "insufficient_scope" }, { "www-authenticate": wwwAuthenticate(urls, "insufficient_scope") });
@@ -193,7 +234,10 @@ export async function handleMcpRequest(req: Request, deps: McpHandlerDeps): Prom
     userId: auth.userId,
     scope: auth.scope,
     draft: deps.draft,
-    seesClientNames: deps.isMatas(auth.userId),
+    meta: deps.meta,
+    render: deps.render,
+    isMatas,
+    seesClientNames: isMatas,
     today: londonToday(now),
     now,
   };

@@ -30,6 +30,16 @@ export const MCP_CONSENT_SHOTS = [
   shot("loopback-drafts", 393),
   shot("claude-upgrade", 1280),
   shot("claude-upgrade", 393),
+  // M3a (MW1): a new connection with Meta, and a drafts grant adding Meta.
+  shot("claude-meta", 1280),
+  shot("claude-meta", 393),
+  shot("claude-meta-upgrade", 1280),
+  shot("claude-meta-upgrade", 393),
+  // M4a (MA3): a new connection with renders, and a grant adding renders.
+  shot("claude-render", 1280),
+  shot("claude-render", 393),
+  shot("claude-render-upgrade", 1280),
+  shot("claude-render-upgrade", 393),
   {
     ...shot("claude", 393, "-dark"),
     lab: true,

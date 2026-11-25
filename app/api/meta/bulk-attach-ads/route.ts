@@ -75,6 +75,7 @@ import { resolveLedgerDrafts, treeAdLedgerKey, treeCreativeLedgerKey, type TreeD
 import { isTreeStage, type TreeStage } from "@/lib/campaign-tree/tree";
 import { treeAddWritesEnabled } from "@/lib/campaign-tree/switch";
 import { withMetaWriteIdempotency, type MetaWriteContext } from "@/lib/meta/write-idempotency";
+import { refusedUploads, uploadFilesOf } from "@/lib/render-templates/upload-guard";
 
 export const maxDuration = 600;
 
@@ -280,6 +281,25 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       { error: "Creative validation failed", details: creativeErrors },
       { status: 400 },
     );
+  }
+
+  // ── M4 (RT2): a render file that failed a check can't be uploaded ────────
+  // Read with the service role, so another operator's run sees the package's
+  // rows too; the user's own client is the fallback, never a skip.
+  {
+    let guardDb: Parameters<typeof refusedUploads>[0];
+    try {
+      guardDb = createServiceRoleClient();
+    } catch {
+      guardDb = supabase;
+    }
+    const refused = await refusedUploads(guardDb, uploadFilesOf(newCreatives));
+    if (refused.length > 0) {
+      return NextResponse.json(
+        { error: refused[0]!.line, code: "render_failed_check", refused: refused.map((r) => ({ fileName: r.fileName, line: r.line })) },
+        { status: 400 },
+      );
+    }
   }
 
   // ── Resolve token ────────────────────────────────────────────────────────

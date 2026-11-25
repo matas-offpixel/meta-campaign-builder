@@ -7,11 +7,17 @@
  * connection with drafts, long email), loopback-drafts (long registered name
  * at the cap, design's line 2), claude-upgrade (a read grant adding drafts:
  * the upgrade title and the cancel note above the buttons).
+ * M3a (record 2026-11-25-mcp-m3a-words, MW1): claude-meta (a new connection
+ * with Meta) and claude-meta-upgrade (a drafts grant adding Meta: the Meta
+ * upgrade title and the drafts cancel note).
+ * M4a (record 2026-11-25-m4a-words, MA3): claude-render (a new connection with
+ * renders: the render line after line 2) and claude-render-upgrade (a grant
+ * adding renders: the render upgrade title and cancel note).
  */
 import { CLAUDE_CALLBACK } from "../../lib/mcp/config.ts";
 import { consentContent } from "../../lib/mcp/oauth/consent-words.ts";
 
-export const MCP_CONSENT_FRAME_IDS = ["claude", "loopback", "invalid", "signed-out", "not-operator", "claude-drafts", "loopback-drafts", "claude-upgrade"] as const;
+export const MCP_CONSENT_FRAME_IDS = ["claude", "loopback", "invalid", "signed-out", "not-operator", "claude-drafts", "loopback-drafts", "claude-upgrade", "claude-meta", "claude-meta-upgrade", "claude-render", "claude-render-upgrade"] as const;
 export type McpConsentFrameId = (typeof MCP_CONSENT_FRAME_IDS)[number];
 
 export const MCP_CONSENT_EMAIL = "matas.offpixel.operator@offpixel.co.uk";
@@ -41,6 +47,22 @@ export function mcpConsentFixture(id: McpConsentFrameId): McpConsentFixture {
   }
   if (id === "loopback-drafts") {
     return { state: "consent", content: consentContent({ redirectUri: LOOPBACK, clientName: MCP_CONSENT_LONG_NAME, email: MCP_CONSENT_EMAIL, returnHost: new URL(LOOPBACK).host, scope: DRAFTS }) };
+  }
+  // M3a: a grant with Meta, and a drafts grant adding Meta.
+  const META = "mcp:read mcp:draft mcp:meta";
+  if (id === "claude-meta") {
+    return { state: "consent", content: consentContent({ redirectUri: CLAUDE_CALLBACK, clientName: "Claude", email: MCP_CONSENT_EMAIL, returnHost: new URL(CLAUDE_CALLBACK).host, scope: META }) };
+  }
+  if (id === "claude-meta-upgrade") {
+    return { state: "consent", content: consentContent({ redirectUri: CLAUDE_CALLBACK, clientName: "Claude", email: MCP_CONSENT_EMAIL, returnHost: new URL(CLAUDE_CALLBACK).host, scope: META, upgradeFrom: "drafts" }) };
+  }
+  // M4a (MA3): a new connection with renders, and a grant adding renders.
+  const RENDER = "mcp:read mcp:draft mcp:meta mcp:render";
+  if (id === "claude-render") {
+    return { state: "consent", content: consentContent({ redirectUri: CLAUDE_CALLBACK, clientName: "Claude", email: MCP_CONSENT_EMAIL, returnHost: new URL(CLAUDE_CALLBACK).host, scope: RENDER }) };
+  }
+  if (id === "claude-render-upgrade") {
+    return { state: "consent", content: consentContent({ redirectUri: CLAUDE_CALLBACK, clientName: "Claude", email: MCP_CONSENT_EMAIL, returnHost: new URL(CLAUDE_CALLBACK).host, scope: RENDER, addsRender: true }) };
   }
   if (id === "invalid") return { state: "invalid" };
   if (id === "signed-out") return { state: "signed_out" };

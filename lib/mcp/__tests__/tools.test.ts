@@ -11,13 +11,15 @@ import { fakeDb } from "./fake-db.ts";
 
 const keys = (o: unknown) => Object.keys(o as object).sort();
 
-test("eight read tools, each read-only with a one-example description", () => {
+test("ten read tools (M4a's get_render_package with M1's eight and get_artist), each read-only with a one-example description", () => {
   assert.deepEqual(READ_TOOLS.map((t) => t.name).sort(), [
+    "get_artist",
     "get_campaign_tree",
     "get_draft",
     "get_drafts",
     "get_event",
     "get_learnings",
+    "get_render_package",
     "list_events",
     "morning_topline",
     "run_launch_checks",
@@ -84,6 +86,7 @@ test("get_drafts / get_draft: the summary's fields", async () => {
     "campaignCode",
     "creatives",
     "id",
+    "instagram",
     "launchedCampaignId",
     "links",
     "locations",
@@ -125,13 +128,16 @@ test("get_learnings: rows with words; archived out; client ids only for Matas", 
   assert.equal((byCode.data as { count: number }).count, 1);
 });
 
-test("pending tools say not available yet and read nothing", async () => {
+test("get_campaign_tree says not available yet and reads nothing; run_launch_checks runs the real check", async () => {
   const c = ctx();
   const tree = await getCampaignTreeTool.run(c, { code: "NX26-DOD" });
   assert.deepEqual(tree.data, { available: false, status: "not available yet", waitingOn: "PR #1364 (campaign tree)", code: "NX26-DOD" });
-  const checks = await runLaunchChecksTool.run(c, { draft_id: DRAFT_1 });
-  assert.equal((checks.data as { status: string }).status, "not available yet");
   assert.deepEqual(c.db.reads, []);
+  const checks = await runLaunchChecksTool.run(c, { draft_id: DRAFT_1 });
+  const out = (checks.data as { launchChecks: { ran: boolean } }).launchChecks;
+  assert.equal(typeof out.ran, "boolean");
+  assert.ok((c.db.reads as string[]).includes("campaign_drafts"));
+  assert.deepEqual(c.db.writes, []);
 });
 
 test("morning_topline: the query's columns, phases, misnamed line and next 72 hours", async () => {

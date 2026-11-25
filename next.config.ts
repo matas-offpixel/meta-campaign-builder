@@ -96,6 +96,9 @@ const nextConfig: NextConfig = {
   // 270.41 MB, and scripts/check-function-size.mts fails CI above 230 MB.
   outputFileTracingExcludes: {
     "/api/admin/remotion/render-caption/route": ["./node_modules/ffmpeg-static/ffmpeg"],
+    // M4a: the package step's imports pull docs/ (frames, design records) and
+    // scratch/ into this route's trace; nothing in the route reads either.
+    "/api/cron/creative-lab-render-tick/route": ["./docs/**", "./scratch/**"],
   },
   experimental: {
     // Raise the default 1 MB body cap for Server Actions and the shared

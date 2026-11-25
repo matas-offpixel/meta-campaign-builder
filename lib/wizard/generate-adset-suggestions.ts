@@ -86,6 +86,8 @@ export function generateSuggestions(
 
   audiences.customAudienceGroups.forEach((g) => {
     if (g.audienceIds.length === 0) return;
+    // Suggestions only: never an ad set of its own (an Advantage+ ad set takes it as suggestions).
+    if (g.suggestionsOnly) return;
     baseSuggestions.push({
       id: `as_ca_${g.id}`,
       name: g.name || "Custom Audiences",

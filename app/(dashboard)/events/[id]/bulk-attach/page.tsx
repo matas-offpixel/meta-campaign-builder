@@ -365,9 +365,10 @@ export default function BulkAttachPage({ params, searchParams }: PageProps) {
           tree: { eventId, stage: stageMode, runId: treeRunId },
         }),
       });
-      const data = (await res.json().catch(() => ({}))) as Partial<BulkAttachResult> & { code?: string };
+      const data = (await res.json().catch(() => ({}))) as Partial<BulkAttachResult> & { code?: string; error?: string };
       if (!res.ok && res.status !== 207) {
-        setStageError(runErrorLine({ added: 0, logUnavailable: data.code === "log_unavailable" }));
+        // M4 (RT2): a render file that failed a check, refused in RT2's words ("Failed {checks}, so it can't be uploaded.").
+        setStageError(data.code === "render_failed_check" && data.error ? data.error : runErrorLine({ added: 0, logUnavailable: data.code === "log_unavailable" }));
         return;
       }
       const result = data as BulkAttachResult;

@@ -149,7 +149,8 @@ export async function runRenderTick(
 
   const queuedRes = await db.from("creative_lab_renders").select("*").eq("status", "queued").order("created_at", { ascending: true });
   if (queuedRes.error) throw new Error(`creative_lab_renders: ${queuedRes.error.message}`);
-  const queued = (queuedRes.data ?? []) as Row[];
+  // M4a: a render package's file (recipe set, migration 270) is the package tick's (lib/render-templates/worker.ts), never a caption render.
+  const queued = ((queuedRes.data ?? []) as Row[]).filter((row) => row.recipe == null);
   const { readiness, checks } = await clipReadiness(db, queued);
   const pending = checks[0];
   const detect = opts.detect ?? (opts.render ? null : async (d: ServiceRoleDb, id: string, claim: Extract<FaceCheckClaim, { ok: true }>) =>

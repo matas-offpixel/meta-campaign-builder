@@ -17,6 +17,11 @@
  *     drive_kit_audit_files row for the kit audit (H8). Nothing runs the
  *     audit yet.
  *
+ *   - under an artist's 00 Artist Library / {artist} / Clips or Statics →
+ *     one artist_assets row (AL1, migration 269): kind clip or static,
+ *     owner_kind artist, shareable. Deduped on the Drive file id. Nothing is
+ *     copied into Storage. Renders, Captions and Insights import nothing.
+ *
  * Skipped: removed and trashed files, folders, shortcuts, and every file the
  * export filed itself (appProperties tag) — our own renders never come back.
  * Archived clients and cancelled events import nothing.
@@ -57,6 +62,8 @@ import { APP_TAG_KEY, FOLDER_MIME, SHORTCUT_MIME, type DriveApi, type DriveChang
 import { allRows, rowById, rowsWhere, type DriveDb, type RowOf } from "./db.ts";
 import { loadLineupArtists, type LineupArtist } from "./lineup.ts";
 import { ARTIST_CLIPS_KEY, BRAND_KIT_KEY, isCancelled } from "./tree.ts";
+import { loadLibraryMap, recordLibraryDrop, type LibraryFolderRow } from "../artist-library/library-drive.ts";
+import { DROP_KINDS } from "../artist-library/library-tree.ts";
 
 /** Folder depth walked up from a file to find a folder the map knows. */
 const MAX_DEPTH = 6;
@@ -83,6 +90,8 @@ export type PickupResult = {
   changes: number;
   clips: ClipImport[];
   kitFiles: number;
+  /** Files dropped into an artist's library Clips / Statics, recorded as artist assets (AL1). */
+  libraryFiles: number;
   misses: string[];
   skipped: Partial<Record<PickupSkip, number>>;
   errors: string[];
@@ -255,7 +264,7 @@ export async function runDrivePickup(
   opts: { now?: Date; maxPages?: number; importClip?: ImportClip; importVenueClip?: ImportVenueClip } = {},
 ): Promise<PickupResult> {
   const now = opts.now ?? new Date();
-  const result: PickupResult = { ok: true, firstRun: false, pages: 0, changes: 0, clips: [], kitFiles: 0, misses: [], skipped: {}, errors: [] };
+  const result: PickupResult = { ok: true, firstRun: false, pages: 0, changes: 0, clips: [], kitFiles: 0, libraryFiles: 0, misses: [], skipped: {}, errors: [] };
   const stored = await readCursor(db, drive.driveId);
   if (!stored) {
     await writeCursor(db, drive.driveId, await drive.startPageToken(), now);
@@ -264,6 +273,7 @@ export async function runDrivePickup(
   }
 
   const index = new Map((await allRows(db, "drive_folders")).map((row) => [row.drive_folder_id, row]));
+  const library = new Map((await loadLibraryMap(db)).rows.map((row) => [row.drive_folder_id, row]));
   const folders = new Map<string, DriveFile | null>();
   const getFile = async (id: string) => {
     if (!folders.has(id)) folders.set(id, await drive.getFile(id));
@@ -353,6 +363,14 @@ export async function runDrivePickup(
   return result;
 
   async function handle(file: DriveFile): Promise<void> {
+    const shelf = await libraryShelf(file, library, getFile);
+    if (shelf) {
+      const kind = DROP_KINDS[shelf.key];
+      if (!kind || !shelf.artist_id) return skip("elsewhere");
+      await recordLibraryDrop(db, { artistId: shelf.artist_id, kind, fileId: file.id, name: file.name, now });
+      result.libraryFiles += 1;
+      return;
+    }
     const where = await locate(file, index, getFile);
     if (where.kind === "elsewhere") return skip("elsewhere");
     const client = await clientOf(where.row.client_id);
@@ -419,6 +437,20 @@ export async function runDrivePickup(
   }
 }
 
+/** The library folder a file sits in, walking up past folders inside it; null when it isn't in the library. */
+async function libraryShelf(file: DriveFile, library: ReadonlyMap<string, LibraryFolderRow>, getFile: (id: string) => Promise<DriveFile | null>): Promise<LibraryFolderRow | null> {
+  if (!library.size) return null;
+  let cursor = file.parents?.[0] ?? null;
+  for (let depth = 0; cursor && depth < MAX_DEPTH; depth += 1) {
+    const row = library.get(cursor);
+    if (row) return row;
+    const folder = await getFile(cursor);
+    if (!folder) return null;
+    cursor = folder.parents?.[0] ?? null;
+  }
+  return null;
+}
+
 /** The client's Lab row for a lineup artist: linked by library id, else the exact name, else made the way the Lab makes one. */
 async function labArtistFor(db: DriveDb, event: RowOf<"events">, client: RowOf<"clients">, artist: LineupArtist): Promise<string> {
   const rows = await rowsWhere(db, "creative_lab_artists", "client_id", client.id);
@@ -433,6 +465,6 @@ async function labArtistFor(db: DriveDb, event: RowOf<"events">, client: RowOf<"
 }
 
 /** A cron_runs row only when something came in or failed. */
-export function pickupShouldRecord(result: Pick<PickupResult, "clips" | "kitFiles" | "misses" | "errors" | "firstRun">): boolean {
-  return result.firstRun || result.clips.length + result.kitFiles + result.misses.length + result.errors.length > 0;
+export function pickupShouldRecord(result: Pick<PickupResult, "clips" | "kitFiles" | "misses" | "errors" | "firstRun"> & { libraryFiles?: number }): boolean {
+  return result.firstRun || result.clips.length + result.kitFiles + (result.libraryFiles ?? 0) + result.misses.length + result.errors.length > 0;
 }

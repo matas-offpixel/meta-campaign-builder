@@ -143,6 +143,18 @@ function str(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
+/** `[min, max]` when the ad set is Advantage+ with age as a suggestion, else null. */
+function advantageAgeSuggestion(targeting: Record<string, unknown>): [number, number] | null {
+  const automation = asRecord(targeting.targeting_automation);
+  const individual = asRecord(automation?.individual_setting);
+  if (automation?.advantage_audience !== 1 || individual?.age !== 1) return null;
+  const range = targeting.age_range;
+  if (!Array.isArray(range) || range.length !== 2) return null;
+  const lo = num(range[0]);
+  const hi = num(range[1]);
+  return lo != null && hi != null && lo <= hi ? [lo, hi] : null;
+}
+
 function num(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   if (typeof value === "string" && value.trim() && Number.isFinite(Number(value))) {
@@ -702,8 +714,12 @@ export function mapMetaLiveCampaign(input: MapMetaLiveCampaignInput): CampaignDr
       input.countryGroupLabels,
     );
 
-    const ageMin = num(targeting.age_min);
-    const ageMax = num(targeting.age_max);
+    // An Advantage+ ad set with an age suggestion stores age_max 65 and the
+    // draft's range in age_range (individual_setting.age = 1): read the
+    // range back, or a relaunch would widen the suggestion to 65.
+    const suggestedAge = advantageAgeSuggestion(targeting);
+    const ageMin = suggestedAge ? suggestedAge[0] : num(targeting.age_min);
+    const ageMax = suggestedAge ? suggestedAge[1] : num(targeting.age_max);
     if (ageMin == null) drop(dropped, "age_min", targeting.age_min ?? null, ctx);
     if (ageMax == null) drop(dropped, "age_max", targeting.age_max ?? null, ctx);
     const dailyRaw = num(raw.daily_budget);

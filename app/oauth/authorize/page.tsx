@@ -13,9 +13,9 @@ import { headers } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { isOperator } from "@/lib/auth/operator-allowlist";
 import { isMcpEnabled, mcpUrls } from "@/lib/mcp/config";
-import { checkAuthorizeRequest } from "@/lib/mcp/oauth/flow";
+import { checkAuthorizeRequest, scopeForUser } from "@/lib/mcp/oauth/flow";
 import { flowDeps } from "@/lib/mcp/route-deps";
-import { consentContent, isUpgradeConsent } from "@/lib/mcp/oauth/consent-words";
+import { consentContent, isRenderUpgrade, upgradeFrom } from "@/lib/mcp/oauth/consent-words";
 import { ConsentView } from "@/components/mcp/consent-view";
 import { decideConsent } from "./actions";
 
@@ -52,10 +52,11 @@ export default async function AuthorizePage({ searchParams }: { searchParams: Se
   if (!user) return <ConsentView view={{ state: "signed_out" }} />;
   if (!isOperator(user.id)) return <ConsentView view={{ state: "not_operator" }} />;
 
-  const req = check.request;
-  // An existing read-only grant from this same client adding drafts reads as an upgrade (M2 words).
+  // mcp:meta is Matas's only (MATAS_USER_IDS): anyone else is shown, and issued, read and drafts.
+  const req = { ...check.request, scope: scopeForUser(check.request.scope, user.id, flowDeps()) };
+  // An existing grant from this same client with less than the request reads as an upgrade (M2; MW1 for Meta).
   const live = await flowDeps().store.listLiveGrants({ userId: user.id });
-  const hasReadOnlyGrant = isUpgradeConsent(live, req.client.client_id, req.scope);
+  const from = upgradeFrom(live, req.client.client_id, req.scope);
   const content = consentContent({
     redirectUri: req.redirectUri,
     clientName: req.client.client_name,
@@ -63,7 +64,9 @@ export default async function AuthorizePage({ searchParams }: { searchParams: Se
     returnHost: new URL(req.redirectUri).host,
     // The resolved scope: lines 1 and 2 follow mcp:draft (M2).
     scope: req.scope,
-    hasReadOnlyGrant,
+    upgradeFrom: from,
+    // M4a: a grant from this client adding mcp:render (Matas only) reads as a render upgrade.
+    addsRender: isRenderUpgrade(live, req.client.client_id, req.scope),
   });
   return (
     <ConsentView
