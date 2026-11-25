@@ -48,7 +48,12 @@ export const updateEventTool: McpTool = {
   },
   async run(ctx, args) {
     requireMetaApproval(ctx, args);
-    const code = normaliseCode(args.event_code);
+    let code: string;
+    try {
+      code = normaliseCode(args.event_code);
+    } catch {
+      throw new ToolInputError(EVENT_WORDS.refusedCode, { refused: "bad_code" });
+    }
     const given = args.changes && typeof args.changes === "object" ? (args.changes as Record<string, unknown>) : {};
     const patch: EventPatch = {};
     for (const field of EVENT_EDIT_FIELDS) {

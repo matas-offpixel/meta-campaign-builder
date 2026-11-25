@@ -50,6 +50,17 @@ export const MCP_WORDS = {
   done: (result: string) => `Done: ${result}.`,
   /** claude.mcp.undo_note: only where an Undo exists (FC1: a paused object Claude made). */
   undoNote: "Matas can undo this on Today.",
+  /** claude.mcp.refused.draft_unknown */
+  refusedDraftUnknown: (id: string) => `Refused: no draft with id ${id}. Nothing was sent to Meta.`,
+  /** claude.mcp.refused.draft_other_account */
+  refusedDraftOtherAccount: "Refused: this draft belongs to another account, so it can’t be launched or have files sent from here. Nothing was sent to Meta.",
+  /** claude.mcp.refused.draft_id */
+  refusedDraftId: "Refused: give a draft id (a UUID) from get_drafts. Nothing was sent to Meta.",
+  /** claude.mcp.draft_changed: the files reached Meta, but the draft changed before their ids were saved on it. */
+  draftChanged:
+    "The draft changed while its files went to Meta, so their ids weren’t saved on it and nothing was launched. Read it again with get_draft and try again: the files are already on the account and won’t be sent twice.",
+  /** claude.mcp.upload.threw: upload_draft_assets' send step failed before a file was tried. */
+  uploadThrew: "The files couldn’t be sent to Meta. Try again: a file already on the account won’t be sent twice.",
 } as const;
 
 /** The approval field's descriptions (claude.mcp.approval*). */
@@ -110,6 +121,8 @@ export const EVENT_WORDS = {
   refusedTime: (field: string) => `Refused: ${field} isn’t a real time. Nothing changed.`,
   refusedLink: (field: string) => `Refused: ${field} must be an https:// link, or null to clear it. Nothing changed.`,
   failed: "The event couldn’t be saved. Try again. Nothing changed.",
+  /** claude.mcp.event.refused.code */
+  refusedCode: "Refused: give an event code such as NX26-DOD. Nothing changed.",
 } as const;
 
 /** set_draft_name (claude.mcp.name.*). */

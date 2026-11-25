@@ -17,7 +17,7 @@ import { APPROVAL_WORDS } from "../meta/approval.ts";
 import { CEILING_WORDS } from "../meta/ceiling.ts";
 
 const FIXTURE = new URL("./fixtures/words-mcp-today-2026-11-25.tsv", import.meta.url);
-const SHA256 = "ed3bab1637bd6a443c17dc041072dc94530e8ae7f28b20dfc1a54f617294fad1";
+const SHA256 = "4a460af625e2aec158612edee9e4f0401d05dfe6a2e9fde775e60df878282850";
 
 const raw = readFileSync(FIXTURE);
 const rows = new Map(
@@ -39,9 +39,20 @@ function row(key: string, vars: Record<string, string | number> = {}): string {
   return words!.replace(/\{([a-z_, ]+)\}/g, (m, name: string) => (name in vars ? String(vars[name]) : m));
 }
 
-test("the fixture is design's list: header + 208 rows, sha256 ed3bab16…", () => {
+test("the fixture is design's list: header + 214 rows, sha256 4a460af6…", () => {
   assert.equal(createHash("sha256").update(raw).digest("hex"), SHA256);
-  assert.equal(rows.size, 208);
+  assert.equal(rows.size, 214);
+});
+
+test("the last six (MW2's rules): the draft refusals, the changed draft, the thrown upload, the event code", () => {
+  assert.equal(MCP_WORDS.refusedDraftUnknown("3f2c"), row("claude.mcp.refused.draft_unknown", { id: "3f2c" }));
+  assert.equal(MCP_WORDS.refusedDraftOtherAccount, row("claude.mcp.refused.draft_other_account"));
+  assert.equal(MCP_WORDS.draftChanged, row("claude.mcp.draft_changed"));
+  assert.equal(MCP_WORDS.refusedDraftId, row("claude.mcp.refused.draft_id"));
+  assert.equal(MCP_WORDS.uploadThrew, row("claude.mcp.upload.threw"));
+  assert.equal(EVENT_WORDS.refusedCode, row("claude.mcp.event.refused.code"));
+  // Curly apostrophes, as the list has them.
+  for (const w of [MCP_WORDS.refusedDraftOtherAccount, MCP_WORDS.draftChanged, MCP_WORDS.uploadThrew]) assert.doesNotMatch(w, /'/);
 });
 
 test("FC2: what the meta tools tell Claude", () => {
