@@ -17,7 +17,7 @@ import { approvedClaim, type WarningRow } from "../creative-lab/claim-approval.t
 import { isOnSale } from "../onsale-refresh/on-sale.ts";
 import type { BeatGrid } from "./beats.ts";
 import { dropOffsetS } from "./montage-plan.ts";
-import type { CandidateClip, CandidateTrack, ClaimState, MutedInputs, PackageState, PickedFromElsewhere } from "./package-view.ts";
+import { mutedInputs, type CandidateClip, type CandidateTrack, type CardMaterial, type ClaimState, type MutedInputs, type PackageState, type PickedFromElsewhere } from "./package-view.ts";
 import type { Stage } from "./words.ts";
 
 export type Db = Pick<SupabaseClient, "from">;
@@ -234,13 +234,6 @@ export async function loadClaim(db: Db, eventId: string, now: Date): Promise<Cla
   return { state: warnings.length ? "none" : "missing", text: null, lines: [], readAt };
 }
 
-/** "Sun 27 Dec" from a stored date. */
-export function shortDay(date: string): string {
-  const parts = new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" }).formatToParts(new Date(`${date.slice(0, 10)}T12:00:00Z`));
-  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
-  return `${get("weekday")} ${get("day")} ${get("month")}`;
-}
-
 export type LoadDeps = {
   /** The client's kit for this event: a provided face and a stored logo piece. */
   kitReady(eventId: string, clientId: string): Promise<boolean>;
@@ -266,15 +259,32 @@ export async function loadPackageState(db: Db, eventId: string, deps: LoadDeps, 
     claim,
   };
   const lead = lineup.find((a) => a.isHeadliner) ?? lineup[0] ?? null;
-  const raw = clips.usable.find((c) => c.artistName === lead?.name && c.owner === "artist" && c.outS - c.inS >= 12);
-  const muted: MutedInputs = {
-    rawClip: raw?.name ?? null,
-    pressShot: null,
+  const materials: CardMaterial[] = [];
+  // Raw clips: the lead artist's own 9:16-length clips, with each clip's rights (AL1).
+  for (const c of clips.all) {
+    if (c.artistName === lead?.name && c.outS - c.inS >= 12) materials.push({ kind: "raw_clip", name: c.name, shareable: c.owner === "artist", clientId: c.clientId });
+  }
+  // Press shots and story artwork: the lead artist's statics in the library, each with its rights.
+  if (lead) {
+    const statics = await db
+      .from("artist_assets")
+      .select("name, kind, shareable, source_client_id")
+      .eq("artist_id", lead.libraryArtistId)
+      .eq("kind", "static")
+      .range(0, 499);
+    for (const a of (statics.error ? [] : (statics.data ?? [])) as Row[]) {
+      const name = text(a, "name");
+      if (!name) continue;
+      materials.push({ kind: /story/i.test(name) ? "story_artwork" : "press_shot", name, shareable: a.shareable === true, clientId: text(a, "source_client_id") || null });
+    }
+  }
+  const muted = mutedInputs({
+    eventClientId: facts.clientId,
+    lead: lead?.name ?? null,
+    materials,
     tracks: tracks.filter((t) => t.dropS != null && !t.flagged).length,
     snippets: 0,
-    artwork: null,
-    details: lead && facts.eventDate && venue ? `${lead.name} · ${shortDay(facts.eventDate)} · ${venue}` : null,
-    artistName: lead?.name ?? null,
-  };
+    event: { date: facts.eventDate, venueName: facts.venueName, venueCity: facts.venueCity },
+  });
   return { facts, state, clips, tracks, muted };
 }

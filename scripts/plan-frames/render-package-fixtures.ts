@@ -3,7 +3,7 @@
  * RT-A, RT-B; 2026-11-25-m4-renders-on-yes RY-A). Every figure is invented,
  * as the records' are; the views and words are the live code's.
  */
-import type { MutedInputs, PackageState } from "@/lib/render-templates/package-view";
+import { mutedInputs, type CardMaterial, type PackageState } from "@/lib/render-templates/package-view";
 import type { RenderFileRow } from "@/lib/render-templates/report";
 
 export const RENDER_PACKAGE_FRAME_IDS = ["rt-a-p26", "rt-a-es27", "rt-b", "ry-a", "ry-a-open", "ma1-busy", "ma1-too-soon", "ma4-not-filed"] as const;
@@ -32,18 +32,29 @@ export const P26: PackageState = {
   claim: { state: "ready", text: "3rd release live", lines: ["3rd release live"], readAt: "2026-11-25T09:00:00Z" },
 };
 
-export const P26_MUTED: MutedInputs = {
-  rawClip: "Enzo - Raw 2.mp4",
-  pressShot: "Enzo Siragusa.jpg",
+/**
+ * The muted cards' material, as load.ts reads it: Enzo's raw clip and press
+ * shot (his, shareable) and Puzzle's story artwork (Puzzle's only). Each
+ * show's cards go through mutedInputs, the montage's own rights rule, so
+ * Puzzle's artwork reaches P26-BDAY and never ES27-ENZOSIRAGUSA.
+ */
+const MATERIALS: CardMaterial[] = [
+  { kind: "raw_clip", name: "Enzo - Raw 2.mp4", shareable: true, clientId: "electric" },
+  { kind: "press_shot", name: "Enzo Siragusa.jpg", shareable: true, clientId: null },
+  { kind: "story_artwork", name: "PUZZLE BIRTHDAY 1 STORY", shareable: false, clientId: "puzzle" },
+];
+
+export const P26_MUTED = mutedInputs({
+  eventClientId: "puzzle",
+  lead: "Enzo Siragusa",
+  materials: MATERIALS,
   tracks: 1,
   snippets: 0,
-  artwork: "PUZZLE BIRTHDAY 1 STORY",
-  details: "Enzo Siragusa · Sun 27 Dec · Circuit & Engine Rooms, Southampton",
-  artistName: "Enzo Siragusa",
-};
+  event: { date: "2026-12-27", venueName: "Circuit & Engine Rooms", venueCity: "Southampton" },
+});
 
 export const ES27: PackageState = {
-  event: { id: "ev-es27", code: "ES27-ENZOSIRAGUSA", name: "Enzo Siragusa", clientId: "electric", clientName: "Electric Brixton", stage: "signup", date: "2027-02-19", venue: "Electric Brixton, London" },
+  event: { id: "ev-es27", code: "ES27-ENZOSIRAGUSA", name: "Enzo Siragusa", clientId: "electric", clientName: "Electric Brixton", stage: "signup", date: "2027-02-19", venue: "Electric Studios, Sheffield" },
   lineup: [{ name: "Enzo Siragusa", isHeadliner: true }],
   clips: Array.from({ length: 5 }, (_, i) => clip(i + 1, "artist", "Electric Brixton")),
   tracks: [{ id: "t2", name: "Track One", artistName: "Enzo Siragusa", dropS: null, dropSource: null, durationS: 300, flagged: false, dropAtS: null }],
@@ -51,7 +62,14 @@ export const ES27: PackageState = {
   claim: { state: "none", text: null, lines: [], readAt: null },
 };
 
-export const ES27_MUTED: MutedInputs = { ...P26_MUTED, details: "Enzo Siragusa · Fri 19 Feb · Electric Brixton, London" };
+export const ES27_MUTED = mutedInputs({
+  eventClientId: "electric",
+  lead: "Enzo Siragusa",
+  materials: MATERIALS,
+  tracks: 1,
+  snippets: 0,
+  event: { date: "2027-02-19", venueName: "Electric Studios", venueCity: "Sheffield" },
+});
 
 const row = (fileName: string, over: Partial<RenderFileRow>): RenderFileRow => ({
   id: fileName,

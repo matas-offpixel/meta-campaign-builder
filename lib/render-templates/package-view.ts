@@ -13,6 +13,7 @@
  * Relative imports only (node:test).
  */
 
+import { usableOn } from "../artist-library/rights.ts";
 import { MONTAGE_VARIANTS, RATIOS, type MontageVariant, type Ratio } from "./file-name.ts";
 import { MONTAGE } from "./montage-plan.ts";
 import { montageOwner, ownerLabel, type RenderOwner } from "./rights.ts";
@@ -243,6 +244,45 @@ export type MutedInputs = {
 
 function simple(key: NeedKey, label: string, ready: boolean, detail: string | null, link: string | null): Need {
   return { key, label, state: ready ? "ready" : "missing", detail: ready ? detail : null, pick: ready ? null : link };
+}
+
+/** One piece of material a muted card could name: a raw clip, a press shot or a 9:16 story artwork, with its rights (AL1). */
+export type CardMaterial = { kind: "raw_clip" | "press_shot" | "story_artwork"; name: string; shareable: boolean; clientId: string | null };
+
+/** "Sun 27 Dec" from a stored date. */
+export function shortDay(date: string): string {
+  const parts = new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" }).formatToParts(new Date(`${date.slice(0, 10)}T12:00:00Z`));
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
+  return `${get("weekday")} ${get("day")} ${get("month")}`;
+}
+
+/**
+ * The muted cards' inputs. Every piece of material goes through the same
+ * rule the montage's picks and get_artist use (usableOn: shareable, or this
+ * show's client's own), so another client's artwork or footage is never
+ * offered. Name, date and venue are the event's own: its venue name and
+ * city, never the client's name.
+ */
+export function mutedInputs(input: {
+  eventClientId: string;
+  lead: string | null;
+  materials: readonly CardMaterial[];
+  tracks: number;
+  snippets: number;
+  event: { date: string | null; venueName: string | null; venueCity: string | null };
+}): MutedInputs {
+  const usable = input.materials.filter((m) => usableOn({ shareable: m.shareable, clientId: m.clientId }, input.eventClientId));
+  const first = (kind: CardMaterial["kind"]) => usable.find((m) => m.kind === kind)?.name ?? null;
+  const venue = [input.event.venueName, input.event.venueCity].filter((v) => v && v.trim()).join(", ");
+  return {
+    rawClip: first("raw_clip"),
+    pressShot: first("press_shot"),
+    tracks: input.tracks,
+    snippets: input.snippets,
+    artwork: first("story_artwork"),
+    details: input.lead && input.event.date && venue ? `${input.lead} · ${shortDay(input.event.date)} · ${venue}` : null,
+    artistName: input.lead,
+  };
 }
 
 export function mutedNeeds(recipe: Exclude<Recipe, "montage">, state: PackageState, muted: MutedInputs, links: CardLinks): Need[] {
