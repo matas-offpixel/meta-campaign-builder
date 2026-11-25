@@ -94,7 +94,8 @@ function buildServer(ctx: ToolContext, deps: McpHandlerDeps, grantId: string): M
         let clientId: string | null = null;
         try {
           const out = await tool.run(ctx, args ?? {});
-          text = JSON.stringify(out.data);
+          // A plain-text answer (get_artist, AL5) goes as written; everything else as JSON.
+          text = typeof out.data === "string" ? out.data : JSON.stringify(out.data);
           if (text.length > MAX_RESULT_CHARS) {
             text = JSON.stringify({ error: "The answer is too large. Narrow the request (a client, a stage or one code)." });
             isError = true;

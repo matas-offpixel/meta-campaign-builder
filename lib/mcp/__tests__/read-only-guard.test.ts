@@ -118,6 +118,10 @@ const EXTERNAL_READERS: Record<string, readonly string[]> = {
   "lib/campaign-defaults.ts": ["createDefaultAssetVariation", "createDefaultCreative", "defaultCtaForObjective"],
   "lib/clients/channel-defaults.ts": ["loadClientChannelDefaults"],
   "lib/meta/server-token.ts": ["resolveServerMetaToken"],
+  // AL5: get_artist's reads (artists, artist_assets, event_artists, events, clients, ad_daily_insights) and its pure view and words.
+  "lib/artist-library/load.ts": ["findArtist", "loadArtistData"],
+  "lib/artist-library/view.ts": ["buildArtistView"],
+  "lib/artist-library/answer.ts": ["artistAnswer", "unknownArtistAnswer"],
 };
 
 /**
