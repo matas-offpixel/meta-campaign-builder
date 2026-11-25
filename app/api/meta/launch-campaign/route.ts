@@ -3960,7 +3960,7 @@ async function launchCampaign(
                 metaAdSetId: salvaged.metaAdSetId,
                 durationMs: salvaged.durationMs,
                 note: salvaged.note,
-                ageModeOverride: salvaged.ageModeOverride,
+                metaError: salvaged.metaError,
               };
             } catch (salvageErr) {
               throw { adSet, err: salvageErr };
@@ -3971,17 +3971,17 @@ async function launchCampaign(
 
       for (const r of results) {
         if (r.status === "fulfilled") {
-          const { adSet, metaAdSetId, durationMs, note, ageModeOverride } = r.value;
+          const { adSet, metaAdSetId, durationMs, note, ageModeOverride, metaError } = r.value;
           adSetsCreated.push({
             name: adSetDisplayName(adSet, draft.audiences),
             metaAdSetId,
-            // ageModeOverride: the subcode-1870196 salvage retry strips
-            // Advantage+ Audience and sends explicit ages, so the ad set is
-            // actually "strict" on Meta's side even though `advantagePlus`
-            // is still true in the draft (unchanged — see the note).
+            // A refused Advantage+ Audience (1870196) is no longer retried
+            // as strict targeting, so the draft's advantagePlus is what Meta
+            // got. metaError: Meta's own refusal next to any salvage note.
             ageMode: ageModeOverride ?? (adSet.advantagePlus ? "suggested" : "strict"),
             durationMs,
             ...(note ? { note } : {}),
+            ...(metaError ? { metaError } : {}),
           });
           adSetMetaIds.set(adSet.id, metaAdSetId);
           adSetLaunchResults[adSet.id] = { launchStatus: "created", metaAdSetId };
@@ -4468,14 +4468,14 @@ async function launchCampaign(
           adSetsCreated.push({
             name: adSetDisplayName(adSet, draft.audiences),
             metaAdSetId: salvaged.metaAdSetId,
-            ageMode: salvaged.ageModeOverride ?? (adSet.advantagePlus ? "suggested" : "strict"),
+            ageMode: adSet.advantagePlus ? "suggested" : "strict",
             durationMs: salvaged.durationMs,
             ...(salvaged.note ? { note: salvaged.note } : {}),
+            ...(salvaged.metaError ? { metaError: salvaged.metaError } : {}),
           });
           adSetMetaIds.set(adSet.id, salvaged.metaAdSetId);
           adSetLaunchResults[adSet.id] = { launchStatus: "created", metaAdSetId: salvaged.metaAdSetId };
           await recordCreatedAdSet(metaCampaignId, adSet, salvaged.metaAdSetId, {
-            ageModeOverride: salvaged.ageModeOverride,
             note: salvaged.note,
             droppedNote: prep2b?.preflightDroppedNote,
           });
@@ -4836,7 +4836,7 @@ async function launchCampaign(
                   metaAdSetId: salvaged.metaAdSetId,
                   durationMs: salvaged.durationMs,
                   note: salvaged.note,
-                  ageModeOverride: salvaged.ageModeOverride,
+                  metaError: salvaged.metaError,
                 };
               } catch (salvageErr) {
                 throw { adSet, err: salvageErr };
@@ -4847,13 +4847,14 @@ async function launchCampaign(
 
         for (const r of batchResults) {
           if (r.status === "fulfilled") {
-            const { adSet, metaAdSetId, durationMs, note, ageModeOverride } = r.value;
+            const { adSet, metaAdSetId, durationMs, note, ageModeOverride, metaError } = r.value;
             ciAdSetsCreated.push({
               name: adSetDisplayName(adSet, draft.audiences),
               metaAdSetId,
               ageMode: ageModeOverride ?? (adSet.advantagePlus ? "suggested" : "strict"),
               durationMs,
               ...(note ? { note } : {}),
+              ...(metaError ? { metaError } : {}),
             });
             ciAdSetMetaIds.set(adSet.id, metaAdSetId);
             await recordCreatedAdSet(nextCampaign.id, adSet, metaAdSetId, {
@@ -4968,13 +4969,13 @@ async function launchCampaign(
             ciAdSetsCreated.push({
               name: adSetDisplayName(adSet, draft.audiences),
               metaAdSetId: salvaged.metaAdSetId,
-              ageMode: salvaged.ageModeOverride ?? (adSet.advantagePlus ? "suggested" : "strict"),
+              ageMode: adSet.advantagePlus ? "suggested" : "strict",
               durationMs: salvaged.durationMs,
               ...(salvaged.note ? { note: salvaged.note } : {}),
+              ...(salvaged.metaError ? { metaError: salvaged.metaError } : {}),
             });
             ciAdSetMetaIds.set(adSet.id, salvaged.metaAdSetId);
             await recordCreatedAdSet(nextCampaign.id, adSet, salvaged.metaAdSetId, {
-              ageModeOverride: salvaged.ageModeOverride,
               note: salvaged.note,
               droppedNote: prep2b?.preflightDroppedNote,
             });
