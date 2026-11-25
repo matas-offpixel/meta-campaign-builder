@@ -1,0 +1,117 @@
+key	where	words
+al.badge.shareable	Rights badge	Shareable
+al.badge.client	Rights badge, operators	This client only · {client}
+al.badge.client.public	Rights badge, anywhere a client can see	This client only
+al.why.filmed	Under the badge	Filmed by {client}
+al.why.footage	Under the badge, a render with a client’s footage in it	Uses {client}’s footage
+al.why.branding	Under the badge	Has {client}’s branding or artwork
+al.why.names	Under the badge, a caption or copy line	Names {client}’s venue or brand
+al.why.filmed.public	Under the badge, anywhere a client can see	Filmed by the promoter
+al.why.footage.public	Under the badge, anywhere a client can see	Uses the promoter’s footage
+al.why.branding.public	Under the badge, anywhere a client can see	Has the promoter’s branding or artwork
+al.why.names.public	Under the badge, anywhere a client can see	Names the promoter’s venue or brand
+al.code.public	In place of another client’s event code, anywhere a client can see	A past show
+al.count.shows	Counts	{n} shows
+al.count.shows.one	Counts (1)	1 show
+al.count.clients	Counts	{n} clients
+al.count.clients.one	Counts (1)	1 client
+al.count.shareable	Counts	{n} shareable files
+al.count.shareable.one	Counts (1)	1 shareable file
+al.count.signups	Counts	{n} signups
+al.count.signups.one	Counts (1)	1 signup
+al.count.purchases	Counts	{n} purchases
+al.count.purchases.one	Counts (1)	1 purchase
+al.count.ads	Counts	{n} ads
+al.count.ads.one	Counts (1)	1 ad
+al.cost.signup	Cost per result, Signup	£{x} per signup
+al.cost.purchase	Cost per result, On sale	£{x} per purchase
+al.page.meta	Artist page, under the name; parts joined with “ · ”	{shows} · {clients} · {shareable}
+al.page.drive	Artist page, link	Drive folder ↗
+al.page.drive.none	Artist page, no folder yet	No Drive folder yet: it’s made once {artist} is on an upcoming show.
+al.page.shows	Artist page, section	Shows
+al.page.col.show	Shows, column	Show
+al.page.col.client	Shows, column	Client
+al.page.col.date	Shows, column	Date
+al.page.col.phase	Shows, column	Phase
+al.page.col.spend	Shows, column	On {artist}’s ads
+al.page.col.results	Shows, column	Results
+al.page.show.next	Shows, a show not yet run, in the Results cell	Coming up
+al.page.show.adsonly	Shows, a code with no event, in place of date and phase	Not an event in Off/Pixel: found from ad names, {first month}–{last month}
+al.page.best	Artist page, section, per stage	Best for {stage}
+al.page.best.note	Under Best for	Ranked by cost per result across every client’s shows. An ad under £{min} spent isn’t ranked.
+al.page.other	Artist page, section	Other files
+al.page.empty	Artist page, nothing filed	Nothing filed under {artist} yet.
+al.tile.clip	Tile, kind	Clip
+al.tile.static	Tile, kind	Static
+al.tile.render	Tile, kind	Render
+al.tile.source	Tile, where it ran	{code} · {stage}
+al.tile.in_round	Tile, after Use in this round	In this round
+al.page.captions	Artist page, section	Captions
+al.page.captions.approved	Captions, sub-head	In {artist}’s voice, approved
+al.caption.approved	Under an artist-voice caption	Approved by {approver}, {date} · logged by {operator}
+al.page.captions.copy	Captions, sub-head	Copy that worked
+al.caption.copy	Under a copy line	{stage} · {cost} over {ads} · {code}
+al.page.insights	Artist page, section	What we’ve learned
+al.insight.built	Under What we’ve learned	Built overnight · last {date}
+al.insight.none	What we’ve learned, empty	No insights yet. They’re built overnight once one of {artist}’s ads has spent £{min} at a stage.
+al.insight.best	Insight line	{stage}: “{name}” did best, {cost} over {ads}.
+al.insight.audience	Insight line	Audience: {audience} did best for {stage}, {cost} on {code}.
+al.insight.flop	Insight line	Didn’t work: {what} at {stage}, {cost}, {x}× the stage’s usual.
+al.insight.unmeasured	Insight line	Not measured: {what} on {code}. {ticketing}’s checkout has no pixel, so it shows nothing, not a failure.
+al.card.title	Creative Lab card, title	We’ve worked with {artist} on {n} shows
+al.card.title.one	Creative Lab card, title (1)	We’ve worked with {artist} on 1 show
+al.card.codes	Creative Lab card, under the title; codes joined with “ · ”	{codes}
+al.card.best	Creative Lab card, sub-head	Best for {stage}
+al.card.use	Creative Lab card, button	Use in this round
+al.card.added	Creative Lab card, after Use	Added {n} to this round.
+al.card.added.one	Creative Lab card, after Use (1)	Added 1 to this round.
+al.card.held	Creative Lab card, operators	{n} more from {client}’s shows stay with {client}.
+al.card.held.one	Creative Lab card, operators (1)	1 more from {client}’s shows stays with {client}.
+al.card.open	Creative Lab card, link	Open {artist}’s page
+al.card.old	Creative Lab card, newest file over 6 months old	The newest of these is from {month year}, over 6 months ago. Check Instagram for anything newer.
+al.card.promoter_only	Creative Lab card, only another client’s material	Everything we hold from those shows was filmed or branded by {client}, so it stays with {client} and can’t go into this round.
+al.card.promoter_only.one	Creative Lab card, only another client’s material (1 show)	Everything we hold from that show was filmed or branded by {client}, so it stays with {client} and can’t go into this round.
+al.card.promoter_only.insights	Creative Lab card, under it	What we learned there still applies.
+al.card.promoter_only.next	Creative Lab card, under it	Start from {artist}’s Instagram or press kit.
+al.drive.root	Drive, folder at the shared drive’s root	00 Artist Library
+al.drive.artist	Drive, one folder per artist, the artist’s name exactly as stored	{artist}
+al.drive.clips	Drive, folder	Clips
+al.drive.statics	Drive, folder	Statics
+al.drive.renders	Drive, folder	Renders
+al.drive.captions	Drive, folder	Captions
+al.drive.insights	Drive, folder	Insights
+al.drive.captions.doc	Drive, the doc in Captions	{artist} · Captions
+al.drive.insights.doc	Drive, the doc in Insights	{artist} · Insights
+al.drive.render	Drive, a shortcut in Renders; rank two digits; the file’s name without its extension	{rank} · {code} · {stage} · {cost} · {file name}
+al.drive.captions.shareable	Captions doc, heading	Shareable
+al.drive.captions.client	Captions doc, heading, one per client	Only for {client}
+al.drive.captions.copy	Captions doc, heading	Copy that worked
+al.drive.captions.none	Captions doc, under a heading with nothing in it	Nothing yet.
+al.drive.insights.head	Insights doc, first line	What we’ve learned about {artist} · built {date}
+al.drive.insights.note	Insights doc, second line	Off/Pixel only. The numbers come from every client’s shows. Never name one client to another.
+al.mcp.summary	get_artist, line 2	{shows} for {clients}.
+al.mcp.summary.next	get_artist, line 2, with a show coming up	{shows} for {clients}, and {code} coming up.
+al.mcp.drive	get_artist	Drive: 00 Artist Library / {artist} · {link}
+al.mcp.rights	get_artist, heading	Rights for {code} ({client})
+al.mcp.rights.none	get_artist, no event given	No event given, so only shareable material is listed.
+al.mcp.listed	get_artist	Listed: shareable material, and {client}’s own.
+al.mcp.held	get_artist	Not listed: {n} more from {other}’s shows, which stay with {other}.
+al.mcp.held.one	get_artist (1)	Not listed: 1 more from {other}’s shows, which stays with {other}.
+al.mcp.names	get_artist	Insight numbers can be used. Don’t name {other} or its shows in anything {client} sees.
+al.mcp.shows	get_artist, heading	Shows
+al.mcp.show	get_artist, one show	- {code} · {client} · {venue} · {date} · {phase} · £{s} on {artist}’s ads · {results}
+al.mcp.show.adsonly	get_artist, a code with no event	- {code} · {client} · not an event in Off/Pixel: found from ad names, {first month}–{last month} · £{s} on {artist}’s ads · {results}
+al.mcp.best	get_artist, heading	Best for {stage}
+al.mcp.asset	get_artist, one ranked file	{rank}. {name} · {kind} · {code} · {cost} · {badge} · {link}
+al.mcp.other	get_artist, heading	Other files
+al.mcp.other.row	get_artist, one unranked file	- {name} · {kind} · {badge} · {link}
+al.mcp.captions	get_artist, heading	Approved captions
+al.mcp.caption	get_artist, one caption	- “{caption}” · approved by {approver}, {date} · {badge}
+al.mcp.copy	get_artist, heading	Copy that worked
+al.mcp.copy.row	get_artist, one copy line	- {stage} · “{copy}” · {cost} over {ads} · {code}
+al.mcp.insights	get_artist, heading	Insights (built {date})
+al.mcp.insights.none	get_artist, no insights yet	Insights: none yet.
+al.mcp.fresh	get_artist, last line	Newest material: {month year}. Look on Instagram only for what’s missing here.
+al.mcp.old	get_artist, last line, newest over 6 months old	Newest material: {month year}, over 6 months ago. Check Instagram for anything newer, and for what’s missing here.
+al.mcp.unknown	get_artist, no match	No artist called “{name}” in Off/Pixel.
+al.mcp.closest	get_artist, after no match	Closest: {names}.

@@ -84,7 +84,10 @@ function namesCopyLibrary(src: string): boolean {
     // MCP (migration 268): operator-only action log, OAuth store and spend ceilings.
     /\bmcp_(actions|oauth_clients|oauth_grants|oauth_codes|oauth_tokens)\b/.test(src) ||
     /\bclient_spend_ceilings\b/.test(src) ||
-    /lib\/mcp\//.test(src)
+    /lib\/mcp\//.test(src) ||
+    // The artist library (migration 269): operator-only, every client's material and figures.
+    /\bartist_(assets|library_folders)\b/.test(src) ||
+    /artist-library\//.test(src)
   );
 }
 
@@ -140,6 +143,9 @@ describe("cross-client copy guard", () => {
     const allowed = [
       "app/api/cron/learning-digest/route.ts", // E8: the Monday digest to ads_ops (operator Slack), off by default
       "app/api/cron/learning-findings/route.ts",
+      // The artist library (AL2, AL5): phaseOf for a show's phase only; operator-only, never on a public surface (checked above).
+      "lib/artist-library/answer.ts",
+      "lib/artist-library/view.ts",
       "lib/learning/findings/digest.ts",
       "lib/learning/findings/load-observed-tests.ts",
       "lib/learning/findings/load-pairs-curves.ts",
@@ -161,6 +167,28 @@ describe("cross-client copy guard", () => {
         return false;
       }
       return /\blearning_findings\b|learning\/findings\//.test(src);
+    });
+    assert.deepEqual(users.sort(), allowed);
+  });
+
+  it("artist_assets and artist_library_folders are named only by the artist library and the Drive pickup (migration 269)", () => {
+    // Operator-only (AL2): service role only; get_artist is checked on every call (lib/mcp/oauth/flow.ts checkBearer).
+    const allowed = [
+      "lib/artist-library/backfill.ts", // the backfill's --apply
+      "lib/artist-library/library-drive.ts", // the folder map, and a Clips / Statics drop
+      "lib/artist-library/load.ts", // get_artist's reads
+      "lib/artist-library/view.ts", // the row's shape
+      "lib/drive/pickup.ts", // says it files drops (through library-drive.ts)
+    ];
+    const users = sourceFiles().filter((file) => {
+      if (file.includes("__tests__")) return false;
+      let src: string;
+      try {
+        src = readFileSync(file, "utf8");
+      } catch {
+        return false;
+      }
+      return /\bartist_(assets|library_folders)\b/.test(src);
     });
     assert.deepEqual(users.sort(), allowed);
   });
