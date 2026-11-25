@@ -9,6 +9,7 @@ import { LabLineup } from "@/components/dashboard/events/creative-lab/lineup";
 import { LabRound } from "@/components/dashboard/events/creative-lab/round";
 import { LabSnippet } from "@/components/dashboard/events/creative-lab/snippet";
 import { LabStrip } from "@/components/dashboard/events/creative-lab/strip";
+import { RenderPackagePanel } from "@/components/render-templates/render-package-panel";
 import type { CreativeLabCardData } from "@/lib/db/creative-lab";
 import { ownerFootageGap } from "@/lib/creative-lab/footage-owner";
 import { labNextStep } from "@/lib/creative-lab/lineup";
@@ -145,6 +146,8 @@ export function CreativeLabCard({ lab, quoteMode = false, driveFolderId = null, 
           <LabSnippet eventId={lab.eventId} />
         )}
         <LabRound lab={lab} busy={busy} onSave={(body) => run(body)} onLaunch={launchRound} />
+        {/* M4a (RT1, RT2): render packages, on the owner's layout. */}
+        {presentation === "owner" ? <RenderPackagePanel eventId={lab.eventId} /> : null}
       </div>
     </details>
   );

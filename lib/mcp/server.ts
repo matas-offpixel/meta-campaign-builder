@@ -25,13 +25,13 @@
  */
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
-import { SCOPE_DRAFT, SCOPE_META, isMcpEnabled, mcpUrls } from "./config.ts";
+import { SCOPE_DRAFT, SCOPE_META, SCOPE_RENDER, isMcpEnabled, mcpUrls } from "./config.ts";
 import { parseApproval } from "./meta/approval.ts";
 import { checkBearer, scopeIncludes, wwwAuthenticate, type FlowDeps } from "./oauth/flow.ts";
 import type { ActionLogger } from "./action-log.ts";
 import { checkRateLimit } from "./rate-limit.ts";
 import { MCP_TOOLS } from "./tools/index.ts";
-import { ToolInputError, type Db, type McpDraftDeps, type McpMetaDeps, type McpReaders, type McpTool, type ToolContext } from "./tool-types.ts";
+import { ToolInputError, type Db, type McpDraftDeps, type McpMetaDeps, type McpReaders, type McpRenderDeps, type McpTool, type ToolContext } from "./tool-types.ts";
 
 /** Claude's result limit is about 150,000 characters; stay under it. */
 export const MAX_RESULT_CHARS = 140_000;
@@ -50,6 +50,8 @@ export interface McpHandlerDeps extends FlowDeps {
   draft?: McpDraftDeps;
   /** M3a's Meta reach: uploads and the launch route (lib/mcp/meta-deps.ts). */
   meta?: McpMetaDeps;
+  /** M4a's render reach (lib/mcp/render-deps.ts). */
+  render?: McpRenderDeps;
 }
 
 const ALLOWED_ORIGINS = new Set(["https://claude.ai", "https://claude.com"]);
@@ -67,10 +69,12 @@ const INSTRUCTIONS = [
   "Money is GBP. Phases: teaser, announced, presale, general sale (on sale), show week.",
   "The read tools only read. The draft tools change campaign drafts in the app (status draft only) and never Meta: nothing launches or spends.",
   "The Meta tools (launch_draft, upload_draft_assets, update_event) run only after Matas says yes in this chat: ask him exactly what will change, where, the money a day and paused or live, then pass approval with your question and his reply word for word. Never fill in approval yourself. A live launch is refused over the client's daily ceiling.",
+  "render_package renders a package (the 15 s montage, 9 files) and files it in the event's Drive folder, only after Matas says yes in this chat: ask him the recipe and file count, whose clips they are, the claim and any text in the artist's voice, then pass approval with your question and his reply word for word. get_render_package reads where it is.",
   "Before a draft tool, call get_draft and pass its updatedAt as updated_at; every draft tool answers with the new updated_at and the launch checks. get_draft gives the ids the draft tools take (ads, ad sets, audience groups).",
 ].join(" ");
 
 function failedText(tool: McpTool): string {
+  if (tool.kind === "render") return "The render tool failed. Read the package with get_render_package before trying again.";
   if (tool.kind === "meta") return "The Meta tool failed partway. Read the draft again with get_draft (or get_campaign_tree) to see what was sent before trying again.";
   return tool.kind === "draft"
     ? "The draft tool failed and nothing was saved. Try again, or read the draft again with get_draft."
@@ -126,7 +130,7 @@ function buildServer(ctx: ToolContext, deps: McpHandlerDeps, grantId: string): M
         }
         // A meta call's row carries the chat yes it ran on (approval_source claude_prompt).
         let approval: { asked: string; answer: string } | null = null;
-        if (tool.kind === "meta") {
+        if (tool.kind === "meta" || tool.kind === "render") {
           try {
             approval = parseApproval((args ?? {}).approval);
           } catch {
@@ -202,10 +206,13 @@ export async function handleMcpRequest(req: Request, deps: McpHandlerDeps): Prom
   const isMatas = deps.isMatas(auth.userId);
   const needsDraft = await toolsCalled(req, tools, "draft");
   const needsMeta = await toolsCalled(req, tools, "meta");
+  const needsRender = await toolsCalled(req, tools, "render");
   const refuse = [
     ...(needsDraft.length > 0 && !scopeIncludes(auth.scope, SCOPE_DRAFT) ? needsDraft.map((name) => ({ name, kind: "draft" as const })) : []),
     // mcp:meta on the grant, and the user still Matas (MATAS_USER_IDS), on every call.
     ...(needsMeta.length > 0 && !(scopeIncludes(auth.scope, SCOPE_META) && isMatas) ? needsMeta.map((name) => ({ name, kind: "meta" as const })) : []),
+    // M4a: mcp:render on the grant, and the user still Matas, on every call.
+    ...(needsRender.length > 0 && !(scopeIncludes(auth.scope, SCOPE_RENDER) && isMatas) ? needsRender.map((name) => ({ name, kind: "render" as const })) : []),
   ];
   if (refuse.length > 0) {
     for (const { name, kind } of refuse) {
@@ -223,6 +230,7 @@ export async function handleMcpRequest(req: Request, deps: McpHandlerDeps): Prom
     scope: auth.scope,
     draft: deps.draft,
     meta: deps.meta,
+    render: deps.render,
     isMatas,
     seesClientNames: isMatas,
     today: londonToday(now),

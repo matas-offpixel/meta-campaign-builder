@@ -17,6 +17,7 @@ import { FrameSheet } from "./compositions/FrameSheet";
 import { T1OnClip, type T1OnClipProps } from "./compositions/T1OnClip";
 import { TripleFitOnClip, type TripleFitOnClipProps } from "./compositions/TripleFitOnClip";
 import { StillWithAudio, type StillWithAudioProps } from "./compositions/StillWithAudio";
+import { Montage, MONTAGE_SIZE, type MontageProps } from "./compositions/Montage";
 import { FORMAT_SIZE } from "../../lib/creative-lab/t1-video-frame";
 import {
   captionLimits,
@@ -183,6 +184,20 @@ function RemotionRoot() {
         height={1920}
         durationInFrames={480}
         defaultProps={{ imageUrl: "", durationInSeconds: 16, fps: 30 }}
+      />
+      <Composition
+        id="Montage"
+        component={Montage as unknown as FC<Record<string, unknown>>}
+        calculateMetadata={({ props }) => {
+          const p = props as unknown as MontageProps;
+          const size = MONTAGE_SIZE[p.ratio] ?? MONTAGE_SIZE["9:16"];
+          return { width: size.width, height: size.height, fps: p.fps || 30, durationInFrames: Math.max(1, p.durationInFrames || 450) };
+        }}
+        fps={30}
+        width={1080}
+        height={1920}
+        durationInFrames={450}
+        defaultProps={{ ratio: "9:16", fps: 30, durationInFrames: 450, segments: [], audioUrl: "", audioStartS: 0, flashes: [], layers: [] } as unknown as Record<string, unknown>}
       />
       <Composition
         id="FrameSheet"

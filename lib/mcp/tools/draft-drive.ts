@@ -25,6 +25,7 @@
  * stored yet (R8b), so until R8 any primary text or headline that is one of
  * the event's artist-voice captions is refused.
  */
+import { refusedUploads } from "../../render-templates/upload-guard.ts";
 import { z } from "zod";
 import { createDefaultAssetVariation, createDefaultCreative, defaultCtaForObjective } from "../../campaign-defaults.ts";
 import { loadClientChannelDefaults } from "../../clients/channel-defaults.ts";
@@ -255,6 +256,12 @@ export const attachDriveCreativesTool: McpTool = {
     const eventId = draft.settings.eventId || loaded.row.event_id;
     if (!eventId) throw new ToolInputError(PICKER_WORDS.noEvent, { draftId: loaded.row.id, refused: "no_event" });
     const event = await ownedEvent(ctx, eventId);
+
+    // M4 (RT2): a render package file that failed a check can't be uploaded, so it isn't added either.
+    const refusedRenders = await refusedUploads(ctx.db, [...fileIds, ...pairs.flatMap((p) => [p.feed, p.vertical])].map((id) => ({ driveFileId: id })));
+    if (refusedRenders.length) {
+      throw new ToolInputError(refusedRenders[0]!.line, { draftId: loaded.row.id, refused: "render_failed_check", files: refusedRenders.length });
+    }
 
     // Artist voice (until R8): refuse copy that is one of the event's artist-voice captions.
     if ((primaryText && norm(primaryText)) || (headline && norm(headline))) {

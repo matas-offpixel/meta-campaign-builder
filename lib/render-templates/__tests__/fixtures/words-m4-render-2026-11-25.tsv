@@ -1,0 +1,123 @@
+key	where	words
+m4.picker.title	Creative Lab, event page, section	Render a package
+m4.picker.for	Under the title: the show and the stage its claims are written for	{code} · {stage}
+m4.picker.rights	Under the title	Only material this show can use is offered: shareable files, and {client}’s own.
+m4.stage.signup	{stage}	Signup
+m4.stage.presale	{stage}	Presale
+m4.stage.on_sale	{stage}	On sale
+m4.recipe.montage	{recipe}	Montage (15 s)
+m4.recipe.roll_call	{recipe}	Roll-call
+m4.recipe.top_tracks	{recipe}	Top tracks
+m4.recipe.artist_card	{recipe}	Artist card
+m4.recipe.montage.what	Template card, what it makes	16 clips cut to the drop, with the date, venue and lineup landing on the kicks.
+m4.recipe.roll_call.what	Template card, what it makes	One raw clip under the show’s overlay, with the sold-out roll-call.
+m4.recipe.top_tracks.what	Template card, what it makes	The press shot, then three tracks to their drops, ending on the story artwork.
+m4.recipe.artist_card.what	Template card, what it makes	The press shot with name, date and venue, over the best-known tracks.
+m4.recipe.later	Template card, a recipe not built yet (muted)	Coming after the montage
+m4.owner.label	Template card and render row	Owner
+m4.owner.artist	Owner: the artist’s own footage (file name artist-{slug})	{artist}
+m4.owner.promoter	Owner: any promoter footage in it (file name promoter-{client-slug})	{client}
+m4.owner.offpixel	Owner: made by us from artist material only (file name offpixel)	Off/Pixel, from {artist}’s material
+m4.owner.pending	Owner, before a clip is picked	Set by the clips you pick
+m4.needs	Template card, list heading	Needs
+m4.need.clips	Need, montage	{m} clips
+m4.need.raw_clip	Need, roll-call	1 raw 9:16 clip, about 15 s
+m4.need.track	Need, montage	Track and drop
+m4.need.tracks	Need, top tracks	{m} tracks and their drops
+m4.need.tracks.one	Need, top tracks (1)	1 track and its drop
+m4.need.snippets	Need, artist card	{m} track snippets
+m4.need.snippets.one	Need, artist card (1)	1 track snippet
+m4.need.lineup	Need	Lineup
+m4.need.kit	Need	Overlay kit
+m4.need.claim	Need	Claim
+m4.need.press_shot	Need	Press shot
+m4.need.artwork	Need	9:16 story artwork
+m4.need.details	Need, artist card	Name, date and venue
+m4.need.ready	Need, state (olive)	ready
+m4.need.count	Need, state (ochre) while short	{n} of {m} picked
+m4.need.none	Need, state (ochre)	not picked
+m4.need.missing	Need, state (brick): nothing to pick from	missing
+m4.need.pick	Need, link	Pick
+m4.need.clips.mix	Need detail, clips	{a} filmed by {client} · {b} {artist}’s
+m4.need.track.drop	Need detail, track	drop at {s} s
+m4.need.kit.name	Need detail, kit	{client}’s kit
+m4.need.lineup.count	Need detail, lineup	{n} names, from the event
+m4.need.lineup.count.one	Need detail, lineup (1)	1 name, from the event
+m4.need.claim.line	Need detail, claim (two lines when a roll-call)	{claim} · tiers read {date, time}
+m4.render	Template card, button	Render {n} files
+m4.render.one	Template card, button (1)	Render 1 file
+m4.render.files	Under the button	{versions} × {ratios}
+m4.render.blocked	Under the button, while anything is short or missing	Pick what’s missing first.
+m4.render.started	After Render	Rendering {n} files. Each appears under Renders as it finishes.
+m4.render.started.one	After Render (1)	Rendering 1 file. It appears under Renders when it finishes.
+m4.rows.title	Creative Lab, section	Renders
+m4.row.meta	Render row, under the file name; {variant} and {cta} from the name	{recipe} · {variant} · {cta} · {ratio} · round {round}
+m4.variant.no_text	{variant} for no-text	No text
+m4.variant.teaser	{variant} for teaser	Teaser
+m4.variant.announcement	{variant} for announcement	Announcement
+m4.cta.none	{cta} for no-cta (any other slug prints as written)	No CTA
+m4.row.passed	Render row, checks (olive)	Passed every check and the {recipe} list
+m4.row.failed	Render row, checks (brick); check names joined with “ · ”	Failed: {checks}
+m4.row.rendering	Render row, while rendering	Rendering
+m4.row.render_failed	Render row (brick), the render didn’t finish	Didn’t render, so there’s no file.
+m4.row.retry	Render row, button	Try again
+m4.row.rerender	Render row, button after a failed check	Render as round {round}
+m4.row.drive	Render row, link	Drive ↗
+m4.row.blocked	Campaign tree, Add creatives to…, and add_creatives_to_stage: a file that failed a check	Failed {checks}, so it can’t be uploaded.
+m4.check.voice	Check name	Voice
+m4.check.style	Check name	Style
+m4.check.stage	Check name	Stage
+m4.check.audio	Check name	Audio
+m4.check.open	Check name	Top-tracks open
+m4.check.facts	Check name	Facts
+m4.check.format	Check name	Format
+m4.check.cta_naming_art	Check name	CTA, naming and latest art
+m4.item.montage.clips	Montage list item	Clips
+m4.item.montage.music	Montage list item	Music and drop
+m4.item.montage.moments	Montage list item	Hands-up and flashes
+m4.item.montage.text	Montage list item	Text on the kicks
+m4.item.montage.versions	Montage list item	Versions
+m4.item.roll_call.clip	Roll-call list item	Clip
+m4.item.roll_call.overlay	Roll-call list item	Overlay
+m4.item.roll_call.claim	Roll-call list item	Claim
+m4.item.roll_call.versions	Roll-call list item	Versions
+m4.item.top_tracks.open	Top tracks list item	Press-shot open
+m4.item.top_tracks.cuts	Top tracks list item	Track cuts
+m4.item.top_tracks.overlay	Top tracks list item	Overlay and audio
+m4.item.top_tracks.end	Top tracks list item	End card
+m4.item.artist_card.shot	Artist card list item	Press shot
+m4.item.artist_card.details	Artist card list item	Name, date and venue
+m4.item.artist_card.ratios	Artist card list item	Ratios
+m4.mcp.request	Told to Claude, on request, line 1	Render package for {code} ({client}): {recipes}, {files}.
+m4.mcp.recipe	Told to Claude, one line per recipe: its needs as the card shows them	{recipe}: {needs}.
+m4.mcp.missing	Told to Claude, refused: a need is short or missing	Can’t render {recipe} yet for {code}: {needs} missing. Nothing was rendered.
+m4.mcp.done	Told to Claude, when the package finishes	Done: {files} rendered for {code}.
+m4.mcp.passed	Told to Claude	{p} passed every check.
+m4.mcp.passed.one	Told to Claude (1)	1 passed every check.
+m4.mcp.failed	Told to Claude	{f} failed: {checks}.
+m4.mcp.failed.one	Told to Claude (1)	1 failed: {checks}.
+m4.mcp.file	Told to Claude, one line per file	- {file name} · {result} · {badge} · {link}
+m4.mcp.file.passed	{result}	passed
+m4.mcp.file.failed	{result}	failed: {checks}
+m4.mcp.upload	Told to Claude, last line	{p} passed and can be uploaded now. {f} failed and can’t be.
+m4.mcp.upload.all	Told to Claude, last line, none failed	All {p} passed and can be uploaded now.
+today.mcp.action.render_package	Request row title, render_package (thing: file; result: rendered)	Render package
+today.mcp.change.render	Request row, what changes; recipes joined with “, ”	{recipes}: {files}
+today.mcp.count.files	{files}	{n} files
+today.mcp.count.files.one	{files} (1)	1 file
+today.mcp.result.rendered	Log row, outcome (olive)	Done · {files} rendered and filed in Drive · {p} passed every check
+today.mcp.result.rendered.failed	Request row, after the result (brick)	{f} failed: {checks}
+today.mcp.result.rendered.failed.one	Request row, after the result (brick, 1)	1 failed: {checks}
+today.mcp.row.open_lab	Request row, link	Open in the Lab
+today.mcp.row.refused.needs	Request row, state (brick), refused before Today	Refused · {recipe} is missing {needs}
+m4.mcp.started	Told to Claude, when the package starts	Rendering {files} for {code}. Each is filed in Drive as it finishes.
+m4.mcp.refused.no_approval	Told to Claude, no approval with the call	Refused: there’s no approval with this. Ask Matas in chat, then send his exact question and answer with it. Nothing was rendered.
+m4.mcp.refused.cap	Told to Claude, over the package’s render cap	Refused: this package is {n} files, over the {c}-file cap for one package. Nothing was rendered.
+m4.mcp.refused.promoter	Told to Claude, another client’s promoter footage in the clip picks (AL rights)	Refused: {n} of the picked clips were filmed by {client}, so they can’t go into a render for {show client}’s show. Nothing was rendered.
+m4.mcp.refused.promoter.one	Told to Claude (1 clip)	Refused: 1 of the picked clips was filmed by {client}, so it can’t go into a render for {show client}’s show. Nothing was rendered.
+m4.mcp.refused.voice	Told to Claude, artist-voice copy with no approved caption	Refused: the copy is in {artist}’s voice, and there’s no approved caption for it. Use an approved caption, or write it in the promoter’s voice. Nothing was rendered.
+today.mcp.row.rendering	Log row, while the package renders	Rendering · {n} of {m} files done
+today.mcp.undo.render	Log row, in place of Undo, on a render package (muted)	No Undo: rendered files stay in the event’s Drive folder.
+today.mcp.row.refused.cap	Log row, state (brick)	Refused · over the {c}-file cap
+today.mcp.row.refused.promoter	Log row, state (brick)	Refused · {client}’s footage in the picks
+today.mcp.row.refused.voice	Log row, state (brick)	Refused · artist-voice copy with no approved caption
