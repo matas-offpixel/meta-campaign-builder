@@ -59,23 +59,26 @@ const NONE: TemplateItem[] = [];
  * itself, and the line breaks between parts only at the space after " ·".
  */
 function FooterLine({ footer }: { footer: TemplateView["footerParts"] }) {
-  const sep = fw("frame.sep").trim();
+  // " ·" sits in a nowrap run with the word before it, so the only break is
+  // the plain space after the dot; the text is the footer line, unchanged.
+  const sep = ` ${fw("frame.sep").trim()}`;
+  const last = footer.parts.length - 1;
   return (
     <>
       {footer.parts.map((p, i) => (
         <span key={i} data-footer-part="">
           <span className="whitespace-nowrap">
             {p.lead}
-            {!p.account && i < footer.parts.length - 1 ? `\u00a0${sep}` : ""}
+            {!p.account && i < last ? sep : null}
           </span>
           {p.account ? (
             <>
               {" "}
               {p.account}
-              {i < footer.parts.length - 1 ? <span className="whitespace-nowrap">{`\u00a0${sep}`}</span> : null}
+              {i < last ? <span className="whitespace-nowrap">{sep}</span> : null}
             </>
           ) : null}
-          {i < footer.parts.length - 1 ? " " : null}
+          {i < last ? " " : null}
         </span>
       ))}
       {footer.tail ? `. ${footer.tail}` : null}
