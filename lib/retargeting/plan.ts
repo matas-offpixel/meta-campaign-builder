@@ -226,7 +226,7 @@ export type RetargetingInput = {
   test?: RunningTest | null;
   /** RT18: a running campaign's per-link audience sizes by key (Meta's approximate count); null = not read. */
   linkSizes?: Record<string, { lower: number; upper: number } | null>;
-  /** RT17: the ad account's timezone_name (the test starts at 00:00 there); null = not read, London. */
+  /** RT17: the ad account's timezone_name, as read; the start line no longer uses it (Matas, 25 Nov: the line is London's). */
   accountTimeZone?: string | null;
   /** SU1: the show's Signups list into Meta (customer_list_syncs); absent = not switched on (RT15's line). */
   signups?: SignupsSync | null;
@@ -568,8 +568,8 @@ export function planRetargeting(input: RetargetingInput): RetargetingPlan {
     days,
     eachArm: arms ? eachArmLine(arms.halfMinor) : null,
     tooSmall: !winner && !testing ? tooSmallToTest(chosen.totalMinor) : null,
-    // 00:00 tomorrow in the ad account's timezone, as Apply sets it (testStart), from the read's day.
-    startsLine: arms && input.eventDate ? testStartsLine(testStart(input.accountTimeZone || "Europe/London", new Date(`${input.runDay}T12:00:00Z`)).at, input.eventDate) : null,
+    // Matas (25 Nov): 00:00 tomorrow in Europe/London, the zone the line names, whatever the ad account's timezone.
+    startsLine: arms && input.eventDate ? testStartsLine(testStart("Europe/London", new Date(`${input.runDay}T12:00:00Z`)).at, input.eventDate) : null,
   };
   const signal = { wide: signalLine(path, { pixelName: read.pixelName, domain: read.domain }), narrow: signalNarrow(path, { pixelName: read.pixelName, domain: read.domain }) };
   const held = !input.where.draftId || !input.where.adAccountId ? NOT_OURS : input.ads.length ? null : NO_ADS;

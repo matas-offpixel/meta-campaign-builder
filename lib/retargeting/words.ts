@@ -411,8 +411,9 @@ const LONDON_CLOCK = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/London
 /**
  * Design (25 Nov, frame RE): "Test starts {Ddd d Mon}, 00:00 London time, and runs to {show day}."
  * The weekday is the started date's, through shortDay like every other date line.
- * The start is 00:00 in the ad account's timezone (testStart), written in
- * London time, so an account outside London reads its own hour.
+ * Matas (25 Nov): the date, weekday and hour are worked out in Europe/London,
+ * the zone the line names, whatever the ad account's timezone; the show day
+ * ("Sat 19 Dec") is the event's London calendar date.
  */
 export function testStartsLine(startAt: Date, showDay: string): string {
   const parts = Object.fromEntries(LONDON_CLOCK.formatToParts(startAt).map((part) => [part.type, part.value]));

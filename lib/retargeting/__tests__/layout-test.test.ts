@@ -368,14 +368,14 @@ describe("design (25 Nov): the start line, the applied call, the refused test", 
     assert.equal(rePlan("Europe/London").view.create!.startsLine, "Test starts Wed 18 Nov, 00:00 London time, and runs to Sat 19 Dec.");
   });
 
-  it("start line: computed in the ad account's timezone, not London's — 00:00 New York is 05:00 London, 00:00 Tokyo is 15:00 the day before", async () => {
+  it("start line (Matas, 25 Nov): the date and weekday are Europe/London's, whatever the ad account's timezone — an America/New_York account still reads Wed 18 Nov, 00:00", async () => {
     const { rePlan } = await import("../../../scripts/plan-frames/retargeting-fixtures.ts");
-    assert.equal(rePlan("America/New_York").view.create!.startsLine, "Test starts Wed 18 Nov, 05:00 London time, and runs to Sat 19 Dec.");
-    assert.equal(rePlan("Asia/Tokyo").view.create!.startsLine, "Test starts Tue 17 Nov, 15:00 London time, and runs to Sat 19 Dec.");
-    // The instant Apply would set is the same one the line names.
-    assert.equal(testStart("America/New_York", new Date("2026-11-17T12:00:00Z")).at.toISOString(), "2026-11-18T05:00:00.000Z");
-    // In summer London is an hour ahead of UTC: 00:00 New York (EDT) is 05:00 London (BST).
-    assert.equal(words.testStartsLine(testStart("America/New_York", new Date("2027-06-01T12:00:00Z")).at, "2027-06-20"), "Test starts Wed 2 Jun, 05:00 London time, and runs to Sun 20 Jun.");
+    assert.equal(rePlan("America/New_York").view.create!.startsLine, "Test starts Wed 18 Nov, 00:00 London time, and runs to Sat 19 Dec.");
+    assert.equal(rePlan("Asia/Tokyo").view.create!.startsLine, "Test starts Wed 18 Nov, 00:00 London time, and runs to Sat 19 Dec.");
+    // 00:00 London on Wed 18 Nov is Tue 17 Nov, 19:00 in New York: the line never takes New York's day.
+    assert.equal(testStart("Europe/London", new Date("2026-11-17T12:00:00Z")).at.toISOString(), "2026-11-18T00:00:00.000Z");
+    // In summer 00:00 London (BST) is 23:00 UTC the day before; the line still reads London's date.
+    assert.equal(words.testStartsLine(testStart("Europe/London", new Date("2027-06-01T12:00:00Z")).at, "2027-06-20"), "Test starts Wed 2 Jun, 00:00 London time, and runs to Sun 20 Jun.");
   });
 
   it("no start line under £6.00 (too small) or after the call (one campaign on the winner)", async () => {
