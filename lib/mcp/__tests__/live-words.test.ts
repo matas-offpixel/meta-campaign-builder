@@ -2,9 +2,10 @@
  * M3b's words (lib/mcp/live/words.ts): the rows it reuses are design's, word
  * for word, against a copy of the list (fixtures/words-mcp-today-2026-11-25.tsv);
  * the count helpers are the today.mcp.count.* rows; londonWhen is design's
- * "Thu 26 Nov, 18:00" (26 Nov verdict), weekday from London's own date; and
- * M3b ships switched off: every one of its tools answers the existing
- * claude.mcp.refused.switch row until LIVE_CHANGES_SHIPPED is true. The rows
+ * "Thu 26 Nov, 18:00" (26 Nov verdict), weekday from London's own date;
+ * M3b is on with Today's rows (MB4: LIVE_CHANGES_SHIPPED and
+ * TODAY_UNDO_SHIPPED together), and switched off every one of its tools
+ * answers the existing claude.mcp.refused.switch row. The rows
  * design corrected on 26 Nov (LIVE_RULED) are pinned here character for
  * character, typographic ’ included, and leave LIVE_FOR_DESIGN.
  */
@@ -14,6 +15,7 @@ import { readFileSync } from "node:fs";
 import { LIVE_FOR_DESIGN, LIVE_ROWS, LIVE_RULED, LIVE_WORDS, countAdSets, countAds, countCampaigns, countChanges, countTiers } from "../live/words.ts";
 import { londonWhen } from "../live/resolve.ts";
 import { LIVE_CHANGES_SHIPPED, LIVE_TOOL_NAMES } from "../live/shipped.ts";
+import { TODAY_UNDO_SHIPPED } from "../meta/today-undo.ts";
 import { runScheduledChanges } from "../live/scheduled.ts";
 import { META_TOOLS } from "../tools/index.ts";
 import { ToolInputError } from "../tool-types.ts";
@@ -93,7 +95,7 @@ test("design's corrected rows (26 Nov) are word for word, typographic ’ and al
   for (const w of Object.values(LIVE_RULED)) assert.doesNotMatch(w, /'/, "typographic ’ only");
   const pendingKeys = new Set(LIVE_FOR_DESIGN.map((w) => w.key));
   for (const k of Object.keys(LIVE_RULED)) assert.ok(!pendingKeys.has(k), `${k} left LIVE_FOR_DESIGN`);
-  assert.equal(LIVE_FOR_DESIGN.length, 55, "72 keys less design's 17 corrected rows");
+  assert.equal(LIVE_FOR_DESIGN.length, 57, "72 keys less design's 17 corrected rows, plus the 26 Nov plan's two read-back lines");
   for (const w of Object.values(LIVE_RULED).filter((x) => x.startsWith("Refused:"))) assert.match(w, /(Nothing was sent to Meta|Nothing was changed|Nothing was scheduled)\.$/);
 });
 
@@ -161,14 +163,19 @@ test("londonWhen is \"Thu 26 Nov, 18:00\": London's weekday and date, 24-hour ti
   assert.equal(londonWhen("2027-04-10T09:00:00Z"), "Sat 10 Apr, 10:00");
 });
 
-test("M3b ships switched off: all eleven tools answer claude.mcp.refused.switch before anything runs", async () => {
-  assert.equal(LIVE_CHANGES_SHIPPED, false);
+test("MB4: M3b is on with Today's rows and Undo, and the two constants flip together", () => {
+  assert.equal(LIVE_CHANGES_SHIPPED, true);
+  assert.equal(TODAY_UNDO_SHIPPED, true);
+  assert.equal(LIVE_CHANGES_SHIPPED, TODAY_UNDO_SHIPPED, "neither flips on its own (MB4)");
+});
+
+test("switched off (liveShipped false), all eleven tools answer claude.mcp.refused.switch before anything runs", async () => {
   assert.equal(LIVE_ROWS.refusedSwitch, row("claude.mcp.refused.switch"));
   const tools = META_TOOLS.filter((t) => (LIVE_TOOL_NAMES as readonly string[]).includes(t.name));
   assert.deepEqual(tools.map((t) => t.name).sort(), [...LIVE_TOOL_NAMES].sort());
   for (const tool of tools) {
     const { ctx, spy } = liveCtx();
-    delete (ctx as { liveShipped?: boolean }).liveShipped;
+    (ctx as { liveShipped?: boolean }).liveShipped = false;
     await assert.rejects(tool.run(ctx, { event: "ES27-ENZO", approval: { asked: "a", answer: "yes" } }), (e: unknown) => {
       assert.ok(e instanceof ToolInputError, tool.name);
       assert.equal(e.message, LIVE_ROWS.refusedSwitch, tool.name);
@@ -185,7 +192,7 @@ test("M3b ships switched off: all eleven tools answer claude.mcp.refused.switch 
 
 test("the scheduled-changes cron applies nothing while M3b is off", async () => {
   const { ctx, spy } = liveCtx();
-  const out = await runScheduledChanges({ db: ctx.db, live: ctx.live!, now: new Date("2026-11-26T18:00:00Z") });
+  const out = await runScheduledChanges({ db: ctx.db, live: ctx.live!, now: new Date("2026-11-26T18:00:00Z"), shipped: false });
   assert.equal(out.skippedReason, "m3b_not_shipped");
   assert.equal(out.due, 0);
   assert.deepEqual(spy.calls, []);

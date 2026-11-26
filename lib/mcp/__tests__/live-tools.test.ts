@@ -101,7 +101,8 @@ test("pause: the ad-set status write, keyed on the ask, on the campaign's publis
   assert.equal(sent[0]!.method, "setStatus");
   assert.deepEqual({ ...sent[0]!.input, key: "k" }, { userId: OPERATOR, kind: "adset", id: AS_BROAD, status: "PAUSED", ledger: { draftId: DRAFT_A, eventId: sent[0]!.input.ledger && (sent[0]!.input.ledger as { eventId: string }).eventId }, key: "k" });
   assert.equal((out.data as { change: string }).change, "Broad: live → paused");
-  assert.equal((out.data as { message: string }).message, `Done: 1 ad set changed · ${AS_BROAD}.`);
+  // FC2 / MB4: a pause has an Undo on Today, so the undo note follows Done.
+  assert.equal((out.data as { message: string }).message, `Done: 1 ad set changed · ${AS_BROAD}.\nMatas can undo this on Today.`);
   // Same ask again: Meta shows it paused, nothing is sent.
   const again = await run(pauseTool, ctx, { event: CODE, kind: "ad_set", id: AS_BROAD, approval: YES });
   assert.equal((again.data as { message: string }).message, LIVE_WORDS.samePaused("Broad"));
@@ -338,7 +339,7 @@ test("move_budget: a failed first try's plan is reused; across campaigns, under 
 test("rename: the name write once, the same name is a no-op, no ceiling read", async () => {
   const { ctx, spy } = liveCtx({ ceiling: null });
   const out = await run(renameTool, ctx, { event: CODE, kind: "ad", id: AD_1, name: "Teaser 1 — v2", approval: YES });
-  assert.equal((out.data as { message: string }).message, "Renamed: Teaser 1 → Teaser 1 — v2.");
+  assert.equal((out.data as { message: string }).message, "Renamed: Teaser 1 → Teaser 1 — v2.\nMatas can undo this on Today.");
   const again = await run(renameTool, ctx, { event: CODE, kind: "ad", id: AD_1, name: "Teaser 1 — v2", approval: YES });
   assert.equal((again.data as { changed: boolean }).changed, false);
   assert.deepEqual(writes(spy).map((c) => c.method), ["rename"]);

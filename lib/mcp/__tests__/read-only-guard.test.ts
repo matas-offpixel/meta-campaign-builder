@@ -189,6 +189,9 @@ const SHOWS_SEAM_WRITES: Record<string, Record<string, RegExp>> = {
 };
 
 const ENTRIES = [
+  // M3b on Today (MB1, MB2): Undo and Cancel, and the log they draw from.
+  "app/(dashboard)/today/claude-actions.ts",
+  "lib/mcp/today/load.ts",
   "lib/mcp/server.ts",
   "lib/mcp/tools/index.ts",
   "lib/mcp/draft-deps.ts",
@@ -529,7 +532,7 @@ test("M3a: the Meta seam imports exactly the launch route's handler, the upload 
   for (const p of SEAM_POSTS) assert.equal(posts.filter((l) => p.test(l)).length, 1, String(p));
   // Only route-deps and the scheduled-changes cron wire it; no tool imports it (tools reach Meta through ctx.meta / ctx.live).
   const importers = [...files.entries()].filter(([f, s2]) => f !== META_SEAM && /from\s+["'][^"']*meta-deps["']/.test(s2)).map(([f]) => f).sort();
-  assert.deepEqual(importers, ["app/api/cron/mcp-scheduled-changes/route.ts", "lib/mcp/route-deps.ts"]);
+  assert.deepEqual(importers, ["app/(dashboard)/today/claude-actions.ts", "app/api/cron/mcp-scheduled-changes/route.ts", "lib/mcp/route-deps.ts"]);
   // The tree's handlers are the routes' own, and bulk-attach keeps the tree switch and the paused flag.
   const attach = readFileSync(join(ROOT, "app/api/meta/bulk-attach-ads/route.ts"), "utf8");
   assert.match(attach, /export async function bulkAttachAs\(/);
@@ -726,4 +729,34 @@ test("the proxy opens exactly the MCP paths", async () => {
   assert.equal(isPublicPath("/api/mcpx"), false);
   assert.equal(isPublicPath("/api/mcp/anything"), false);
   assert.equal(isPublicPath("/api/oauth/other"), false);
+});
+
+test("M3b on Today: Undo writes only through the live seam's own writers and the action log, Cancel only through cancelScheduled, and both are Matas's", () => {
+  const files = walk();
+  for (const f of ["app/(dashboard)/today/claude-actions.ts", "lib/mcp/today/undo.ts", "lib/mcp/today/log.ts", "lib/mcp/today/load.ts", "lib/mcp/today/words.ts"]) assert.ok(files.has(f), `${f} is walked`);
+  const undo = strip(files.get("lib/mcp/today/undo.ts")!);
+  // No table write of its own: the today_undo row goes through the action log, the cancel through scheduled.ts.
+  assert.doesNotMatch(undo, /\.(insert|update|upsert|delete|rpc)\s*\(/);
+  assert.match(undo, /await deps\.logger\s*\.log\(/);
+  assert.match(undo, /approvedOnToday: true/);
+  assert.match(undo, /cancelScheduled\(db, \{ userId: input\.userId, id: input\.id, now: input\.now, by: "today" \}\)/);
+  // Meta only through McpLiveDeps' existing writes, each keyed "undo:{row}" on the ledger.
+  const liveCalls = [...undo.matchAll(/\blive\.(\w+)\(/g)].map((m) => m[1]).sort();
+  assert.deepEqual([...new Set(liveCalls)], ["moveBudget", "readObjects", "rename", "setBudget", "setStatus", "switches"]);
+  const writesCalled = undo.split("\n").filter((l) => /live\.(setStatus|setBudget|rename|moveBudget)\(\{/.test(l));
+  assert.equal(writesCalled.length, 5);
+  for (const l of writesCalled) assert.match(l, /key: undoKey \}\);/, l);
+  // A delete is status DELETED, only after the confirm, and only here.
+  assert.match(undo, /if \(plan\.op === "delete" && opts\.confirmed !== true\) return \{ state: "confirm" \};/);
+  const deletes = [...files.entries()].filter(([f, src]) => isOwn(f) && /status: "DELETED"/.test(strip(src))).map(([f]) => f);
+  assert.deepEqual(deletes, ["lib/mcp/today/undo.ts"]);
+  // The seam sends DELETED through the same status POST as pause and resume (SEAM_POSTS is unchanged).
+  // The actions check MATAS_USER_IDS before anything runs.
+  const actions = strip(files.get("app/(dashboard)/today/claude-actions.ts")!);
+  assert.match(actions, /MATAS_USER_IDS\.includes\(id\)/);
+  for (const fn of ["undoClaudeChange", "cancelScheduledChange"]) {
+    const body = bodyOf(actions, fn)!;
+    assert.ok(body.indexOf("await matas()") >= 0 && body.indexOf("await matas()") < Math.max(body.indexOf("runUndo("), body.indexOf("cancelFromToday(")), fn);
+    assert.match(body, /if \(!userId\) return \{ state: "none" \};/);
+  }
 });
