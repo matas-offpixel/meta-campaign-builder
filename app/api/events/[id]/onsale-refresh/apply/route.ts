@@ -282,6 +282,10 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
         const videos = await fetchAudienceMultiCampaignVideos(adAccountId, campaignIds, token);
         return groupVideosByPage(videos.videos);
       },
+      // RT17: the account's timezone and business (GET), and the Meta A/B test (POST /{business_id}/ad_studies).
+      accountInfo: (adAccountId) =>
+        graphGetWithToken<{ timezone_name?: string; business?: { id?: string } }>(`/${adAccountId}`, { fields: "timezone_name,business" }, token, { maxAttempts: 1 }).then((row) => ({ timezone: row?.timezone_name ?? null, businessId: row?.business?.id ?? null })),
+      createAdStudy: (businessId, payload) => graphPostWithToken<{ id: string }>(`/${businessId}/ad_studies`, payload, token).then((row) => row.id),
     },
     async ensureAudience(aud, name, adAccountId) {
       if (!who.event.client_id) throw new Error("This event has no client, so the audience builder can't file the audience.");
@@ -305,7 +309,22 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   };
 
   const result = await applyAccepted({
-    deps: { db: who.db, env: process.env, meta, copyFromDrive, upload, adsets, purchase, retargeting },
+    deps: {
+      db: who.db,
+      env: process.env,
+      meta,
+      copyFromDrive,
+      upload,
+      adsets,
+      purchase,
+      retargeting,
+      // RT17's call: pause the losing arm, end each Meta A/B test, the winning arm's ad-set budgets.
+      retargetingCall: {
+        updateCampaign: (campaignId, params) => purchase.updateCampaign(campaignId, params),
+        endAdStudy: async (studyId) => void (await graphPostWithToken(`/${studyId}`, { end_time: Math.floor(Date.now() / 1000) }, token)),
+        updateAdSetDailyBudget: (adsetId, dailyMinor) => meta.updateAdSetDailyBudget(adsetId, dailyMinor),
+      },
+    },
     eventId: who.event.id,
     userId: who.userId,
     appliedByName: who.userName,

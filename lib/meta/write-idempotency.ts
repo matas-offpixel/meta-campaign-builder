@@ -42,6 +42,10 @@ export type MetaWriteOpKind =
   | "adset_end_time_update"
   /** Retargeting RT13: a running campaign's audience rule rewritten when the show's links change (migration 257). */
   | "retargeting_audience_rule_update"
+  /** Retargeting RT17: a show's Meta A/B test, its two arm campaigns as 50 % cells (migration 259). */
+  | "retargeting_study_create"
+  /** Retargeting RT17: the test ended when its call is accepted (migration 259). */
+  | "retargeting_study_end"
   /** SU1: a show's "{code} · Signups" customer list (lib/customer-lists/, migration 267). */
   | "customer_list_create"
   /** SU1: one batch of up to 10,000 hashed signups added to, removed from or (key op "replace") replacing a customer list's users (migration 267). */

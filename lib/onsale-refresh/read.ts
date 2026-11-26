@@ -56,6 +56,8 @@ export type PanelLine = {
   endDay?: string | null;
   /** RT1–RT4: the Retargeting panel, stored on the Create line's evidence. */
   retargeting?: RetargetingView | null;
+  /** RT17: the call's "On accept: …" sentence (null for "No clear winner"). */
+  retargetingCall?: { onAccept: string | null } | null;
   /** RT4: the share picked on Accept (write.share). */
   share?: number | null;
 };
@@ -160,6 +162,7 @@ function panelLine(line: LineRow, budgetSet: boolean | null, carried: string | n
     ...(line.target?.extra ? { extra: line.target.extra } : {}),
     ...((line.evidence?.trackRecord as { state?: string } | undefined)?.state === "low" ? { trackRecord: "low" as const } : {}),
     ...(line.kind === "retargeting_campaign" && line.evidence?.view ? { retargeting: line.evidence.view as RetargetingView, share: typeof line.write?.share === "number" ? line.write.share : null } : {}),
+    ...(line.kind === "retargeting_test_call" ? { retargetingCall: { onAccept: typeof line.evidence?.onAccept === "string" ? line.evidence.onAccept : null } } : {}),
     ...(line.kind === "purchase_campaign" && line.evidence?.card ? { card: line.evidence.card as PurchaseCard, dailyGbp: typeof line.write?.dailyGbp === "number" ? line.write.dailyGbp : null, endDay: typeof line.write?.endDay === "string" ? line.write.endDay : null } : {}),
   };
 }

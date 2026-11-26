@@ -39,7 +39,8 @@ import { tierAudienceName, tierSpecs, type TierAudience } from "./audiences.ts";
 import { daysToShow, isShare, RT4, type Share } from "./budget.ts";
 import type { RetargetingBuild } from "./plan.ts";
 import { dayMonth } from "../onsale-refresh/schedule.ts";
-import { pence, pounds, tierAdSetName, type Tier } from "./words.ts";
+import { armAdSetName, armCampaignName, pence, pounds, testRefusedSaid, TEST_REFUSED, tierAdSetName, type Arm, type Tier } from "./words.ts";
+import { armSpecs, metaTime, studyPayload, testStart } from "./test.ts";
 
 type Db = Pick<SupabaseClient, "from">;
 
@@ -50,6 +51,10 @@ export type RetargetingMeta = Pick<PurchaseMeta, "readCampaignBudget" | "readAd"
   audienceState(audienceId: string): Promise<"ready" | "building" | "too_small">;
   /** Every video of the show's ads, grouped by the page each one ran from; a video with no page is left out (RT2). */
   listShowVideos(adAccountId: string, campaignIds: string[]): Promise<{ contextId: string; videoIds: string[] }[]>;
+  /** RT17: GET /act_{id}?fields=timezone_name,business — the account's timezone and the business that holds A/B tests. */
+  accountInfo?(adAccountId: string): Promise<{ timezone: string | null; businessId: string | null }>;
+  /** RT17: POST /{business_id}/ad_studies; returns the study id. */
+  createAdStudy?(businessId: string, payload: Record<string, unknown>): Promise<string>;
 };
 
 export type RetargetingDeps = {
@@ -81,6 +86,8 @@ export type RetargetingProgress = {
   share?: Share;
   holdMinor?: number;
   active?: boolean;
+  /** RT17: an entered show's two arms and its Meta A/B test. */
+  test?: { startAt?: string; studyId?: string; arms?: Partial<Record<Arm, { campaignId?: string; adSets?: Partial<Record<Tier, { id: string; dailyMinor: number }>> }>> };
 };
 
 type Outcome = { state: "applied" | "failed"; reason: string | null; result: Record<string, unknown> };
@@ -105,9 +112,11 @@ export function locationOf(targeting: Record<string, unknown> | null): Record<st
 }
 
 /** RT1: one tier's ad set. */
-export function tierAdSetPayload(args: { code: string; tier: Tier; campaignId: string; dailyMinor: number; pixelId: string; customConversionId: string | null; endDay: string; location: Record<string, unknown>; includeIds: string[]; excludeIds: string[] }): Record<string, unknown> {
+export function tierAdSetPayload(args: { code: string; tier: Tier; campaignId: string; dailyMinor: number; pixelId: string; customConversionId: string | null; endDay: string; location: Record<string, unknown>; includeIds: string[]; excludeIds: string[]; name?: string; startTime?: string }): Record<string, unknown> {
   return {
-    name: tierAdSetName(args.code, args.tier),
+    name: args.name ?? tierAdSetName(args.code, args.tier),
+    // RT17 (ops' option (c)): an arm's ad sets start with the Meta A/B test, so nothing delivers before the split.
+    ...(args.startTime ? { start_time: args.startTime } : {}),
     campaign_id: args.campaignId,
     status: "PAUSED",
     daily_budget: args.dailyMinor,
@@ -156,9 +165,11 @@ async function storedAudiences(db: Db, eventId: string): Promise<Map<string, str
 function made(progress: RetargetingProgress): string {
   const parts: string[] = [];
   if (progress.campaignId) parts.push("the campaign");
+  const armCampaigns = Object.values(progress.test?.arms ?? {}).filter((arm) => arm?.campaignId).length;
+  if (armCampaigns) parts.push(`${armCampaigns === 1 ? "one arm's campaign" : "both arms' campaigns"}`);
   const audiences = Object.keys(progress.audiences ?? {}).length;
   if (audiences) parts.push(`${audiences} audience${audiences === 1 ? "" : "s"}`);
-  const sets = Object.keys(progress.adSets ?? {}).length;
+  const sets = Object.keys(progress.adSets ?? {}).length + Object.values(progress.test?.arms ?? {}).reduce((sum, arm) => sum + Object.keys(arm?.adSets ?? {}).length, 0);
   if (sets) parts.push(`${sets} ad set${sets === 1 ? "" : "s"}`);
   const ads = progress.ads?.length ?? 0;
   if (ads) parts.push(`${ads} ad${ads === 1 ? "" : "s"}`);
@@ -237,6 +248,8 @@ export async function applyRetargetingCampaign(deps: RetargetingDeps, line: Reta
       return fail(ctx.plainMetaReason(err), { error: err instanceof Error ? err.message : String(err), step: "videos" });
     }
   }
+  // RT17: an entered show builds two arms and a Meta A/B test instead of one campaign.
+  if (build.test) return applyTestArms(deps, line, ctx, { build, progress, sources, move, fail });
   // RT13: an empty Bottom has no budget, and then its audiences aren't built for the leave-outs either.
   const specs = tierSpecs(sources, { bottom: budgets.tiers.bottom > 0 }).filter((spec) => budgets.tiers[spec.tier] > 0);
   if (!specs.length) return fail("No tier has an audience to build");
@@ -342,6 +355,162 @@ export async function applyRetargetingCampaign(deps: RetargetingDeps, line: Reta
   }
   progress.active = true;
   return { state: "applied", reason: appliedText({ tiers: Object.keys(progress.adSets ?? {}).length, ads: build.ads?.length ?? 0, totalMinor: budgets.totalMinor, endDay: build.endDay }), result: { retargeting: progress } };
+}
+
+export const RT_STUDY_UNWIRED = "Making the Meta A/B test isn't wired on this deployment, so nothing was built";
+export const RT_NO_BUSINESS = "The ad account has no business to hold the Meta A/B test";
+export const RT_START_PASSED = "The test's start passed before the Meta A/B test was made, so nothing was switched on";
+
+/**
+ * RT17 under ops' option (c): one Accept builds both arms, each a campaign
+ * made PAUSED whose ad sets all start at the test's start (00:00 Europe/London
+ * tomorrow, whatever the ad account's timezone: Matas, 25 Nov), then the Meta A/B test with that
+ * start and the two campaigns as 50 % cells, then everything is switched
+ * on. Nothing can deliver before the split: no ad set starts earlier, and
+ * nothing is switched on before the test exists. If Meta refuses the test,
+ * Apply stops there with everything paused and says so (no fallback).
+ */
+async function applyTestArms(
+  deps: RetargetingDeps,
+  line: RetargetingLine,
+  ctx: { ledger: MetaWriteContext; adAccountId: string; plainMetaReason: (err: unknown) => string },
+  args: { build: RetargetingBuild; progress: RetargetingProgress; sources: RetargetingBuild["sources"]; move: number; fail: (reason: string, extra?: Record<string, unknown>) => Outcome },
+): Promise<Outcome> {
+  const { build, progress, fail } = args;
+  const test = build.test!;
+  if (!deps.meta.accountInfo || !deps.meta.createAdStudy) return fail(RT_STUDY_UNWIRED);
+  progress.test ??= {};
+  progress.test.arms ??= {};
+  const keyBase = { line_id: line.id };
+  let businessId: string | null;
+  try {
+    const account = await deps.meta.accountInfo(ctx.adAccountId);
+    businessId = account.businessId;
+    // Matas (25 Nov): 00:00 Europe/London, the hour the start line names, whatever the account's timezone; every arm's ad set and the study start then.
+    if (!progress.test.startAt) progress.test.startAt = testStart("Europe/London", new Date()).at.toISOString();
+  } catch (err) {
+    return fail(ctx.plainMetaReason(err), { error: err instanceof Error ? err.message : String(err), step: "account" });
+  }
+  if (!businessId) return fail(RT_NO_BUSINESS);
+  const start = new Date(progress.test.startAt);
+  if (!progress.test.studyId && start.getTime() <= Date.now()) return fail(RT_START_PASSED, { step: "study" });
+  try {
+    if (build.customConversion && !progress.customConversionId) {
+      const spec = build.customConversion;
+      progress.customConversionId = await withMetaWriteIdempotency(ctx.ledger, "refresh_custom_conversion_create", keyBase, async () => (await deps.meta.findCustomConversion(ctx.adAccountId, spec.name)) ?? deps.meta.createCustomConversion(ctx.adAccountId, { name: spec.name, pixelId: build.pixelId, domain: spec.domain }), { required: true });
+    }
+    progress.audiences ??= {};
+    const stored = await storedAudiences(deps.db, deps.owner.eventId);
+    const ensure = async (aud: TierAudience): Promise<string | null> => {
+      if (aud.kind === "list") return aud.metaAudienceId;
+      const have = progress.audiences![aud.key] ?? stored.get(aud.key);
+      if (have) return (progress.audiences![aud.key] = have);
+      const name = tierAudienceName(build.eventCode, aud);
+      const made = await deps.ensureAudience(aud, name, ctx.adAccountId);
+      if (!made) return null;
+      await storeAudience(deps.db, { event_id: deps.owner.eventId, user_id: deps.owner.userId, part: aud.key, meta_audience_id: made.metaAudienceId, name, line_id: line.id });
+      progress.audiences![aud.key] = made.metaAudienceId;
+      if (aud.kind === "pixel_url" || aud.kind === "pixel_event") progress.rules = { ...(progress.rules ?? {}), [aud.key]: [...aud.urlContains] };
+      await storeProgress(deps.db, line.id, progress);
+      return made.metaAudienceId;
+    };
+    const location = locationOf(build.geoFromAdsetId ? await deps.meta.readAdSetTargeting(build.geoFromAdsetId) : null);
+    const creatives: ReusedCreative[] = [];
+    for (const ad of build.ads ?? []) {
+      const live = await deps.meta.readAd(ad.adId);
+      if (!live?.creativeId) return fail(`The ad it reuses (${ad.name}) can't be read`, { step: "ad" });
+      creatives.push({ name: live.name || ad.name, creativeId: live.creativeId, objectStoryId: live.objectStoryId ?? null });
+    }
+    const adIds = new Set(progress.ads ?? []);
+    for (const arm of ["A", "B"] as const) {
+      const tiers = test.arms[arm];
+      const done = (progress.test.arms[arm] ??= {});
+      // 1. The arm's campaign, paused, with no budget of its own.
+      if (!done.campaignId) {
+        const payload = buildCampaignPayload({ name: armCampaignName(build.eventCode, arm), objective: "purchase", status: "PAUSED" }) as unknown as Record<string, unknown>;
+        done.campaignId = await withMetaWriteIdempotency(ctx.ledger, "refresh_campaign_create", { ...keyBase, arm }, () => deps.meta.createCampaign(ctx.adAccountId, payload), { required: true });
+        await storeProgress(deps.db, line.id, progress);
+      }
+      // 2. Its audiences (shared keys are made once), then its tier ad sets, paused, each starting at the test's start.
+      const specs = armSpecs(arm, args.sources, { bottom: tiers.bottom > 0 }).filter((spec) => tiers[spec.tier] > 0);
+      const ids = new Map<string, string>();
+      for (const spec of specs) for (const aud of [...spec.includes, ...spec.excludes]) {
+        if (ids.has(aud.key)) continue;
+        const id = await ensure(aud);
+        if (id) ids.set(aud.key, id);
+      }
+      for (const id of new Set(ids.values())) {
+        const state = await deps.meta.audienceState(id);
+        if (state === "building") return fail(RT_AUDIENCE_BUILDING, { step: "audience" });
+        if (state === "too_small") return fail(RT_AUDIENCE_SMALL, { step: "audience" });
+      }
+      done.adSets ??= {};
+      for (const spec of specs) {
+        if (done.adSets[spec.tier]) continue;
+        const includeIds = spec.includes.map((aud) => ids.get(aud.key)).filter((id): id is string => Boolean(id));
+        if (!includeIds.length) continue;
+        const excludeIds = spec.excludes.map((aud) => ids.get(aud.key)).filter((id): id is string => Boolean(id));
+        const dailyMinor = tiers[spec.tier];
+        const payload = tierAdSetPayload({ code: build.eventCode, tier: spec.tier, campaignId: done.campaignId!, dailyMinor, pixelId: build.pixelId, customConversionId: progress.customConversionId ?? null, endDay: build.endDay, location, includeIds, excludeIds, name: armAdSetName(build.eventCode, arm, spec.tier), startTime: metaTime(start) });
+        const id = await withMetaWriteIdempotency(ctx.ledger, "refresh_adset_create", { ...keyBase, arm, tier: spec.tier }, () => deps.meta.createAdSet(ctx.adAccountId, payload), { required: true });
+        done.adSets[spec.tier] = { id, dailyMinor };
+        await storeProgress(deps.db, line.id, progress);
+        await recordTierAdSet(deps, { metaAdsetId: id, campaignId: done.campaignId!, adAccountId: ctx.adAccountId, draftId: ctx.ledger.draftId ?? null, name: String(payload.name), dailyMinor, tier: spec.tier });
+      }
+      // 3. The ads: the same reused creatives in every tier of both arms.
+      for (const set of Object.values(done.adSets)) {
+        for (const creative of creatives) adIds.add((await reuseAd(deps.meta, ctx.ledger, { lineId: line.id, adAccountId: ctx.adAccountId, adsetId: set!.id, creative })).adId);
+      }
+      progress.ads = [...adIds];
+    }
+    // 4. The main campaign's lifetime budget, lowered — only when money moves (the hold is the show's whole total).
+    if (args.move > 0 && !progress.main && build.main?.campaignId) {
+      const live = await deps.meta.readCampaignBudget(build.main.campaignId);
+      const before = (live.lifetime ?? 0) / 100;
+      const after = round2(before - args.move);
+      await withMetaWriteIdempotency(ctx.ledger, "refresh_campaign_lifetime_budget_update", { ...keyBase, campaign_id: build.main.campaignId, lifetime_budget: Math.round(after * 100) }, async () => {
+        await deps.meta.updateCampaign(build.main!.campaignId!, { lifetime_budget: Math.round(after * 100) });
+        return build.main!.campaignId!;
+      }, { required: true });
+      progress.main = { before, after, moved: args.move };
+      await storeProgress(deps.db, line.id, progress);
+    }
+  } catch (err) {
+    return fail(ctx.plainMetaReason(err), { error: err instanceof Error ? err.message : String(err) });
+  }
+  // 5. The Meta A/B test: the two campaigns as 50 % cells, from the arms' start to the show day's end. Refused = stop, all paused.
+  if (!progress.test.studyId) {
+    try {
+      const payload = studyPayload({ code: build.eventCode, campaignA: progress.test.arms.A!.campaignId!, campaignB: progress.test.arms.B!.campaignId!, start, end: new Date(showEndTime(build.endDay).replace(/([+-]\d{2})(\d{2})$/, "$1:$2")) });
+      progress.test.studyId = await withMetaWriteIdempotency(ctx.ledger, "retargeting_study_create", keyBase, () => deps.meta.createAdStudy!(businessId!, payload), { required: true });
+      await storeProgress(deps.db, line.id, progress);
+    } catch (err) {
+      // Design (25 Nov): the sentence says what's made and paused, so no "Created paused: …" after it; Meta's words underneath.
+      return { state: "failed", reason: `${TEST_REFUSED}\n${testRefusedSaid(ctx.plainMetaReason(err).replace(/\.$/, ""))}`, result: { retargeting: progress, error: err instanceof Error ? err.message : String(err), step: "study" } };
+    }
+  }
+  // 6. Switched on: every arm ad set, then both campaigns. None delivers before the test's start.
+  try {
+    for (const arm of ["A", "B"] as const) {
+      const done = progress.test.arms[arm]!;
+      for (const set of Object.values(done.adSets ?? {})) {
+        await withMetaWriteIdempotency(ctx.ledger, "adset_status_update", { ...keyBase, adset_id: set!.id, status: "ACTIVE" }, async () => {
+          await deps.meta.setAdSetActive(set!.id);
+          return set!.id;
+        }, { required: true });
+      }
+      await withMetaWriteIdempotency(ctx.ledger, "refresh_campaign_status_update", { ...keyBase, campaign_id: done.campaignId, status: "ACTIVE" }, async () => {
+        await deps.meta.updateCampaign(done.campaignId!, { status: "ACTIVE" });
+        return done.campaignId!;
+      }, { required: true });
+    }
+  } catch (err) {
+    return { state: "failed", reason: `built and paused, not switched on: ${ctx.plainMetaReason(err)}. Retry switches it on.`, result: { retargeting: progress, error: err instanceof Error ? err.message : String(err), step: "switch_on" } };
+  }
+  progress.active = true;
+  const tierCount = Object.values(progress.test.arms).reduce((sum, arm) => sum + Object.keys(arm?.adSets ?? {}).length, 0);
+  const total = Object.values(test.arms.A).reduce((sum, value) => sum + value, 0) + Object.values(test.arms.B).reduce((sum, value) => sum + value, 0);
+  return { state: "applied", reason: appliedText({ tiers: tierCount, ads: build.ads?.length ?? 0, totalMinor: total, endDay: build.endDay }), result: { retargeting: progress } };
 }
 
 /** HR3: each tier ad set is recorded like a launch (launched_ad_sets), so the learning loop joins its ads to the show. Never throws. */

@@ -33,15 +33,16 @@
 import type { PanelLine, PanelProposal } from "@/lib/onsale-refresh/read";
 
 import { ONSALE_PHASE } from "../../lib/onsale-refresh/phase-config.ts";
+import { addDaysIso } from "../../lib/onsale-refresh/schedule.ts";
 import type { PurchaseRead } from "../../lib/onsale-refresh/purchases.ts";
 import type { PartnerPageLinks } from "../../lib/cirqlin/page-links.ts";
 import { linkKey } from "../../lib/retargeting/audiences.ts";
 import { linksFromPages, type PixelHosts } from "../../lib/retargeting/links.ts";
-import { planRetargeting, retargetingBeforeOnSale, type RetargetingInput, type RetargetingView } from "../../lib/retargeting/plan.ts";
+import { callLine, planRetargeting, retargetingBeforeOnSale, type RetargetingInput, type RetargetingView } from "../../lib/retargeting/plan.ts";
 import { runsInOwnCampaign } from "../../lib/retargeting/words.ts";
 import { OR6_PROPOSALS } from "./refresh-fixtures.ts";
 
-export const RETARGETING_FRAME_IDS = ["RA", "RB", "RD"] as const;
+export const RETARGETING_FRAME_IDS = ["RA", "RB", "RD", "RE", "RG"] as const;
 
 const TODAY = "2026-11-17";
 
@@ -164,7 +165,16 @@ export function raView(): RetargetingView {
       last7SpendGbp: 1680,
       pixelHosts: { any: ["www.skiddle.com", "ra.co", "xmpl-whse.com"], pageView: ["www.skiddle.com", "ra.co", "xmpl-whse.com"], checkout: ["www.skiddle.com"], registration: ["xmpl-whse.com"] },
       linkSizes,
-      sources: {
+      sources: raSources(links),
+      existing: { campaignId: "120000000000000010", since: "2026-11-10", totalMinor: 2400, share: 10, tiers: { bottom: 1200, mid_bottom: 600, mid: 600 }, status: "ACTIVE" },
+      legacy: [],
+    }),
+  ).view;
+}
+
+/** RA's (and RG's) source set: XMPL-WHSE's links, four pages, a signup list, two similar lists and a buyers list. */
+function raSources(links = linksFromPages(WHSE_PAGES)) {
+  return {
         pixelId: "1067726194205285",
         links,
         videos: [{ contextId: "", videoIds: ["pending"] }],
@@ -180,11 +190,93 @@ export function raView(): RetargetingView {
           { metaAudienceId: "l3", name: "House data", role: "similar", uploadedAt: "2026-11-09T10:00:00Z" },
           { metaAudienceId: "l4", name: "XMPL-WHSE buyers", role: "buyers", uploadedAt: "2026-11-14T10:00:00Z" },
         ],
+  } satisfies RetargetingInput["sources"];
+}
+
+/**
+ * RG: RA's show in the layout test, read Wed 2 Dec (-2.html RT17, PR E's
+ * lines): £36.00 a day, £18.00 to each arm split £9.00 / £4.50 / £4.50.
+ * The arms' 7 days (25 Nov – 1 Dec): A £63.00 ÷ 9, £31.50 ÷ 4, £31.50 ÷ 4
+ * (£126.00 ÷ 17 = £7.41); B £63.00 ÷ 7, £31.50 ÷ 3, £31.50 ÷ 3
+ * (£126.00 ÷ 13 = £9.69). The test, every show, from its start Wed 18 Nov
+ * (00:00 London, the header's "Running since") for 14 days, to Tue 1 Dec,
+ * 6 shows: A £2,184.00 ÷ 168 = £13.00, B £2,179.40 ÷ 130 = £16.76,
+ * 22 % cheaper: the call is made. The header's stretch wording is PR D's.
+ */
+export function rgPlan() {
+  const tier = (budgetMinor: number, spendMinor: number, purchases: number, frequency: number, pool: string) => ({ budgetMinor, spendMinor, purchases, frequency, pool });
+  // Design (25 Nov): the window is the test's start plus its days, never written out by hand.
+  const since = "2026-11-18";
+  const days = 14;
+  const pooledRead = {
+    from: since,
+    to: addDaysIso(since, days - 1),
+    days,
+    shows: 6,
+    arms: { A: { shows: 6, spend: 2184, purchases: 168, cost: 13 }, B: { shows: 6, spend: 2179.4, purchases: 130, cost: 16.76 } },
+  };
+  const plan = planRetargeting(
+    input({
+      eventId: "xmpl-whse",
+      eventCode: "XMPL-WHSE",
+      eventDate: "2026-12-19",
+      runDay: "2026-12-02",
+      today: "2026-12-02",
+      last7SpendGbp: 1680,
+      pixelHosts: { any: ["www.skiddle.com", "ra.co", "xmpl-whse.com"], pageView: ["www.skiddle.com", "ra.co", "xmpl-whse.com"], checkout: ["www.skiddle.com"], registration: ["xmpl-whse.com"] },
+      sources: raSources(),
+      existing: { campaignId: null, since, totalMinor: 3600, share: 15, tiers: { bottom: 1800, mid_bottom: 900, mid: 900 }, status: "ACTIVE" },
+      test: {
+        arms: {
+          A: { bottom: tier(900, 6300, 9, 3.1, "4,100–4,800"), mid_bottom: tier(450, 3150, 4, 2.0, "6,600–7,800"), mid: tier(450, 3150, 4, 1.4, "184,000–216,000") },
+          B: { bottom: tier(900, 6300, 7, 2.2, "38,000–45,000"), mid_bottom: tier(450, 3150, 3, 1.8, "52,000–61,000"), mid: tier(450, 3150, 3, 1.3, "141,000–166,000") },
+        },
+        pooled: pooledRead,
       },
-      existing: { campaignId: "120000000000000010", since: "2026-11-10", totalMinor: 2400, share: 10, tiers: { bottom: 1200, mid_bottom: 600, mid: 600 }, status: "ACTIVE" },
       legacy: [],
     }),
-  ).view;
+  );
+  const call = callLine(pooledRead)!;
+  const line: PanelLine = {
+    id: "rg-call",
+    kind: "retargeting_test_call",
+    title: call.title,
+    detail: call.detail,
+    writeText: call.writeText,
+    narrow: { detail: call.narrow, writeText: call.narrowSub },
+    addsSpend: false,
+    blockedReason: null,
+    supply: false,
+    state: "to_review",
+    reason: null,
+    retargetingCall: { onAccept: call.onAccept },
+  };
+  return { view: plan.view, line };
+}
+
+/**
+ * RE: an entered show's Create line, before Apply (design asked for it, 17 Nov;
+ * RT17 doesn't draw one). XMPL-WHSE on Tue 17 Nov: £240.00 current daily
+ * spend, 10 %, £24.00 a day, so £12.00 to each arm. The line says so in
+ * RT17's words, then design's 25 Nov start line: 00:00 tomorrow in the ad
+ * account's timezone (London here), "Test starts Wed 18 Nov, 00:00 London
+ * time, and runs to Sat 19 Dec."
+ */
+export function rePlan(accountTimeZone: string | null = null) {
+  const plan = planRetargeting(
+    input({
+      eventId: "xmpl-whse",
+      eventCode: "XMPL-WHSE",
+      eventDate: "2026-12-19",
+      last7SpendGbp: 1680,
+      pixelHosts: { any: ["www.skiddle.com", "ra.co", "xmpl-whse.com"], pageView: ["www.skiddle.com", "ra.co", "xmpl-whse.com"], checkout: ["www.skiddle.com"], registration: ["xmpl-whse.com"] },
+      sources: raSources(),
+      existing: null,
+      legacy: [],
+      accountTimeZone,
+    }),
+  );
+  return { view: plan.view, line: rbLine(plan.view) };
 }
 
 /** RB: the Create line with all three missing states, before Apply. */

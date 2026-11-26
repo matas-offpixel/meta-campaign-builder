@@ -8,7 +8,7 @@
  * Events API, advertiser ID, dataset.
  */
 
-import { dayMonth, shortDay } from "../onsale-refresh/schedule.ts";
+import { addDaysIso, dayMonth, shortDay } from "../onsale-refresh/schedule.ts";
 
 export type Tier = "bottom" | "mid_bottom" | "mid";
 
@@ -215,6 +215,62 @@ export function noSignupList(sources: readonly string[]): string {
   return `No signup list yet, so Bottom runs on ${list} only.`;
 }
 
+// ── SU1 (docs/design-record/2026-11-25-signups-into-meta.html; words-rc su.line.*) ──
+
+/** SU1: the show's Signups list, one state at a time (RT15's "No signup list yet…" is "not_on"). */
+export type SignupsState =
+  | { state: "not_on" }
+  | { state: "waiting"; madeOn: string }
+  | { state: "on"; count: number; lastSentAt: string; rebuiltOn: string }
+  | { state: "not_linked"; tag: string }
+  | { state: "not_configured" };
+
+/** SU1: the state, and the lines added under it when they apply. */
+export type SignupsSync = SignupsState & { writesOff?: boolean; failedRead?: boolean; failedSend?: { taken: number; sent: number } | null };
+
+const LONDON_MOMENT = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/London", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+
+/** SU4: a moment in London time, "Tue 25 Nov, 08:00". */
+export function londonMoment(iso: string): string {
+  const parts = Object.fromEntries(LONDON_MOMENT.formatToParts(new Date(iso)).map((part) => [part.type, part.value]));
+  return `${shortDay(`${parts.year}-${parts.month}-${parts.day}`)}, ${parts.hour}:${parts.minute}`;
+}
+
+const signupCount = (n: number) => (n === 1 ? "1 signup" : `${group(String(n))} signups`);
+
+/** su.line.on / .one: "Signups list · {n} signups · last sent {date, time} · rebuilt in full {date}". */
+export function signupsOn(count: number, lastSentAt: string, rebuiltOn: string): string {
+  return `Signups list · ${signupCount(count)} · last sent ${londonMoment(lastSentAt)} · rebuilt in full ${shortDay(rebuiltOn)}`;
+}
+
+/** su.line.waiting: "No signup list yet: it’s made on {date}, 08:00, so until then Bottom runs on {sources} only." */
+export function signupsWaiting(madeOn: string, sources: readonly string[]): string {
+  const list = sources.length > 1 ? `${sources.slice(0, -1).join(", ")} and ${sources.at(-1)}` : (sources[0] ?? "nothing else");
+  return `No signup list yet: it’s made on ${shortDay(madeOn)}, 08:00, so until then Bottom runs on ${list} only.`;
+}
+
+/** su.line.switch_off (ochre), under the list line. */
+export const SIGNUPS_SWITCH_OFF = "Sending signups to Meta is switched off, so this list isn’t kept current.";
+/** su.line.switch_off.none (ochre), under the waiting line. */
+export const SIGNUPS_SWITCH_OFF_NONE = "Sending signups to Meta is switched off, so the list won’t be made until it’s on.";
+
+/** su.line.not_linked (brick): the tag printed exactly as stored. */
+export function signupsNotLinked(tag: string): string {
+  return `CIRQLIN has no page tagged ${tag}, so this show’s signups can’t be sent.`;
+}
+
+/** su.line.not_configured (brick). */
+export const SIGNUPS_NOT_CONFIGURED = "The CIRQLIN read isn’t set up, so no signups are sent.";
+
+/** su.line.failed.read (brick). */
+export const SIGNUPS_FAILED_READ = "The last run couldn’t read CIRQLIN, so nothing new was sent. The next run tries again tomorrow at 08:00.";
+
+/** su.line.failed.send / .one (brick). */
+export function signupsFailedSend(taken: number, sent: number): string {
+  if (sent === 1) return "Meta didn’t take the 1 signup in the last run. The next run sends it tomorrow at 08:00.";
+  return `Meta took ${group(String(taken))} of ${group(String(sent))} signups in the last run. The next run sends the rest tomorrow at 08:00.`;
+}
+
 /** RT15: no registrations reaching the pixel from the landing pages in 28 days. */
 export function noRegistrations(pages: readonly string[]): string {
   return `No registrations from ${joinNames(pages)} reach the pixel in 28 days, so Bottom counts signups from the signup list only.`;
@@ -315,4 +371,145 @@ export function joinNames(names: readonly string[]): string {
 /** RT9: when the campaign is off, one line on the Retargeting panel. */
 export function retargetingOff(code: string): string {
   return `${retargetingCampaignName(code)} is off.`;
+}
+
+// ── RT17 (the layout test) ───────────────────────────────────────────────────
+
+export type Arm = "A" | "B";
+
+/** RT17: the arms' headings. */
+export const ARM_LABEL: Record<Arm, string> = { A: "A · tiers by action", B: "B · by recency" };
+
+/** RT17: "{code} · Retargeting · A/B · A" / "· B". */
+export function armCampaignName(code: string, arm: Arm): string {
+  return `${retargetingCampaignName(code)} · A/B · ${arm}`;
+}
+
+/** RT17: "{code} · Retargeting · A/B · {A | B} · {tier}". */
+export function armAdSetName(code: string, arm: Arm, tier: Tier): string {
+  return `${armCampaignName(code, arm)} · ${TIER_LABEL[tier]}`;
+}
+
+/** RT17: the panel header, "{code} · Retargeting · A/B test". */
+export function testTitle(code: string): string {
+  return `${retargetingCampaignName(code)} · A/B test`;
+}
+
+/** RT17: "£{half} a day to each arm · Meta splits people at random, so nobody sees both". */
+export function eachArmLine(halfMinor: number): string {
+  return `${pence(halfMinor, { minor: true })} a day to each arm · Meta splits people at random, so nobody sees both`;
+}
+
+/** RT17 at 393 (design, 17 Nov): "£{half} a day to each arm" — the header above already gives the total — then "Meta splits people at random, so nobody sees both". */
+export function eachArmNarrow(halfMinor: number): string {
+  return `${pence(halfMinor, { minor: true })} a day to each arm`;
+}
+export const META_SPLITS = "Meta splits people at random, so nobody sees both";
+
+const LONDON_CLOCK = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/London", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+
+/**
+ * Design (25 Nov, frame RE): "Test starts {Ddd d Mon}, 00:00 London time, and runs to {show day}."
+ * The weekday is the started date's, through shortDay like every other date line.
+ * Matas (25 Nov): the date, weekday and hour are worked out in Europe/London,
+ * the zone the line names, whatever the ad account's timezone; the show day
+ * ("Sat 19 Dec") is the event's London calendar date.
+ */
+export function testStartsLine(startAt: Date, showDay: string): string {
+  const parts = Object.fromEntries(LONDON_CLOCK.formatToParts(startAt).map((part) => [part.type, part.value]));
+  return `Test starts ${shortDay(`${parts.year}-${parts.month}-${parts.day}`)}, ${parts.hour}:${parts.minute} London time, and runs to ${shortDay(showDay)}.`;
+}
+
+/** Design (25 Nov): the applied call. */
+export function callApplied(winner: Arm, shows: number): string {
+  const loser: Arm = winner === "A" ? "B" : "A";
+  return `Layout ${winner} now runs on ${shows} shows. Layout ${loser} is paused and each test has ended.`;
+}
+
+/** Design (25 Nov): Meta refused the A/B test; Meta's words go underneath (testRefusedSaid). */
+export const TEST_REFUSED = "Meta didn't accept the A/B test, so nothing is switched on: both arms are made and paused.";
+export function testRefusedSaid(metaWords: string): string {
+  return `Meta said: "${metaWords}"`;
+}
+
+/** RT17: "Too small to test: £{total} a day is under £6.00, so it runs layout A only." */
+export function tooSmallToTest(totalMinor: number): string {
+  return `Too small to test: ${pence(totalMinor, { minor: true })} a day is under £6.00, so it runs layout A only.`;
+}
+
+/** RT17: arm B's audiences, "Every source · {30 | 60 | 180} days", Bottom's second line "Registrations · 180 days · signup list". */
+export function armBAudiences(tier: Tier, args: { signupLists: number; similarLists: number; hasLanding: boolean }): string[] {
+  const days = tier === "bottom" ? 30 : tier === "mid_bottom" ? 60 : 180;
+  const first = `Every source · ${days} days${tier === "mid_bottom" && args.similarLists ? ` · ${args.similarLists === 1 ? "similar list" : `${args.similarLists} similar lists`}` : ""}`;
+  if (tier !== "bottom") return [first];
+  const second = [...(args.hasLanding ? ["Registrations · 180 days"] : []), ...(args.signupLists ? [args.signupLists === 1 ? "signup list" : `${args.signupLists} signup lists`] : [])];
+  return second.length ? [first, second.join(" · ").replace(/^s/, (c) => c.toUpperCase())] : [first];
+}
+
+/** RT17: the pooled block's heading. */
+export const POOLED_TITLE = "The test, every show";
+
+/** RT17: before the minimum. */
+export function notCalledYet(args: { day: number; a: number; b: number; shows: number }): string {
+  return `Not called yet: day ${args.day} of at least 14 · A ${args.a} and B ${args.b} attributed purchases, at least 30 each · ${args.shows} show${args.shows === 1 ? "" : "s"}, at least 3`;
+}
+
+/** RT17: under the margin. */
+export function tooCloseToCall(args: { a: number; b: number; pct: number }): string {
+  return `Too close to call: A ${pence(args.a)}, B ${pence(args.b)} per attributed purchase, ${args.pct} % apart (15 % needed).`;
+}
+
+/** RT17: from 28 days, still under 15 % (accepting keeps A). */
+export function noClearWinner(args: { a: number; b: number }): string {
+  return `No clear winner after 28 days: A ${pence(args.a)}, B ${pence(args.b)} per attributed purchase.`;
+}
+
+/** RT17: the call line. */
+export function callTitle(winner: Arm): string {
+  return `Layout ${winner} wins the retargeting test`;
+}
+export function callDetail(args: { winner: Arm; x: number; nx: number; y: number; ny: number; pct: number; shows: number; days: number; from: string; to: string }): string {
+  const loser: Arm = args.winner === "A" ? "B" : "A";
+  return `${pence(args.x)} per attributed purchase (${args.nx}) against ${loser}'s ${pence(args.y)} (${args.ny}) · ${args.pct} % cheaper · ${args.shows} shows · ${testWindow(args.from, args.days)}`;
+}
+
+/**
+ * Design (25 Nov, frame RG): the test's window, from the test's start day
+ * (London, as RE's start line and the "Running since" header) and its day
+ * count, both ends counted as the pooled read counts them: 14 days from
+ * Wed 18 Nov is "14 days, Wed 18 Nov – Tue 1 Dec".
+ */
+export function testWindow(from: string, days: number): string {
+  return `${days} days, ${dayRange(from, addDaysIso(from, days - 1))}`;
+}
+export function callOnAccept(winner: Arm, shows: number): string {
+  const loser: Arm = winner === "A" ? "B" : "A";
+  return `On accept: ${loser} pauses on ${shows} shows and each show's ${winner} takes its whole retargeting budget. New shows start on ${winner}.`;
+}
+export function callWrite(shows: number): string {
+  return `Ends the Meta A/B test on ${shows} shows · pauses ${shows} campaigns · ad-set budget writes`;
+}
+export function callNarrow(args: { winner: Arm; x: number; y: number; pct: number }): string {
+  return `Layout ${args.winner} wins · ${pence(args.x)} vs ${pence(args.y)} · ${args.pct} % cheaper`;
+}
+export function callNarrowSub(shows: number, days: number): string {
+  return `${shows} shows · ${days} days`;
+}
+
+/** "Tue 17 – Mon 30 Nov" (one month), else "Mon 30 Nov – Tue 1 Dec". */
+export function dayRange(from: string, to: string): string {
+  const sameMonth = from.slice(0, 7) === to.slice(0, 7);
+  const first = shortDay(from);
+  return sameMonth ? `${first.replace(/ [A-Z][a-z]{2}$/, "")} – ${shortDay(to)}` : `${first} – ${shortDay(to)}`;
+}
+
+/** RT17 at 393: an arm card's tier line, "{tier} · £{b} a day · £{c} · {n} purchases · frequency {f}". */
+export function armTierNarrow(args: { tier: Tier; budgetMinor: number; cost: number | null; purchases: number | null; frequency: number | null }): string {
+  return `${TIER_LABEL[args.tier]} · ${pence(args.budgetMinor, { minor: true })} a day · ${args.cost == null ? NO_FIGURE : pence(args.cost)} · ${args.purchases ?? 0} purchase${args.purchases === 1 ? "" : "s"} · frequency ${args.frequency == null ? NO_FIGURE : args.frequency.toFixed(1)}`;
+}
+
+/** RT3: the total row's label and spend (also PR C's; the same strings). */
+export const LAST_7_DAYS = "Last 7 days";
+export function spentText(minor: number): string {
+  return `${pence(minor, { minor: true })} spent`;
 }
