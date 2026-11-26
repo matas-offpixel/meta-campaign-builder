@@ -49,12 +49,20 @@ import { fill, JOIN, money, rfDay, freq as freqText, type RfKey } from "./funnel
 
 // ─── RF1 ─────────────────────────────────────────────────────────────────────
 
-export type FunnelTier = "cold" | "warm" | "hot";
+/**
+ * "similar" is the two-campaign record's tier (staged: scratch/retargeting-two-campaigns-2026-11-26.md,
+ * pending design's re-ruling of #1396). Under RF3's split it gets nothing and isn't built.
+ */
+export type FunnelTier = "similar" | "cold" | "warm" | "hot";
 
-/** Left to right, as the panel shows them: each tier leaves out every tier to its right. */
-export const FUNNEL_TIERS: readonly FunnelTier[] = ["cold", "warm", "hot"];
+/** Left to right, coldest first, as the panel shows them: each tier leaves out every tier to its right. */
+export const FUNNEL_TIERS: readonly FunnelTier[] = ["similar", "cold", "warm", "hot"];
 
-export const FUNNEL_TIER_LABEL: Record<FunnelTier, string> = { cold: fill("rt.tier.cold"), warm: fill("rt.tier.warm"), hot: fill("rt.tier.hot") };
+// PENDING DESIGN: "Similar" (the two-campaign record's tier name).
+export const FUNNEL_TIER_LABEL: Record<FunnelTier, string> = { similar: "Similar", cold: fill("rt.tier.cold"), warm: fill("rt.tier.warm"), hot: fill("rt.tier.hot") };
+
+/** No money in any tier. */
+export const NO_TIERS = (): TierMinor => ({ similar: 0, cold: 0, warm: 0, hot: 0 });
 
 export function funnelCampaignName(code: string): string {
   return fill("rt.name.campaign", { code });
@@ -75,13 +83,33 @@ export type StretchRule = { share: number; split: Record<FunnelTier, number> };
 
 /** RF3's table. */
 export const RF3: Record<FunnelStretch, StretchRule> = {
-  announce: { share: 25, split: { cold: 60, warm: 30, hot: 10 } },
-  normally: { share: 30, split: { cold: 40, warm: 40, hot: 20 } },
-  payday: { share: 35, split: { cold: 30, warm: 45, hot: 25 } },
-  final_month: { share: 35, split: { cold: 30, warm: 45, hot: 25 } },
-  final_2w: { share: 40, split: { cold: 20, warm: 45, hot: 35 } },
-  final_week: { share: 50, split: { cold: 10, warm: 40, hot: 50 } },
+  announce: { share: 25, split: { similar: 0, cold: 60, warm: 30, hot: 10 } },
+  normally: { share: 30, split: { similar: 0, cold: 40, warm: 40, hot: 20 } },
+  payday: { share: 35, split: { similar: 0, cold: 30, warm: 45, hot: 25 } },
+  final_month: { share: 35, split: { similar: 0, cold: 30, warm: 45, hot: 25 } },
+  final_2w: { share: 40, split: { similar: 0, cold: 20, warm: 45, hot: 35 } },
+  final_week: { share: 50, split: { similar: 0, cold: 10, warm: 40, hot: 50 } },
 };
+
+/**
+ * The two-campaign split with Similar — CLAUDE'S PROPOSAL, NOT RULED
+ * (scratch/retargeting-two-campaigns-2026-11-26.md item 4: "Matas to confirm
+ * or change; his word overrides"). The shares are RF3's. Kept in this one
+ * object so the ruled numbers drop in; the tests read it, never copies of it.
+ */
+export const SPLIT_WITH_SIMILAR: Record<FunnelStretch, Record<FunnelTier, number>> = {
+  announce: { similar: 25, cold: 45, warm: 20, hot: 10 },
+  normally: { similar: 20, cold: 30, warm: 35, hot: 15 },
+  payday: { similar: 15, cold: 25, warm: 35, hot: 25 },
+  final_month: { similar: 15, cold: 25, warm: 35, hot: 25 },
+  final_2w: { similar: 10, cold: 15, warm: 40, hot: 35 },
+  final_week: { similar: 5, cold: 10, warm: 35, hot: 50 },
+};
+
+/** The split in force: RF3's, or the two-campaign proposal once it's on. */
+export function splitOf(stretch: FunnelStretch, twoCampaigns = false): Record<FunnelTier, number> {
+  return twoCampaigns ? SPLIT_WITH_SIMILAR[stretch] : RF3[stretch].split;
+}
 
 export const STRETCH_KEY: Record<FunnelStretch, RfKey> = {
   announce: "rt.stretch.announce",
@@ -157,10 +185,10 @@ export type Split = { tiers: TierMinor; atFloor: FunnelTier[] };
  */
 export function splitTotal(totalMinor: number, split: Record<FunnelTier, number>, opts: { floorMinor?: number; buildable?: readonly FunnelTier[] } = {}): Split | null {
   const floor = opts.floorMinor ?? FLOOR_MINOR;
-  const tiers = (opts.buildable ?? FUNNEL_TIERS).filter((tier) => FUNNEL_TIERS.includes(tier));
+  const tiers = (opts.buildable ?? FUNNEL_TIERS).filter((tier) => FUNNEL_TIERS.includes(tier) && split[tier] > 0);
   if (!tiers.length || totalMinor < floor * tiers.length) return null;
   const weight = tiers.reduce((sum, tier) => sum + split[tier], 0);
-  const out: TierMinor = { cold: 0, warm: 0, hot: 0 };
+  const out: TierMinor = NO_TIERS();
   for (const tier of tiers) out[tier] = Math.floor((totalMinor * split[tier]) / weight + 1e-9);
   const order = [...tiers].sort((a, b) => split[b] - split[a] || FUNNEL_TIERS.indexOf(b) - FUNNEL_TIERS.indexOf(a));
   let odd = totalMinor - tiers.reduce((sum, tier) => sum + out[tier], 0);
@@ -240,7 +268,8 @@ export type CapResult = {
  * RF5: Hot first, then Warm, then Cold. A tier over the ceiling runs at its
  * 7-day average spend a day (never under the floor); the rest of what it
  * has (its share and anything a hotter tier passed it) goes colder, and
- * Cold's goes back to the prospecting budgets it came from, in the order
+ * the coldest built tier's (Cold; Similar under the two-campaign record,
+ * READING) goes back to the prospecting budgets it came from, in the order
  * they gave, up to what each gave. At 3 or under it runs at its share.
  */
 export function capTiers(shares: TierMinor, week: Partial<Record<FunnelTier, TierWeek>>, took: readonly TakeLine[], floorMinor = FLOOR_MINOR): CapResult {
@@ -250,7 +279,9 @@ export function capTiers(shares: TierMinor, week: Partial<Record<FunnelTier, Tie
   let incoming = 0;
   let incomingFrom: FunnelTier | null = null;
   const back: CapResult["back"] = [];
-  for (const tier of ["hot", "warm", "cold"] as const) {
+  // Hottest first; a tier with no share isn't built, so nothing passes to it. The coldest built tier gives back to prospecting.
+  const built = [...FUNNEL_TIERS].reverse().filter((tier) => shares[tier] > 0);
+  for (const [index, tier] of built.entries()) {
     if (incoming > 0 && incomingFrom) {
       budgets[tier] += incoming;
       (plus[tier] ??= []).push({ from: incomingFrom, minor: incoming });
@@ -263,7 +294,8 @@ export function capTiers(shares: TierMinor, week: Partial<Record<FunnelTier, Tie
     if (cap >= budgets[tier]) continue;
     const extra = budgets[tier] - cap;
     budgets[tier] = cap;
-    if (tier === "cold") {
+    const colder = built[index + 1];
+    if (!colder) {
       let left = extra;
       for (const line of took) {
         if (left <= 0) break;
@@ -274,7 +306,6 @@ export function capTiers(shares: TierMinor, week: Partial<Record<FunnelTier, Tie
       // Nothing was taken (a hand-built show): the extra simply isn't spent.
       caps[tier] = { capMinor: cap, frequency: row.frequency, extraMinor: extra, to: "prospecting", back: [...back] };
     } else {
-      const colder: FunnelTier = tier === "hot" ? "warm" : "cold";
       caps[tier] = { capMinor: cap, frequency: row.frequency, extraMinor: extra, to: colder };
       incoming = extra;
       incomingFrom = tier;
@@ -330,7 +361,7 @@ export function missingAccess(accounts: readonly FunnelAccount[]): FunnelAccount
   });
 }
 
-export type FunnelSource = "video75" | "engaged" | "followers" | "visitors" | "video95" | "ticket" | "checkout" | "registrations" | "signups" | "similar";
+export type FunnelSource = "video75" | "engaged" | "followers" | "visitors" | "video95" | "ticket" | "checkout" | "registrations" | "signups" | "similar" | "similar_pages";
 
 /** One window per source (RF2). READING: Hot's checkout starters 30 days, registrations 180 (RT's longest of each). */
 export const RF2_WINDOWS = {
@@ -390,40 +421,111 @@ function videoAudiences(sources: FunnelSources, threshold: 75 | 95, days: number
   return out;
 }
 
-/** RF2's three tiers, each with its includes and leave-outs. A tier with no include is left out. */
-export function funnelSpecs(sources: FunnelSources): FunnelSpec[] {
+/**
+ * A genre page group (page_groups, migration 275): pages the client's
+ * business can build engagement audiences from, in the show's genre.
+ * Unconfirmed groups aren't used (Matas confirms each).
+ */
+export type PageGroup = { id: string; genreFamily: string; pageIds: string[]; igIds: string[]; confirmed: boolean };
+
+export type SpecOptions = {
+  /** Staged two-campaign record: the Similar tier, Similar lists in Warm. */
+  twoCampaigns?: boolean;
+  /** The show's genre page group (two campaigns only); null = no genre or no confirmed group, so no Similar tier. */
+  pageGroup?: PageGroup | null;
+  /** Staged: before on-sale, "converted" is a registration (CompleteRegistration on the sign-up links). */
+  presale?: boolean;
+};
+
+/** READING: Similar's engagers window is Cold's (180 days); the staged record gives none. */
+export const SIMILAR_ENGAGED_DAYS = 180;
+
+/** The Similar tier's audiences: engagers of the group's pages, ≤ 5 pages an audience, Facebook and Instagram. */
+export function similarAudiences(group: PageGroup | null | undefined): FunnelAudience[] {
+  if (!group?.confirmed || !group.pageIds.length) return [];
+  const out: FunnelAudience[] = [];
+  for (const part of chunk(group.pageIds, RT2.pagesPerAudience)) {
+    out.push({ key: `rf:similar_fb:${SIMILAR_ENGAGED_DAYS}:${idsKey(part)}`, source: "similar_pages", kind: "page_fb", pageIds: part, retentionDays: SIMILAR_ENGAGED_DAYS });
+  }
+  // The builder's Instagram rule takes the Facebook Page ids of pages with an Instagram account.
+  const withIg = group.pageIds.slice(0, group.igIds.length ? group.pageIds.length : 0);
+  for (const part of chunk(withIg, RT2.pagesPerAudience)) {
+    out.push({ key: `rf:similar_ig:${SIMILAR_ENGAGED_DAYS}:${idsKey(part)}`, source: "similar_pages", kind: "page_ig", pageIds: part, retentionDays: SIMILAR_ENGAGED_DAYS });
+  }
+  return out;
+}
+
+/** Presale: registrants (the registrations on the sign-up links and the signup lists), left out of every tier and listed for the reminder. */
+export function presaleRegistrants(sources: FunnelSources): FunnelAudience[] {
+  const landing = landingLinks(sources.links).map((link) => link.rule);
+  const out: FunnelAudience[] = [];
+  if (sources.pixelId && landing.length) out.push({ key: `rf:registrations:${RF2_WINDOWS.registrations}`, source: "registrations", kind: "pixel_event", pixelId: sources.pixelId, pixelEvent: "CompleteRegistration", urlContains: landing, retentionDays: RF2_WINDOWS.registrations });
+  for (const list of sources.lists) if (list.role === "signups") out.push({ key: `list:${list.metaAudienceId}`, source: "signups", kind: "list", metaAudienceId: list.metaAudienceId, role: "signups" });
+  return out;
+}
+
+/**
+ * RF2's tiers, each with its includes and leave-outs. A tier with no
+ * include is left out. Staged (scratch/retargeting-two-campaigns-2026-11-26.md):
+ * `twoCampaigns` adds Similar (the genre group's engagers, minus Cold) and
+ * moves Similar lists from Hot to Warm; `presale` makes Hot the sign-up
+ * page's visitors and leaves registrants out of every tier.
+ */
+export function funnelSpecs(sources: FunnelSources, opts: SpecOptions = {}): FunnelSpec[] {
+  const similar: FunnelAudience[] = opts.twoCampaigns ? similarAudiences(opts.pageGroup) : [];
   const cold: FunnelAudience[] = [...videoAudiences(sources, 75, RF2_WINDOWS.video75), ...accountAudiences(sources, "engaged", RF2_WINDOWS.engagedCold), ...accountAudiences(sources, "followers", null)];
   const warm: FunnelAudience[] = [];
   const hot: FunnelAudience[] = [];
   const tickets = ticketLinks(sources.links).map((link) => link.rule);
   const landing = landingLinks(sources.links).map((link) => link.rule);
+  const registrants = opts.presale ? presaleRegistrants(sources) : [];
   if (sources.pixelId) {
     const pixelId = sources.pixelId;
-    const both = [...landing, ...tickets];
-    if (both.length) warm.push({ key: `rf:visitors:${RF2_WINDOWS.visitors}`, source: "visitors", kind: "pixel_url", pixelId, urlContains: both, retentionDays: RF2_WINDOWS.visitors });
-    if (tickets.length) {
-      hot.push({ key: `rf:ticket:${RF2_WINDOWS.ticket}`, source: "ticket", kind: "pixel_url", pixelId, urlContains: tickets, retentionDays: RF2_WINDOWS.ticket });
-      hot.push({ key: `rf:checkout:${RF2_WINDOWS.checkout}`, source: "checkout", kind: "pixel_event", pixelId, pixelEvent: "InitiateCheckout", urlContains: tickets, retentionDays: RF2_WINDOWS.checkout });
+    if (opts.presale) {
+      // Hot: visited the sign-up page and didn't register (registrants are left out below).
+      if (landing.length) hot.push({ key: `rf:signup_visitors:${RF2_WINDOWS.ticket}`, source: "visitors", kind: "pixel_url", pixelId, urlContains: landing, retentionDays: RF2_WINDOWS.ticket });
+    } else {
+      const both = [...landing, ...tickets];
+      if (both.length) warm.push({ key: `rf:visitors:${RF2_WINDOWS.visitors}`, source: "visitors", kind: "pixel_url", pixelId, urlContains: both, retentionDays: RF2_WINDOWS.visitors });
+      if (tickets.length) {
+        hot.push({ key: `rf:ticket:${RF2_WINDOWS.ticket}`, source: "ticket", kind: "pixel_url", pixelId, urlContains: tickets, retentionDays: RF2_WINDOWS.ticket });
+        hot.push({ key: `rf:checkout:${RF2_WINDOWS.checkout}`, source: "checkout", kind: "pixel_event", pixelId, pixelEvent: "InitiateCheckout", urlContains: tickets, retentionDays: RF2_WINDOWS.checkout });
+      }
+      // On going on sale, registrants move into Hot.
+      if (landing.length) hot.push({ key: `rf:registrations:${RF2_WINDOWS.registrations}`, source: "registrations", kind: "pixel_event", pixelId, pixelEvent: "CompleteRegistration", urlContains: landing, retentionDays: RF2_WINDOWS.registrations });
     }
-    if (landing.length) hot.push({ key: `rf:registrations:${RF2_WINDOWS.registrations}`, source: "registrations", kind: "pixel_event", pixelId, pixelEvent: "CompleteRegistration", urlContains: landing, retentionDays: RF2_WINDOWS.registrations });
   }
   warm.push(...accountAudiences(sources, "engaged", RF2_WINDOWS.engagedWarm), ...videoAudiences(sources, 95, RF2_WINDOWS.video95));
-  for (const list of sources.lists) {
-    if (list.role === "signups") hot.push({ key: `list:${list.metaAudienceId}`, source: "signups", kind: "list", metaAudienceId: list.metaAudienceId, role: "signups" });
+  if (!opts.presale) {
+    for (const list of sources.lists) {
+      if (list.role === "signups") hot.push({ key: `list:${list.metaAudienceId}`, source: "signups", kind: "list", metaAudienceId: list.metaAudienceId, role: "signups" });
+    }
   }
   hot.push(...accountAudiences(sources, "engaged", RF2_WINDOWS.engagedHot));
   for (const list of sources.lists) {
-    if (list.role === "similar") hot.push({ key: `list:${list.metaAudienceId}`, source: "similar", kind: "list", metaAudienceId: list.metaAudienceId, role: "similar" });
+    if (list.role !== "similar") continue;
+    // Staged record item 3: Similar lists go in Warm (RF2 had them in Hot).
+    (opts.twoCampaigns ? warm : hot).push({ key: `list:${list.metaAudienceId}`, source: "similar", kind: "list", metaAudienceId: list.metaAudienceId, role: "similar" });
   }
   const buyers: FunnelAudience[] = sources.lists.filter((list) => list.role === "buyers").map((list) => ({ key: `list:${list.metaAudienceId}`, source: "signups", kind: "list", metaAudienceId: list.metaAudienceId, role: "buyers" }));
-  const byTier: Record<FunnelTier, FunnelAudience[]> = { cold, warm, hot };
+  const byTier: Record<FunnelTier, FunnelAudience[]> = { similar, cold, warm, hot };
   const specs: FunnelSpec[] = [];
   FUNNEL_TIERS.forEach((tier, index) => {
     if (!byTier[tier].length) return;
     const right = FUNNEL_TIERS.slice(index + 1).flatMap((other) => byTier[other]);
-    specs.push({ tier, includes: byTier[tier], excludes: dedupe([...right, ...buyers]) });
+    specs.push({ tier, includes: byTier[tier], excludes: dedupe([...right, ...buyers, ...registrants]) });
   });
   return specs;
+}
+
+/**
+ * Staged: Buyers (upsell), only when the show has upsells. Outside the
+ * share; its budget isn't ruled, so it isn't built yet.
+ */
+export function upsellSpec(sources: FunnelSources, hasUpsells: boolean): FunnelSpec | null {
+  if (!hasUpsells) return null;
+  const buyers: FunnelAudience[] = sources.lists.filter((list) => list.role === "buyers").map((list) => ({ key: `list:${list.metaAudienceId}`, source: "signups", kind: "list", metaAudienceId: list.metaAudienceId, role: "buyers" }));
+  return buyers.length ? { tier: "hot", includes: buyers, excludes: [] } : null;
 }
 
 function dedupe(audiences: readonly FunnelAudience[]): FunnelAudience[] {
@@ -448,7 +550,7 @@ export function audiencesToMake(specs: readonly FunnelSpec[]): Exclude<FunnelAud
   return out;
 }
 
-const SOURCE_ROW: Record<Exclude<FunnelSource, "engaged" | "similar" | "signups">, RfKey> = {
+const SOURCE_ROW: Record<Exclude<FunnelSource, "engaged" | "similar" | "signups" | "similar_pages">, RfKey> = {
   video75: "rt.src.video75",
   followers: "rt.src.followers",
   visitors: "rt.src.visitors60",
@@ -477,7 +579,13 @@ export function tierAudienceLines(spec: FunnelSpec | undefined, sources: FunnelS
   const withAccounts = (text: string, n: number) => `${text}${JOIN}${accountsText(n)}`;
   const engagedDays = spec.tier === "cold" ? RF2_WINDOWS.engagedCold : spec.tier === "warm" ? RF2_WINDOWS.engagedWarm : RF2_WINDOWS.engagedHot;
   const engaged = () => withAccounts(fill("rt.src.engaged", { n: engagedDays }), accounts.length);
-  if (spec.tier === "cold") {
+  const similarLists = spec.includes.filter((aud) => aud.source === "similar").length;
+  const listsLine = () => (similarLists === 1 ? fill("rt.src.similar.one") : fill("rt.src.similar", { n: similarLists }));
+  if (spec.tier === "similar") {
+    // PENDING DESIGN: the Similar tier's row (the genre group's engagers).
+    const pages = new Set(spec.includes.flatMap((aud) => ("pageIds" in aud ? aud.pageIds : []))).size;
+    lines.push(`Engagers of similar pages · ${SIMILAR_ENGAGED_DAYS} days${JOIN}${pages === 1 ? "1 page" : `${pages} pages`}`);
+  } else if (spec.tier === "cold") {
     if (has("video75")) lines.push(withAccounts(fill(SOURCE_ROW.video75), pagesWithVideo(75)));
     if (has("engaged")) lines.push(engaged());
     if (has("followers")) lines.push(withAccounts(fill(SOURCE_ROW.followers), accounts.length));
@@ -485,20 +593,22 @@ export function tierAudienceLines(spec: FunnelSpec | undefined, sources: FunnelS
     if (has("visitors")) lines.push(fill(SOURCE_ROW.visitors));
     if (has("engaged")) lines.push(engaged());
     if (has("video95")) lines.push(withAccounts(fill(SOURCE_ROW.video95), pagesWithVideo(95)));
+    if (similarLists) lines.push(listsLine());
   } else {
     if (has("ticket")) lines.push(fill(SOURCE_ROW.ticket));
     if (has("checkout")) lines.push(fill(SOURCE_ROW.checkout));
     if (has("registrations") || has("signups")) lines.push(fill(SOURCE_ROW.registrations));
     if (has("engaged")) lines.push(engaged());
-    const similar = spec.includes.filter((aud) => aud.source === "similar").length;
-    if (similar) lines.push(similar === 1 ? fill("rt.src.similar.one") : fill("rt.src.similar", { n: similar }));
+    if (similarLists) lines.push(listsLine());
   }
   return lines;
 }
 
-const LEAVES_ROW: Record<FunnelTier, RfKey> = { cold: "rt.leaves.cold", warm: "rt.leaves.warm", hot: "rt.leaves.hot" };
+const LEAVES_ROW: Record<Exclude<FunnelTier, "similar">, RfKey> = { cold: "rt.leaves.cold", warm: "rt.leaves.warm", hot: "rt.leaves.hot" };
 
 export function leavesOutText(tier: FunnelTier): string {
+  // PENDING DESIGN: Similar's leave-outs.
+  if (tier === "similar") return "Cold · Warm · Hot · buyers";
   return fill(LEAVES_ROW[tier]);
 }
 

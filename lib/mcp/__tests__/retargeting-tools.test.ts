@@ -106,7 +106,7 @@ test("plan_retargeting(code): RF9's line, then access and the next stretch, read
 });
 
 test("plan_retargeting(\"live\"): the counts first, then each show, then the skipped ones with their reasons", async () => {
-  const built = record({ eventId: "e2", eventCode: "XMPL-ROOF", funnelBuilt: { state: "paused", mode: "paused", campaignId: "1", tiers: { cold: 600, warm: 300, hot: 100 }, took: [] } });
+  const built = record({ eventId: "e2", eventCode: "XMPL-ROOF", funnelBuilt: { state: "paused", mode: "paused", campaignId: "1", tiers: { similar: 0, cold: 600, warm: 300, hot: 100 }, took: [] } });
   const noLink = record({ eventId: "e3", eventCode: "XMPL-ATTIC", sources: { ...input().sources, links: [] } });
   const soon = record({ eventId: "e4", eventCode: "XMPL-DOCKS", eventDate: "2026-11-28" });
   const short = record({ eventId: "e5", eventCode: "XMPL-NONE", prospecting: [{ id: "9", kind: "adset", name: "Broad", dailyMinor: 100, adSets: 1 }] });
@@ -156,7 +156,7 @@ test("create_retargeting paused: the plan's build, paused, the done line, ids an
   assert.equal(calls.create[0]!.mode, "paused");
   assert.deepEqual(calls.create[0]!.approval, YES);
   assert.equal(calls.create[0]!.build.kind, "retargeting_funnel_create");
-  assert.deepEqual(calls.create[0]!.build.plan.tiers, { cold: 630, warm: 945, hot: 525 });
+  assert.deepEqual(calls.create[0]!.build.plan.tiers, { similar: 0, cold: 630, warm: 945, hot: 525 });
   const data = out.data as Record<string, unknown>;
   assert.equal(data.message, "Done: NX26-RUDIMENTAL · Retargeting created paused · 3 ad sets · 6 audiences made. Takes £21.00 a day from prospecting once it’s live.");
   assert.equal(data.campaign_id, "120000000000001");
@@ -169,7 +169,7 @@ test("create_retargeting live: says what it takes, and a paused build asked as l
   const out = await run(createRetargetingTool, fresh.ctx, { event: "NX26-RUDIMENTAL", mode: "live", approval: YES });
   assert.equal((out.data as { message: string }).message, "Done: NX26-RUDIMENTAL · Retargeting created live · 3 ad sets · 6 audiences made. Takes £21.00 a day from prospecting.");
   const stored = record().plan.build as FunnelBuild;
-  const paused = ctxWith([record({ funnelBuilt: { state: "paused", mode: "paused", campaignId: "1", tiers: { cold: 630, warm: 945, hot: 525 }, took: [] } })], { build: { build: stored, mode: "paused", state: "paused", progress: { campaignId: "1" }, meta_campaign_id: "1" } });
+  const paused = ctxWith([record({ funnelBuilt: { state: "paused", mode: "paused", campaignId: "1", tiers: { similar: 0, cold: 630, warm: 945, hot: 525 }, took: [] } })], { build: { build: stored, mode: "paused", state: "paused", progress: { campaignId: "1" }, meta_campaign_id: "1" } });
   await run(createRetargetingTool, paused.ctx, { event: "NX26-RUDIMENTAL", mode: "live", approval: YES });
   assert.equal(paused.calls.create[0]!.mode, "live");
   assert.equal(paused.calls.create[0]!.build, stored);

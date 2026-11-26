@@ -81,3 +81,11 @@ describe("keep-whole: the markup", () => {
     assert.match(panel, /k\(figure\(row\.purchases\)\)/);
   });
 });
+
+describe("the funnel (26 Nov)", () => {
+  it("\"3 accounts\" and \"final 2 weeks\" stay whole", () => {
+    const whole = (text: string) => keepWholeParts(text).filter((part) => part.whole).map((part) => part.text);
+    assert.deepEqual(whole("Page and Instagram engagers · 180 days · 3 accounts"), ["180 days", "3 accounts"]);
+    assert.deepEqual(whole("£24.00 a day · 40 % of the show’s daily spend · final 2 weeks"), ["£24.00 a day", "2 weeks"]);
+  });
+});

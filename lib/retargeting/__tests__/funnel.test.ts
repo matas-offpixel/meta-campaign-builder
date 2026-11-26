@@ -175,7 +175,7 @@ test("RF4: short prospecting takes what's there and says so; nothing to give say
     "Prospecting can give £7.00 of the £10.00 without going under £1.00 an ad set, so retargeting starts at £7.00 a day.",
   ]);
   assert.equal(plan.totalMinor, 700);
-  assert.deepEqual(plan.tiers, { cold: 390, warm: 210, hot: 100 });
+  assert.deepEqual(plan.tiers, { similar: 0, cold: 390, warm: 210, hot: 100 });
   assert.deepEqual(plan.atFloor, ["hot"]);
   assert.ok(claudePlanLines(plan, SOURCES).includes("Prospecting can give £7.00 of the £10.00."));
   const none = planFunnelShow({ code: "XMPL-NONE", runDay: "2026-10-01", showDay: SHOW, announceDay: ANNOUNCE, prospecting: [{ id: "n1", kind: "adset", name: "Broad", dailyMinor: 100, adSets: 1 }], sources: SOURCES });
@@ -185,15 +185,15 @@ test("RF4: short prospecting takes what's there and says so; nothing to give say
 });
 
 test("RF8: a tier under £1.00 gets £1.00 from the largest other tier", () => {
-  assert.deepEqual(splitTotal(500, RF3.announce.split), { tiers: { cold: 250, warm: 150, hot: 100 }, atFloor: ["hot"] });
+  assert.deepEqual(splitTotal(500, RF3.announce.split), { tiers: { similar: 0, cold: 250, warm: 150, hot: 100 }, atFloor: ["hot"] });
   assert.equal(splitTotal(299, RF3.announce.split), null);
 });
 
 test("RF5 (RF-B): Hot capped, its extra to Warm; Cold capped, its extra back to Broad; lifts at 3 or under", () => {
-  const shares = { cold: 480, warm: 1080, hot: 840 };
+  const shares = { similar: 0, cold: 480, warm: 1080, hot: 840 };
   const took = [{ id: "as1", kind: "adset" as const, name: "Broad · Advantage+", beforeMinor: 3600, afterMinor: 1200 }];
   const out = capTiers(shares, { cold: { frequency: 3.2, spendMinor: 2450 }, warm: { frequency: 2.1, spendMinor: 7000 }, hot: { frequency: 3.6, spendMinor: 3640 } }, took);
-  assert.deepEqual(out.budgets, { cold: 350, warm: 1400, hot: 520 });
+  assert.deepEqual(out.budgets, { similar: 0, cold: 350, warm: 1400, hot: 520 });
   assert.deepEqual(out.caps.hot, { capMinor: 520, frequency: 3.6, extraMinor: 320, to: "warm" });
   assert.deepEqual(out.plus.warm, [{ from: "hot", minor: 320 }]);
   assert.equal(out.caps.cold?.to, "prospecting");

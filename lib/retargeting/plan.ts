@@ -494,7 +494,7 @@ function funnelPlanOf(input: RetargetingInput): FunnelShowPlan | null {
     minDailyMinor: input.minDailyMinor,
     sources,
     made: new Set(input.madeAudiences ?? []),
-    existing: input.funnelBuilt ? { totalMinor: input.funnelBuilt.tiers.cold + input.funnelBuilt.tiers.warm + input.funnelBuilt.tiers.hot, took: input.funnelBuilt.took } : null,
+    existing: input.funnelBuilt ? { totalMinor: input.funnelBuilt.tiers.similar + input.funnelBuilt.tiers.cold + input.funnelBuilt.tiers.warm + input.funnelBuilt.tiers.hot, took: input.funnelBuilt.took } : null,
   });
 }
 
@@ -510,7 +510,7 @@ export function planRetargeting(input: RetargetingInput): RetargetingPlan {
   if (input.funnelBuilt || input.existing) {
     const plan = funnelPlanOf(input);
     const built = input.funnelBuilt ?? null;
-    const tiers: TierMinor = built?.tiers ?? { cold: 0, warm: 0, hot: 0 };
+    const tiers: TierMinor = built?.tiers ?? { similar: 0, cold: 0, warm: 0, hot: 0 };
     const funnel = plan && input.eventDate ? runningPanel(plan, sources, input.eventDate, { tiers, took: built?.took ?? [], week: input.funnelWeek }) : null;
     const read = input.read;
     const path = read ? signalPath(read) : null;

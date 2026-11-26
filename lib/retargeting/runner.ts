@@ -177,7 +177,7 @@ export type FunnelBuildRow = { event_id: string; state: string; mode: "paused" |
 export function funnelBuiltOf(row: FunnelBuildRow | undefined): RetargetingInput["funnelBuilt"] {
   if (!row) return null;
   const sets = row.progress?.adSets ?? {};
-  const tiers = { cold: sets.cold?.dailyMinor ?? 0, warm: sets.warm?.dailyMinor ?? 0, hot: sets.hot?.dailyMinor ?? 0 };
+  const tiers = { similar: sets.similar?.dailyMinor ?? 0, cold: sets.cold?.dailyMinor ?? 0, warm: sets.warm?.dailyMinor ?? 0, hot: sets.hot?.dailyMinor ?? 0 };
   const took = (row.progress?.moved ?? []).map((line) => ({ id: line.id, kind: line.kind, name: line.name ?? line.id, beforeMinor: line.beforeMinor, afterMinor: line.afterMinor }));
   return { state: row.state, mode: row.mode, campaignId: row.meta_campaign_id ?? row.progress?.campaignId ?? null, tiers, took };
 }

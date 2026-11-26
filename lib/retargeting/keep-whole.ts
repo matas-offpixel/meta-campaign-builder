@@ -5,6 +5,7 @@ import { createElement, Fragment, type ReactNode } from "react";
  * its unit in the Retargeting panel. Each of these stays whole on one line:
  *
  *   "{n} days" (the last window in a list: "30, 90, 180 days" keeps "180 days")
+ *   "{n} accounts" and "{n} weeks" (the funnel, 26 Nov)
  *   "{n} pages" and "{k} of {n} pages"
  *   "{n} similar lists"
  *   "{n} purchases"
@@ -32,6 +33,9 @@ const KEEP_WHOLE = new RegExp(
     `${START}${NUM}${SP}similar${SP}lists?\\b`,
     `${START}${NUM}${SP}purchases?\\b`,
     `${START}${NUM}${SP}days?\\b`,
+    // RF (26 Nov): "{n} accounts" and a stretch's "final 2 weeks" stay whole too.
+    `${START}${NUM}${SP}accounts?\\b`,
+    `${START}${NUM}${SP}weeks?\\b`,
     `\\b[Bb]elow${SP}${NUM}`,
     `${START}${NUM}–${NUM}(?![\\d,])`,
     `\\b(?:${WEEKDAY}${SP})?\\d{1,2}${SP}${MONTH}\\b`,

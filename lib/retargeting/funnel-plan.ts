@@ -24,6 +24,7 @@ import {
   afterTake,
   audiencesToMake,
   FLOOR_MINOR,
+  NO_TIERS,
   funnelSpecs,
   FUNNEL_TIERS,
   missingAccess,
@@ -34,7 +35,9 @@ import {
   stretchOn,
   takeFromProspecting,
   takeFromText,
+  splitOf,
   type FunnelSources,
+  type SpecOptions,
   type FunnelSpec,
   type FunnelStretch,
   type FunnelTier,
@@ -65,6 +68,8 @@ export type FunnelShowInput = {
    * taken today, and the steps go on from it.
    */
   existing?: { totalMinor: number; took: readonly TakeLine[] } | null;
+  /** Staged two-campaign record: the Similar tier and its split, Similar lists in Warm, presale. */
+  spec?: SpecOptions;
 };
 
 export type FunnelStepPlan = {
@@ -135,8 +140,9 @@ export function planFunnelShow(input: FunnelShowInput): FunnelShowPlan {
   const rule = RF3[stretch];
   const existing = input.existing ?? null;
   const showDailyMinor = showDailyOf(input.prospecting) + (existing?.totalMinor ?? 0);
-  const specs = funnelSpecs(input.sources);
-  const buildable = specs.map((spec) => spec.tier);
+  const twoCampaigns = input.spec?.twoCampaigns === true;
+  const specs = funnelSpecs(input.sources, input.spec);
+  const buildable = specs.map((spec) => spec.tier).filter((tier) => splitOf(stretch, twoCampaigns)[tier] > 0);
   const floors = floor * Math.max(1, buildable.length);
   const targetMinor = Math.floor((showDailyMinor * rule.share) / 100 + 1e-9);
   const take: Take = existing
@@ -146,9 +152,9 @@ export function planFunnelShow(input: FunnelShowInput): FunnelShowPlan {
   const toMake = audiencesToMake(specs);
   const audiences = { made: toMake.filter((aud) => made.has(aud.key)).length, toMake: toMake.filter((aud) => !made.has(aud.key)).length, missingAccess: missingAccess(input.sources.accounts).length };
   const base = { code: input.code, stretch, share: rule.share, showDailyMinor, targetMinor, specs, audiences };
-  const split = take.takenMinor >= floors ? splitTotal(take.takenMinor, rule.split, { floorMinor: floor, buildable }) : null;
+  const split = take.takenMinor >= floors ? splitTotal(take.takenMinor, splitOf(stretch, twoCampaigns), { floorMinor: floor, buildable }) : null;
   if (!split) {
-    return { ...base, totalMinor: 0, tiers: { cold: 0, warm: 0, hot: 0 }, atFloor: [], take: { ...take, takenMinor: 0, from: [] }, short: true, noMoney: true, steps: [] };
+    return { ...base, totalMinor: 0, tiers: NO_TIERS(), atFloor: [], take: { ...take, takenMinor: 0, from: [] }, short: true, noMoney: true, steps: [] };
   }
   // A take above the share is only the floors' top-up (RF8), never more.
   const steps: FunnelStepPlan[] = [];
@@ -178,7 +184,7 @@ export function planFunnelShow(input: FunnelShowInput): FunnelShowPlan {
       taken = taken.map((row) => ({ ...row, afterMinor: budgets.find((b) => b.id === row.id)?.dailyMinor ?? row.afterMinor }));
     }
     const newTotal = total + delta;
-    const stepSplit = splitTotal(newTotal, next.split, { floorMinor: floor, buildable });
+    const stepSplit = splitTotal(newTotal, splitOf(step.stretch, twoCampaigns), { floorMinor: floor, buildable });
     if (!stepSplit) continue;
     steps.push({ day: step.day, stretch: step.stretch, share: next.share, targetMinor: Math.floor((showDailyMinor * next.share) / 100 + 1e-9), totalMinor: newTotal, tiers: stepSplit.tiers, deltaMinor: delta, prospecting: lines });
     total = newTotal;
@@ -193,9 +199,10 @@ export function shareLine(plan: Pick<FunnelShowPlan, "targetMinor" | "share" | "
   return fill("rt.share.line", { x: money(plan.targetMinor), p: plan.share, stretch: stretchName(plan.stretch) });
 }
 
-/** "Cold £9.00 · Warm £4.50 · Hot £1.50" */
+/** "Cold £9.00 · Warm £4.50 · Hot £1.50"; with the staged Similar tier, "Similar £{s} · " before it (PENDING DESIGN). */
 export function splitLine(tiers: TierMinor): string {
-  return fill("rt.share.split", { c: money(tiers.cold), w: money(tiers.warm), h: money(tiers.hot) });
+  const line = fill("rt.share.split", { c: money(tiers.cold), w: money(tiers.warm), h: money(tiers.hot) });
+  return tiers.similar > 0 ? `Similar £${money(tiers.similar)}${JOIN}${line}` : line;
 }
 
 /** The take's line(s): rt.take, then rt.take.short when short; rt.take.none alone with nothing to give. */
@@ -232,8 +239,7 @@ export const FLOOR_LINE = fill("rt.floor");
 
 /** RF9: the plan's line for Claude, then up to three short lines. */
 export function claudePlanLines(plan: FunnelShowPlan, sources: FunnelSources): string[] {
-  const lines = [
-    fill("claude.rt.plan.line", {
+  let first = fill("claude.rt.plan.line", {
       code: plan.code,
       stretch: stretchName(plan.stretch),
       p: plan.share,
@@ -245,8 +251,10 @@ export function claudePlanLines(plan: FunnelShowPlan, sources: FunnelSources): s
       made: plan.audiences.made,
       make: plan.audiences.toMake,
       missing: plan.audiences.missingAccess,
-    }),
-  ];
+    });
+  // PENDING DESIGN: the staged Similar tier's money, before Cold.
+  if (plan.tiers.similar > 0) first = first.replace(": Cold £", `: Similar £${money(plan.tiers.similar)}${JOIN}Cold £`);
+  const lines = [first];
   if (plan.short) lines.push(fill("claude.rt.plan.short", { y: money(plan.take.takenMinor), x: money(plan.targetMinor) }));
   const missing = missingAccess(sources.accounts);
   if (missing.length) {

@@ -220,7 +220,7 @@ export function londonAt(day: string, minutes = 0): string {
 /** The changes each stretch step makes: prospecting first (00:00), then the tiers (00:05). */
 export function stepChanges(build: FunnelBuild, adSets: Partial<Record<FunnelTier, { id: string; dailyMinor: number }>>): ScheduledStep[] {
   const out: ScheduledStep[] = [];
-  const tierNow: TierMinor = { cold: adSets.cold?.dailyMinor ?? 0, warm: adSets.warm?.dailyMinor ?? 0, hot: adSets.hot?.dailyMinor ?? 0 };
+  const tierNow: TierMinor = { similar: adSets.similar?.dailyMinor ?? 0, cold: adSets.cold?.dailyMinor ?? 0, warm: adSets.warm?.dailyMinor ?? 0, hot: adSets.hot?.dailyMinor ?? 0 };
   for (const step of build.plan.steps) {
     for (const line of step.prospecting) {
       out.push({ objectKind: line.kind, objectId: line.id, objectName: line.name, amountMinor: line.afterMinor, expectedMinor: line.beforeMinor, runAt: londonAt(step.day, 0), raisesSpend: line.afterMinor > line.beforeMinor, key: `rf:${build.eventId}:${step.day}:${line.id}` });
