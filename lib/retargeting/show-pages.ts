@@ -95,8 +95,9 @@ export async function readShowPages(args: {
     act.pageName = hit.name;
     act.igId ??= hit.igId;
   }
-  // The promoter's Pages: the ones the ad account can promote, when that list was read.
-  const brandIds = [...own].filter((id) => !promote || promoteById.has(id));
+  // The promoter's Pages: the ones the ad account can promote, when that list was read; an act's own Page is lineup, never promoter.
+  const actPages = new Set(lineup.map((a) => a.pageId).filter((v): v is string => Boolean(v)));
+  const brandIds = [...own].filter((id) => (!promote || promoteById.has(id)) && !actPages.has(id));
   const venueId = args.venue?.meta_page_id && /^\d{5,32}$/.test(args.venue.meta_page_id) ? args.venue.meta_page_id : null;
   const pageIds = [...new Set([...brandIds, ...(venueId ? [venueId] : []), ...lineup.map((a) => a.pageId).filter((v): v is string => Boolean(v))])];
 

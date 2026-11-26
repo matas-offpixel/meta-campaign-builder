@@ -593,6 +593,8 @@ function widerFor(input: RetargetingInput, plan: FunnelShowPlan, sources: Return
       endDay,
       adSets: sets.map((set) => ({ key: set.key, interests: set.interests, suggestionKeys: set.suggestions.map((aud) => aud.key), lookalikes: set.lookalikes, excludeKeys: set.excludes.map((aud) => aud.key) })),
       steps: wider.steps,
+      capped: words.capped ?? null,
+      noCeiling: words.noCeiling ?? false,
     },
   };
 }
