@@ -4,8 +4,9 @@
  *
  * set_budget: one live campaign's or ad set's daily or lifetime budget,
  * through the optimisation budget write (McpLiveDeps.setBudget,
- * ENABLE_OPTIMISATION_WRITES). Up is spend-raising: the client's ceiling is
- * checked against the money a day it sets running. With `at` the change is
+ * ENABLE_OPTIMISATION_WRITES). Up is spend-raising: the show's spend
+ * ceiling is checked against its committed spend with the new budget
+ * (lib/mcp/meta/show-ceiling.ts); a cut never is. With `at` the change is
  * stored (scheduled_meta_changes, lib/mcp/live/scheduled.ts) with the chat
  * yes and applied by the 15-minute cron, ceiling checked again then, and
  * skipped if the object changed since.
@@ -21,8 +22,8 @@
 import { z } from "zod";
 import { approvalInput, requireMetaApproval } from "../meta/approval.ts";
 import { MCP_WORDS, RESULT_WORDS } from "../meta/words.ts";
-import { callKey, checkLiveCeiling, errorReason, liveEvent, londonWhen, metaId, placeObject, requireLive, round2 } from "../live/resolve.ts";
-import { cancelScheduled, insertScheduled, listScheduled, moneyAfter, type ScheduledRow } from "../live/scheduled.ts";
+import { callKey, checkLiveCeiling, errorReason, liveEvent, londonWhen, metaId, placeObject, requireLive } from "../live/resolve.ts";
+import { cancelScheduled, insertScheduled, listScheduled, type ScheduledRow } from "../live/scheduled.ts";
 import type { MovePlanLite } from "../live/types.ts";
 import { LIVE_THINGS, LIVE_WORDS } from "../live/words.ts";
 import { ToolInputError, type McpTool, type ToolContext } from "../tool-types.ts";
@@ -56,7 +57,7 @@ export const setBudgetTool: McpTool = {
   failedText: LIVE_WORDS.metaFailed,
   description: [
     "Sets one live ad set's budget, or a campaign's when the budget is on the campaign, as the app's budget write does. Give daily_gbp for a daily budget or lifetime_gbp for a lifetime one, matching what it runs on (get_live shows it). Amounts are in the account's currency; ceilings are in £.",
-    "Raising it raises spend, so it's refused over the client's daily ceiling (and without one). at (a time with its zone, at least 15 minutes ahead) schedules it instead: it runs then only if the budget, status and end are as they are now, and the ceiling is checked again.",
+    /* PENDING DESIGN: claude.mcp.tool.set_budget.ceiling */ "Raising it raises spend, so it's refused when the show's committed spend would pass its spend ceiling (and without one); a cut is never refused. at (a time with its zone, at least 15 minutes ahead) schedules it instead: it runs then only if the budget, status and end are as they are now, and the ceiling is checked again.",
     "Needs Matas's yes in this chat: ask him the name, the budget before → after and when, then pass approval with your question (asked) and his reply word for word (answer).",
   ].join(" "),
   inputSchema: {
@@ -100,8 +101,14 @@ export const setBudgetTool: McpTool = {
       return { data: { message: LIVE_WORDS.budgetSame(name, minor / 100, isLifetime), changed: false }, eventId: event.id, clientId: event.clientId, summary: { ...base, noop: "same" } };
     }
     const raises = minor > current;
+    // A cut is never blocked; a rise is checked against the show's committed spend with the new budget.
     const ceiling = raises
-      ? await checkLiveCeiling(ctx, live, { event, accountId: object.accountId ?? placed.campaign.adAccountId, name, gbp: moneyAfter(object, field, minor, ctx.now) })
+      ? await checkLiveCeiling(ctx, live, {
+          event,
+          accountId: object.accountId ?? placed.campaign.adAccountId,
+          name,
+          change: { starts: false, objects: [{ kind, id, ...(field === "daily_budget" ? { dailyMinor: minor } : { lifetimeMinor: minor }) }] },
+        })
       : null;
     const change = LIVE_WORDS.budgetChange(name, current / 100, minor / 100, isLifetime);
     const key = callKey("set_budget", args, approval);
@@ -239,7 +246,7 @@ export const moveBudgetTool: McpTool = {
   failedText: LIVE_WORDS.metaFailed,
   description: [
     "Moves an amount a day from one ad set's daily budget to another's in the same campaign, as the on-sale refresh's move does: the giving ad set first, so spend never goes up mid-move, and neither side written if its budget changed since it was read. The giving ad set keeps at least £1.00 a day.",
-    "The receiving ad set's new budget is checked against the client's daily ceiling.",
+    /* PENDING DESIGN: claude.mcp.tool.move_budget.ceiling */ "When the move raises the show's committed spend (the two ad sets end on different days), it's checked against the show's spend ceiling.",
     "Needs Matas's yes in this chat: ask him the amount a day, from → to, then pass approval with your question (asked) and his reply word for word (answer).",
   ].join(" "),
   inputSchema: {
@@ -274,7 +281,19 @@ export const moveBudgetTool: McpTool = {
     const toDaily = to.object.dailyBudgetMinor;
     if (!fromDaily || !toDaily) throw new ToolInputError(LIVE_WORDS.moveNotDaily, { ...base, refused: "not_daily" });
     if (!earlier.plan && fromDaily - delta < 100) throw new ToolInputError(LIVE_WORDS.moveFloor(from.name), { ...base, refused: "floor" });
-    const ceiling = await checkLiveCeiling(ctx, live, { event, accountId: to.object.accountId ?? to.campaign.adAccountId, name: to.name, gbp: round2((earlier.plan?.to.after ?? toDaily + delta) / 100) });
+    // Both sides as they'd be after the move: it's checked only when it raises the show's committed spend (different end dates).
+    const ceiling = await checkLiveCeiling(ctx, live, {
+      event,
+      accountId: to.object.accountId ?? to.campaign.adAccountId,
+      name: to.name,
+      change: {
+        starts: false,
+        objects: [
+          { kind: "adset", id: fromId, dailyMinor: earlier.plan?.from.after ?? fromDaily - delta },
+          { kind: "adset", id: toId, dailyMinor: earlier.plan?.to.after ?? toDaily + delta },
+        ],
+      },
+    });
 
     let out: Awaited<ReturnType<NonNullable<ToolContext["live"]>["moveBudget"]>>;
     try {

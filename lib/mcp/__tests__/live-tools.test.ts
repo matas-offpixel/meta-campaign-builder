@@ -69,7 +69,7 @@ const CHANGERS: Array<[McpTool, Record<string, unknown>]> = [
 test("every M3b change refuses with no approval, an empty one or one over 1,000 characters, before anything is read or sent", async () => {
   for (const [tool, args] of CHANGERS) {
     for (const approval of [undefined, {}, { asked: "Pause it?", answer: "" }, { asked: "x".repeat(1001), answer: "yes" }]) {
-      const { ctx, db, spy } = liveCtx({ ceiling: 500 });
+      const { ctx, db, spy } = liveCtx({ ceiling: 5000 });
       const e = await refused(run(tool, ctx, { ...args, approval }), /^Refused: there’s no approval with this\./);
       assert.match(String(e.summary?.refused), /^(no_approval|approval_too_long)$/, tool.name);
       assert.deepEqual(spy.calls, [], `${tool.name}: nothing read or sent`);
@@ -82,7 +82,7 @@ test("a grant without mcp:meta, or a user no longer Matas, is refused by every M
   const all: Array<[McpTool, Record<string, unknown>]> = [...CHANGERS.map(([t, a]) => [t, { ...a, approval: YES }] as [McpTool, Record<string, unknown>]), [getLiveTool, { event: CODE }], [listScheduledTool, { event: CODE }]];
   for (const opts of [{ scope: "mcp:read mcp:draft" }, { isMatas: false }]) {
     for (const [tool, args] of all) {
-      const { ctx, spy } = liveCtx({ ceiling: 500, ...opts });
+      const { ctx, spy } = liveCtx({ ceiling: 5000, ...opts });
       await refused(run(tool, ctx, args), /^Refused: this connection can’t make Meta changes\./);
       assert.deepEqual(spy.calls, [], tool.name);
     }
@@ -117,12 +117,12 @@ test("pause: switched off, outside the event, a campaign with no draft, or a raw
   {
     const { ctx, spy } = liveCtx();
     spy.objects.set("120000000000000099", { ...spy.objects.get(AS_BROAD)!, id: "120000000000000099", campaignId: "120000000000000098" });
-    await refused(run(pauseTool, ctx, { event: CODE, kind: "ad_set", id: "120000000000000099", approval: YES }), /isn’t in NX27-LIVE’s campaigns/);
+    await refused(run(pauseTool, ctx, { event: CODE, kind: "ad_set", id: "120000000000000099", approval: YES }), /isn’t in DHB27-LIVE’s campaigns/);
     assert.equal(writes(spy).length, 0);
   }
   {
     const { ctx, spy } = liveCtx();
-    await refused(run(pauseTool, ctx, { event: CODE, kind: "campaign", id: CAMP_NODRAFT, approval: YES }), /has no published draft on NX27-LIVE/);
+    await refused(run(pauseTool, ctx, { event: CODE, kind: "campaign", id: CAMP_NODRAFT, approval: YES }), /has no published draft on DHB27-LIVE/);
     assert.equal(writes(spy).length, 0);
   }
   {
@@ -136,7 +136,7 @@ test("pause: switched off, outside the event, a campaign with no draft, or a raw
 test("resume: paused outside Off/Pixel is refused unless the question says so; the ceiling is checked against the money a day it starts", async () => {
   const resumeArgs = { event: CODE, kind: "ad_set", id: AS_BROAD };
   {
-    const { ctx, spy } = liveCtx({ ceiling: 500 });
+    const { ctx, spy } = liveCtx({ ceiling: 5000 });
     spy.objects.get(AS_BROAD)!.status = "PAUSED";
     await refused(run(resumeTool, ctx, { ...resumeArgs, approval: { asked: "Resume Broad?", answer: "yes" } }), /was paused outside Off\/Pixel/);
     assert.equal(writes(spy).length, 0);
@@ -146,15 +146,16 @@ test("resume: paused outside Off/Pixel is refused unless the question says so; t
   }
   {
     // Paused by the app (an earlier pause in the log): no mention needed.
-    const { ctx, db, spy } = liveCtx({ ceiling: 500 });
+    const { ctx, db, spy } = liveCtx({ ceiling: 5000 });
     spy.objects.get(AS_BROAD)!.status = "PAUSED";
     await db.from("mcp_actions").insert({ user_id: OPERATOR, tool: "pause", status: "done", result: { objectId: AS_BROAD }, created_at: "2026-11-25T10:00:00Z" });
     await run(resumeTool, ctx, { ...resumeArgs, approval: { asked: "Resume Broad?", answer: "yes" } });
     assert.equal(writes(spy).length, 1);
   }
   for (const [ceiling, re] of [
-    [null, /^Refused: NX Live has no daily ceiling/],
-    [20, /^Refused: this would take NX Live to £30\.00 a day, over its £20\.00 daily ceiling\./],
+    [null, /^Refused: DHB27-LIVE has no spend ceiling, so nothing that starts or raises spend can run\./],
+    // Without Broad the show commits £875.00; Broad back on adds £30 × 25 days.
+    [1000, /^Refused: this would take DHB27-LIVE to £1,625\.00 committed, over its £1,000\.00 ceiling \(set for this show\)\. That’s £0\.00 spent to date \(Off\/Pixel’s Meta insights, none yet\), £0\.00 left on live lifetime budgets and £1,625\.00 in live daily budgets to their end or show day \(both read from Meta now\); this change adds £750\.00\. Nothing was sent to Meta\.$/],
   ] as const) {
     const { ctx, spy } = liveCtx({ ceiling });
     spy.objects.get(AS_BROAD)!.status = "PAUSED";
@@ -163,7 +164,7 @@ test("resume: paused outside Off/Pixel is refused unless the question says so; t
   }
   {
     // An account not in £: refused, ceilings are in £.
-    const { ctx, spy } = liveCtx({ ceiling: 500 });
+    const { ctx, spy } = liveCtx({ ceiling: 5000 });
     spy.objects.get(AS_C1)!.status = "PAUSED";
     await refused(run(resumeTool, ctx, { event: CODE, kind: "ad_set", id: AS_C1, approval: { asked: "Paused in Ads Manager; resume US set?", answer: "yes" } }), /spends in USD, and ceilings are in £/);
     assert.equal(writes(spy).length, 0);
@@ -185,13 +186,23 @@ test("set_budget: down needs no ceiling; up is checked; the type must match; the
     assert.equal(writes(spy).length, 1);
   }
   {
-    const { ctx, spy } = liveCtx({ ceiling: 35 });
-    await refused(run(setBudgetTool, ctx, { event: CODE, kind: "ad_set", id: AS_BROAD, daily_gbp: 40, approval: YES }), /over its £35\.00 daily ceiling/);
+    // £1,625.00 committed; Broad £30 → £40 adds £250.00 (25 days), → £35 adds £125.00.
+    const { ctx, spy } = liveCtx({ ceiling: 1800 });
+    const e = await refused(run(setBudgetTool, ctx, { event: CODE, kind: "ad_set", id: AS_BROAD, daily_gbp: 40, approval: YES }), /to £1,875\.00 committed, over its £1,800\.00 ceiling/);
+    assert.deepEqual([e.summary?.refused, e.summary?.delta, e.summary?.after], ["over_ceiling", 250, 1875]);
     await run(setBudgetTool, ctx, { event: CODE, kind: "ad_set", id: AS_BROAD, daily_gbp: 35, approval: YES });
     assert.equal(writes(spy).length, 1);
   }
   {
-    const { ctx, spy } = liveCtx({ ceiling: 500 });
+    // Spent to date counts (ad_daily_insights): £200 spent + £1,625.00 committed is over £1,800.
+    const { ctx, spy } = liveCtx({ ceiling: 1800, spent: 200 });
+    await refused(run(setBudgetTool, ctx, { event: CODE, kind: "ad_set", id: AS_BROAD, daily_gbp: 31, approval: YES }), /to £1,850\.00 committed, over its £1,800\.00 ceiling \(set for this show\)\. That’s £200\.00 spent to date \(Off\/Pixel’s Meta insights, to 25 Nov\)/);
+    // A cut is never blocked, over the ceiling or not.
+    await run(setBudgetTool, ctx, { event: CODE, kind: "ad_set", id: AS_BROAD, daily_gbp: 10, approval: YES });
+    assert.equal(writes(spy).length, 1);
+  }
+  {
+    const { ctx, spy } = liveCtx({ ceiling: 5000 });
     await refused(run(setBudgetTool, ctx, { event: CODE, kind: "ad_set", id: AS_BROAD, lifetime_gbp: 400, approval: YES }), /runs on a daily budget, so give daily_gbp/);
     await refused(run(setBudgetTool, ctx, { event: CODE, kind: "campaign", id: CAMP_A, daily_gbp: 40, approval: YES }), /budgets are set on its ad sets/);
     spy.switches.budget = false;
@@ -206,14 +217,14 @@ async function schedule(ctx: ToolContext, at: string, daily = 40) {
 }
 
 test("set_budget with at: Claude is told design's scheduled row, with londonWhen's time", async () => {
-  const { ctx } = liveCtx({ ceiling: 500 });
+  const { ctx } = liveCtx({ ceiling: 5000 });
   const out = await run(setBudgetTool, ctx, { event: CODE, kind: "ad_set", id: AS_BROAD, daily_gbp: 40, at: "2026-11-26T18:00:00Z", approval: YES });
   const data = out.data as { message: string; scheduled_id: string };
   assert.equal(data.message, `Scheduled for Thu 26 Nov, 18:00 London time: Broad: £30.00 → £40.00 a day (change ${data.scheduled_id}). It runs only if nothing has changed by then. Cancel it with cancel_scheduled.`);
 });
 
 test("list_scheduled: a change with no recorded old amount reads \"Broad: to £40.00 a day\", never \"£0.00 →\"", async () => {
-  const { ctx } = liveCtx({ ceiling: 500 });
+  const { ctx } = liveCtx({ ceiling: 5000 });
   const id = await schedule(ctx, "2026-11-26T18:00:00Z");
   await ctx.db.from("scheduled_meta_changes").update({ expected_minor: null }).eq("id", id);
   const listed = await run(listScheduledTool, ctx, { event: CODE });
@@ -225,7 +236,7 @@ test("list_scheduled: a change with no recorded old amount reads \"Broad: to £4
 });
 
 test("set_budget with at: stored with the yes, nothing sent now; applied once at its time, ceiling checked again", async () => {
-  const { ctx, db, spy } = liveCtx({ ceiling: 500 });
+  const { ctx, db, spy } = liveCtx({ ceiling: 5000 });
   const id = await schedule(ctx, "2026-11-26T18:00:00Z");
   assert.equal(writes(spy).length, 0, "nothing sent at ask time");
   const row = (db as unknown as { writes: Array<{ table: string; rows: unknown }> }).writes.find((w) => w.table === "scheduled_meta_changes");
@@ -254,10 +265,10 @@ test("a scheduled change is skipped when the object changed since (budget edited
     ["paused", (spy) => void (spy.objects.get(AS_BROAD)!.status = "PAUSED")],
     ["ended", (spy) => void (spy.objects.get(AS_BROAD)!.endTime = "2026-11-26T12:00:00Z")],
     ["switch", (spy) => void (spy.switches.budget = false)],
-    ["ceiling", async (_spy, ctx) => void (await ctx.db.from("client_spend_ceilings").update({ daily_gbp: 10 }).eq("daily_gbp", 500))],
+    ["ceiling", async (_spy, ctx) => void (await ctx.db.from("show_spend_ceilings").update({ total_gbp: 10 }).eq("total_gbp", 5000))],
   ];
   for (const [reason, change] of cases) {
-    const { ctx, spy } = liveCtx({ ceiling: 500 });
+    const { ctx, spy } = liveCtx({ ceiling: 5000 });
     await schedule(ctx, "2026-11-26T18:00:00Z");
     await change(spy, ctx);
     const out = await runScheduledChanges({ db: ctx.db, live: ctx.live!, now: new Date("2026-11-26T18:00:00Z"), shipped: true });
@@ -271,7 +282,7 @@ test("a scheduled change is skipped when the object changed since (budget edited
 });
 
 test("cancel_scheduled: a cancelled change never runs; cancelling twice changes nothing; an applied one can't be cancelled", async () => {
-  const { ctx, spy } = liveCtx({ ceiling: 500 });
+  const { ctx, spy } = liveCtx({ ceiling: 5000 });
   const id = await schedule(ctx, "2026-11-26T18:00:00Z");
   const out = await run(cancelScheduledTool, ctx, { id, approval: { asked: "Cancel it?", answer: "yes" } });
   assert.match((out.data as { message: string }).message, /^Cancelled the change due Thu 26 Nov, 18:00 London time: Broad: £30\.00 → £40\.00 a day\. It won’t run\.$/);
@@ -287,7 +298,7 @@ test("cancel_scheduled: a cancelled change never runs; cancelling twice changes 
 });
 
 test("set_budget at: refused in the past, without a zone, or too far ahead", async () => {
-  const { ctx } = liveCtx({ ceiling: 500 });
+  const { ctx } = liveCtx({ ceiling: 5000 });
   for (const at of ["2026-11-26T09:00:00Z", "2026-11-26T18:00:00", "2027-03-01T10:00:00Z", "2026-11-26T10:05:00Z"]) {
     await refused(run(setBudgetTool, ctx, { event: CODE, kind: "ad_set", id: AS_BROAD, daily_gbp: 40, at, approval: YES }), /^Refused: give at as a time with its zone, at least 15 minutes and at most 60 days ahead\. Nothing was scheduled\.$/);
   }
@@ -296,7 +307,7 @@ test("set_budget at: refused in the past, without a zone, or too far ahead", asy
 // ── move_budget ─────────────────────────────────────────────────────────────
 
 test("move_budget: within one campaign through the refresh's move, the receiving side under the ceiling; a retry never moves twice", async () => {
-  const { ctx, db, spy } = liveCtx({ ceiling: 500 });
+  const { ctx, db, spy } = liveCtx({ ceiling: 5000 });
   const args = { event: CODE, from_ad_set: AS_BROAD, to_ad_set: AS_FANS, gbp_a_day: 5, approval: { asked: "Move £5 a day Broad → Fans?", answer: "yes" } };
   const out = await run(moveBudgetTool, ctx, args);
   assert.equal((out.data as { change: string }).change, "£5.00 a day: Broad → Fans");
@@ -312,7 +323,7 @@ test("move_budget: within one campaign through the refresh's move, the receiving
 
 test("move_budget: a failed first try's plan is reused; across campaigns, under the floor, or no ceiling: refused", async () => {
   {
-    const { ctx, db, spy } = liveCtx({ ceiling: 500 });
+    const { ctx, db, spy } = liveCtx({ ceiling: 5000 });
     const args = { event: CODE, from_ad_set: AS_BROAD, to_ad_set: AS_FANS, gbp_a_day: 5, approval: { asked: "Move £5?", answer: "yes" } };
     const { callKey } = await import("../live/resolve.ts");
     const key = callKey("move_budget", args, args.approval);
@@ -324,10 +335,23 @@ test("move_budget: a failed first try's plan is reused; across campaigns, under 
   for (const [args, re, ceiling] of [
     [{ from_ad_set: AS_BROAD, to_ad_set: AS_B1, gbp_a_day: 5 }, /both ad sets must be in the same campaign/, 500],
     [{ from_ad_set: AS_BROAD, to_ad_set: AS_FANS, gbp_a_day: 29.5 }, /under £1\.00 a day/, 500],
-    [{ from_ad_set: AS_BROAD, to_ad_set: AS_FANS, gbp_a_day: 5 }, /has no daily ceiling/, null],
   ] as const) {
     const { ctx, spy } = liveCtx({ ceiling });
     await refused(run(moveBudgetTool, ctx, { event: CODE, ...args, approval: YES }), re);
+    assert.equal(writes(spy).length, 0);
+  }
+  {
+    // A move that doesn't raise committed spend (both run to show day) needs no ceiling.
+    const { ctx, spy } = liveCtx({ ceiling: null });
+    await run(moveBudgetTool, ctx, { event: CODE, from_ad_set: AS_BROAD, to_ad_set: AS_FANS, gbp_a_day: 5, approval: YES });
+    assert.equal(writes(spy).filter((c) => c.method === "moveBudget").length, 1);
+  }
+  {
+    // One that does (Broad ends in 3 days, Fans runs to show day: +£5 × 22 days) is refused without one.
+    const { ctx, spy } = liveCtx({ ceiling: null });
+    spy.objects.get(AS_BROAD)!.endTime = "2026-11-28T23:00:00Z";
+    const e = await refused(run(moveBudgetTool, ctx, { event: CODE, from_ad_set: AS_BROAD, to_ad_set: AS_FANS, gbp_a_day: 5, approval: YES }), /^Refused: DHB27-LIVE has no spend ceiling/);
+    assert.equal(e.summary?.delta, 110);
     assert.equal(writes(spy).length, 0);
   }
 });
@@ -366,11 +390,17 @@ test("add_creatives_to_stage: bulk-attach with the tree run, paused by default, 
 test("add_creatives_to_stage: live checks the ceiling first; switched off, an unknown creative or a stage with nothing to add: refused", async () => {
   {
     const { ctx, spy } = liveCtx({ ceiling: null });
-    await refused(run(addCreativesToStageTool, ctx, { event: CODE, stage: "on_sale", draft_creative_ids: ["cr-1"], live: true, approval: YES }), /has no daily ceiling/);
+    await refused(run(addCreativesToStageTool, ctx, { event: CODE, stage: "on_sale", draft_creative_ids: ["cr-1"], live: true, approval: YES }), /has no spend ceiling/);
     assert.equal(writes(spy).length, 0);
   }
   {
-    const { ctx, spy } = liveCtx({ ceiling: 100 });
+    // Live ads on a show already committed past its ceiling: refused before any file moves.
+    const { ctx, spy } = liveCtx({ ceiling: 1000 });
+    await refused(run(addCreativesToStageTool, ctx, { event: CODE, stage: "on_sale", draft_creative_ids: ["cr-1"], ad_set_ids: [AS_BROAD], live: true, approval: YES }), /to £1,625\.00 committed, over its £1,000\.00 ceiling/);
+    assert.equal(writes(spy).length, 0);
+  }
+  {
+    const { ctx, spy } = liveCtx({ ceiling: 1625 });
     await run(addCreativesToStageTool, ctx, { event: CODE, stage: "on_sale", draft_creative_ids: ["cr-1"], ad_set_ids: [AS_BROAD], live: true, approval: YES });
     const body = spy.calls.find((c) => c.method === "bulkAttach")!.input.body as Record<string, unknown>;
     assert.equal(body.createPaused, false);
@@ -378,11 +408,11 @@ test("add_creatives_to_stage: live checks the ceiling first; switched off, an un
   }
   for (const [args, re, off] of [
     [{ stage: "on_sale", draft_creative_ids: ["cr-1"] }, /switched off/, true],
-    [{ stage: "on_sale", draft_creative_ids: ["nope"] }, /there’s no ad nope on NX27-LIVE’s drafts/, false],
+    [{ stage: "on_sale", draft_creative_ids: ["nope"] }, /there’s no ad nope on DHB27-LIVE’s drafts/, false],
     [{ stage: "signup", draft_creative_ids: ["cr-1"] }, /has no Signup campaign Off\/Pixel can add to/i, false],
     [{ stage: "on_sale" }, /give draft_creative_ids, file_ids or pairs/, false],
   ] as const) {
-    const { ctx, spy } = liveCtx({ ceiling: 500 });
+    const { ctx, spy } = liveCtx({ ceiling: 5000 });
     if (off) spy.switches.treeAdd = false;
     await refused(run(addCreativesToStageTool, ctx, { event: CODE, ...args, approval: YES }), re);
     assert.equal(writes(spy).length, 0);

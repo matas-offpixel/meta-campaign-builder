@@ -112,7 +112,8 @@ test("design's corrected rows, as Claude reads them", () => {
   assert.equal(LIVE_WORDS.skip.budget_changed, "Skipped: the budget changed after it was scheduled.");
   assert.equal(LIVE_WORDS.skip.paused, "Skipped: it was paused after it was scheduled.");
   assert.equal(LIVE_WORDS.skip.ended, "Skipped: it ended or was deleted after it was scheduled.");
-  assert.equal(LIVE_WORDS.skip.ceiling, "Skipped: by then it would have gone over the client’s daily ceiling, or the client had no ceiling.");
+  // PR D: the ruled client-ceiling row stays as the record (pinned above); the skip now speaks of the show's spend ceiling (PENDING DESIGN).
+  assert.equal(LIVE_WORDS.skip.ceiling, "Skipped: by then it would have taken the show over its spend ceiling, or the show had no ceiling.");
   assert.equal(LIVE_WORDS.movePartial("Broad", "Fans", 5), "Broad went down by £5.00 a day, but Fans didn’t go up: its budget changed or Meta refused it. Read both with get_live.");
   assert.equal(LIVE_WORDS.testDates, "Refused: give start and end as times with their zone: start now or later, end after start, at most 90 days apart. Nothing was sent to Meta.");
   assert.equal(LIVE_WORDS.testNoBusiness, "Refused: the ad account isn’t in a business portfolio, and Meta needs one to hold a test. Nothing was sent to Meta.");

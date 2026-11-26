@@ -11,8 +11,9 @@
  *     the show's tree, the client's own folders or the artist library, never
  *     another client's; a render that failed a check is refused). Files held
  *     in Storage go to Meta first, as M3a's launch sends them. New ads go in
- *     PAUSED unless `live: true`, which starts spend and checks the client's
- *     ceiling against the ad sets' money a day.
+ *     PAUSED unless `live: true`, which starts spend and checks the show's
+ *     spend ceiling against its committed spend (the ad sets' budgets count
+ *     already while they're live; lib/mcp/meta/show-ceiling.ts).
  *   - "Add audience to…": the targeting write (McpLiveDeps.adsetAudience →
  *     adsetAudienceAs; OFFPIXEL_META_ADSET_TARGETING_WRITES_ENABLED): the
  *     whole targeting read, the audience added to custom_audiences, written
@@ -81,7 +82,7 @@ export const addCreativesToStageTool: McpTool = {
   description: [
     "Adds new ads to an event's live campaigns in one stage (signup, presale, on_sale, show_week), as the campaign tree's Add creatives to… does: into each live campaign's live ad sets, or the ad_set_ids you give within the stage.",
     "The ads come from draft_creative_ids (ads already on one of the event's drafts, ids from get_draft), file_ids (9:16 Drive files) or pairs (a 4:5 or 1:1 feed file and its 9:16), from the show's folders, the client's own or the artist library. Files in Off/Pixel go to Meta first.",
-    "New ads go in paused; live: true makes them live, which starts spend and is refused over the client's daily ceiling.",
+    /* PENDING DESIGN: claude.mcp.tool.add_creatives.ceiling */ "New ads go in paused; live: true makes them live, which starts spend and is refused when the show's committed spend would pass its spend ceiling (and without one).",
     "Needs Matas's yes in this chat: ask him the stage, how many ads into how many ad sets, the files, and paused or live, then pass approval with your question (asked) and his reply word for word (answer).",
   ].join(" "),
   inputSchema: {
@@ -121,8 +122,10 @@ export const addCreativesToStageTool: McpTool = {
     if (campaigns.length > BULK_ATTACH_CAP || adCount > TOTAL_ADS_CAP) throw new ToolInputError(LIVE_WORDS.tooManyAds(adCount, campaigns.length), { refused: "over_caps", ads: adCount, campaigns: campaigns.length });
     const base = { code: event.code, stage, campaigns: campaigns.map((c) => c.metaCampaignId), adSets: adSetCount, live: goLive };
 
-    // Live ads start spend: the ad sets' money a day against the ceiling, before any file moves.
-    let ceiling: { ceilingGbp: number; moneyGbp: number } | null = null;
+    // Live ads start spend: the show's ceiling against its committed spend, before any file moves.
+    // The ad sets' money a day is what the done message says ("up to £x a day").
+    let ceiling: Awaited<ReturnType<typeof checkLiveCeiling>> | null = null;
+    let moneyGbp = 0;
     if (goLive) {
       let money = 0;
       try {
@@ -137,7 +140,8 @@ export const addCreativesToStageTool: McpTool = {
       } catch {
         throw new ToolInputError(LIVE_WORDS.readFailed, { ...base, refused: "meta_unread" });
       }
-      ceiling = await checkLiveCeiling(ctx, live, { event, accountId: account, name: event.code, gbp: round2(money) });
+      moneyGbp = round2(money);
+      ceiling = await checkLiveCeiling(ctx, live, { event, accountId: account, name: event.code, change: { starts: true } });
     }
 
     // The ads.
@@ -213,12 +217,12 @@ export const addCreativesToStageTool: McpTool = {
       data: {
         message: partial ? LIVE_WORDS.failed(result) : MCP_WORDS.done(result),
         change: LIVE_WORDS.changeAddCreatives(stageLabel(stage), countAds(adIds.length), countAdSets(reached.size)),
-        mode: goLive ? LAUNCH_WORDS.live(ceiling?.moneyGbp ?? 0) : LAUNCH_WORDS.paused,
+        mode: goLive ? LAUNCH_WORDS.live(moneyGbp) : LAUNCH_WORDS.paused,
         ...(missed.length ? { notAdded: LIVE_WORDS.notAdded(countAdSets(missed.length), missed.join(", ")) } : {}),
       },
       eventId: event.id,
       clientId: event.clientId,
-      summary: { ...base, key, adIds, adSetsReached: [...reached], missed, ...(ceiling ? { ceiling } : {}), ...(goLive ? {} : { undo: { tool: "delete_paused", adIds } }) },
+      summary: { ...base, key, adIds, adSetsReached: [...reached], missed, ...(ceiling ? { ceiling, moneyGbp } : {}), ...(goLive ? {} : { undo: { tool: "delete_paused", adIds } }) },
     };
   },
 };

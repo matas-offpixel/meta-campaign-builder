@@ -13,7 +13,7 @@
  * does that, lib/mcp/server.ts → lib/mcp/action-log.ts).
  *
  * The server can't prove who typed the yes. The backstops are the scope
- * (MATAS_USER_IDS only), the client ceilings (lib/mcp/meta/ceiling.ts),
+ * (MATAS_USER_IDS only), the per-show spend ceilings (lib/mcp/meta/show-ceiling.ts),
  * the action log and the kill switches (ENABLE_MCP, scripts/mcp-revoke.mts).
  *
  * Relative imports only (node:test).

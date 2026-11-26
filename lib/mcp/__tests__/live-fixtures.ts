@@ -1,5 +1,6 @@
 /**
- * Fixtures for the M3b live tools: one event (NX27-LIVE) with three
+ * Fixtures for the M3b live tools: one event (DHB27-LIVE: DHB has no brand
+ * default, so `ceiling: null` is a show with no spend ceiling) with three
  * campaigns on its tree, each with a published draft (two on one account,
  * one on another) and one campaign with no draft; a spy McpLiveDeps whose
  * objects change when it writes, and a spy McpMetaDeps for the send step.
@@ -13,7 +14,7 @@ import { OPERATOR } from "./helpers.ts";
 
 export const CLIENT = "c0000000-0000-4000-8000-00000000c001";
 export const EVENT = "e0000000-0000-4000-8000-00000000e001";
-export const CODE = "NX27-LIVE";
+export const CODE = "DHB27-LIVE";
 export const ACT = "act_111111111";
 export const ACT2 = "act_222222222";
 export const DRAFT_A = "d0000000-0000-4000-8000-00000000d001";
@@ -52,10 +53,10 @@ const obj = (o: Partial<LiveObject> & { id: string; kind: LiveKind }): LiveObjec
 
 export function liveObjects(): Map<string, LiveObject> {
   const list: LiveObject[] = [
-    obj({ id: CAMP_A, kind: "campaign", name: "[NX27-LIVE] ON SALE", campaignId: CAMP_A }),
-    obj({ id: CAMP_B, kind: "campaign", name: "[NX27-LIVE] ON SALE 2", campaignId: CAMP_B }),
-    obj({ id: CAMP_C, kind: "campaign", name: "[NX27-LIVE] ON SALE US", accountId: ACT2, campaignId: CAMP_C }),
-    obj({ id: CAMP_NODRAFT, kind: "campaign", name: "[NX27-LIVE] ON SALE OLD", campaignId: CAMP_NODRAFT }),
+    obj({ id: CAMP_A, kind: "campaign", name: "[DHB27-LIVE] ON SALE", campaignId: CAMP_A }),
+    obj({ id: CAMP_B, kind: "campaign", name: "[DHB27-LIVE] ON SALE 2", campaignId: CAMP_B }),
+    obj({ id: CAMP_C, kind: "campaign", name: "[DHB27-LIVE] ON SALE US", accountId: ACT2, campaignId: CAMP_C }),
+    obj({ id: CAMP_NODRAFT, kind: "campaign", name: "[DHB27-LIVE] ON SALE OLD", campaignId: CAMP_NODRAFT }),
     obj({
       id: AS_BROAD,
       kind: "adset",
@@ -68,7 +69,8 @@ export function liveObjects(): Map<string, LiveObject> {
     }),
     obj({ id: AS_FANS, kind: "adset", name: "Fans", campaignId: CAMP_A, adsetId: AS_FANS, dailyBudgetMinor: 2000, targeting: { age_min: 18, age_max: 65, age_range: [25, 40], targeting_automation: { advantage_audience: 1 } } }),
     obj({ id: AS_B1, kind: "adset", name: "Other campaign set", campaignId: CAMP_B, adsetId: AS_B1, dailyBudgetMinor: 1500, targeting: { targeting_automation: { advantage_audience: 1 } } }),
-    obj({ id: AS_C1, kind: "adset", name: "US set", accountId: ACT2, campaignId: CAMP_C, adsetId: AS_C1, dailyBudgetMinor: 1500 }),
+    // Paused: an account not in £ with a live budget would refuse every spend change on the show.
+    obj({ id: AS_C1, kind: "adset", name: "US set", accountId: ACT2, campaignId: CAMP_C, adsetId: AS_C1, dailyBudgetMinor: 1500, status: "PAUSED", effectiveStatus: "PAUSED" }),
     obj({ id: AD_1, kind: "ad", name: "Teaser 1", campaignId: CAMP_A, adsetId: AS_BROAD }),
   ];
   return new Map(list.map((o) => [o.id, o]));
@@ -88,7 +90,15 @@ const draftRow = (id: string, campaignId: string, account: string, json: Record<
   draft_json: { id, metaCampaignId: campaignId, settings: { metaAdAccountId: account, eventId: EVENT, objective: "purchase" }, creatives: [], adSetSuggestions: [], ...json },
 });
 
-export function liveTables(opts: { ceiling?: number | null } = {}) {
+/**
+ * The show's committed spend at NOW with nothing changed: Broad £30 + Fans £20
+ * + Other campaign set £15 a day, 25 days to show day (26 Nov → 20 Dec, both
+ * included) = £1,625.00, plus `spent` from ad_daily_insights.
+ */
+export const BASE_COMMITTED = 1625;
+
+/** `ceiling`: the show's own total in £ (show_spend_ceilings); null = none. `spent`: £ in ad_daily_insights on campaign A. */
+export function liveTables(opts: { ceiling?: number | null; spent?: number } = {}) {
   return {
     clients: [{ id: CLIENT, name: "NX Live", status: "active", meta_business_id: null }],
     events: [
@@ -135,7 +145,10 @@ export function liveTables(opts: { ceiling?: number | null } = {}) {
       { meta_adset_id: AS_C1, meta_campaign_id: CAMP_C, ad_account_id: ACT2, draft_id: DRAFT_C, event_id: EVENT, phase_at_launch: "on_sale", source_name: "C1", channel: "meta", launched_at: "2026-11-20T10:00:03Z" },
     ],
     campaign_additions: [],
-    client_spend_ceilings: opts.ceiling == null ? [] : [{ client_id: CLIENT, daily_gbp: opts.ceiling, set_by: OPERATOR, set_at: "2026-11-25T10:00:00Z" }],
+    client_spend_ceilings: [] as Record<string, unknown>[],
+    show_spend_ceilings: opts.ceiling == null ? [] : [{ id: "5e000000-0000-4000-8000-000000000001", event_id: EVENT, group_name: null, total_gbp: opts.ceiling, set_by: OPERATOR, set_at: "2026-11-26T09:00:00Z" }],
+    show_spend_ceiling_events: [] as Record<string, unknown>[],
+    ad_daily_insights: opts.spent ? [{ meta_ad_id: AD_1, meta_adset_id: AS_BROAD, meta_campaign_id: CAMP_A, ad_account_id: ACT, date: "2026-11-25", spend: opts.spent }] : ([] as Record<string, unknown>[]),
     mcp_actions: [] as Record<string, unknown>[],
     scheduled_meta_changes: [] as Record<string, unknown>[],
     meta_write_idempotency: [] as Record<string, unknown>[],
@@ -267,8 +280,8 @@ export function metaSendSpy(calls: Array<{ method: string; input: Record<string,
   };
 }
 
-export function liveCtx(opts: { ceiling?: number | null; scope?: string; isMatas?: boolean } = {}) {
-  const db = fakeDb(liveTables({ ceiling: opts.ceiling }));
+export function liveCtx(opts: { ceiling?: number | null; spent?: number; scope?: string; isMatas?: boolean } = {}) {
+  const db = fakeDb(liveTables({ ceiling: opts.ceiling, spent: opts.spent }));
   const spy = liveSpy();
   const ctx = {
     db,

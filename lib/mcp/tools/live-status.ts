@@ -9,9 +9,10 @@
  *   - campaign: its mirror behind the ad-set switch.
  * A switch that's off is refused before anything is read from Meta.
  *
- * Resume starts spend, so it checks the client's ceiling against the money
- * a day it sets running (the ad set's budget, its campaign's when the budget
- * is on the campaign, or a campaign's ad sets' together). Something paused
+ * Resume starts spend, so it checks the show's spend ceiling against the
+ * show's committed spend with the object live (lib/mcp/meta/show-ceiling.ts:
+ * a resumed campaign or ad set counts its budgets; an ad's ad set is counted
+ * already). Something paused
  * outside Off/Pixel (no pause of it in the app's log) is refused unless
  * Matas's question said so.
  *
@@ -20,7 +21,7 @@
 import { z } from "zod";
 import { approvalInput, requireMetaApproval } from "../meta/approval.ts";
 import { MCP_WORDS, RESULT_WORDS } from "../meta/words.ts";
-import { callKey, checkLiveCeiling, errorReason, liveEvent, metaId, moneyADay, placeObject, requireLive, round2, type LiveEvent, type Placed } from "../live/resolve.ts";
+import { callKey, checkLiveCeiling, errorReason, liveEvent, metaId, placeObject, requireLive, type LiveEvent } from "../live/resolve.ts";
 import type { LiveKind, McpLiveDeps } from "../live/types.ts";
 import { LIVE_THINGS, LIVE_WORDS } from "../live/words.ts";
 import { ToolInputError, type McpTool, type ToolContext } from "../tool-types.ts";
@@ -48,24 +49,6 @@ export async function pausedByApp(ctx: ToolContext, id: string): Promise<boolean
   return ((res.data ?? []) as Array<{ result: unknown }>).some((r) => JSON.stringify(r.result ?? "").includes(id));
 }
 
-/** The money a day turning `placed` on sets running, in the account's major unit. */
-export async function resumeMoney(ctx: ToolContext, live: McpLiveDeps, placed: Placed): Promise<number> {
-  const { object } = placed;
-  const own = moneyADay(object, ctx.now);
-  if (own != null) return own;
-  if (object.kind === "campaign") {
-    const kids = await live.readChildren(ctx.userId, object.id);
-    return round2(kids.adsets.filter((a) => a.status === "ACTIVE").reduce((sum, a) => sum + (moneyADay(a, ctx.now) ?? 0), 0));
-  }
-  const parents = object.kind === "ad" && object.adsetId ? (await live.readObjects(ctx.userId, "adset", [object.adsetId])).objects.get(object.adsetId) : null;
-  if (parents) {
-    const m = moneyADay(parents, ctx.now);
-    if (m != null) return m;
-  }
-  const camp = (await live.readObjects(ctx.userId, "campaign", [placed.campaign.metaCampaignId])).objects.get(placed.campaign.metaCampaignId);
-  return camp ? (moneyADay(camp, ctx.now) ?? 0) : 0;
-}
-
 function switchOn(live: McpLiveDeps, kind: LiveKind): boolean {
   const s = live.switches();
   return kind === "ad" ? s.adStatus : s.adsetStatus;
@@ -90,7 +73,7 @@ async function runStatus(ctx: ToolContext, args: Record<string, unknown>, to: "P
     return { data: { message: LIVE_WORDS.sameLive(name), changed: false }, eventId: event.id, clientId: event.clientId, summary: { ...base, noop: "already_live" } };
   }
 
-  let ceiling: { ceilingGbp: number; moneyGbp: number } | null = null;
+  let ceiling: Awaited<ReturnType<typeof checkLiveCeiling>> | null = null;
   if (to === "ACTIVE") {
     if (object.endTime && Date.parse(object.endTime) <= ctx.now.getTime()) {
       throw new ToolInputError(LIVE_WORDS.ended(name, object.endTime.slice(0, 10)), { ...base, refused: "ended" });
@@ -98,13 +81,12 @@ async function runStatus(ctx: ToolContext, args: Record<string, unknown>, to: "P
     if (!SAYS_OUTSIDE.test(approval.asked) && !(await pausedByApp(ctx, id))) {
       throw new ToolInputError(LIVE_WORDS.pausedOutside(name), { ...base, refused: "paused_outside" });
     }
-    let money: number;
-    try {
-      money = await resumeMoney(ctx, live, placed);
-    } catch {
-      throw new ToolInputError(LIVE_WORDS.readFailed, { ...base, refused: "meta_unread" });
-    }
-    ceiling = await checkLiveCeiling(ctx, live, { event, accountId: object.accountId ?? placed.campaign.adAccountId, name, gbp: money });
+    ceiling = await checkLiveCeiling(ctx, live, {
+      event,
+      accountId: object.accountId ?? placed.campaign.adAccountId,
+      name,
+      change: { starts: true, objects: kind === "ad" ? [] : [{ kind, id, status: "ACTIVE" }] },
+    });
   }
 
   const key = callKey(tool, args, approval);
@@ -176,7 +158,7 @@ export const resumeTool: McpTool = {
   failedText: LIVE_WORDS.metaFailed,
   description: describe(
     "Switches back on",
-    "This starts spend, so it's refused over the client's daily ceiling (and without one). If it was paused outside Off/Pixel, in Ads Manager, say so in your question to Matas.",
+    /* PENDING DESIGN: claude.mcp.tool.resume.ceiling */ "This starts spend, so it's refused when the show's committed spend would pass its spend ceiling (and without one). If it was paused outside Off/Pixel, in Ads Manager, say so in your question to Matas.",
   ),
   inputSchema,
   run: (ctx, args) => runStatus(ctx, args, "ACTIVE", "resume"),

@@ -12,9 +12,11 @@
  *     (POST /api/meta/launch-campaign) with `createPaused` for mode paused,
  *     so the campaign, every ad set and every ad are created PAUSED by the
  *     route itself. runLaunchGuard and the wizard's step checks refuse
- *     first, as Review does. Mode live starts spend: the client's daily
- *     ceiling is checked against the draft's money a day before anything
- *     is sent (lib/mcp/meta/ceiling.ts).
+ *     first, as Review does. Mode live starts spend: the show's spend
+ *     ceiling is checked against its committed spend with the draft's own
+ *     budget and dates added, before anything is sent
+ *     (lib/mcp/meta/show-ceiling.ts; the existing campaigns are read from
+ *     Meta through McpLiveDeps, GETs only).
  *
  * A file Meta didn't take stops the launch: its slot is saved as today's
  * "Upload failed — retry or remove", and nothing is created.
@@ -26,7 +28,10 @@ import type { CampaignDraft, LaunchSummary } from "../../types.ts";
 import { checksSummary, launchChecksFor } from "../drafts/common.ts";
 import { assertDraftId, migratedDraft, readDraftRow, saveDraft, type WritableDraft } from "../drafts/write.ts";
 import { approvalInput, requireMetaApproval } from "../meta/approval.ts";
-import { checkSpendCeiling, draftMoneyADay } from "../meta/ceiling.ts";
+import { draftMoneyADay } from "../meta/ceiling.ts";
+import { CEILING_WORDS } from "../meta/ceiling-words.ts";
+import { checkShowCeiling, draftAddedLine, type ShowCeilingChecked } from "../meta/show-ceiling.ts";
+import { LIVE_WORDS } from "../live/words.ts";
 import { ToolInputError, type LaunchChecksOutcome, type McpMetaDeps, type McpTool, type ToolContext } from "../tool-types.ts";
 import { failVideos, sentVideoIds, type StoredSendOutcome } from "../../plan/stored-assets-meta.ts";
 import { LAUNCH_WORDS, MCP_WORDS, RESULT_WORDS, THINGS, UPLOAD_WORDS } from "../meta/words.ts";
@@ -67,6 +72,18 @@ async function clientOf(ctx: ToolContext, loaded: WritableDraft): Promise<{ clie
     clientName = ((c.data as { name?: string | null } | null)?.name as string | null) ?? null;
   }
   return { clientId, clientName, eventId };
+}
+
+/**
+ * A live launch starts spend: the show's spend ceiling, with the draft's own
+ * budget and dates added to the show's committed spend. A draft not on a show,
+ * or a budget not in £, is refused.
+ */
+async function launchCeiling(ctx: ToolContext, draft: CampaignDraft, eventId: string | null, currency: string): Promise<ShowCeilingChecked> {
+  if (!eventId) throw new ToolInputError(CEILING_WORDS.noShow, { refused: "no_show" });
+  if (currency !== "GBP") throw new ToolInputError(MCP_WORDS.refusedCurrency(currency), { refused: "not_gbp", eventId });
+  if (!ctx.live) throw new ToolInputError(LIVE_WORDS.notWired, { refused: "live_unwired", eventId });
+  return checkShowCeiling({ db: ctx.db, live: ctx.live, userId: ctx.userId, event: { id: eventId }, change: { starts: true, added: [draftAddedLine(draft)] }, now: ctx.now });
 }
 
 /** A failed file, by name (MW2): Meta didn't take it, or couldn't process the video. Never Meta's own message. */
@@ -248,7 +265,7 @@ export const launchDraftTool: McpTool = {
   idempotent: false,
   description: [
     "Launches a draft to Meta through Review & Launch's own path. First every file the draft holds in Storage goes to its ad account (as upload_draft_assets), then the campaign, ad sets and ads are created.",
-    'mode "paused" creates the campaign, every ad set and every ad paused: nothing spends until someone switches it on. mode "live" creates them active, so spend starts once Meta approves the ads; it is refused when the client has no daily ceiling or the draft\'s money a day is over it.',
+    'mode "paused" creates the campaign, every ad set and every ad paused: nothing spends until someone switches it on. mode "live" creates them active, so spend starts once Meta approves the ads; it is refused when the show has no spend ceiling or its committed spend with this draft would pass it.' /* PENDING DESIGN: claude.mcp.tool.launch_draft.ceiling */,
     "Refused, with nothing sent, while the launch checks (run_launch_checks) have a blocker. Answers the campaign, ad set and ad ids and the Ads Manager link.",
     "Needs Matas's yes in this chat: ask him what launches, where, the money a day and paused or live, then pass approval with your question (asked) and his reply word for word (answer).",
     'Example: launch_draft({ draft_id: "3f2c…-uuid", mode: "paused", approval: { asked: "Launch [ES27-ENZOSIRAGUSA] SIGNUP A to Meta paused? 6 ad sets, £60 a day once switched on.", answer: "yes, paused" } }).',
@@ -265,16 +282,16 @@ export const launchDraftTool: McpTool = {
     const mode: "paused" | "live" = args.mode === "live" ? "live" : "paused";
     const loaded = await loadOwnDraft(ctx, args.draft_id);
     const draftId = loaded.row.id;
-    const { clientId, clientName, eventId } = await clientOf(ctx, loaded);
+    const { clientId, eventId } = await clientOf(ctx, loaded);
 
     // Review's checks first: nothing is sent while one blocks.
     const before = await launchChecksFor(ctx, loaded.draft);
     const refusedBefore = checksRefusal(draftId, before);
     if (refusedBefore) throw refusedBefore;
 
-    // A live launch starts spend: the client's ceiling, before any upload.
+    // A live launch starts spend: the show's spend ceiling, before any upload.
     const money = draftMoneyADay(loaded.draft);
-    const ceiling = mode === "live" ? await checkSpendCeiling(ctx.db, { clientId, clientName, money }) : null;
+    const ceiling = mode === "live" ? await launchCeiling(ctx, loaded.draft, eventId, money.currency) : null;
 
     // Launch's first step: the files in Storage go to Meta, and the stamps are saved.
     const sent = await sendAndSave(ctx, meta, loaded);
@@ -332,7 +349,7 @@ export const launchDraftTool: McpTool = {
         creatives: ids.creatives,
         adsManager: link,
         moneyADay: money.gbp,
-        ...(ceiling ? { ceiling: ceiling.ceilingGbp } : {}),
+        ...(ceiling ? { ceiling: { totalGbp: ceiling.ceilingGbp, committedGbp: ceiling.after } } : {}),
         files: { sent: sent.out.calls, alreadyOnMeta: sent.out.uploaded - sent.out.calls, metaIds: uploadedIds(sent.out) },
         message,
       },
@@ -346,7 +363,7 @@ export const launchDraftTool: McpTool = {
         adIds: ids.ads.map((a) => a.id),
         failed: ids.failed,
         moneyGbp: money.gbp,
-        ...(ceiling ? { ceilingGbp: ceiling.ceilingGbp } : {}),
+        ...(ceiling ? { ceiling } : {}),
         files: filesSummary(sent.out),
         ...checksSummary(after),
       },

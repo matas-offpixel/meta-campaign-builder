@@ -20,7 +20,7 @@ import { createHash } from "node:crypto";
 import { loadCampaignTree, type LoadedTree, type TreeDb } from "../../campaign-tree/load.ts";
 import type { TreeCampaign } from "../../campaign-tree/tree.ts";
 import { normalizeAdAccountId } from "../../meta/ad-account.ts";
-import { checkSpendCeiling } from "../meta/ceiling.ts";
+import { checkShowCeiling, type ShowCeilingChecked, type ShowChange } from "../meta/show-ceiling.ts";
 import { EVENT_WORDS } from "../meta/words.ts";
 import { ToolInputError, type ToolContext } from "../tool-types.ts";
 import { clientNameOf, loadEventByCode, normaliseCode } from "../tools/shared.ts";
@@ -144,11 +144,16 @@ export function moneyADay(o: Pick<LiveObject, "dailyBudgetMinor" | "lifetimeBudg
 export const round2 = (n: number) => Math.round(n * 100) / 100;
 
 /**
- * A spend-starting or spend-raising change: the client's ceiling against
- * `gbp`, the money a day the change sets running (M3a's basis: the change's
- * own money a day). An account not in £ is refused (ceilings are in £).
+ * A spend-starting or spend-raising change: the show's spend ceiling
+ * (lib/mcp/meta/show-ceiling.ts) against its committed spend with the change
+ * applied. The changed object's own account is checked first: one not in £
+ * is refused with its own words (ceilings are in £).
  */
-export async function checkLiveCeiling(ctx: ToolContext, live: McpLiveDeps, input: { event: LiveEvent; accountId: string | null; name: string; gbp: number }): Promise<{ ceilingGbp: number; moneyGbp: number; currency: string }> {
+export async function checkLiveCeiling(
+  ctx: ToolContext,
+  live: McpLiveDeps,
+  input: { event: LiveEvent; accountId: string | null; name: string; change: ShowChange },
+): Promise<ShowCeilingChecked & { currency: string }> {
   let currency = "GBP";
   if (input.accountId) {
     try {
@@ -158,7 +163,7 @@ export async function checkLiveCeiling(ctx: ToolContext, live: McpLiveDeps, inpu
     }
   }
   if (currency !== "GBP") throw new ToolInputError(LIVE_WORDS.currency(input.name, currency), { refused: "not_gbp", currency });
-  const checked = await checkSpendCeiling(ctx.db, { clientId: input.event.clientId, clientName: input.event.clientName, money: { gbp: input.gbp, basis: "ad_set_daily", days: null, currency: "GBP" } });
+  const checked = await checkShowCeiling({ db: ctx.db, live, userId: ctx.userId, event: { id: input.event.id, code: input.event.code }, tree: input.event.tree, change: input.change, now: ctx.now });
   return { ...checked, currency };
 }
 
