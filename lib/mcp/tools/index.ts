@@ -1,7 +1,7 @@
 /**
  * lib/mcp/tools/index.ts — every MCP tool.
  *
- * M1's eight read tools and get_artist (AL5) (scope mcp:read), then the
+ * M1's eight read tools, get_artist (AL5) and strict_audit (M3d-d) (scope mcp:read), then the
  * draft tools (scope mcp:draft: app database only, campaign_drafts with
  * status draft): M2's eight and M2b's nine, enough to build a whole
  * campaign as a draft, and M3a's set_draft_name. Then the meta tools
@@ -26,6 +26,7 @@ import { getEventTool, listEventsTool } from "./events.ts";
 import { getLearningsTool } from "./learnings.ts";
 import { getCampaignTreeTool, runLaunchChecksTool } from "./pending.ts";
 import { morningToplineTool } from "./topline.ts";
+import { strictAuditTool } from "./strict-audit.ts";
 
 export const READ_TOOLS: readonly McpTool[] = [
   morningToplineTool,
@@ -39,6 +40,8 @@ export const READ_TOOLS: readonly McpTool[] = [
   getArtistTool,
   // M4a
   getRenderPackageTool,
+  // M3d-d
+  strictAuditTool,
 ];
 
 export const DRAFT_TOOLS: readonly McpTool[] = [
