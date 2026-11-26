@@ -308,7 +308,7 @@ export const launchDraftTool: McpTool = {
           : LAUNCH_WORDS.partialLive(campaignId, ids.adSets.length, plannedAdSets, link);
       throw new ToolInputError(
         message,
-        { ...logged, refused: "launch_partial", metaCampaignId: campaignId, adSetIds: ids.adSets.map((a) => a.id), adIds: ids.ads.map((a) => a.id), failed: ids.failed },
+        { ...logged, refused: "launch_partial", mode, campaignName: draft.settings.campaignName || null, metaCampaignId: campaignId, adSetIds: ids.adSets.map((a) => a.id), adIds: ids.ads.map((a) => a.id), failed: ids.failed },
         { campaign: { id: campaignId }, adSets: ids.adSets, ads: ids.ads, creatives: ids.creatives, adsManager: link },
       );
     }
@@ -342,6 +342,7 @@ export const launchDraftTool: McpTool = {
         draftId,
         mode,
         metaCampaignId: campaignId,
+        campaignName: draft.settings.campaignName || null,
         adSetIds: ids.adSets.map((a) => a.id),
         adIds: ids.ads.map((a) => a.id),
         failed: ids.failed,

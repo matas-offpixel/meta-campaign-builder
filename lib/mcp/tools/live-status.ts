@@ -20,8 +20,9 @@
 import { z } from "zod";
 import { approvalInput, requireMetaApproval } from "../meta/approval.ts";
 import { MCP_WORDS, RESULT_WORDS } from "../meta/words.ts";
-import { callKey, checkLiveCeiling, errorReason, liveEvent, metaId, moneyADay, placeObject, requireLive, round2, type LiveEvent, type Placed } from "../live/resolve.ts";
-import type { LiveKind, McpLiveDeps } from "../live/types.ts";
+import { undoOnToday } from "../meta/today-undo.ts";
+import { callKey, checkLiveCeiling, errorReason, liveEvent, metaId, moneyADay, placeObject, requireLive, round2, withBase, type LiveEvent, type Placed } from "../live/resolve.ts";
+import type { LiveKind, LiveObject, McpLiveDeps } from "../live/types.ts";
 import { LIVE_THINGS, LIVE_WORDS } from "../live/words.ts";
 import { ToolInputError, type McpTool, type ToolContext } from "../tool-types.ts";
 
@@ -49,8 +50,12 @@ export async function pausedByApp(ctx: ToolContext, id: string): Promise<boolean
 }
 
 /** The money a day turning `placed` on sets running, in the account's major unit. */
-export async function resumeMoney(ctx: ToolContext, live: McpLiveDeps, placed: Placed): Promise<number> {
-  const { object } = placed;
+export async function resumeMoney(ctx: Pick<ToolContext, "userId" | "now">, live: McpLiveDeps, placed: Pick<Placed, "object" | "campaign">): Promise<number> {
+  return resumeMoneyOf(ctx, live, placed.object, placed.campaign.metaCampaignId);
+}
+
+/** resumeMoney for an object and its campaign id (Today's Undo of a pause uses it too). */
+export async function resumeMoneyOf(ctx: Pick<ToolContext, "userId" | "now">, live: McpLiveDeps, object: LiveObject, campaignId: string): Promise<number> {
   const own = moneyADay(object, ctx.now);
   if (own != null) return own;
   if (object.kind === "campaign") {
@@ -62,7 +67,7 @@ export async function resumeMoney(ctx: ToolContext, live: McpLiveDeps, placed: P
     const m = moneyADay(parents, ctx.now);
     if (m != null) return m;
   }
-  const camp = (await live.readObjects(ctx.userId, "campaign", [placed.campaign.metaCampaignId])).objects.get(placed.campaign.metaCampaignId);
+  const camp = (await live.readObjects(ctx.userId, "campaign", [campaignId])).objects.get(campaignId);
   return camp ? (moneyADay(camp, ctx.now) ?? 0) : 0;
 }
 
@@ -81,7 +86,7 @@ async function runStatus(ctx: ToolContext, args: Record<string, unknown>, to: "P
   const placed = await placeObject(ctx, live, event, kind, id);
   const { object, name } = placed;
   const things = LIVE_THINGS[kind];
-  const base = { code: event.code, kind, objectId: id, campaignId: placed.campaign.metaCampaignId, ledgerDraftId: placed.ledger.draftId, before: { status: object.status, effectiveStatus: object.effectiveStatus } };
+  const base = { code: event.code, kind, objectId: id, name, campaignId: placed.campaign.metaCampaignId, ledgerDraftId: placed.ledger.draftId, before: { status: object.status, effectiveStatus: object.effectiveStatus } };
 
   if (to === "PAUSED" && object.status === "PAUSED") {
     return { data: { message: LIVE_WORDS.samePaused(name), changed: false }, eventId: event.id, clientId: event.clientId, summary: { ...base, noop: "already_paused" } };
@@ -104,7 +109,7 @@ async function runStatus(ctx: ToolContext, args: Record<string, unknown>, to: "P
     } catch {
       throw new ToolInputError(LIVE_WORDS.readFailed, { ...base, refused: "meta_unread" });
     }
-    ceiling = await checkLiveCeiling(ctx, live, { event, accountId: object.accountId ?? placed.campaign.adAccountId, name, gbp: money });
+    ceiling = await withBase(base, () => checkLiveCeiling(ctx, live, { event, accountId: object.accountId ?? placed.campaign.adAccountId, name, gbp: money }));
   }
 
   const key = callKey(tool, args, approval);
@@ -124,7 +129,8 @@ async function runStatus(ctx: ToolContext, args: Record<string, unknown>, to: "P
   }
   return {
     data: {
-      message: MCP_WORDS.done(RESULT_WORDS.changed(things, [id])),
+      // FC2: "Matas can undo this on Today." wherever an Undo exists (a pause or resume always has one).
+      message: [MCP_WORDS.done(RESULT_WORDS.changed(things, [id])), ...(undoOnToday(ctx) ? [MCP_WORDS.undoNote] : [])].join("\n"),
       change: to === "PAUSED" ? LIVE_WORDS.changePause(name) : LIVE_WORDS.changeResume(name),
       ...(notes.length ? { notes } : {}),
     },
@@ -135,7 +141,7 @@ async function runStatus(ctx: ToolContext, args: Record<string, unknown>, to: "P
       after: { status: to },
       key,
       ...(ceiling ? { ceiling } : {}),
-      // Today's Undo (server side; the log row isn't built yet).
+      // Today's Undo (lib/mcp/today/undo.ts) runs this pair.
       undo: { tool: to === "PAUSED" ? "resume" : "pause", kind, id },
     },
   };

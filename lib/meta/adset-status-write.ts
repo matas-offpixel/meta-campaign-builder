@@ -22,7 +22,8 @@ export const ADSET_STATUS_WRITES_ENV = "OFFPIXEL_META_ADSET_STATUS_WRITES_ENABLE
 
 export const ADSET_STATUS_WRITES_DISABLED_MESSAGE = "Turning ad sets on or off is switched off on this deployment.";
 
-export type AdSetStatus = "PAUSED" | "ACTIVE";
+/** DELETED is not sent by any caller today; the type matches the campaign and ad writes. */
+export type AdSetStatus = "PAUSED" | "ACTIVE" | "DELETED";
 
 export function adsetStatusWritesEnabled(env: Record<string, string | undefined> = process.env): boolean {
   return env[ADSET_STATUS_WRITES_ENV] === "true";
