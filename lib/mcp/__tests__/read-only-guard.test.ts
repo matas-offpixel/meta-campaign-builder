@@ -311,7 +311,7 @@ const EXTERNAL_READERS: Record<string, readonly string[]> = {
   "lib/render-templates/load.ts": ["compareTracks", "loadClips", "loadLineup"],
   "lib/creative-tests/snippet.ts": ["DROP_FOUND", "NO_CLEAR_DROP", "cantUseText", "dropSetBy", "mmss"],
   // M3b: the event's campaign tree (database reads, and Meta through the reader the live seam passes) and its pure helpers.
-  "lib/campaign-tree/load.ts": ["loadCampaignTree"],
+  "lib/campaign-tree/load.ts": ["loadCampaignTree", "loadEventAdSets", "loadEventDrafts", "splitCampaignIds"],
   "lib/campaign-tree/tree.ts": ["canWrite", "defaultSelection", "stageAccount", "stageLabel", "stageSheetCampaigns"],
   // M3d-a: the Releases card's ladder reckoning and its words (pure), as the card runs it.
   "lib/releases/types.ts": ["RELEASE_STATES", "stateIndex"],

@@ -135,25 +135,43 @@ test("paused creates PAUSED in each Graph create payload the route builds: campa
   assert.equal(resolveMetaLaunchEntityStatus({ createPaused: false }), "ACTIVE");
 });
 
-test("launch_draft live: refused with no ceiling and over the ceiling (nothing sent); within it the route creates active", async () => {
+/** The target show and its draft under another code (DHB: no brand default, so no ceiling unless one is set). */
+async function asShowCode(db: Awaited<ReturnType<typeof metaCtx>>["db"], code: string) {
+  await db.from("events").update({ event_code: code }).eq("id", EV_TGT);
+  const row = (await readRow(db, D_DRAFT))!;
+  const d = structuredClone(row.draft_json) as CampaignDraft;
+  d.settings = { ...d.settings, campaignCode: code, campaignName: `[${code}] SIGNUP` };
+  await db.from("campaign_drafts").update({ draft_json: d, name: d.settings.campaignName }).eq("id", D_DRAFT);
+}
+
+test("launch_draft live: refused with no show ceiling and when it would cross the ceiling (nothing sent); within it the route creates active", async () => {
+  // The draft: £20 + £30 a day, 24 Nov → 20 Dec (27 London days) = £1,350.00 committed by this launch.
   {
+    // A show with no ceiling (DHB: set per show).
     const { ctx, db, spy } = await metaCtx({ ceiling: null });
-    const e = await refused(run(launchDraftTool, ctx, { draft_id: D_DRAFT, mode: "live", approval: YES }), /^Refused: NX Live has no daily ceiling, so nothing that starts spend can run\. Matas sets one in Settings › Claude\. Nothing was sent to Meta\.$/);
+    await asShowCode(db, "DHB27-GLITTERBOX");
+    db.writes.length = 0;
+    const e = await refused(run(launchDraftTool, ctx, { draft_id: D_DRAFT, mode: "live", approval: YES }), /^Refused: DHB27-GLITTERBOX has no spend ceiling, so nothing that starts or raises spend can run\. Matas sets one for the show\. Nothing was sent to Meta\.$/);
     assert.equal(e.summary?.refused, "no_ceiling");
     assert.deepEqual([spy.uploads.length, spy.launches.length, db.writes.length], [0, 0, 0]);
   }
   {
-    // £20 + £30 a day.
-    const { ctx, spy } = await metaCtx({ ceiling: 40 });
-    const e = await refused(run(launchDraftTool, ctx, { draft_id: D_DRAFT, mode: "live", approval: YES }), /^Refused: this would take NX Live to £50\.00 a day, over its £40\.00 daily ceiling\. Nothing was sent to Meta\.$/);
-    assert.deepEqual([e.summary?.refused, e.summary?.moneyGbp, e.summary?.ceilingGbp], ["over_ceiling", 50, 40]);
+    // A launch that would cross the show's own £1,000 ceiling.
+    const { ctx, spy } = await metaCtx({ ceiling: 1000 });
+    const e = await refused(
+      run(launchDraftTool, ctx, { draft_id: D_DRAFT, mode: "live", approval: YES }),
+      /^Refused: this would take NX27-GLITTERBOX to £1,350\.00 committed, over its £1,000\.00 ceiling \(set for this show\)\. Committed is £0\.00 spent \(none yet\), plus £0\.00 left on live lifetime budgets and £1,350\.00 in live daily budgets to their end or the show, read from Meta now\. This change adds £1,350\.00\. Nothing was sent to Meta\.$/,
+    );
+    assert.deepEqual([e.summary?.refused, e.summary?.committedAfter, e.summary?.ceilingGbp, e.summary?.delta], ["over_ceiling", 1350, 1000, 1350]);
     assert.deepEqual([spy.uploads.length, spy.launches.length], [0, 0]);
   }
   {
-    const { ctx, spy } = await metaCtx({ ceiling: 50 });
+    // No row: the NX default (£3,000) holds it.
+    const { ctx, spy } = await metaCtx({ ceiling: null });
     const out = await run(launchDraftTool, ctx, { draft_id: D_DRAFT, mode: "live", approval: YES });
     assert.equal(spy.launches[0]!.createPaused, false);
-    assert.deepEqual([out.data.status, out.data.moneyADay, out.data.ceiling], ["ACTIVE", 50, 50]);
+    assert.deepEqual([out.data.status, out.data.moneyADay, out.data.ceiling], ["ACTIVE", 50, { totalGbp: 3000, committedGbp: 1350 }]);
+    assert.deepEqual((out.summary.ceiling as { source: unknown }).source, { kind: "default", brand: "NX" });
     // A live launch has no Undo (today.mcp.undo.live), so no undo note.
     assert.equal(
       out.data.message,
@@ -163,6 +181,13 @@ test("launch_draft live: refused with no ceiling and over the ceiling (nothing s
         "Ads Manager: https://adsmanager.facebook.com/adsmanager/manage/campaigns?act=606252931141334&selected_campaign_ids=120200000000000001",
       ].join("\n"),
     );
+  }
+  {
+    // A paused launch reads no ceiling at all.
+    const { ctx, db, spy } = await metaCtx({ ceiling: null });
+    await asShowCode(db, "DHB27-GLITTERBOX");
+    await run(launchDraftTool, ctx, { draft_id: D_DRAFT, mode: "paused", approval: YES });
+    assert.equal(spy.launches[0]!.createPaused, true);
   }
 });
 

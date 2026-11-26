@@ -14,14 +14,15 @@
  *   - budget_changed: Meta's budget isn't what it was when asked;
  *   - paused: the object (its own status) is paused;
  *   - ended: deleted, archived, or past its end time;
- *   - ceiling: a spend-raising change over the client's ceiling, or none set;
+ *   - ceiling: a spend-raising change that would take the show over its spend
+ *     ceiling (lib/mcp/meta/show-ceiling.ts), or the show has none;
  *   - switch: budget writes switched off;
  *   - unread: Meta couldn't be read when it was due.
  *
  * The only writer of scheduled_meta_changes (the guard test pins it).
  * Relative imports only (node:test).
  */
-import { checkSpendCeiling } from "../meta/ceiling.ts";
+import { checkShowCeiling } from "../meta/show-ceiling.ts";
 import type { Db } from "../tool-types.ts";
 import { londonDaysLeft, round2 } from "./resolve.ts";
 import type { LiveObject, McpLiveDeps } from "./types.ts";
@@ -147,7 +148,7 @@ export interface ScheduledRunResult {
  * The cron's run: every due row (run_at ≤ now, still scheduled), oldest
  * first, at most MAX_DUE_PER_RUN.
  */
-export async function runScheduledChanges(input: { db: Db; live: Pick<McpLiveDeps, "switches" | "readObjects" | "setBudget" | "accountInfo">; now: Date; /** M3b on (live/shipped.ts); omitted means LIVE_CHANGES_SHIPPED. */ shipped?: boolean }): Promise<ScheduledRunResult> {
+export async function runScheduledChanges(input: { db: Db; live: Pick<McpLiveDeps, "switches" | "readObjects" | "readCampaigns" | "readChildren" | "setBudget" | "accountInfo">; now: Date; /** M3b on (live/shipped.ts); omitted means LIVE_CHANGES_SHIPPED. */ shipped?: boolean }): Promise<ScheduledRunResult> {
   const { db, live, now } = input;
   const out: ScheduledRunResult = { due: 0, applied: 0, skipped: 0, failed: 0, taken: 0, metaGets: 0 };
   // M3b switched off (live/shipped.ts): nothing is read or applied.
@@ -196,10 +197,15 @@ export async function runScheduledChanges(input: { db: Db; live: Pick<McpLiveDep
       try {
         const info = await live.accountInfo(row.user_id, object.accountId ?? "");
         if ((info.currency ?? "GBP").toUpperCase() !== "GBP") throw new Error("not_gbp");
-        await checkSpendCeiling(db, {
-          clientId: row.client_id,
-          clientName: null,
-          money: { gbp: moneyAfter(object, row.field, Number(row.amount_minor), now), basis: "ad_set_daily", days: null, currency: "GBP" },
+        if (!row.event_id) throw new Error("no_show");
+        const amount = Number(row.amount_minor);
+        await checkShowCeiling({
+          db,
+          live,
+          userId: row.user_id,
+          event: { id: row.event_id },
+          change: { starts: false, objects: [{ kind: row.object_kind === "adset" ? "adset" : "campaign", id: row.object_id, ...(row.field === "daily_budget" ? { dailyMinor: amount } : { lifetimeMinor: amount }) }] },
+          now,
         });
       } catch {
         await skip("ceiling");

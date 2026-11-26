@@ -17,8 +17,9 @@
  * campaign tree again: if it isn't as the change left it ("Changed since, so
  * Undo is off."), nothing is written. An Undo that starts or raises spend
  * (resuming, a budget back up, the giver getting its money back) meets the
- * client's ceiling through checkLiveCeiling, the live tools' one ceiling
- * call, and reads "Undo refused · {reason}" past it.
+ * show's spend ceiling through checkLiveCeiling, the live tools' one ceiling
+ * call (lib/mcp/meta/show-ceiling.ts), and reads "Undo refused · {reason}"
+ * past it.
  *
  * Every Undo pressed is one mcp_actions row (tool today_undo, kind meta,
  * approval_source today, approved by Matas), through the action log: the
@@ -34,9 +35,9 @@
  */
 import type { ActionLogger } from "../action-log.ts";
 import { checkLiveCeiling, liveEvent, placeObject, type LiveEvent, type Placed } from "../live/resolve.ts";
-import { cancelScheduled, getScheduled, moneyAfter, type ScheduledRow } from "../live/scheduled.ts";
+import { cancelScheduled, getScheduled, type ScheduledRow } from "../live/scheduled.ts";
+import type { ShowChange } from "../meta/show-ceiling.ts";
 import type { LiveKind, LiveObject, McpLiveDeps } from "../live/types.ts";
-import { resumeMoneyOf } from "../tools/live-status.ts";
 import { ToolInputError, type Db } from "../tool-types.ts";
 import { LOGGED_TOOLS, UNDO_TOOL } from "./log.ts";
 import { money, reasonOf, tw } from "./words.ts";
@@ -144,11 +145,11 @@ async function alreadyUndone(db: Db, userId: string, key: string): Promise<boole
   return ((res.data ?? []) as Array<{ result: Json | null }>).some((u) => u.result?.undoOf === key);
 }
 
-/** A ceiling refusal's short reason, in the logged refusal rows' words (FC-B: "Undo refused · Puzzle has no daily ceiling, and this starts spend"). */
-function ceilingReason(e: ToolInputError, clientName: string): { reason: string; refused: string } {
+/** A ceiling refusal's short reason, in the logged refusal rows' words (e.g. "Undo refused · P26-BDAY has no spend ceiling, and this starts or raises spend"). */
+function ceilingReason(e: ToolInputError, code: string): { reason: string; refused: string } {
   const s = (e.summary ?? {}) as Json;
-  if (s.refused === "over_ceiling") return { refused: "over_ceiling", reason: reasonOf(tw("today.mcp.row.refused", { client: clientName, x: money(num(s.moneyGbp) ?? 0), c: money(num(s.ceilingGbp) ?? 0) })) };
-  if (s.refused === "no_ceiling") return { refused: "no_ceiling", reason: reasonOf(tw("today.mcp.row.refused.none", { client: clientName })) };
+  if (s.refused === "over_ceiling") return { refused: "over_ceiling", reason: reasonOf(tw("today.mcp.row.refused", { code, x: money(num(s.committedAfter) ?? 0), c: money(num(s.ceilingGbp) ?? 0) })) };
+  if (s.refused === "no_ceiling") return { refused: "no_ceiling", reason: reasonOf(tw("today.mcp.row.refused.none", { code })) };
   return { refused: String(s.refused ?? "ceiling"), reason: reasonOf(tw("today.mcp.row.failed.none")) };
 }
 
@@ -254,9 +255,8 @@ export async function runUndo(deps: UndoDeps, key: string, opts: { confirmed?: b
       return null;
     }
   };
-  const clientName = event.clientName ?? event.code;
-  const ceiling = async (placed: Placed, gbp: number) => {
-    await checkLiveCeiling({ db, userId }, live, { event, accountId: placed.object.accountId ?? placed.campaign.adAccountId, name: placed.name, gbp });
+  const ceiling = async (placed: Placed, change: ShowChange) => {
+    await checkLiveCeiling({ db, userId, now }, live, { event, accountId: placed.object.accountId ?? placed.campaign.adAccountId, name: placed.name, change });
   };
 
   try {
@@ -265,10 +265,10 @@ export async function runUndo(deps: UndoDeps, key: string, opts: { confirmed?: b
       if (!placed || placed.object.status !== plan.expect) return off("status");
       if (plan.to === "ACTIVE") {
         try {
-          await ceiling(placed, await resumeMoneyOf({ userId, now }, live, placed.object, placed.campaign.metaCampaignId));
+          await ceiling(placed, { starts: true, objects: plan.kind === "ad" ? [] : [{ kind: plan.kind, id: plan.id, status: "ACTIVE" }] });
         } catch (e) {
           if (e instanceof ToolInputError) {
-            const c = ceilingReason(e, clientName);
+            const c = ceilingReason(e, event.code);
             return refuse(c.refused, c.reason);
           }
           throw e;
@@ -284,10 +284,10 @@ export async function runUndo(deps: UndoDeps, key: string, opts: { confirmed?: b
       if (!placed || current !== plan.expect) return off("budget");
       if (plan.back > plan.expect) {
         try {
-          await ceiling(placed, moneyAfter(placed.object, plan.field, plan.back, now));
+          await ceiling(placed, { starts: false, objects: [{ kind: plan.kind, id: plan.id, ...(plan.field === "daily_budget" ? { dailyMinor: plan.back } : { lifetimeMinor: plan.back }) }] });
         } catch (e) {
           if (e instanceof ToolInputError) {
-            const c = ceilingReason(e, clientName);
+            const c = ceilingReason(e, event.code);
             return refuse(c.refused, c.reason);
           }
           throw e;
@@ -302,10 +302,16 @@ export async function runUndo(deps: UndoDeps, key: string, opts: { confirmed?: b
       const taker = await place("adset", plan.taker);
       if (!giver || !taker || giver.object.dailyBudgetMinor !== plan.expectGiver || taker.object.dailyBudgetMinor !== plan.expectTaker) return off("budget");
       try {
-        await ceiling(taker, (plan.expectTaker + plan.deltaMinor) / 100);
+        await ceiling(taker, {
+          starts: false,
+          objects: [
+            { kind: "adset", id: plan.giver, dailyMinor: plan.expectGiver - plan.deltaMinor },
+            { kind: "adset", id: plan.taker, dailyMinor: plan.expectTaker + plan.deltaMinor },
+          ],
+        });
       } catch (e) {
         if (e instanceof ToolInputError) {
-          const c = ceilingReason(e, clientName);
+          const c = ceilingReason(e, event.code);
           return refuse(c.refused, c.reason);
         }
         throw e;

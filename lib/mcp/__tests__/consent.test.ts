@@ -342,7 +342,7 @@ test("design's re-ruled consent rows (26 Nov verdict): the drafts permission now
   );
   assert.equal(
     CONSENT_WORDS.meta,
-    "It can read every client's events, spend, signup and ticket counts, drafts and learnings, make events and clients, set lineups, ticket releases and the Lab's drops and clip owners, put files in a show's own Drive folders, and make, change and archive campaign drafts. It can also send files to Meta, launch drafts paused or live, change live campaigns, and change an event's dates and links, each only after you say yes in Claude. It can't start or raise spend past a client's daily ceiling, and every change is listed on Today.",
+    "It can read every client's events, spend, signup and ticket counts, drafts and learnings, make events and clients, set lineups, ticket releases and the Lab's drops and clip owners, put files in a show's own Drive folders, and make, change and archive campaign drafts. It can also send files to Meta, launch drafts paused or live, change live campaigns, and change an event's dates and links, each only after you say yes in Claude. It can't start or raise spend past a show's spend ceiling, and every change is listed on Today.",
   );
   assert.equal(CONSENT_WORDS.titleUpgrade, "Let Claude change drafts and set up shows in Off/Pixel");
   assert.equal(CONSENT_WORDS.titleUpgradeLoopback, "Let an app on this computer change drafts and set up shows in Off/Pixel");

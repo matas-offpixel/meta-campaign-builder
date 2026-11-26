@@ -6,7 +6,8 @@
  * (the server's own errorAnswer, or the tool's data) is checked:
  *   - it carries no HTTP status, Meta message, video_status or database text;
  *   - its message lines, and each failed-file line, are rows of design's
- *     list (the fixture), placeholders filled.
+ *     list (the fixture), placeholders filled, or the per-show ceiling's
+ *     declared PENDING DESIGN candidates (CEILING_FOR_DESIGN, PR D).
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -16,15 +17,20 @@ import { launchDraftTool, uploadDraftAssetsTool } from "../tools/meta-launch.ts"
 import { updateEventTool } from "../tools/meta-event.ts";
 import { attachDriveCreativesTool } from "../tools/draft-drive.ts";
 import type { McpTool, ToolContext } from "../tool-types.ts";
-import { CLIENT_EL, D_DRAFT, D_STAFF, UPDATED } from "./draft-fixtures.ts";
+import { CLIENT_EL, D_DRAFT, D_STAFF, EV_TGT, UPDATED } from "./draft-fixtures.ts";
 import { LAUNCHED, YES, driveCtx, metaCtx } from "./meta-fixtures.ts";
+import { CEILING_FOR_DESIGN } from "../meta/ceiling-words.ts";
 
 const FIXTURE = new URL("./fixtures/words-mcp-today-2026-11-25.tsv", import.meta.url);
-const ROWS = readFileSync(FIXTURE, "utf8")
-  .split("\n")
-  .slice(1)
-  .filter(Boolean)
-  .map((l) => l.split("\t")[2]!);
+const ROWS = [
+  ...readFileSync(FIXTURE, "utf8")
+    .split("\n")
+    .slice(1)
+    .filter(Boolean)
+    .map((l) => l.split("\t")[2]!),
+  // PENDING DESIGN (PR D): the per-show ceiling's refusals, until design rules them.
+  ...CEILING_FOR_DESIGN.map((w) => w.candidate),
+];
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const PATTERNS = ROWS.map((w) => new RegExp(`^${escape(w).replace(/\\\{[^}]+\\\}/g, "[\\s\\S]+?")}$`));
 const isRow = (line: string) => PATTERNS.some((p) => p.test(line));
@@ -130,7 +136,7 @@ test("the launch route: an error with no campaign, an error after the campaign, 
   ];
   for (const mode of ["paused", "live"] as const) {
     for (const [label, launchFn] of cases) {
-      const { ctx } = await metaCtx({ ceiling: 500 });
+      const { ctx } = await metaCtx({ ceiling: 5000 });
       ctx.meta = { ...ctx.meta!, launch: launchFn };
       const a = await answer(launchDraftTool, ctx, launch(mode));
       assertClean(a, `launch_draft ${mode} ${label}`);
@@ -205,11 +211,17 @@ test("update_event: not an event code", async () => {
 
 test("database errors: the ceiling read (live launch) and update_event's read and save", async () => {
   {
-    const { ctx } = await metaCtx({ ceiling: 500 });
-    failing(ctx, "client_spend_ceilings", DB_MESSAGE);
-    const a = await answer(launchDraftTool, ctx, launch("live"));
-    assertClean(a, "launch_draft ceiling");
-    assert.equal(a.error, "Refused: the client’s daily ceiling couldn’t be read. Try again. Nothing was sent to Meta.");
+    const { ctx } = await metaCtx({ ceiling: 5000 });
+    for (const table of ["show_spend_ceilings", "show_spend_ceiling_events", "ad_daily_insights"]) {
+      const { ctx: c, db: cdb } = await metaCtx({ ceiling: 5000 });
+      // A campaign the show has had, so its spend to date is read.
+      await cdb.from("events").update({ meta_campaign_id: "120200000000000099" }).eq("id", EV_TGT);
+      failing(c, table, DB_MESSAGE);
+      const a = await answer(launchDraftTool, c, launch("live"));
+      assertClean(a, `launch_draft ceiling (${table})`);
+      assert.equal(a.error, "Refused: NX27-GLITTERBOX’s spend ceiling or spend to date couldn’t be read. Try again. Nothing was sent to Meta.", table);
+    }
+    void ctx;
   }
   for (const table of ["events"]) {
     const { ctx } = await metaCtx();
@@ -257,7 +269,7 @@ test("refusals and successes are rows too: no approval, no ceiling, over it, che
     assertClean(await answer(launchDraftTool, ctx, launch("paused")), "checks");
   }
   for (const mode of ["paused", "live"] as const) {
-    const { ctx } = await metaCtx({ ceiling: 500 });
+    const { ctx } = await metaCtx({ ceiling: 5000 });
     assertClean(await answer(launchDraftTool, ctx, launch(mode)), `launched ${mode}`);
   }
   {

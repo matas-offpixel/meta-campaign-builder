@@ -279,10 +279,10 @@ function changedMeta(a: LoggedAction): boolean {
 function refusedText(a: LoggedAction, ctx: LogContext): string | null {
   const r = a.result ?? {};
   const why = str(r.refused);
-  const client = (str(r.clientId) && ctx.clientNames.get(str(r.clientId)!)) || (a.client_id && ctx.clientNames.get(a.client_id)) || str(r.clientId) || "";
   if (why === "no_approval") return tw("today.mcp.row.refused.no_approval");
-  if (why === "over_ceiling") return tw("today.mcp.row.refused", { client, x: money(num(r.moneyGbp) ?? 0), c: money(num(r.ceilingGbp) ?? 0) });
-  if (why === "no_ceiling") return tw("today.mcp.row.refused.none", { client });
+  // The show's spend ceiling (#1397): the show's code, its committed spend after the change and its ceiling.
+  if (why === "over_ceiling") return tw("today.mcp.row.refused", { code: codeOf(a, ctx), x: money(num(r.committedAfter) ?? 0), c: money(num(r.ceilingGbp) ?? 0) });
+  if (why === "no_ceiling") return tw("today.mcp.row.refused.none", { code: codeOf(a, ctx) });
   if (why === "switch_off") return tw("today.mcp.row.refused.switch");
   if (why === "launch_checks") {
     // launch_draft's checksRefusal: the launch checks' blockers plus the wizard's.

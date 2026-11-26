@@ -17,7 +17,7 @@ import { APPROVAL_WORDS } from "../meta/approval.ts";
 import { CEILING_WORDS } from "../meta/ceiling.ts";
 
 const FIXTURE = new URL("./fixtures/words-mcp-today-2026-11-25.tsv", import.meta.url);
-const SHA256 = "542174265f860b0167ecae82ee56622e94f23262fd46e4bdabf13423d6523477";
+const SHA256 = "a67a83c0ff25fd8304f15778e06a6ba031cc2f90f11b723c8ffb465c3a15759d";
 
 const raw = readFileSync(FIXTURE);
 const rows = new Map(
@@ -39,7 +39,7 @@ function row(key: string, vars: Record<string, string | number> = {}): string {
   return words!.replace(/\{([a-z_, ]+)\}/g, (m, name: string) => (name in vars ? String(vars[name]) : m));
 }
 
-test("the fixture is design's list: header + 249 rows (consent.line2.meta and settings.claude.scope.drafts re-ruled 26 Nov; record 2026-11-26-mcp-m3b-today adds 32), sha256 54217426…", () => {
+test("the fixture is design's list: header + 249 rows (consent.line2.meta and settings.claude.scope.drafts re-ruled 26 Nov; record 2026-11-26-mcp-m3b-today adds 32; #1397's five Today rows from the 27 Nov list, and consent.line2.meta with its ceiling clause only, #1400 landing the full line), sha256 a67a83c0…", () => {
   assert.equal(createHash("sha256").update(raw).digest("hex"), SHA256);
   assert.equal(rows.size, 249);
 });

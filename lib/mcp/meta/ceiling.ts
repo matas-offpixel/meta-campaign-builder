@@ -1,6 +1,12 @@
 /**
  * lib/mcp/meta/ceiling.ts — each client's daily ceiling (M3a).
  *
+ * PR D (Matas, 26 Nov: "the ceiling is the campaign budget"): the spend guard
+ * is now the per-show ceiling in lib/mcp/meta/show-ceiling.ts. Nothing calls
+ * checkSpendCeiling or loadCeiling any more, and client_spend_ceilings (268)
+ * is read by nothing; both stay (additive only). draftMoneyADay is still the
+ * launch's "up to £x a day".
+ *
  * client_spend_ceilings (migration 268): one `daily_gbp` per client, set by
  * Matas only (scripts/set-client-ceiling.mts until Settings › Claude ships).
  * A change through the connector that starts or raises spend (a live
