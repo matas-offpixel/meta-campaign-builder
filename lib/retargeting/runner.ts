@@ -184,6 +184,20 @@ export function funnelBuiltOf(row: FunnelBuildRow | undefined): RetargetingInput
   return { state: row.state, mode: row.mode, campaignId: row.meta_campaign_id ?? row.progress?.campaignId ?? null, tiers, took };
 }
 
+/** Meta's minimum, as the audience tools read it (#1400): an audience it sizes under 100. */
+export const SIMILAR_MINIMUM = 100;
+
+/** The Similar tier's stored audiences' sizes (one GET each): all under Meta's minimum skips the tier this read. Null reads count as large enough. */
+export async function similarSizesOf(graph: RefreshGraph, ids: readonly string[]): Promise<{ allUnderMinimum: boolean; calls: number }> {
+  let under = 0;
+  for (const id of ids) {
+    const body = (await graph.graphGet(`/${id}`, { fields: "approximate_count_upper_bound" }).catch(() => null)) as { approximate_count_upper_bound?: number } | null;
+    const upper = Number(body?.approximate_count_upper_bound);
+    if (Number.isFinite(upper) && upper >= 0 && upper < SIMILAR_MINIMUM) under += 1;
+  }
+  return { allUnderMinimum: ids.length > 0 && under === ids.length, calls: ids.length };
+}
+
 /** RF5: each tier's 7-day frequency and spend (GET /{campaign}/insights, level=adset, last 7 days): one call. */
 export async function funnelWeekOf(graph: RefreshGraph, campaignId: string, adSets: Partial<Record<FunnelTier, { id: string }>>): Promise<Partial<Record<FunnelTier, TierWeek>> | undefined> {
   const body = (await graph.graphGet(`/${campaignId}/insights`, { level: "adset", date_preset: "last_7d", fields: "adset_id,frequency,spend" }).catch(() => null)) as { data?: { adset_id?: string; frequency?: string | number; spend?: string | number }[] } | null;
@@ -244,6 +258,8 @@ export function retargetingInput(args: {
   /** Staged two-campaign record: on, and the show's genre page group. */
   twoCampaigns?: boolean;
   pageGroup?: RetargetingInput["pageGroup"];
+  genreFamily?: string | null;
+  similarTooSmall?: boolean;
   /** The show's funnel build and its 7-day figures; its stored audience keys. */
   funnelBuilt?: RetargetingInput["funnelBuilt"];
   funnelWeek?: RetargetingInput["funnelWeek"];
@@ -319,6 +335,8 @@ export function retargetingInput(args: {
     announceDay: args.announcementAt ? args.announcementAt.slice(0, 10) : null,
     twoCampaigns: args.twoCampaigns ?? false,
     pageGroup: args.pageGroup ?? null,
+    genreFamily: args.genreFamily ?? null,
+    similarTooSmall: args.similarTooSmall ?? false,
     // Wider's suggestions: the lineup's and the genre's interests aren't read yet (staged); Broad then runs with none.
     lineupInterests: [],
     genreInterests: [],
@@ -588,7 +606,15 @@ export async function runRetargetingRead(input: {
       const madeAudiences = madeRows.filter((row) => row.event_id === event.id && row.meta_audience_id).map((row) => row.part);
       const genre = sourceRows.events.find((row) => row.id === event.id)?.genre_family ?? null;
       const pageGroup = SHOW_CAMPAIGNS_RULED ? await loadPageGroup(input.db, event.client_id, genre) : null;
-      const planInput = retargetingInput({ twoCampaigns: SHOW_CAMPAIGNS_RULED, pageGroup, announcementAt, funnelBuilt, funnelWeek, madeAudiences, event, day, rows, campaigns: inputs.campaigns, read, budgets: purchases.budgets, sources, appliedLine, minDailyMinor: account ? (minDaily.get(account) ?? null) : null, linksRead: links.linksRead, pixelHosts: pixelId ? (hostsByPixel.get(pixelId) ?? null) : null, campaignStatus, otherLandingHosts: [...otherLandingHosts(landingByShow, event.id)], linkSizes, testWinner, pooledRead, signups: signupsSyncOf(syncRows.filter((row) => row.event_id === event.id), event), accountTimeZone: account ? (timeZones.get(account) ?? null) : null });
+      // Matas, 26 Nov: rechecked on every read — Similar's stored audiences sized under Meta's minimum skip it (its share goes to Cold).
+      let similarTooSmall = false;
+      const similarStored = madeRows.filter((row) => row.event_id === event.id && row.meta_audience_id && /^rf:similar_/.test(row.part));
+      if (SHOW_CAMPAIGNS_RULED && similarStored.length && input.graph) {
+        const sized = await similarSizesOf(input.graph, similarStored.map((row) => row.meta_audience_id!));
+        metaCalls += sized.calls;
+        similarTooSmall = sized.allUnderMinimum;
+      }
+      const planInput = retargetingInput({ twoCampaigns: SHOW_CAMPAIGNS_RULED, pageGroup, genreFamily: genre, similarTooSmall, announcementAt, funnelBuilt, funnelWeek, madeAudiences, event, day, rows, campaigns: inputs.campaigns, read, budgets: purchases.budgets, sources, appliedLine, minDailyMinor: account ? (minDaily.get(account) ?? null) : null, linksRead: links.linksRead, pixelHosts: pixelId ? (hostsByPixel.get(pixelId) ?? null) : null, campaignStatus, otherLandingHosts: [...otherLandingHosts(landingByShow, event.id)], linkSizes, testWinner, pooledRead, signups: signupsSyncOf(syncRows.filter((row) => row.event_id === event.id), event), accountTimeZone: account ? (timeZones.get(account) ?? null) : null });
       const plan = planRetargeting(planInput);
       const record: RetargetingRecord = { eventId: event.id, eventCode: event.event_code, plan, input: planInput, proposalId: null };
       // RT13: a running campaign's rules against today's links. A failed read keeps the last rules, so nothing is compared.

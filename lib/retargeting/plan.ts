@@ -260,6 +260,10 @@ export type RetargetingInput = {
   twoCampaigns?: boolean;
   /** The show's genre page group (page_groups); null = none or unconfirmed. */
   pageGroup?: PageGroup | null;
+  /** events.genre_family (Similar's "no genre" skip). */
+  genreFamily?: string | null;
+  /** Meta sizes the group's stored engagement audiences under its minimum (rechecked each read). */
+  similarTooSmall?: boolean;
   /** The lineup artists that are Meta interests, and the genre's interests (Wider's suggestions). */
   lineupInterests?: Interest[];
   genreInterests?: Interest[];
@@ -505,7 +509,7 @@ function funnelPlanOf(input: RetargetingInput): FunnelShowPlan | null {
     minDailyMinor: input.minDailyMinor,
     sources,
     made: new Set(input.madeAudiences ?? []),
-    spec: input.twoCampaigns ? { twoCampaigns: true, pageGroup: input.pageGroup ?? null } : undefined,
+    spec: input.twoCampaigns ? { twoCampaigns: true, pageGroup: input.pageGroup ?? null, genreFamily: input.genreFamily ?? null, similarTooSmall: input.similarTooSmall ?? false } : undefined,
     existing: input.funnelBuilt ? { totalMinor: input.funnelBuilt.tiers.similar + input.funnelBuilt.tiers.cold + input.funnelBuilt.tiers.warm + input.funnelBuilt.tiers.hot, took: input.funnelBuilt.took } : null,
   });
 }
@@ -587,6 +591,7 @@ export function planRetargeting(input: RetargetingInput): RetargetingPlan {
     draftId: input.where.draftId,
     adAccountId: input.where.adAccountId,
     campaignIds: input.where.campaignIds,
+    spec: input.twoCampaigns ? { twoCampaigns: true, pageGroup: input.pageGroup ?? null, genreFamily: input.genreFamily ?? null, similarTooSmall: input.similarTooSmall ?? false } : undefined,
     wider: input.twoCampaigns ? widerBuild(input, plan, sources) : null,
   };
   return { state: "proposed", takes: true, view: { ...base, state: "proposed", notProposed: null, create, signal, funnel }, build, held, funnel: plan };

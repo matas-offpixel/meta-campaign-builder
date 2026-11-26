@@ -393,7 +393,8 @@ const EXTERNAL_READERS: Record<string, readonly string[]> = {
   "lib/onsale-refresh/purchases.ts": ["resolvePixel"],
   "lib/meta/page-access-request.ts": ["DEFAULT_PAGE_REQUEST_TASKS", "OFF_PIXEL_BUSINESS_IDS", "PAGE_REQUESTS_PER_DAY", "PAGE_REQUEST_TASKS"],
   // M3c: the retargeting funnel's words and plan lines, and its sources from the read (pure).
-  "lib/retargeting/funnel-plan.ts": ["claudePlanLines", "doneLine", "planHead", "skipLine", "skipReason"],
+  "lib/retargeting/funnel-plan.ts": ["claudePlanLines", "doneLine", "planHead", "similarSkipLine", "skipLine", "skipReason"],
+  "lib/retargeting/funnel.ts": ["SPLIT_WITH_SIMILAR"],
   "lib/retargeting/funnel-view.ts": ["funnelSourcesOf"],
   // Staged two-campaign record: the keep / pause / fold advice, the settings read-back's words and the flag (pure).
   "lib/retargeting/show-campaigns.ts": ["adviceLine", "adviseExisting", "foldFirstLine", "geoNotReadLine", "SHOW_CAMPAIGNS_RULED", "untickLine", "widerPlanLine"],

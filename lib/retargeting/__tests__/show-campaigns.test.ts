@@ -10,7 +10,7 @@ import { describe, it } from "node:test";
 
 import { tierAdSetPayload, widerAdSetPayload, widerCampaignFields } from "../apply.ts";
 import { capTiers, funnelSpecs, funnelTiersMatching, RF3, SPLIT_WITH_SIMILAR, splitOf, splitTotal, stepsAfter, type FunnelSources, type PageGroup } from "../funnel.ts";
-import { planFunnelShow } from "../funnel-plan.ts";
+import { claudePlanLines, planFunnelShow } from "../funnel-plan.ts";
 import { noGenreLine, planPageGroups } from "../page-groups.ts";
 import { adviseExisting, advantageOff, geoExpansionOff, geoNotReadLine, lookalikeOrigins, SHOW_CAMPAIGNS_RULED, untickLine, widerAfterStep, widerSpecs } from "../show-campaigns.ts";
 
@@ -196,5 +196,34 @@ describe("the settings read-back (Matas, 26 Nov item 2)", () => {
     // Design's words on #1401 (27 Nov), curly quotes and apostrophes as ruled.
     assert.equal(untickLine("X · Retargeting · Hot"), "X · Retargeting · Hot still has location expansion on. Untick “Reach more people likely to respond to your ads” for it in Ads Manager.");
     assert.equal(geoNotReadLine("X · Retargeting · Hot"), "Location expansion couldn’t be read back for X · Retargeting · Hot, so it may be on. Check “Reach more people likely to respond to your ads” in Ads Manager.");
+  });
+});
+
+describe("Matas, 26 Nov: no Similar this stretch, its share goes to Cold, and the plan says so", () => {
+  const plan = (spec: Parameters<typeof planFunnelShow>[0]["spec"], over: Partial<Parameters<typeof planFunnelShow>[0]> = {}) =>
+    planFunnelShow({ code: "X", runDay: "2026-10-20", showDay: "2026-12-12", announceDay: "2026-09-29", prospecting: PROSPECTING, sources: SOURCES, spec, ...over });
+
+  for (const [label, spec, reason, why] of [
+    ["no genre", { twoCampaigns: true, pageGroup: null, genreFamily: null }, "no_genre", "the show has no genre set"],
+    ["no confirmed group", { twoCampaigns: true, pageGroup: { ...GROUP, confirmed: false }, genreFamily: "drum_and_bass" }, "no_group", "there's no confirmed page group for its genre"],
+    ["a group under Meta's minimum", { twoCampaigns: true, pageGroup: GROUP, genreFamily: "drum_and_bass", similarTooSmall: true }, "too_small", "the page group's audience is under Meta's minimum"],
+  ] as const) {
+    it(`${label}: normally, Cold is 30 + 20 = 50 %; Warm and Hot keep theirs; the line says so`, () => {
+      const out = plan(spec);
+      assert.equal(out.similarSkip, reason);
+      assert.equal(out.tiers.similar, 0);
+      assert.deepEqual(splitOf("normally", true, true), { similar: 0, cold: SPLIT_WITH_SIMILAR.normally.cold + SPLIT_WITH_SIMILAR.normally.similar, warm: SPLIT_WITH_SIMILAR.normally.warm, hot: SPLIT_WITH_SIMILAR.normally.hot });
+      assert.deepEqual(out.tiers, splitTotal(out.totalMinor, splitOf("normally", true, true))!.tiers);
+      assert.ok(claudePlanLines(out, SOURCES).includes(`Similar is skipped: ${why}, so its 20 % goes to Cold this stretch.`));
+    });
+  }
+
+  it("rechecked each read: a group confirmed later brings Similar back from the next step", () => {
+    const built = { totalMinor: 1800, took: [] };
+    const before = plan({ twoCampaigns: true, pageGroup: { ...GROUP, confirmed: false }, genreFamily: "drum_and_bass" }, { existing: built });
+    assert.ok(before.steps.length > 0 && before.steps.every((step) => step.tiers.similar === 0));
+    const after = plan({ twoCampaigns: true, pageGroup: GROUP, genreFamily: "drum_and_bass" }, { existing: built });
+    assert.equal(after.similarSkip, null);
+    assert.ok(after.steps[0]!.tiers.similar > 0);
   });
 });

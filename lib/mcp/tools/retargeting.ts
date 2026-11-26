@@ -26,7 +26,8 @@
  */
 import { z } from "zod";
 import type { FunnelBuild, FunnelProgress } from "../../retargeting/funnel-apply.ts";
-import { claudePlanLines, doneLine, planHead, skipLine, skipReason, type SkipReason } from "../../retargeting/funnel-plan.ts";
+import { claudePlanLines, doneLine, planHead, similarSkipLine, skipLine, skipReason, type SkipReason } from "../../retargeting/funnel-plan.ts";
+import { SPLIT_WITH_SIMILAR } from "../../retargeting/funnel.ts";
 import { funnelSourcesOf } from "../../retargeting/funnel-view.ts";
 import { adviceLine, adviseExisting, foldFirstLine, geoNotReadLine, SHOW_CAMPAIGNS_RULED, untickLine, widerPlanLine } from "../../retargeting/show-campaigns.ts";
 import type { RetargetingRecord } from "../../retargeting/runner.ts";
@@ -272,7 +273,8 @@ export const createShowCampaignsTool: McpTool = {
       ...readBack.filter((row) => row.read !== false && !row.geoOff).map((row) => untickLine(row.name)),
       ...readBack.filter((row) => row.read !== false && !row.advantageOff).map((row) => suggestionOnLine(row.name)),
     ];
-    const message = [doneLine({ code: code!, live, made: ids.audiences_made, takenMinor: taken }), ...(live && out.step === "schedule" ? [RT_CLAUDE_WORDS.stepsNotScheduled] : []), ...settings].join("\n");
+    const similarSkipped = progress.similarSkipped ? [similarSkipLine(progress.similarSkipped, SPLIT_WITH_SIMILAR[build.plan.stretch].similar)] : [];
+    const message = [doneLine({ code: code!, live, made: ids.audiences_made, takenMinor: taken }), ...similarSkipped, ...(live && out.step === "schedule" ? [RT_CLAUDE_WORDS.stepsNotScheduled] : []), ...settings].join("\n");
     return { data: { message, ...ids, ads_manager: link }, eventId, clientId: ownerRow.client_id, summary: { ...summary, takenMinor: taken } };
   },
 };

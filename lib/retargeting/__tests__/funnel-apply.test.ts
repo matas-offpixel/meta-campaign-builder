@@ -323,3 +323,28 @@ describe("Job 2's finding (26 Nov): ad videos with no Page", () => {
     assert.deepEqual(video.map((call) => [String(call[1]).split(":").slice(0, 4).join(":"), call[2]]), [["rf:video75:180:1001", ["1001"]], ["rf:video95:60:1001", ["1001"]]]);
   });
 });
+
+describe("Matas, 26 Nov: Similar's audience under Meta's minimum at build", () => {
+  it("Similar is skipped and its budget goes to Cold; nothing else stops", async () => {
+    const group = { id: "g1", genreFamily: "drum_and_bass", pageIds: ["2001"], igIds: [], confirmed: true };
+    const plan = planFunnelShow({ code: "NX26-RUDIMENTAL", runDay: "2026-11-26", showDay: "2026-12-12", announceDay: "2026-09-29", prospecting: PROSPECTING, sources: SOURCES, spec: { twoCampaigns: true, pageGroup: group, genreFamily: "drum_and_bass" } });
+    const base = twoCampaignBuild();
+    const build: FunnelBuild = { ...base, plan: { ...base.plan, tiers: plan.tiers, totalMinor: plan.totalMinor }, spec: { twoCampaigns: true, pageGroup: group, genreFamily: "drum_and_bass" } };
+    assert.ok(plan.tiers.similar > 0);
+    const { calls, deps, ctx } = setup();
+    const similarIds = new Set<string>();
+    const make = deps.createAudience;
+    deps.createAudience = async (aud, name, account) => {
+      const made = await make(aud, name, account);
+      if (made && aud.key.startsWith("rf:similar_")) similarIds.add(made.metaAudienceId);
+      return made;
+    };
+    deps.meta.audienceState = async (id) => (similarIds.has(id) ? "too_small" : "ready");
+    const out = await applyFunnel(deps, build, ctx("paused"));
+    assert.equal(out.state, "applied", out.reason ?? "");
+    assert.equal(out.progress.similarSkipped, "too_small");
+    assert.equal(out.progress.adSets?.similar, undefined);
+    const cold = names(calls, "createAdSet").find((call) => call[1] === "NX26-RUDIMENTAL · Retargeting · Cold")!;
+    assert.equal(cold[3], plan.tiers.cold + plan.tiers.similar);
+  });
+});

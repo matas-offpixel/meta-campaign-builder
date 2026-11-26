@@ -25,6 +25,7 @@ import {
   audiencesToMake,
   FLOOR_MINOR,
   NO_TIERS,
+  SPLIT_WITH_SIMILAR,
   funnelSpecs,
   FUNNEL_TIERS,
   missingAccess,
@@ -36,6 +37,8 @@ import {
   takeFromProspecting,
   takeFromText,
   splitOf,
+  similarSkipOf,
+  type SimilarSkip,
   type FunnelSources,
   type SpecOptions,
   type FunnelSpec,
@@ -104,6 +107,8 @@ export type FunnelShowPlan = {
   noMoney: boolean;
   specs: FunnelSpec[];
   audiences: { made: number; toMake: number; missingAccess: number };
+  /** Two campaigns: why Similar doesn't run this read (its share is Cold's), or null. */
+  similarSkip: SimilarSkip | null;
   /** Each later step to the show day. */
   steps: FunnelStepPlan[];
 };
@@ -141,8 +146,11 @@ export function planFunnelShow(input: FunnelShowInput): FunnelShowPlan {
   const existing = input.existing ?? null;
   const showDailyMinor = showDailyOf(input.prospecting) + (existing?.totalMinor ?? 0);
   const twoCampaigns = input.spec?.twoCampaigns === true;
+  // Rechecked on every read: a group confirmed later, or an audience grown past Meta's minimum, brings Similar back from the next step.
+  const similarSkip = similarSkipOf(input.spec ?? {});
+  const splitFor = (s: FunnelStretch) => splitOf(s, twoCampaigns, similarSkip != null);
   const specs = funnelSpecs(input.sources, input.spec);
-  const buildable = specs.map((spec) => spec.tier).filter((tier) => splitOf(stretch, twoCampaigns)[tier] > 0);
+  const buildable = specs.map((spec) => spec.tier).filter((tier) => splitFor(stretch)[tier] > 0);
   const floors = floor * Math.max(1, buildable.length);
   const targetMinor = Math.floor((showDailyMinor * rule.share) / 100 + 1e-9);
   // Two campaigns (staged; Matas, 26 Nov: "folds prospecting"): Wider replaces the show's prospecting and gives Retargeting its share,
@@ -156,8 +164,8 @@ export function planFunnelShow(input: FunnelShowInput): FunnelShowPlan {
   const made = input.made ?? new Set<string>();
   const toMake = audiencesToMake(specs);
   const audiences = { made: toMake.filter((aud) => made.has(aud.key)).length, toMake: toMake.filter((aud) => !made.has(aud.key)).length, missingAccess: missingAccess(input.sources.accounts).length };
-  const base = { code: input.code, stretch, share: rule.share, showDailyMinor, targetMinor, specs, audiences };
-  const split = take.takenMinor >= floors ? splitTotal(take.takenMinor, splitOf(stretch, twoCampaigns), { floorMinor: floor, buildable }) : null;
+  const base = { code: input.code, stretch, share: rule.share, showDailyMinor, targetMinor, specs, audiences, similarSkip };
+  const split = take.takenMinor >= floors ? splitTotal(take.takenMinor, splitFor(stretch), { floorMinor: floor, buildable }) : null;
   if (!split) {
     return { ...base, totalMinor: 0, tiers: NO_TIERS(), atFloor: [], take: { ...take, takenMinor: 0, from: [] }, short: true, noMoney: true, steps: [] };
   }
@@ -192,7 +200,7 @@ export function planFunnelShow(input: FunnelShowInput): FunnelShowPlan {
       taken = taken.map((row) => ({ ...row, afterMinor: budgets.find((b) => b.id === row.id)?.dailyMinor ?? row.afterMinor }));
     }
     const newTotal = total + delta;
-    const stepSplit = splitTotal(newTotal, splitOf(step.stretch, twoCampaigns), { floorMinor: floor, buildable });
+    const stepSplit = splitTotal(newTotal, splitFor(step.stretch), { floorMinor: floor, buildable });
     if (!stepSplit) continue;
     steps.push({ day: step.day, stretch: step.stretch, share: next.share, targetMinor: Math.floor((showDailyMinor * next.share) / 100 + 1e-9), totalMinor: newTotal, tiers: stepSplit.tiers, deltaMinor: delta, prospecting: lines });
     total = newTotal;
@@ -268,9 +276,16 @@ export function claudePlanLines(plan: FunnelShowPlan, sources: FunnelSources): s
   if (missing.length) {
     lines.push(fill("claude.rt.plan.access", { names: missing.map((row) => fill("rt.access.name", { account: row.name, platform: row.platform === "facebook" ? "Facebook" : "Instagram" })).join(JOIN) }));
   }
+  if (plan.similarSkip) lines.push(similarSkipLine(plan.similarSkip, SPLIT_WITH_SIMILAR[plan.stretch].similar));
   const step = plan.steps[0];
   if (step) lines.push(fill("claude.rt.plan.next", { stretch: stretchName(step.stretch), date: rfDay(step.day), p: step.share }));
   return lines;
+}
+
+/** PENDING DESIGN (the two-campaign record should rule it): Similar skipped, and where its share went. */
+export function similarSkipLine(reason: SimilarSkip, pct: number): string {
+  const why = reason === "no_genre" ? "the show has no genre set" : reason === "no_group" ? "there's no confirmed page group for its genre" : "the page group's audience is under Meta's minimum";
+  return `Similar is skipped: ${why}, so its ${pct} % goes to Cold this stretch.`;
 }
 
 export type SkipReason = "no_pixel" | "no_link" | "soon" | "archived" | "built" | "no_money";

@@ -106,8 +106,23 @@ export const SPLIT_WITH_SIMILAR: Record<FunnelStretch, Record<FunnelTier, number
 };
 
 /** The split in force: RF3's, or the two-campaign proposal once it's on. */
-export function splitOf(stretch: FunnelStretch, twoCampaigns = false): Record<FunnelTier, number> {
-  return twoCampaigns ? SPLIT_WITH_SIMILAR[stretch] : RF3[stretch].split;
+export function splitOf(stretch: FunnelStretch, twoCampaigns = false, similarSkipped = false): Record<FunnelTier, number> {
+  if (!twoCampaigns) return RF3[stretch].split;
+  const split = SPLIT_WITH_SIMILAR[stretch];
+  // Matas, 26 Nov: with no Similar tier, "Similar's share goes to Cold for that stretch"; Warm and Hot keep theirs.
+  return similarSkipped ? { ...split, similar: 0, cold: split.cold + split.similar } : split;
+}
+
+/** Why a two-campaign show runs without Similar this stretch. */
+export type SimilarSkip = "no_genre" | "no_group" | "too_small";
+
+/** The show's Similar tier for this read: null when it runs; else why not (no genre, no confirmed group, or Meta sized its audience under the minimum). */
+export function similarSkipOf(opts: Pick<SpecOptions, "twoCampaigns" | "pageGroup" | "genreFamily" | "similarTooSmall">): SimilarSkip | null {
+  if (!opts.twoCampaigns) return null;
+  if (!opts.genreFamily && !opts.pageGroup) return "no_genre";
+  if (!opts.pageGroup?.confirmed || !opts.pageGroup.pageIds.length && !opts.pageGroup.igIds.length) return "no_group";
+  if (opts.similarTooSmall) return "too_small";
+  return null;
 }
 
 export const STRETCH_KEY: Record<FunnelStretch, RfKey> = {
@@ -435,6 +450,10 @@ export type SpecOptions = {
   pageGroup?: PageGroup | null;
   /** Staged: before on-sale, "converted" is a registration (CompleteRegistration on the sign-up links). */
   presale?: boolean;
+  /** The show's events.genre_family (null = no genre: Similar's skip reason). */
+  genreFamily?: string | null;
+  /** Meta sized the group's engagement audience under its minimum (a stored audience read as too small). */
+  similarTooSmall?: boolean;
 };
 
 /** READING: Similar's engagers window is Cold's (180 days); the staged record gives none. */
@@ -471,7 +490,7 @@ export function presaleRegistrants(sources: FunnelSources): FunnelAudience[] {
  * page's visitors and leaves registrants out of every tier.
  */
 export function funnelSpecs(sources: FunnelSources, opts: SpecOptions = {}): FunnelSpec[] {
-  const similar: FunnelAudience[] = opts.twoCampaigns ? similarAudiences(opts.pageGroup) : [];
+  const similar: FunnelAudience[] = opts.twoCampaigns && !similarSkipOf(opts) ? similarAudiences(opts.pageGroup) : [];
   const cold: FunnelAudience[] = [...videoAudiences(sources, 75, RF2_WINDOWS.video75), ...accountAudiences(sources, "engaged", RF2_WINDOWS.engagedCold), ...accountAudiences(sources, "followers", null)];
   const warm: FunnelAudience[] = [];
   const hot: FunnelAudience[] = [];

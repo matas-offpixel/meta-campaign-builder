@@ -45,7 +45,7 @@ import { applyEnabled, audienceWritesEnabledFrom, retargetingGates, applyGates }
 import { campaignCreateEnabled, customConversionCreateEnabled, reuseAd, type ReusedCreative } from "../onsale-refresh/apply-purchase.ts";
 import { isOptimisationWritesEnabledFromEnv } from "../optimisation/gates.ts";
 import { widerAdSetPayload, widerCampaignFields, locationOf, RT_AUDIENCE_BUILDING, RT_AUDIENCE_SMALL, RT_AUDIENCES_OFF, RT_CONVERSION_OFF, RT_CREATE_OFF, tierAdSetPayload, type RetargetingMeta } from "./apply.ts";
-import { audiencesToMake, funnelAdSetName, funnelSpecs, FUNNEL_TIERS, FUNNEL_TIER_LABEL, type FunnelAudience, type FunnelSources, type FunnelStretch, type FunnelTier, type TakeLine, type TierMinor } from "./funnel.ts";
+import { type SpecOptions, audiencesToMake, funnelAdSetName, funnelSpecs, FUNNEL_TIERS, FUNNEL_TIER_LABEL, type FunnelAudience, type FunnelSources, type FunnelStretch, type FunnelTier, type TakeLine, type TierMinor } from "./funnel.ts";
 import type { FunnelStepPlan } from "./funnel-plan.ts";
 import { advantageOff, geoExpansionOff, widerAdSetName, type Interest, type LookalikeAudience, type WiderAdSetKey, type WiderStep } from "./show-campaigns.ts";
 
@@ -79,6 +79,8 @@ export type FunnelBuild = {
   draftId: string | null;
   adAccountId: string | null;
   campaignIds: string[];
+  /** The tiers' options it was planned with (two campaigns: Similar and its group, Similar lists in Warm; presale). */
+  spec?: SpecOptions;
   /**
    * STAGED (two-campaign record): "{code} · Wider", folding the show's
    * prospecting (Matas, 26 Nov), one CBO lifetime budget. Absent = Retargeting
@@ -142,6 +144,8 @@ export type FunnelProgress = {
   scheduled?: string[];
   /** Each tier ad set's settings as Meta holds them after create (Matas's 26 Nov item 2): location expansion off, Advantage+ off. */
   readBack?: { adsetId: string; name: string; geoOff: boolean; advantageOff: boolean; /** false when Meta couldn't be read. */ read?: boolean }[];
+  /** Two campaigns: Similar skipped at build (its audience under Meta's minimum); its budget went to Cold. */
+  similarSkipped?: "too_small";
   /** STAGED: the Wider campaign's ids. */
   wider?: { campaignId?: string; adSets?: Partial<Record<WiderAdSetKey, { id: string }>>; ads?: string[] };
 };
@@ -330,7 +334,7 @@ export async function applyFunnel(deps: FunnelDeps, build: FunnelBuild, ctx: { m
   } catch (err) {
     return fail(ctx.plainMetaReason(err), { error: err instanceof Error ? err.message : String(err), step: "videos" });
   }
-  const specs = funnelSpecs(sources);
+  const specs = funnelSpecs(sources, build.spec);
   if (!specs.length) return fail(RF_APPLY_WORDS.nothingToBuild);
 
   try {
@@ -368,17 +372,27 @@ export async function applyFunnel(deps: FunnelDeps, build: FunnelBuild, ctx: { m
     }
     progress.notMade = [...notMade];
     const idOf = (aud: FunnelAudience) => (aud.kind === "list" ? aud.metaAudienceId : (progress.audiences![aud.key] ?? null));
+    // Similar's audiences under Meta's minimum: Similar is skipped and its budget goes to Cold (Matas, 26 Nov); any other audience stops the build as before.
+    const similarIds = new Set((specs.find((spec) => spec.tier === "similar")?.includes ?? []).map((aud) => progress.audiences![aud.key]).filter(Boolean));
+    let similarSmall = 0;
     for (const id of new Set(Object.values(progress.audiences))) {
       const state = await deps.meta.audienceState(id);
       if (state === "building") return fail(RF_APPLY_WORDS.building, { step: "audience" });
-      if (state === "too_small") return fail(RF_APPLY_WORDS.tooSmall, { step: "audience" });
+      if (state === "too_small" && similarIds.has(id)) similarSmall += 1;
+      else if (state === "too_small") return fail(RF_APPLY_WORDS.tooSmall, { step: "audience" });
+    }
+    const tiersNow: TierMinor = { ...build.plan.tiers };
+    if (similarIds.size && similarSmall === similarIds.size && !progress.adSets?.similar) {
+      tiersNow.cold += tiersNow.similar;
+      tiersNow.similar = 0;
+      progress.similarSkipped = "too_small";
     }
     // 4. Cold, Warm and Hot, paused.
     const location = locationOf(build.geoFromAdsetId ? await deps.meta.readAdSetTargeting(build.geoFromAdsetId) : null);
     progress.adSets ??= {};
     for (const spec of specs) {
       if (progress.adSets[spec.tier]) continue;
-      const dailyMinor = build.plan.tiers[spec.tier];
+      const dailyMinor = tiersNow[spec.tier];
       if (!(dailyMinor > 0)) continue;
       const includeIds = spec.includes.map(idOf).filter((id): id is string => Boolean(id));
       if (!includeIds.length) continue;
