@@ -6,7 +6,8 @@
  *     customer-list rule: never the client's or a draft's), its client and
  *     its links.
  *   - clientBusiness: the client's Business Manager (client_business_managers,
- *     the BM tool's connections, linked by client_id). One linked → it; more
+ *     the BM tool's connections, linked by client_id or, since 276, a
+ *     client_business_manager_links row: one BM can serve several clients). One linked → it; more
  *     than one → the one that owns the event's ad account, else ambiguous.
  *   - oldestDraft: the event's oldest draft, the write ledger's draft for a
  *     write that isn't a campaign's (the customer-list sync's precedent).
@@ -17,6 +18,7 @@
  * Relative imports only (node:test).
  */
 import { normalizeAdAccountId } from "../../meta/ad-account.ts";
+import { businessClientLinks } from "../../bm/client-links.ts";
 import { EVENT_WORDS } from "../meta/words.ts";
 import { ToolInputError, type Db, type ToolContext } from "../tool-types.ts";
 import { clientNameOf, loadEventByCode, normaliseCode } from "../tools/shared.ts";
@@ -85,7 +87,9 @@ export interface ClientBusiness {
 export type ClientBusinessResult = { kind: "one"; business: ClientBusiness } | { kind: "none" } | { kind: "many"; n: number };
 
 export async function clientBusiness(db: Db, deps: McpAudienceDeps, userId: string, clientId: string, adAccountId: string | null): Promise<ClientBusinessResult> {
-  const res = await db.from("client_business_managers").select("business_id, business_name").eq("client_id", clientId);
+  const businessIds = [...new Set((await businessClientLinks(db, { clientIds: [clientId] })).map((l) => l.business_id))];
+  if (businessIds.length === 0) return { kind: "none" };
+  const res = await db.from("client_business_managers").select("business_id, business_name").in("business_id", businessIds);
   if (res.error) throw new Error(`client_business_managers: ${res.error.message}`);
   const rows = ((res.data ?? []) as { business_id: string; business_name: string | null }[]).map((r) => ({ id: String(r.business_id), name: r.business_name?.trim() || String(r.business_id) }));
   if (rows.length === 0) return { kind: "none" };
@@ -101,11 +105,14 @@ export async function oldestDraft(db: Db, eventId: string): Promise<string | nul
   return ((res.data ?? []) as { id: string }[])[0]?.id ?? null;
 }
 
-/** The business's access requests Meta received in the 24 hours to `now`. */
+/**
+ * The business's access requests Meta received in the 24 hours to `now`,
+ * counted per business: every event of every client linked to it (276: one
+ * BM can serve several clients). A client linked to two BMs counts against
+ * both, so the cap can only bite early, never late.
+ */
 export async function requestsToday(db: Db, businessId: string, now: Date): Promise<number> {
-  const linked = await db.from("client_business_managers").select("client_id").eq("business_id", businessId);
-  if (linked.error) throw new Error(`client_business_managers: ${linked.error.message}`);
-  const clientIds = ((linked.data ?? []) as { client_id: string | null }[]).map((r) => r.client_id).filter((v): v is string => Boolean(v));
+  const clientIds = [...new Set((await businessClientLinks(db, { businessIds: [businessId] })).map((l) => l.client_id))];
   if (clientIds.length === 0) return 0;
   const events = await db.from("events").select("id").in("client_id", clientIds);
   if (events.error) throw new Error(`events: ${events.error.message}`);

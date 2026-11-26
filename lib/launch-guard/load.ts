@@ -10,6 +10,7 @@ import type {
   VenueDefaults,
 } from "./types.ts";
 import { loadVenueDefaults } from "./venue-defaults.ts";
+import { businessClientLinks } from "../bm/client-links.ts";
 
 /**
  * Reads for the pre-launch check: the draft's event, its venue defaults,
@@ -283,6 +284,13 @@ export async function loadIdentityOwnership(
         "client_business_managers",
       )),
     );
+  }
+  // 276: a BM can serve several clients; each linked client holds its Pages too (one row per client).
+  if (businessIds.length) {
+    const have = new Set(bms.map((b) => `${b.business_id}|${b.client_id}`));
+    for (const l of await businessClientLinks(client as never, { businessIds })) {
+      if (!have.has(`${l.business_id}|${l.client_id}`)) bms.push({ id: `link:${l.business_id}:${l.client_id}`, business_id: l.business_id, client_id: l.client_id });
+    }
   }
   const handles = [...new Set([...bmIgs.values()].map((row) => row.ig_username?.trim()).filter(Boolean) as string[])];
   const handleVariants = handles.flatMap((h) => [h, `@${h}`, h.toLowerCase(), `@${h.toLowerCase()}`]);

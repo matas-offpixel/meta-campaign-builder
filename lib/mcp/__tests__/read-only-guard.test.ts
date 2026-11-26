@@ -359,6 +359,8 @@ const EXTERNAL_READERS: Record<string, readonly string[]> = {
   "lib/meta/audience-payload.ts": ["buildMetaCustomAudiencePayload"],
   // M3c: the builder's own rule match, run against the account's full list (pure).
   "lib/meta/reuse-existing-audience.ts": ["matchExistingCustomAudience"],
+  // 276: which clients a Business Manager serves (client_business_managers and client_business_manager_links reads).
+  "lib/bm/client-links.ts": ["businessClientLinks"],
   "lib/retargeting/links.ts": ["linksFallback", "urlRule"],
   "lib/onsale-refresh/purchases.ts": ["resolvePixel"],
   "lib/meta/page-access-request.ts": ["DEFAULT_PAGE_REQUEST_TASKS", "OFF_PIXEL_BUSINESS_IDS", "PAGE_REQUESTS_PER_DAY", "PAGE_REQUEST_TASKS"],
