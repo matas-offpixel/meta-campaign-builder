@@ -12,7 +12,7 @@ import { tierAdSetPayload, widerAdSetPayload, widerCampaignFields } from "../app
 import { capTiers, funnelSpecs, funnelTiersMatching, RF3, SPLIT_WITH_SIMILAR, splitOf, splitTotal, stepsAfter, type FunnelSources, type PageGroup } from "../funnel.ts";
 import { planFunnelShow } from "../funnel-plan.ts";
 import { noGenreLine, planPageGroups } from "../page-groups.ts";
-import { adviseExisting, advantageOff, geoExpansionOff, lookalikeOrigins, SHOW_CAMPAIGNS_RULED, untickLine, widerAfterStep, widerSpecs } from "../show-campaigns.ts";
+import { adviseExisting, advantageOff, geoExpansionOff, geoNotReadLine, lookalikeOrigins, SHOW_CAMPAIGNS_RULED, untickLine, widerAfterStep, widerSpecs } from "../show-campaigns.ts";
 
 const SOURCES: FunnelSources = {
   pixelId: "px1",
@@ -193,6 +193,8 @@ describe("the settings read-back (Matas, 26 Nov item 2)", () => {
     assert.equal(geoExpansionOff({ targeting_automation: { advantage_audience: 0 } }), false);
     assert.equal(geoExpansionOff({ targeting_automation: { advantage_audience: 1, individual_setting: { age: 1, geo: 1 } } }), false);
     assert.equal(advantageOff({ targeting_automation: { advantage_audience: 0 } }), true);
-    assert.equal(untickLine("X · Retargeting · Hot"), "Untick 'Reach more people likely to respond to your ads' in Ads Manager for X · Retargeting · Hot.");
+    // Design's words on #1401 (27 Nov), curly quotes and apostrophes as ruled.
+    assert.equal(untickLine("X · Retargeting · Hot"), "X · Retargeting · Hot still has location expansion on. Untick “Reach more people likely to respond to your ads” for it in Ads Manager.");
+    assert.equal(geoNotReadLine("X · Retargeting · Hot"), "Location expansion couldn’t be read back for X · Retargeting · Hot, so it may be on. Check “Reach more people likely to respond to your ads” in Ads Manager.");
   });
 });

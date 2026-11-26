@@ -141,9 +141,17 @@ export function noGroupLine(genreFamily: string | null): string {
   return genreFamily ? `No confirmed page group for ${genreFamily}, so there's no Similar tier.` : "No genre set, so there's no Similar tier.";
 }
 
-/** PENDING DESIGN (wording shared with cc/meta-geo-expansion-off): location expansion still on after create. */
+/**
+ * Design's ruling on #1401 (27 Nov), word for word: location expansion still
+ * on after create, and a read-back that failed. SWITCH(#1401): take these
+ * from its GEO_WORDS once it merges, and drop these copies.
+ */
 export function untickLine(adSetName: string): string {
-  return `Untick 'Reach more people likely to respond to your ads' in Ads Manager for ${adSetName}.`;
+  return `${adSetName} still has location expansion on. Untick “Reach more people likely to respond to your ads” for it in Ads Manager.`;
+}
+
+export function geoNotReadLine(adSetName: string): string {
+  return `Location expansion couldn’t be read back for ${adSetName}, so it may be on. Check “Reach more people likely to respond to your ads” in Ads Manager.`;
 }
 
 /**

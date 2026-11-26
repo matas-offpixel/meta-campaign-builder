@@ -207,12 +207,16 @@ test("create_show_campaigns: a failure says what's made, in plain words; the cei
 test("create_show_campaigns: a tier Meta still has location expansion on for gets the untick line, per ad set", async () => {
   const readBack = [
     { adsetId: "131", name: "NX26-RUDIMENTAL · Retargeting · Cold", geoOff: true, advantageOff: true },
-    { adsetId: "133", name: "NX26-RUDIMENTAL · Retargeting · Hot", geoOff: false, advantageOff: true },
+    { adsetId: "133", name: "NX26-RUDIMENTAL · Retargeting · Hot", geoOff: false, advantageOff: true, read: true },
+    { adsetId: "132", name: "NX26-RUDIMENTAL · Retargeting · Warm", geoOff: false, advantageOff: false, read: false },
   ];
   const { ctx } = ctxWith([record()], { outcome: { progress: { campaignId: "120000000000001", audiences: { a: "1" }, adSets: { similar: undefined, cold: { id: "131", dailyMinor: 630 }, hot: { id: "133", dailyMinor: 525 } }, readBack } as never } });
   const out = await run(createShowCampaignsTool, ctx, { event: "NX26-RUDIMENTAL", mode: "paused", approval: YES });
   const lines = String((out.data as { message: string }).message).split("\n");
-  assert.deepEqual(lines.slice(1), ["Untick 'Reach more people likely to respond to your ads' in Ads Manager for NX26-RUDIMENTAL · Retargeting · Hot."]);
+  assert.deepEqual(lines.slice(1), [
+    "Location expansion couldn’t be read back for NX26-RUDIMENTAL · Retargeting · Warm, so it may be on. Check “Reach more people likely to respond to your ads” in Ads Manager.",
+    "NX26-RUDIMENTAL · Retargeting · Hot still has location expansion on. Untick “Reach more people likely to respond to your ads” for it in Ads Manager.",
+  ]);
 });
 
 test("plan_retargeting: the keep / pause / fold advice only once the two-campaign record is ruled", async () => {

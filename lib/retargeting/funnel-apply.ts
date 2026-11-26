@@ -137,7 +137,7 @@ export type FunnelProgress = {
   active?: boolean;
   scheduled?: string[];
   /** Each tier ad set's settings as Meta holds them after create (Matas's 26 Nov item 2): location expansion off, Advantage+ off. */
-  readBack?: { adsetId: string; name: string; geoOff: boolean; advantageOff: boolean }[];
+  readBack?: { adsetId: string; name: string; geoOff: boolean; advantageOff: boolean; /** false when Meta couldn't be read. */ read?: boolean }[];
   /** STAGED: the Wider campaign's ids. */
   wider?: { campaignId?: string; adSets?: Partial<Record<WiderAdSetKey, { id: string }>>; ads?: string[] };
 };
@@ -391,7 +391,7 @@ export async function applyFunnel(deps: FunnelDeps, build: FunnelBuild, ctx: { m
       const set = progress.adSets[tier];
       if (!set) continue;
       const targeting = await deps.meta.readAdSetTargeting(set.id).catch(() => null);
-      progress.readBack.push({ adsetId: set.id, name: funnelAdSetName(build.eventCode, tier), geoOff: geoExpansionOff(targeting), advantageOff: advantageOff(targeting) });
+      progress.readBack.push({ adsetId: set.id, name: funnelAdSetName(build.eventCode, tier), geoOff: geoExpansionOff(targeting), advantageOff: advantageOff(targeting), read: targeting != null });
     }
     // 5. The ads: the show's live creatives, the same in every tier, as they run (their copy too).
     const creatives: ReusedCreative[] = [];
@@ -529,7 +529,7 @@ async function buildWider(deps: FunnelDeps, build: FunnelBuild, progress: Funnel
   for (const [key, set] of Object.entries(progress.wider.adSets)) {
     const targeting = await deps.meta.readAdSetTargeting(set!.id).catch(() => null);
     // Wider keeps Advantage+ on; only location expansion is read back.
-    progress.readBack = [...(progress.readBack ?? []).filter((row) => row.adsetId !== set!.id), { adsetId: set!.id, name: widerAdSetName(build.eventCode, key as WiderAdSetKey), geoOff: geoExpansionOff(targeting), advantageOff: true }];
+    progress.readBack = [...(progress.readBack ?? []).filter((row) => row.adsetId !== set!.id), { adsetId: set!.id, name: widerAdSetName(build.eventCode, key as WiderAdSetKey), geoOff: geoExpansionOff(targeting), advantageOff: true, read: targeting != null }];
   }
 }
 

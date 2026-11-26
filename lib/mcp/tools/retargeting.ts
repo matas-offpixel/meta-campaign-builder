@@ -28,7 +28,7 @@ import { z } from "zod";
 import type { FunnelBuild, FunnelProgress } from "../../retargeting/funnel-apply.ts";
 import { claudePlanLines, doneLine, planHead, skipLine, skipReason, type SkipReason } from "../../retargeting/funnel-plan.ts";
 import { funnelSourcesOf } from "../../retargeting/funnel-view.ts";
-import { adviceLine, adviseExisting, foldFirstLine, SHOW_CAMPAIGNS_RULED, untickLine, widerPlanLine } from "../../retargeting/show-campaigns.ts";
+import { adviceLine, adviseExisting, foldFirstLine, geoNotReadLine, SHOW_CAMPAIGNS_RULED, untickLine, widerPlanLine } from "../../retargeting/show-campaigns.ts";
 import type { RetargetingRecord } from "../../retargeting/runner.ts";
 import { approvalInput, requireMetaApproval } from "../meta/approval.ts";
 import { EVENT_WORDS } from "../meta/words.ts";
@@ -267,7 +267,11 @@ export const createShowCampaignsTool: McpTool = {
     const taken = build.plan.take.reduce((sum, line) => sum + (line.beforeMinor - line.afterMinor), 0);
     // Matas, 26 Nov item 2: every ad set's settings as Meta holds them; anything still on is said per ad set.
     const readBack = progress.readBack ?? [];
-    const settings = [...readBack.filter((row) => !row.geoOff).map((row) => untickLine(row.name)), ...readBack.filter((row) => !row.advantageOff).map((row) => suggestionOnLine(row.name))];
+    const settings = [
+      ...readBack.filter((row) => row.read === false).map((row) => geoNotReadLine(row.name)),
+      ...readBack.filter((row) => row.read !== false && !row.geoOff).map((row) => untickLine(row.name)),
+      ...readBack.filter((row) => row.read !== false && !row.advantageOff).map((row) => suggestionOnLine(row.name)),
+    ];
     const message = [doneLine({ code: code!, live, made: ids.audiences_made, takenMinor: taken }), ...(live && out.step === "schedule" ? [RT_CLAUDE_WORDS.stepsNotScheduled] : []), ...settings].join("\n");
     return { data: { message, ...ids, ads_manager: link }, eventId, clientId: ownerRow.client_id, summary: { ...summary, takenMinor: taken } };
   },
