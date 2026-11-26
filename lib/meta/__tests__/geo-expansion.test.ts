@@ -161,8 +161,8 @@ describe("read-back after create", () => {
       }),
     );
     assert.deepEqual(notes, [
-      { name: "Crossover pages", metaAdSetId: b!, state: "on", message: "Untick 'Reach more people likely to respond to your ads' in Ads Manager for Crossover pages." },
-      { name: "Lookalike 1%", metaAdSetId: c!, state: "not_set", message: "Untick 'Reach more people likely to respond to your ads' in Ads Manager for Lookalike 1%." },
+      { name: "Crossover pages", metaAdSetId: b!, state: "on", message: "Crossover pages still has location expansion on. Untick “Reach more people likely to respond to your ads” for it in Ads Manager." },
+      { name: "Lookalike 1%", metaAdSetId: c!, state: "not_set", message: "Lookalike 1% still has location expansion on. Untick “Reach more people likely to respond to your ads” for it in Ads Manager." },
     ]);
   });
 
@@ -200,6 +200,26 @@ describe("read-back after create", () => {
       { states: new Map([[a!, "on"]]), gets: 1 },
     );
     assert.equal(notes.length, 1);
+  });
+});
+
+describe("design's corrected rows (27 Nov verdict on #1401), character for character", () => {
+  it("launch.adset.geo_expansion_untick", () => {
+    assert.equal(
+      GEO_WORDS.untick("Broad"),
+      "Broad still has location expansion on. Untick \u201cReach more people likely to respond to your ads\u201d for it in Ads Manager.",
+    );
+  });
+
+  it("launch.adset.geo_expansion_not_read", () => {
+    assert.equal(
+      GEO_WORDS.notRead("Broad"),
+      "Location expansion couldn\u2019t be read back for Broad, so it may be on. Check \u201cReach more people likely to respond to your ads\u201d in Ads Manager.",
+    );
+  });
+
+  it("curly quotes and apostrophe only: no straight ' or \" in either", () => {
+    for (const line of [GEO_WORDS.untick("Broad"), GEO_WORDS.notRead("Broad")]) assert.doesNotMatch(line, /['"]/);
   });
 });
 

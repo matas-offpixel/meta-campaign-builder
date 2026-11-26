@@ -187,7 +187,7 @@ test("launch_draft passes the launch's location expansion lines through: the ad 
   (ctx as ToolContext).meta = { ...(ctx as ToolContext).meta!, launch: async () => ({ status: 201, body: { ...LAUNCHED, locationExpansion: [note] } }) };
   const out = await run(launchDraftTool, ctx, { draft_id: D_DRAFT, mode: "paused", approval: YES });
   assert.deepEqual(out.data.locationExpansion, [note]);
-  assert.ok(String(out.data.message).endsWith("\nUntick 'Reach more people likely to respond to your ads' in Ads Manager for Fans."));
+  assert.ok(String(out.data.message).endsWith("\nFans still has location expansion on. Untick “Reach more people likely to respond to your ads” for it in Ads Manager."));
   assert.deepEqual(out.summary.locationExpansion, [{ id: "120200000000000012", state: "on" }]);
   // Without lines the answer is as before.
   const { ctx: quiet } = await metaCtx({ ceiling: null });

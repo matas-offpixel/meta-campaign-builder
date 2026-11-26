@@ -95,13 +95,13 @@ export async function readBackGeoExpansion(ids: readonly string[], get: GetTarge
 
 export const GEO_WORDS = {
   /**
-   * PENDING DESIGN launch.adset.geo_expansion_untick — Job 4's string
-   * (cc/mcp-m3c-retargeting), reused as is: Meta didn't keep geo 0.
+   * launch.adset.geo_expansion_untick — design's corrected row (27 Nov
+   * verdict on #1401): Meta didn't keep geo 0.
    */
-  untick: (adSet: string) => `Untick 'Reach more people likely to respond to your ads' in Ads Manager for ${adSet}.`,
-  /** PENDING DESIGN launch.adset.geo_expansion_not_read — the read-back failed, so it isn't known to be off. */
+  untick: (adSet: string) => `${adSet} still has location expansion on. Untick “Reach more people likely to respond to your ads” for it in Ads Manager.`,
+  /** launch.adset.geo_expansion_not_read — design's corrected row (27 Nov verdict on #1401): the read-back failed, so it isn't known to be off. */
   notRead: (adSet: string) =>
-    `Location expansion couldn't be read back for ${adSet}, so it may be on. Check 'Reach more people likely to respond to your ads' in Ads Manager.`,
+    `Location expansion couldn’t be read back for ${adSet}, so it may be on. Check “Reach more people likely to respond to your ads” in Ads Manager.`,
 } as const;
 
 /** One created ad set whose location expansion isn't known to be off. */

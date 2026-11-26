@@ -160,7 +160,7 @@ describe("Approve variants", () => {
     const { deps } = fakes(seed());
     const said = await approveTest(deps, { testId: "t1", userId: MATAS });
     assert.deepEqual(said.body.locationExpansion, [
-      { name: "P26-BDAY · Tests · Video · 16 Nov", metaAdSetId: "as-tests", state: "not_set", message: "Untick 'Reach more people likely to respond to your ads' in Ads Manager for P26-BDAY · Tests · Video · 16 Nov." },
+      { name: "P26-BDAY · Tests · Video · 16 Nov", metaAdSetId: "as-tests", state: "not_set", message: "P26-BDAY · Tests · Video · 16 Nov still has location expansion on. Untick “Reach more people likely to respond to your ads” for it in Ads Manager." },
     ]);
   });
 

@@ -188,7 +188,7 @@ export const strictAuditTool: McpTool = {
   // PENDING DESIGN: the tool's description is Claude-facing words.
   description: [
     "Lists live ad sets (Meta shows them active or in process) that run strict, Advantage+ audience off, while the draft that launched them asked for Advantage+ suggestions: their audiences and ages are hard limits on Meta instead of suggestions.",
-    "Also lists live ad sets with location expansion on (Ads Manager's \"Reach more people likely to respond to your ads\"), which lets Meta deliver outside the places an ad set targets; ad sets where Meta doesn't show the setting are counted as not set, not as on.",
+    "Also lists live ad sets with location expansion on (Ads Manager's “Reach more people likely to respond to your ads”), which lets Meta deliver outside the places an ad set targets; ad sets where Meta doesn't show the setting are counted as not set, not as on.",
     "For one client (name or id), one event code, or every live client when neither is given. Each hit has its event code, campaign, ad set name and id, the Ads Manager link and what the draft asked for. It only reads: nothing changes on Meta or in the app.",
     'Example: strict_audit({ event_code: "P26-BDAY" }).',
   ].join(" "),

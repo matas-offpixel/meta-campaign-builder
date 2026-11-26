@@ -141,6 +141,9 @@ test("strict_audit is a read tool, listed with one example", () => {
   assert.equal(strictAuditTool.kind, "read");
   assert.ok(READ_TOOLS.includes(strictAuditTool));
   assert.equal((strictAuditTool.description.match(/Example: /g) ?? []).length, 1);
+  // Design's 27 Nov verdict on #1401: curly quotes around the Ads Manager label.
+  assert.ok(strictAuditTool.description.includes("\u201cReach more people likely to respond to your ads\u201d"));
+  assert.ok(!strictAuditTool.description.includes('"Reach more people'));
 });
 
 test("finds exactly the live strict ad sets whose drafts asked for Advantage+; skips paused, on-Advantage+, strict-asked, archived and TikTok rows", async () => {
