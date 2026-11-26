@@ -189,7 +189,7 @@ test("scoped to an event code or a client; unknown ones and both at once are ref
     await assert.rejects(strictAuditTool.run(ctx({ db: fakeDb(world()), reads: spyReads([]) }), args), (e: unknown) => e instanceof ToolInputError && re.test(e.message));
   };
   await refusal({ event_code: "NX26-NOPE" }, /^No event with code NX26-NOPE\.$/);
-  await refusal({ client: "Old Promoter" }, /^No live client named Old Promoter\.$/);
+  await refusal({ client: "Old Promoter" }, /^No client called Old Promoter\.$/);
   await refusal({ client: "NX Live", event_code: "NX26-DOD" }, /^Give a client or an event, not both\.$/);
 });
 
@@ -206,6 +206,40 @@ test("nothing asked for Advantage+ → no Meta read; asked but no Meta reads wir
     strictAuditTool.run(ctx({ db: fakeDb(world()), reads: { adSets: async () => { throw new Error(`token ${TOKEN}`); } } }), {}),
     (e: unknown) => e instanceof ToolInputError && e.message === STRICT_WORDS.noMeta,
   );
+});
+
+test("design's corrected rows (26 Nov verdict), word for word", () => {
+  assert.equal(STRICT_WORDS.metaNow, "Meta now: Advantage+ audience off, so these are hard limits.");
+  assert.equal(STRICT_WORDS.unknownClient("Old Promoter"), "No client called Old Promoter.");
+  assert.equal(
+    STRICT_WORDS.asked(1, 1, 18, 45),
+    "The draft asked for: Advantage+ on, 1 audience as a suggestion, 1 interest as a suggestion, ages 18–45 as a suggestion.",
+  );
+  assert.equal(
+    STRICT_WORDS.asked(3, 3, 25, 54),
+    "The draft asked for: Advantage+ on, 3 audiences as suggestions, 3 interests as suggestions, ages 25–54 as a suggestion.",
+  );
+  assert.equal(STRICT_WORDS.asked(0, 0, null, null), "The draft asked for: Advantage+ on.");
+  // En dash, as in launch.adset.age_widened.
+  assert.ok(STRICT_WORDS.asked(0, 0, 18, 65).includes("ages 18\u201365 as a suggestion"));
+});
+
+test("asked: singular for 1, plural for n — never \"1 audiences\" or \"1 interests\"", () => {
+  assert.equal(STRICT_WORDS.asked(1, 0, null, null), "The draft asked for: Advantage+ on, 1 audience as a suggestion.");
+  assert.equal(STRICT_WORDS.asked(3, 0, null, null), "The draft asked for: Advantage+ on, 3 audiences as suggestions.");
+  assert.equal(STRICT_WORDS.asked(0, 1, null, null), "The draft asked for: Advantage+ on, 1 interest as a suggestion.");
+  assert.equal(STRICT_WORDS.asked(0, 3, null, null), "The draft asked for: Advantage+ on, 3 interests as suggestions.");
+  for (const [a, i] of [[1, 0], [0, 1], [1, 1], [1, 3], [3, 1]] as const) {
+    const line = STRICT_WORDS.asked(a, i, 18, 45);
+    assert.doesNotMatch(line, /\b1 audiences\b|\b1 interests\b/);
+  }
+});
+
+test("an interest-only hit's line names no ages or audiences beyond design's meta_now sentence", () => {
+  const line = `${STRICT_WORDS.asked(0, 2, null, null)} ${STRICT_WORDS.metaNow}`;
+  assert.equal(line, "The draft asked for: Advantage+ on, 2 interests as suggestions. Meta now: Advantage+ audience off, so these are hard limits.");
+  assert.doesNotMatch(line, /\bages?\b/);
+  assert.doesNotMatch(line, /\baudiences\b/);
 });
 
 test("the fixture is ids only", () => {
