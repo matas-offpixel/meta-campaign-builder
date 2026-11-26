@@ -47,6 +47,8 @@ import { isOptimisationWritesEnabledFromEnv } from "../optimisation/gates.ts";
 import { widerAdSetPayload, widerCampaignFields, locationOf, RT_AUDIENCE_BUILDING, RT_AUDIENCE_SMALL, RT_AUDIENCES_OFF, RT_CONVERSION_OFF, RT_CREATE_OFF, tierAdSetPayload, type RetargetingMeta } from "./apply.ts";
 import { type SpecOptions, audiencesToMake, funnelAdSetName, funnelSpecs, FUNNEL_TIERS, FUNNEL_TIER_LABEL, SPLIT_WITH_SIMILAR, splitTotal, type FunnelAudience, type PageGroup, type FunnelSources, type FunnelStretch, type FunnelTier, type TakeLine, type TierMinor } from "./funnel.ts";
 import type { FunnelStepPlan } from "./funnel-plan.ts";
+import { fill } from "./funnel-words.ts";
+import { genreLabelInSentence, type GenreFamilyKey } from "../learning/genre/families.ts";
 import { advantageOff, geoExpansionOff, widerAdSetName, type Interest, type LookalikeAudience, type WiderAdSetKey, type WiderStep } from "./show-campaigns.ts";
 
 type Db = Pick<SupabaseClient, "from">;
@@ -170,25 +172,23 @@ export type FunnelOutcome = {
 
 /**
  * The create path's sentences: the 17 Nov record's where one fits (switched
- * off, audiences off, still building, too small); the rest PENDING DESIGN.
+ * off, audiences off, still building, too small); the rest are the 27 Nov
+ * list's rt.create.* rows and rt.similar.wait.
  */
 export const RF_APPLY_WORDS = {
   switchedOff: RT_CREATE_OFF,
   audiencesOff: RT_AUDIENCES_OFF,
   conversionOff: RT_CONVERSION_OFF,
-  // PENDING DESIGN
-
-  moneyOff: "Moving budget between ad sets is switched off on this deployment, so it can only be made paused.",
-  nothingToBuild: "There's nothing to build: no tier has an audience.",
-  noAccount: "The show's ad account isn't known, so nothing can be made in it.",
-  passed: "The show has passed.",
+  moneyOff: fill("rt.create.money_off"),
+  nothingToBuild: fill("rt.create.nothing"),
+  noAccount: fill("rt.create.no_account"),
+  passed: fill("rt.create.passed"),
   building: RT_AUDIENCE_BUILDING,
   tooSmall: RT_AUDIENCE_SMALL,
-  // PENDING DESIGN
-  similarNotYet: "Cold's budget isn't at this step's amount yet, so Similar waits for the next read.",
-  adUnread: (name: string) => `The ad it reuses (${name}) can't be read.`,
-  budgetChanged: (name: string) => `${name}'s budget changed in Ads Manager since the plan.`,
-  switchOn: "Built and paused, not switched on. A retry switches it on.",
+  similarNotYet: fill("rt.similar.wait"),
+  adUnread: (name: string) => fill("rt.create.ad_unread", { name }),
+  budgetChanged: (name: string) => fill("rt.create.budget_changed", { name }),
+  switchOn: fill("rt.create.switch_on"),
 } as const;
 
 export const BUILDS_TABLE = "retargeting_builds";
@@ -232,19 +232,41 @@ async function storeAudience(db: Db, row: { event_id: string; user_id: string; p
   if (res.error) throw new Error(`onsale_refresh_audiences store: ${res.error.message}`);
 }
 
-/** PENDING DESIGN: an audience's name in Ads Manager, "{code} · {source and window}" (RT14's form). */
-export function funnelAudienceName(code: string, aud: Exclude<FunnelAudience, { kind: "list" }>, pageName?: string | null): string {
-  const what =
-    aud.kind === "video" ? `Video viewers ${aud.threshold} % · ${aud.retentionDays} days${pageName ? ` · ${pageName}` : ""}`
-    : aud.kind === "page_fb" ? `Page engagers · ${aud.retentionDays} days`
-    : aud.kind === "page_ig" ? `Instagram engagers · ${aud.retentionDays} days`
-    : aud.kind === "followers_fb" ? "Page followers · all time"
-    : aud.kind === "followers_ig" ? "Instagram followers · all time"
-    : aud.source === "visitors" ? "Show page and ticket-link visitors · 60 days"
-    : aud.source === "ticket" ? "Ticket-link visitors · 30 days"
-    : aud.source === "checkout" ? `Checkout starters · ${"retentionDays" in aud ? aud.retentionDays : ""} days`
-    : `Registrations · ${"retentionDays" in aud ? aud.retentionDays : ""} days`;
-  return `${code} · ${what}`;
+/**
+ * An audience's name in Ads Manager (meta.name.audience: "{code} · {source} ·
+ * {n} days", the source and window as the tier row says them). Followers
+ * have no window: PENDING DESIGN, "{code} · Followers · all time" as the row.
+ */
+export function funnelAudienceName(code: string, aud: Exclude<FunnelAudience, { kind: "list" }>, _pageName?: string | null, genreLabel?: string | null): string {
+  const days = "retentionDays" in aud ? aud.retentionDays : 0;
+  const named = (source: string) => fill("meta.name.audience", { code, source, n: days });
+  if (aud.kind === "followers_fb" || aud.kind === "followers_ig") return `${code} · ${fill("rt.src.followers")}`;
+  if (aud.kind === "video") return named(`Video viewers ${aud.threshold} %`);
+  if (aud.source === "similar_pages") return named(fill("rt.src.page_group", { genre: genreLabel ?? "", n: 0 }).split(" · ")[0]!);
+  if (aud.kind === "page_fb" || aud.kind === "page_ig") return named(fill("rt.src.engaged", { n: days }).split(" · ")[0]!);
+  if (aud.key.startsWith("rf:signup_visitors")) return named(fill("rt.src.signup_visitors").split(" · ")[0]!);
+  if (aud.key.startsWith("rf:show_visitors")) return named(fill("rt.src.show_visitors60").split(" · ")[0]!);
+  if (aud.source === "visitors") return named(fill("rt.src.visitors60").split(" · ")[0]!);
+  if (aud.source === "ticket") return named(fill("rt.src.ticket30").split(" · ")[0]!);
+  if (aud.source === "checkout") return named(fill("rt.src.checkout"));
+  return named(fill("rt.src.signups").split(" · ")[0]!);
+}
+
+/** "drum & bass": the build's genre as the rows write it. */
+function genreOf(from: FunnelBuild | string | null | undefined): string | null {
+  const key = typeof from === "string" ? from : (from?.spec?.genreFamily ?? from?.spec?.pageGroup?.genreFamily ?? null);
+  if (!key) return null;
+  try {
+    return genreLabelInSentence(key as GenreFamilyKey);
+  } catch {
+    return key;
+  }
+}
+
+/** A lookalike's name in Ads Manager (meta.name.lookalike): its source audience's name without the code, never an internal key. */
+export function lookalikeName(code: string, sourceName: string): string {
+  const prefix = `${code} · `;
+  return fill("meta.name.lookalike", { code, source: sourceName.startsWith(prefix) ? sourceName.slice(prefix.length) : sourceName });
 }
 
 /** London midnight (or minutes after) on a day, as an ISO instant. */
@@ -369,7 +391,7 @@ export async function applyFunnel(deps: FunnelDeps, build: FunnelBuild, ctx: { m
         progress.audiences[aud.key] = have;
         continue;
       }
-      const name = funnelAudienceName(build.eventCode, aud, aud.kind === "video" ? pageName(aud.pageId) : null);
+      const name = funnelAudienceName(build.eventCode, aud, aud.kind === "video" ? pageName(aud.pageId) : null, genreOf(build));
       const made = await deps.createAudience(aud, name, adAccountId);
       if (!made) {
         notMade.add(aud.key);
@@ -520,6 +542,14 @@ async function buildWider(deps: FunnelDeps, build: FunnelBuild, progress: Funnel
     await saveProgress(deps, build, progress, { state: "building" });
   }
   const idOf = (key: string) => progress.audiences?.[key] ?? (key.startsWith("list:") ? key.slice(5) : null);
+  // The source audience's name: a list as uploaded, else the funnel audience's own name.
+  const origins = new Map(funnelSpecs(build.sources, build.spec).flatMap((spec) => spec.includes).map((aud) => [aud.key, aud] as const));
+  const originNameOf = (key: string) => {
+    const list = build.sources.lists.find((row) => `list:${row.metaAudienceId}` === key);
+    if (list) return list.name;
+    const aud = origins.get(key);
+    return aud && aud.kind !== "list" ? funnelAudienceName(build.eventCode, aud) : key;
+  };
   progress.wider.adSets ??= {};
   for (const set of wider.adSets) {
     if (progress.wider.adSets[set.key]) continue;
@@ -532,8 +562,7 @@ async function buildWider(deps: FunnelDeps, build: FunnelBuild, progress: Funnel
       }
       const originId = idOf(lal.originKey);
       if (!originId) continue;
-      // PENDING DESIGN: a lookalike's name in Ads Manager.
-      const name = `${build.eventCode} · Lookalike 1 % GB · ${lal.originKey}`;
+      const name = lookalikeName(build.eventCode, originNameOf(lal.originKey));
       const made = await deps.createAudience({ ...lal, originId }, name, adAccountId);
       if (!made) continue;
       await storeAudience(deps.db, { event_id: build.eventId, user_id: deps.owner.userId, part: lal.key, meta_audience_id: made.metaAudienceId, name });
@@ -671,7 +700,7 @@ export async function addSimilarAtStep(deps: SimilarStepDeps, args: { build: Fun
       if (aud.kind === "list") continue;
       let id: string | undefined = progress.audiences[aud.key] ?? stored.get(aud.key);
       if (!id) {
-        const name = funnelAudienceName(build.eventCode, aud);
+        const name = funnelAudienceName(build.eventCode, aud, null, genreOf(args.pageGroup.genreFamily));
         const made = await deps.createAudience(aud, name, adAccountId);
         if (!made) continue;
         id = made.metaAudienceId;

@@ -52,8 +52,10 @@ export type FunnelTierRow = {
   audiences: string[];
   /** TC9: whose Pages and accounts the account sources use (muted, last). */
   from: string | null;
-  /** TC3: Similar skipped, in place of its audiences (muted); its budget reads "—". */
+  /** TC3: Similar skipped, in place of its audiences; its budget reads "—". */
   skipped: string | null;
+  /** The skipped line's tone: muted, or ochre when the step couldn't add Similar (rt.similar.back.failed). */
+  skippedTone?: "muted" | "ochre";
   leavesOut: string;
   /** 7-day frequency; null before the campaign runs. */
   frequency: number | null;
@@ -117,7 +119,7 @@ export type RowOptions = {
   took?: readonly TakeLine[];
   spec?: SpecOptions;
   /** TC3: Similar skipped this read (its share is in Cold's budget): the reason, the code and its share. */
-  similar?: { reason: "no_genre" | "no_group" | "too_small"; code: string; minor: number; /** In place of the skip row: Similar comes back at the next step, or couldn't be added. */ text?: string } | null;
+  similar?: { reason: "no_genre" | "no_group" | "too_small"; code: string; minor: number; /** In place of the skip row: Similar comes back at the next step, or couldn't be added. */ text?: string; tone?: "muted" | "ochre" } | null;
 };
 
 /** The tier rows for these budgets; with the 7-day figures (a running campaign), RF5's caps. */
@@ -131,7 +133,7 @@ export function funnelTierRows(sources: FunnelSources, shares: TierMinor, opts: 
     const spec = specs.find((row) => row.tier === tier);
     if (tier === "similar" && (!spec || opts.similar?.text)) {
       // TC3: the row says Similar is skipped, and Cold takes its share.
-      if (opts.similar) rows.push({ tier, label: FUNNEL_TIER_LABEL[tier], audiences: [], from: null, skipped: opts.similar.text ?? similarSkipRow(opts.similar.reason, { code: opts.similar.code, genre, minor: opts.similar.minor }), leavesOut: "", frequency: null, budgetMinor: null, lines: [] });
+      if (opts.similar) rows.push({ tier, label: FUNNEL_TIER_LABEL[tier], audiences: [], from: null, skipped: opts.similar.text ?? similarSkipRow(opts.similar.reason, { code: opts.similar.code, genre, minor: opts.similar.minor }), skippedTone: opts.similar.tone ?? "muted", leavesOut: "", frequency: null, budgetMinor: null, lines: [] });
       continue;
     }
     if (!spec) continue;
@@ -163,9 +165,9 @@ export function similarShareOf(plan: Pick<FunnelShowPlan, "similarSkip" | "total
   return { reason: plan.similarSkip, code: plan.code, minor };
 }
 
-/** PENDING DESIGN: the Create card's title joins the two campaign names with "and" (as TW-A draws it). */
+/** tc.create.title: the Create card's title, both campaign names. */
 export function createTitle(code: string): string {
-  return `${fill("wd.name.campaign", { code })} and ${fill("rt.name.campaign", { code })}`;
+  return fill("tc.create.title", { wider: fill("wd.name.campaign", { code }), retargeting: fill("rt.name.campaign", { code }) });
 }
 
 /** A proposed show: the Create card and the rows at its budgets. */
@@ -207,8 +209,9 @@ export function widerRow(w: RunningWider, args: { today: string; stretchOf: (day
   const left = w.remainingMinor ?? w.lifetimeMinor;
   const rest = Math.max(1, days(args.today, w.endDay));
   const daily = Math.floor(left / rest);
-  const row = fill("wd.row", { left: money(left), l: money(w.lifetimeMinor), d: money(daily), date: rfDay(w.endDay) });
   const done = w.steps.filter((step) => isDone(step.day)).at(-1) ?? null;
+  // {l} is Meta's lifetime budget now, after any step (the 27 Nov list); {left} what's left of it.
+  const row = fill("wd.row", { left: money(left), l: money(done ? done.afterMinor : w.lifetimeMinor), d: money(daily), date: rfDay(w.endDay) });
   const upcoming = w.steps.find((step) => !isDone(step.day) && step.day >= args.today) ?? null;
   const steps = w.steps.map((step) => {
     if (step !== upcoming || w.remainingMinor == null) return step;
@@ -266,7 +269,7 @@ export function similarReturnOf(plan: FunnelShowPlan, refused: { day: string; re
   const minor = splitTotal(plan.totalMinor, SPLIT_WITH_SIMILAR[plan.stretch])?.tiers.similar ?? 0;
   const next = plan.steps.find((step) => ahead(step.day)) ?? null;
   const text = refused ? SIMILAR_RETURN.rowRefused(rfDay(refused.day), refused.reason, money(minor)) : next ? SIMILAR_RETURN.row(rfDay(next.day), money(minor)) : SIMILAR_RETURN.rowNoStep(money(minor));
-  return { reason: "no_group", code: plan.code, minor, text };
+  return { reason: "no_group", code: plan.code, minor, text, tone: refused ? "ochre" : "muted" };
 }
 
 /**
@@ -287,6 +290,7 @@ export function funnelBudget(minor: number): string {
 
 /** RF-B / TW at 393: "Frequency 3.2 · leaves out Warm · Hot · buyers", or "leaves out …" before figures. */
 export function cardMeta(row: FunnelTierRow): string {
-  const leaves = fill("rt.m.leaves", { x: row.leavesOut });
+  // {x} with its first letter lower-cased (the 27 Nov list).
+  const leaves = fill("rt.m.leaves", { x: row.leavesOut ? row.leavesOut[0]!.toLowerCase() + row.leavesOut.slice(1) : row.leavesOut });
   return row.frequency == null ? leaves : `${fill("rt.m.freq", { f: freq(row.frequency) })}${JOIN}${leaves}`;
 }

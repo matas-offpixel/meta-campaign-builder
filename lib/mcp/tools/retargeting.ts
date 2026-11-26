@@ -26,7 +26,8 @@
  */
 import { z } from "zod";
 import type { FunnelBuild, FunnelProgress } from "../../retargeting/funnel-apply.ts";
-import { claudePlanLines, doneLine, isPresale, planHead, similarReturnLine, similarSkipLine, skipLine, skipReason, type SkipReason } from "../../retargeting/funnel-plan.ts";
+import { claudePlanLines, doneLine, isPresale, planHead, similarReturnLine, similarSkipLine, skipLine, skipReason, skipReasonWords, type SkipReason } from "../../retargeting/funnel-plan.ts";
+import { fill } from "../../retargeting/funnel-words.ts";
 import { funnelSourcesOf, genreWords } from "../../retargeting/funnel-view.ts";
 import { adviseExisting, foldFirstLine, geoNotReadLine, untickLine } from "../../retargeting/show-campaigns.ts";
 import type { RetargetingRecord } from "../../retargeting/runner.ts";
@@ -39,20 +40,21 @@ import { requireMetaScope } from "./live-read.ts";
 
 const MAX_CODES = 60;
 
-/** PENDING DESIGN: what Claude is told that no row in the 26 Nov list covers. */
+const reasonOf = (reason: string) => reason.replace(/\.$/, "");
+
+/** What Claude is told: the 27 Nov list's claude.rt.* rows. `held` carries the plan's own held sentence. */
 export const RT_CLAUDE_WORDS = {
-  notWired: "Refused: retargeting isn't wired on this deployment. Nothing was changed.",
-  readFailed: "Refused: the shows couldn't be read just now. Nothing was changed.",
-  notOnSale: "it isn't on sale",
-  refusedSkip: (line: string) => `Refused: ${line} Nothing was changed.`,
+  notWired: fill("claude.rt.not_wired"),
+  readFailed: fill("claude.rt.read_failed"),
+  refusedSkip: (code: string, reason: SkipReason) => fill("claude.rt.refused.skip", { code, reason: skipReasonWords(reason) }),
   held: (why: string) => `Refused: ${why} Nothing was changed.`,
-  alreadyLive: (code: string) => `${code} · Wider and Retargeting are already live. Nothing was changed.`,
-  alreadyPaused: (code: string) => `${code} · Wider and Retargeting are already made and paused. Nothing was changed.`,
-  failed: (reason: string) => `${reason.replace(/\.$/, "")}. Nothing was changed.`,
-  failedPartly: (reason: string) => `${reason.replace(/\.$/, "")}. What's made so far is paused; ask again to carry on.`,
-  stepsNotScheduled: "It's live, but the stretch steps couldn't be scheduled; ask again to schedule them.",
-  tooMany: `Refused: give at most ${MAX_CODES} event codes, or "live". Nothing was changed.`,
-  metaRefused: "Meta didn't take this.",
+  alreadyLive: (code: string) => fill("claude.rt.noop.live", { code }),
+  alreadyPaused: (code: string) => fill("claude.rt.noop.paused", { code }),
+  failed: (reason: string) => fill("claude.rt.failed", { reason: reasonOf(reason) }),
+  failedPartly: (reason: string) => fill("claude.rt.failed.partly", { reason: reasonOf(reason) }),
+  stepsNotScheduled: fill("claude.rt.steps_unscheduled"),
+  tooMany: fill("claude.rt.too_many", { n: MAX_CODES }),
+  metaRefused: fill("claude.rt.meta_refused"),
 } as const;
 
 /** RF9's skip for a show the read planned; archived is found before the read. */
@@ -102,7 +104,7 @@ type ShowLines = { code: string; skipped: SkipReason | "not_on_sale" | null; lin
 function linesFor(record: RetargetingRecord): ShowLines {
   const code = record.eventCode ?? record.eventId;
   const input = record.input;
-  if (!input) return { code, skipped: "not_on_sale", lines: [`${code} · skipped: ${RT_CLAUDE_WORDS.notOnSale}.`] };
+  if (!input) return { code, skipped: "not_on_sale", lines: [skipLine(code, "not_on_sale")] };
   const skip = recordSkip(record);
   if (skip) {
     // Matas, 27 Nov: a built show without Similar whose group is confirmed now — Similar comes back at the next step.
@@ -125,14 +127,14 @@ function linesFor(record: RetargetingRecord): ShowLines {
   };
 }
 
-/** PENDING DESIGN: "Use as a suggestion" still on after create. */
+/** claude.rt.untick: "Use as a suggestion" still on after create. */
 export function suggestionOnLine(adSetName: string): string {
-  return `Turn off 'Use as a suggestion' in Ads Manager for ${adSetName}.`;
+  return fill("claude.rt.untick", { adset: adSetName });
 }
 
 export const planRetargetingTool: McpTool = {
   name: "plan_retargeting",
-  title: "Plan each show's Retargeting campaign",
+  title: "Plan each show’s two campaigns",
   kind: "meta",
   readOnly: true,
   idempotent: true,
@@ -159,7 +161,7 @@ export const planRetargetingTool: McpTool = {
     const shows: ShowLines[] = read.records.map(linesFor);
     for (const code of codes ?? []) {
       if (archived.has(code.toUpperCase())) shows.push({ code, skipped: "archived", lines: [skipLine(code, "archived")] });
-      else if (!shows.some((row) => row.code.toUpperCase() === code.toUpperCase())) shows.push({ code, skipped: "not_on_sale", lines: [`${code} · skipped: ${RT_CLAUDE_WORDS.notOnSale}.`] });
+      else if (!shows.some((row) => row.code.toUpperCase() === code.toUpperCase())) shows.push({ code, skipped: "not_on_sale", lines: [skipLine(code, "not_on_sale")] });
     }
     const build = shows.filter((row) => !row.skipped);
     const skipped = shows.filter((row) => row.skipped);
@@ -206,7 +208,7 @@ export const createShowCampaignsTool: McpTool = {
     const [code] = codesOf(args.event)!;
     const live = args.mode === "live";
     const archived = await archivedCodes(ctx, [code!]);
-    if (archived.size) throw new ToolInputError(RT_CLAUDE_WORDS.refusedSkip(skipLine(code!, "archived")), { code, refused: "archived" });
+    if (archived.size) throw new ToolInputError(RT_CLAUDE_WORDS.refusedSkip(code!, "archived"), { code, refused: "archived" });
     let read: Awaited<ReturnType<McpRetargetingDeps["read"]>>;
     try {
       read = await deps.read({ userId: ctx.userId, codes: [code!], now: ctx.now });
@@ -214,7 +216,7 @@ export const createShowCampaignsTool: McpTool = {
       throw new ToolInputError(RT_CLAUDE_WORDS.readFailed, { code, refused: "read_failed" });
     }
     const record = read.records.find((row) => (row.eventCode ?? "").toUpperCase() === code!.toUpperCase());
-    if (!record?.input) throw new ToolInputError(RT_CLAUDE_WORDS.refusedSkip(`${code} · skipped: ${RT_CLAUDE_WORDS.notOnSale}.`), { code, refused: "not_on_sale" });
+    if (!record?.input) throw new ToolInputError(RT_CLAUDE_WORDS.refusedSkip(code!, "not_on_sale"), { code, refused: "not_on_sale" });
     const eventId = record.eventId;
     const owner = await ctx.db.from("events").select("user_id, client_id, client:clients(name)").eq("id", eventId).maybeSingle();
     const ownerRow = owner.data as { user_id: string | null; client_id: string | null; client: { name?: string | null } | { name?: string | null }[] | null } | null;
@@ -236,9 +238,9 @@ export const createShowCampaignsTool: McpTool = {
       build = row.build;
     } else {
       const skip = recordSkip(record);
-      if (skip) throw new ToolInputError(RT_CLAUDE_WORDS.refusedSkip(skipLine(code!, skip)), { ...base, refused: skip });
+      if (skip) throw new ToolInputError(RT_CLAUDE_WORDS.refusedSkip(code!, skip), { ...base, refused: skip });
       if (record.plan.held) throw new ToolInputError(RT_CLAUDE_WORDS.held(record.plan.held), { ...base, refused: "held" });
-      if (!record.plan.build || record.plan.build.kind !== "retargeting_funnel_create") throw new ToolInputError(RT_CLAUDE_WORDS.refusedSkip(skipLine(code!, "no_budget")), { ...base, refused: "no_build" });
+      if (!record.plan.build || record.plan.build.kind !== "retargeting_funnel_create") throw new ToolInputError(RT_CLAUDE_WORDS.refusedSkip(code!, "no_budget"), { ...base, refused: "no_build" });
       build = record.plan.build;
     }
     // Two campaigns (staged): Wider folds the show's prospecting, so it goes live only once that's folded or paused (Matas's yes, through pause).

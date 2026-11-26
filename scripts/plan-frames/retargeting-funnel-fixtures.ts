@@ -17,7 +17,8 @@
  * TW-A: the Create line for Rudimental, and XMPL-CELLAR's presale Create
  *       (£40.00 a day, on sale Fri 4 Dec) with its tiers and footer.
  * TW-B: Similar with a 7-page drum & bass group (2 audiences), without one
- *       (its share to Cold), and XMPL-ATTIC with no genre.
+ *       (its share to Cold), XMPL-LOFT with no genre, and a group confirmed
+ *       after the build (Similar back at the next step, rt.similar.back).
  * TW-C: Rudimental's Wider row on Sat 28 Nov before and after the step, the
  *       step on Today (MB1), and XMPL-QUAY, where the £1.00 floor stops it.
  * TW-D: what Claude is told: Rudimental's line with its matched Pages, and
@@ -213,15 +214,23 @@ function only(view: RetargetingView, tiers: readonly string[]): RetargetingView 
   return { ...view, create: null, signal: null, funnel };
 }
 
-/** TW-B: Similar with a 7-page group, without one, and a show with no genre. */
+/** TW-B: Similar with a 7-page group, without one, a show with no genre, and a group confirmed after the build. */
 export function twbPanels(): CaptionedPanel[] {
   const withGroup = planRetargeting(input({})).view;
   const without = planRetargeting(input({ pageGroup: null })).view;
-  const noGenre = planRetargeting(input({ eventId: "xmpl-attic", eventCode: "XMPL-ATTIC", genreFamily: null, pageGroup: null, matchedPages: null })).view;
+  const noGenre = planRetargeting(input({ eventId: "xmpl-loft", eventCode: "XMPL-LOFT", genreFamily: null, pageGroup: null, matchedPages: null })).view;
+  // Built on Thu 26 Nov with no group (Similar's £3.15 in Cold), the group confirmed since: Similar comes back at the Sat 28 Nov step.
+  const made = madeOn26().wider!;
+  const later = planRetargeting(
+    input({
+      funnelBuilt: { state: "live", mode: "live", campaignId: "120000000000000300", tiers: { similar: 0, cold: 840, warm: 735, hot: 525 }, took: [], wider: { lifetimeMinor: made.lifetimeMinor, dailyMinor: made.dailyMinor, daysLeft: made.daysLeft, endDay: made.endDay, steps: made.steps, remainingMinor: made.lifetimeMinor, adSets: made.adSets.length, doneDays: [], showDailyMinor: 6000 } },
+    }),
+  ).view;
   return [
     { caption: "With a drum & bass page group", view: only(withGroup, ["similar", "cold"]), line: null },
     { caption: "Without one: Similar’s share goes to Cold", view: only(without, ["similar", "cold"]), line: null },
     { caption: "A show with no genre", view: only(noGenre, ["similar"]), line: null },
+    { caption: "Group confirmed after the build", view: only(later, ["similar", "cold"]), line: null },
   ];
 }
 

@@ -1,9 +1,10 @@
 /**
  * The words of retargeting (docs/design-record/2026-11-26-retargeting-funnel.html,
- * RF1–RF9, and docs/design-record/2026-11-26-retargeting-two-campaigns.html, TC1–TC9): every row of scratch/retargeting/words-retargeting-2026-11-26.tsv
- * as re-ruled by the two-campaign record (TC1–TC9; sha256 b1a51f4b…, 109
- * rows, 10 of them withdrawn), word for word. The test pins each row against
- * the committed copy (__tests__/fixtures/words-retargeting-2026-11-26.tsv).
+ * RF1–RF9, and docs/design-record/2026-11-26-retargeting-two-campaigns.html, TC1–TC9): every row of
+ * scratch/retargeting/words-retargeting-2026-11-27.tsv (design's verdict on
+ * #1399, 27 Nov; sha256 986bcc53…, 147 rows, 10 of them withdrawn), word for
+ * word. The test pins each row against the committed copy
+ * (__tests__/fixtures/words-retargeting-2026-11-27.tsv).
  *
  * `fill` puts values into a row's {slots}; every figure is formatted here
  * (money to the penny, "£15.00"; shares as whole numbers, "25"; dates
@@ -100,7 +101,7 @@ export const RF_WORDS = {
   "claude.rt.plan.pages": "Matched Pages · venue {venue} · promoter {brands} · lineup {artists}. If one is wrong, Matas corrects it before the build.",
   "claude.rt.plan.pages.no_venue": "not matched",
   "claude.rt.plan.pages.no_brand": "not matched",
-  "tc.create.wider": "Wider · £{l} lifetime to {date} ({n} days, £{d} a day) · Advantage+ audience · Broad, Similar pages, Interests, Lookalikes",
+  "tc.create.wider": "Wider · £{l} lifetime to {date} ({n} days, £{d} a day) · Advantage+ audience · {sets}",
   "tc.create.retargeting": "Retargeting · £{x} a day · {p} % of the show’s daily spend · {stretch} · Advantage+ off",
   "tc.create.total": "The show’s daily spend stays at £{s}: £{d} Wider and £{x} Retargeting.",
   "tc.create.geo": "Location expansion off on every ad set.",
@@ -123,6 +124,44 @@ export const RF_WORDS = {
   "claude.rt.plan.existing.keep": "keep",
   "claude.rt.plan.existing.pause": "pause, once Matas says yes",
   "claude.rt.plan.existing.fold": "fold into Wider, once Matas says yes",
+  "tc.create.sets": "Broad, Similar pages, Interests, Lookalikes",
+  "tc.create.title": "{wider} and {retargeting}",
+  "rt.next.down": "Next: {stretch} from {date} · {p} % · Retargeting down £{x} a day, Wider’s remaining budget up £{y} (£{x} a day × {n} days)",
+  "rt.similar.skip.small": "Similar skipped: its page group’s audience is under Meta’s minimum, so its £{x} a day goes to Cold.",
+  "rt.similar.back": "Similar comes back at the next step, {date}: its £{x} a day moves back from Cold then.",
+  "rt.similar.back.failed": "Similar couldn’t be added on {date}: {reason}. Its £{x} a day stays in Cold.",
+  "rt.similar.back.none": "Similar can’t come back: there’s no step left before the show. Its £{x} a day stays in Cold.",
+  "rt.similar.wait": "Cold’s budget isn’t at this step’s amount yet, so Similar waits for the next read.",
+  "rt.none.no_budget": "No Retargeting campaign: this show has no prospecting budget to fold into Wider.",
+  "claude.rt.plan.similar.small": "its page group’s audience is under Meta’s minimum",
+  "claude.rt.plan.pages.no_artists": "not matched",
+  "claude.rt.skip.no_budget": "it has no prospecting budget to fold into Wider",
+  "claude.rt.skip.no_signup_link": "it has no sign-up page link",
+  "claude.rt.skip.not_on_sale": "it isn’t on sale",
+  "claude.rt.refused.skip": "Refused: {code} · skipped: {reason}. Nothing was changed.",
+  "claude.rt.refused.fold": "Refused: {code}’s prospecting still runs ({names}). Fold or pause it first, on Matas’s yes, then make it live. Nothing was changed.",
+  "claude.rt.noop.live": "{code} · Wider and Retargeting are already live. Nothing was changed.",
+  "claude.rt.noop.paused": "{code} · Wider and Retargeting are already made and paused. Nothing was changed.",
+  "claude.rt.untick": "Turn off “Use as a suggestion” in Ads Manager for {adset}.",
+  "claude.rt.failed": "{reason}. Nothing was changed.",
+  "claude.rt.failed.partly": "{reason}. What’s made so far is paused; ask again to carry on.",
+  "claude.rt.steps_unscheduled": "It’s live, but the stretch steps couldn’t be scheduled; ask again to schedule them.",
+  "claude.rt.meta_refused": "Meta didn’t take this.",
+  "claude.rt.not_wired": "Refused: retargeting isn’t wired on this deployment. Nothing was changed.",
+  "claude.rt.read_failed": "Refused: the shows couldn’t be read just now. Nothing was changed.",
+  "claude.rt.too_many": "Refused: give at most {n} event codes, or “live”. Nothing was changed.",
+  "claude.rt.similar.back": "Similar comes back at the next step, {date}, now its page group is confirmed.",
+  "claude.rt.similar.back.failed": "Similar couldn’t be added on {date}: {reason}. Its share stays in Cold.",
+  "claude.rt.similar.back.none": "Similar can’t come back: there’s no step left before the show, so its share stays in Cold.",
+  "rt.create.money_off": "Moving budget is switched off on this deployment, so both campaigns can only be made paused.",
+  "rt.create.nothing": "There’s nothing to build: no tier has an audience.",
+  "rt.create.no_account": "The show’s ad account isn’t known, so nothing can be made in it.",
+  "rt.create.passed": "The show has passed.",
+  "rt.create.ad_unread": "The ad it reuses ({name}) can’t be read.",
+  "rt.create.budget_changed": "{name}’s budget was changed in Ads Manager since the plan. Plan it again.",
+  "rt.create.switch_on": "Built and paused, but not switched on. Ask again to switch it on.",
+  "meta.name.audience": "{code} · {source} · {n} days",
+  "meta.name.lookalike": "{code} · Lookalike 1 % UK · {source}",
 } as const;
 
 /** Rows the two-campaign record (TC, 26 Nov) withdrew: kept in the list, never used (a test greps for them). */

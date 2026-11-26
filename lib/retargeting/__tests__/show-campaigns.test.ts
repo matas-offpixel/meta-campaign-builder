@@ -9,9 +9,10 @@ import { strict as assert } from "node:assert";
 import { describe, it } from "node:test";
 
 import { promotedObject, tierAdSetPayload, widerAdSetPayload, widerCampaignFields } from "../apply.ts";
-import { capTiers, funnelSpecs, funnelTiersMatching, RF3, SPLIT_WITH_SIMILAR, splitOf, splitTotal, stepsAfter, type FunnelSources, type PageGroup } from "../funnel.ts";
-import { planFunnelShow, similarReturnLine, similarSkipLine } from "../funnel-plan.ts";
-import { runningPanel, widerRow } from "../funnel-view.ts";
+import { capTiers, funnelSpecs, funnelTiersMatching, RF3, SPLIT_WITH_SIMILAR, splitOf, splitTotal, stepsAfter, type FunnelAudience, type FunnelSources, type PageGroup } from "../funnel.ts";
+import { nextGivesBack, planFunnelShow, similarReturnLine, similarSkipLine } from "../funnel-plan.ts";
+import { cardMeta, createTitle, runningPanel, similarReturnOf, widerRow } from "../funnel-view.ts";
+import { funnelAudienceName, lookalikeName } from "../funnel-apply.ts";
 import { similarStepDue } from "../runner.ts";
 import { CONFIRMED_STATUS, confirmedGenreRows, noGenreLine, parseGenreRows, planPageGroups, sourcesFromGenreRows } from "../page-groups.ts";
 import { adviseExisting, advantageOff, geoExpansionOff, geoNotReadLine, lookalikeOrigins, planWider, SHOW_CAMPAIGNS_RULED, untickLine, widerCampaignName, widerAdSetName, widerGive, widerSpecs } from "../show-campaigns.ts";
@@ -177,7 +178,7 @@ describe("Wider", () => {
     assert.equal(before.row, "Wider · £585.00 of £663.00 lifetime left · £39.00 a day to Sat 12 Dec");
     assert.equal(before.line, null);
     const after = widerRow({ ...made, remainingMinor: 54000, doneDays: ["2026-11-28"] }, { today: "2026-11-28", stretchOf: () => "final_2w" });
-    assert.equal(after.row, "Wider · £540.00 of £663.00 lifetime left · £36.00 a day to Sat 12 Dec");
+    assert.equal(after.row, "Wider · £540.00 of £618.00 lifetime left · £36.00 a day to Sat 12 Dec");
     assert.deepEqual(after.line, { text: "Lowered by £45.00 on Sat 28 Nov: £3.00 a day × 15 days moved to Retargeting for final 2 weeks.", tone: "muted" });
     const floor = widerRow({ lifetimeMinor: 30000, dailyMinor: 1100, daysLeft: 4, endDay: "2026-11-30", remainingMinor: 4400, adSets: 4, doneDays: [], steps: [{ day: "2026-11-27", beforeMinor: 30000, afterMinor: 30000, wantDailyMinor: 900, givenDailyMinor: 900, atFloor: false }] }, { today: "2026-11-27", stretchOf: () => "final_week" });
     assert.equal(floor.row, "Wider · £44.00 of £300.00 lifetime left · £11.00 a day to Mon 30 Nov");
@@ -337,12 +338,32 @@ describe("Matas, 27 Nov (\"Yes, at the next step\"): the read, the panel and Cla
     assert.equal(cold.budgetMinor, 360);
     assert.ok(cold.lines.some((line) => line.text === "Plus £2.40 a day from Similar."));
     const refused = runningPanel(plan, SOURCES, { showDay: SHOW, today: "2026-11-29", built: { tiers, took: [], similarRefused: { day: "2026-11-28", reason: "Its audience is too small for Meta to deliver to." } }, spec });
-    assert.equal(refused.tiers.find((row) => row.tier === "similar")!.skipped, "Similar couldn't be added on Sat 28 Nov: Its audience is too small for Meta to deliver to. Its £2.40 a day stays in Cold.");
+    assert.equal(refused.tiers.find((row) => row.tier === "similar")!.skipped, "Similar couldn’t be added on Sat 28 Nov: Its audience is too small for Meta to deliver to. Its £2.40 a day stays in Cold.");
   });
 
   it("Claude: when Similar comes back, or why it couldn't be added", () => {
     assert.equal(similarReturnLine({ nextDay: "2026-12-05", refused: null }), "Similar comes back at the next step, Sat 5 Dec, now its page group is confirmed.");
-    assert.equal(similarReturnLine({ nextDay: null, refused: null }), "Similar can't come back: there's no step left before the show, so its share stays in Cold.");
-    assert.equal(similarReturnLine({ nextDay: "2026-12-05", refused: { day: "2026-11-28", reason: "Its audience is too small." } }), "Similar couldn't be added on Sat 28 Nov: Its audience is too small. Its share stays in Cold.");
+    assert.equal(similarReturnLine({ nextDay: null, refused: null }), "Similar can’t come back: there’s no step left before the show, so its share stays in Cold.");
+    assert.equal(similarReturnLine({ nextDay: "2026-12-05", refused: { day: "2026-11-28", reason: "Its audience is too small." } }), "Similar couldn’t be added on Sat 28 Nov: Its audience is too small. Its share stays in Cold.");
+  });
+});
+
+describe("design's verdict on #1399 (27 Nov): the rows the code now writes", () => {
+  it("names: the Create card's title, audiences and lookalikes (the source audience's name, never a key)", () => {
+    assert.equal(createTitle("NX26-RUDIMENTAL"), "NX26-RUDIMENTAL · Wider and NX26-RUDIMENTAL · Retargeting");
+    const cold = funnelSpecs(SOURCES, { twoCampaigns: true }).find((spec) => spec.tier === "cold")!;
+    const engaged = cold.includes.find((aud) => aud.source === "engaged")! as Exclude<FunnelAudience, { kind: "list" }>;
+    assert.equal(funnelAudienceName("NX26-RUDIMENTAL", engaged), "NX26-RUDIMENTAL · Page and Instagram engagers · 180 days");
+    assert.equal(lookalikeName("NX26-RUDIMENTAL", "NX26-RUDIMENTAL · Page and Instagram engagers · 180 days"), "NX26-RUDIMENTAL · Lookalike 1 % UK · Page and Instagram engagers · 180 days");
+    assert.equal(lookalikeName("NX26-RUDIMENTAL", "Melodic Techno Similar Data"), "NX26-RUDIMENTAL · Lookalike 1 % UK · Melodic Techno Similar Data");
+  });
+
+  it("the tier card's leave-outs lower-case their first letter; a step couldn't add Similar reads ochre", () => {
+    const row = { tier: "hot", label: "Hot", audiences: [], from: null, skipped: null, leavesOut: "Signed up", frequency: null, budgetMinor: 100, lines: [] } as const;
+    assert.equal(cardMeta(row as never), "leaves out signed up");
+    const plan = planFunnelShow({ code: "X", runDay: "2026-11-29", showDay: "2026-12-12", announceDay: "2026-09-29", prospecting: [], sources: SOURCES, spec: { twoCampaigns: true, pageGroup: GROUP, genreFamily: "dnb" }, existing: { totalMinor: 2400, took: [] }, showDailyMinor: 6000 });
+    assert.equal(similarReturnOf(plan, { day: "2026-11-28", reason: "Its audience is too small." }, () => true)?.tone, "ochre");
+    assert.equal(similarReturnOf(plan, null, () => true)?.tone, "muted");
+    assert.equal(nextGivesBack({ stretch: "normally", date: "Mon 9 Nov", p: 30, x: "3.00", y: "60.00", n: 20 }), "Next: normally from Mon 9 Nov · 30 % · Retargeting down £3.00 a day, Wider’s remaining budget up £60.00 (£3.00 a day × 20 days)");
   });
 });

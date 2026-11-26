@@ -204,7 +204,7 @@ test("create_show_campaigns: a show that can't be built is refused with its skip
 
 test("create_show_campaigns: a failure says what's made, in plain words; the ceiling's own refusal comes through as written", async () => {
   const partly = ctxWith([record()], { outcome: { state: "failed", reason: "Meta is still building an audience. Retry in an hour.", step: "audience", error: "raw meta body" } });
-  const e = await refused(run(createShowCampaignsTool, partly.ctx, { event: "NX26-RUDIMENTAL", mode: "paused", approval: YES }), /^Meta is still building an audience\. Retry in an hour\. What's made so far is paused; ask again to carry on\.$/);
+  const e = await refused(run(createShowCampaignsTool, partly.ctx, { event: "NX26-RUDIMENTAL", mode: "paused", approval: YES }), /^Meta is still building an audience\. Retry in an hour\. What’s made so far is paused; ask again to carry on\.$/);
   assert.doesNotMatch(JSON.stringify(e.summary), /raw meta body/);
   const ceiling = ctxWith([record()], { outcome: { state: "failed", reason: "Refused: NX has no daily ceiling, so nothing that starts spend can run. Matas sets one in Settings › Claude. Nothing was sent to Meta.", step: "ceiling", progress: {} } });
   await refused(run(createShowCampaignsTool, ceiling.ctx, { event: "NX26-RUDIMENTAL", mode: "live", approval: YES }), /^Refused: NX has no daily ceiling.*Nothing was sent to Meta\.$/);
@@ -250,7 +250,7 @@ test("two campaigns: the plan names the fold; a live create waits until the pros
   assert.match(message, /\nExisting prospecting: NX26-RUDIMENTAL · Tests · keep\./);
 
   const running = ctxWith([record(twoInput)], { statuses: { 4101: "ACTIVE" } });
-  await refused(run(createShowCampaignsTool, running.ctx, { event: "NX26-RUDIMENTAL", mode: "live", approval: YES }), /^Refused: NX26-RUDIMENTAL's prospecting still runs \(NX26-RUDIMENTAL · Prospecting\)\. Fold or pause it first, on Matas's yes, then make it live\. Nothing was changed\.$/);
+  await refused(run(createShowCampaignsTool, running.ctx, { event: "NX26-RUDIMENTAL", mode: "live", approval: YES }), /^Refused: NX26-RUDIMENTAL’s prospecting still runs \(NX26-RUDIMENTAL · Prospecting\)\. Fold or pause it first, on Matas’s yes, then make it live\. Nothing was changed\.$/);
   assert.equal(running.calls.create.length, 0);
 
   const folded = ctxWith([record(twoInput)], { statuses: { 4101: "PAUSED" } });
@@ -272,5 +272,5 @@ test("plan_retargeting: a built show without Similar whose group is confirmed no
   assert.deepEqual(lines, ["NX26-RUDIMENTAL · skipped: it already has a Wider or Retargeting campaign.", "Similar comes back at the next step, Sat 28 Nov, now its page group is confirmed."]);
   const refused = record({ genreFamily: "dnb", pageGroup: group, funnelBuilt: { state: "live", mode: "live", campaignId: "1", tiers: { similar: 0, cold: 840, warm: 735, hot: 525 }, took: [], similarRefused: { day: "2026-11-26", reason: "Its audience is too small." } } });
   const again = ctxWith([refused]);
-  assert.match(String(((await run(planRetargetingTool, again.ctx, { events: "NX26-RUDIMENTAL" })).data as { message: string }).message), /\nSimilar couldn't be added on Thu 26 Nov: Its audience is too small\. Its share stays in Cold\.$/);
+  assert.match(String(((await run(planRetargetingTool, again.ctx, { events: "NX26-RUDIMENTAL" })).data as { message: string }).message), /\nSimilar couldn’t be added on Thu 26 Nov: Its audience is too small\. Its share stays in Cold\.$/);
 });

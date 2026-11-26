@@ -17,7 +17,7 @@ rt.src.similar.one	Tier row, audiences (Hot), one	1 similar list
 rt.src.accounts	Tier row, after an account-based source; {n} with a one-form (withdrawn 26 Nov by TC: not used)	{n} accounts
 rt.src.accounts.one	Tier row, one account (withdrawn 26 Nov by TC: not used)	1 account
 rt.m.freq	Tier card at 393, under the tier name	Frequency {f}
-rt.m.leaves	Tier card at 393, after the frequency; {x} is rt.leaves.*	leaves out {x}
+rt.m.leaves	Tier card at 393, after the frequency; {x} is rt.leaves.* with its first letter lower-cased	leaves out {x}
 rt.leaves.cold	Tier row, Leaves out (Cold)	Warm · Hot · buyers
 rt.leaves.warm	Tier row, Leaves out (Warm)	Hot · buyers
 rt.leaves.hot	Tier row, Leaves out (Hot)	Buyers
@@ -85,11 +85,11 @@ rt.src.from.one	The same, one account	From the venue’s and promoter’s Pages 
 claude.rt.plan.pages	Told to Claude, plan_retargeting, after the line: the Pages the show matched, so Matas can correct one; {brands} and {artists} joined with “, ”	Matched Pages · venue {venue} · promoter {brands} · lineup {artists}. If one is wrong, Matas corrects it before the build.
 claude.rt.plan.pages.no_venue	{venue} when no venue Page matched	not matched
 claude.rt.plan.pages.no_brand	{brands} when no promoter Page matched	not matched
-tc.create.wider	Create line, Wider	Wider · £{l} lifetime to {date} ({n} days, £{d} a day) · Advantage+ audience · Broad, Similar pages, Interests, Lookalikes
+tc.create.wider	Create line, Wider	Wider · £{l} lifetime to {date} ({n} days, £{d} a day) · Advantage+ audience · {sets}
 tc.create.retargeting	Create line, Retargeting; {stretch} is rt.stretch.*	Retargeting · £{x} a day · {p} % of the show’s daily spend · {stretch} · Advantage+ off
 tc.create.total	Create line, after both	The show’s daily spend stays at £{s}: £{d} Wider and £{x} Retargeting.
 tc.create.geo	Create line, last (muted)	Location expansion off on every ad set.
-wd.row	Panel, Wider row	Wider · £{left} of £{l} lifetime left · £{d} a day to {date}
+wd.row	Panel, Wider row; {l} is Meta’s lifetime budget now (after any step), {left} what’s left of it	Wider · £{left} of £{l} lifetime left · £{d} a day to {date}
 wd.step	Panel, Wider row, after a step (muted)	Lowered by £{y} on {date}: £{x} a day × {n} days moved to Retargeting for {stretch}.
 wd.step.floor	Panel, Wider row, when a step meets the floor (ochre)	Wider can give £{y} a day of the £{x} without going under £1.00 a day an ad set, so Retargeting rises by £{y} a day.
 rt.presale.note	Panel, under the share line, presale shows	Presale: signing up is the goal, so sign-ups are left out of both campaigns and get the presale reminder and WhatsApp invite instead.
@@ -108,3 +108,41 @@ claude.rt.plan.existing	Told to Claude, plan_retargeting, one line per existing 
 claude.rt.plan.existing.keep	{action}	keep
 claude.rt.plan.existing.pause	{action}	pause, once Matas says yes
 claude.rt.plan.existing.fold	{action}	fold into Wider, once Matas says yes
+tc.create.sets	{sets} in tc.create.wider: the wd.set.* names of the ad sets that will be made, in order, joined with “, ”	Broad, Similar pages, Interests, Lookalikes
+tc.create.title	Create card title; {wider} is wd.name.campaign, {retargeting} rt.name.campaign	{wider} and {retargeting}
+rt.next.down	Panel footer: a step that lowers Retargeting (a payday week ending)	Next: {stretch} from {date} · {p} % · Retargeting down £{x} a day, Wider’s remaining budget up £{y} (£{x} a day × {n} days)
+rt.similar.skip.small	Tier row (Similar), muted: the group’s audience is under Meta’s minimum	Similar skipped: its page group’s audience is under Meta’s minimum, so its £{x} a day goes to Cold.
+rt.similar.back	Tier row (Similar), muted, in place of the skip line: group confirmed after the build	Similar comes back at the next step, {date}: its £{x} a day moves back from Cold then.
+rt.similar.back.failed	Tier row (Similar), ochre: the step couldn’t add it	Similar couldn’t be added on {date}: {reason}. Its £{x} a day stays in Cold.
+rt.similar.back.none	Tier row (Similar), muted: no step left	Similar can’t come back: there’s no step left before the show. Its £{x} a day stays in Cold.
+rt.similar.wait	Read log and Claude: Cold not yet at the step’s amount	Cold’s budget isn’t at this step’s amount yet, so Similar waits for the next read.
+rt.none.no_budget	Refresh card, no Retargeting campaign	No Retargeting campaign: this show has no prospecting budget to fold into Wider.
+claude.rt.plan.similar.small	{reason}	its page group’s audience is under Meta’s minimum
+claude.rt.plan.pages.no_artists	{artists} when no lineup Page matched	not matched
+claude.rt.skip.no_budget	{reason}	it has no prospecting budget to fold into Wider
+claude.rt.skip.no_signup_link	{reason}	it has no sign-up page link
+claude.rt.skip.not_on_sale	{reason}	it isn’t on sale
+claude.rt.refused.skip	Told to Claude, create_show_campaigns on a skipped show	Refused: {code} · skipped: {reason}. Nothing was changed.
+claude.rt.refused.fold	Told to Claude, live while existing prospecting runs; {names} joined with “ · ”	Refused: {code}’s prospecting still runs ({names}). Fold or pause it first, on Matas’s yes, then make it live. Nothing was changed.
+claude.rt.noop.live	Told to Claude, already live	{code} · Wider and Retargeting are already live. Nothing was changed.
+claude.rt.noop.paused	Told to Claude, paused asked again as paused	{code} · Wider and Retargeting are already made and paused. Nothing was changed.
+claude.rt.untick	Told to Claude, one per ad set Meta still has the suggestion on	Turn off “Use as a suggestion” in Ads Manager for {adset}.
+claude.rt.failed	Told to Claude, nothing made	{reason}. Nothing was changed.
+claude.rt.failed.partly	Told to Claude, part made	{reason}. What’s made so far is paused; ask again to carry on.
+claude.rt.steps_unscheduled	Told to Claude	It’s live, but the stretch steps couldn’t be scheduled; ask again to schedule them.
+claude.rt.meta_refused	{reason} when Meta’s error isn’t one we name	Meta didn’t take this.
+claude.rt.not_wired	Told to Claude	Refused: retargeting isn’t wired on this deployment. Nothing was changed.
+claude.rt.read_failed	Told to Claude	Refused: the shows couldn’t be read just now. Nothing was changed.
+claude.rt.too_many	Told to Claude	Refused: give at most {n} event codes, or “live”. Nothing was changed.
+claude.rt.similar.back	Told to Claude, plan line	Similar comes back at the next step, {date}, now its page group is confirmed.
+claude.rt.similar.back.failed	Told to Claude, plan line	Similar couldn’t be added on {date}: {reason}. Its share stays in Cold.
+claude.rt.similar.back.none	Told to Claude, plan line	Similar can’t come back: there’s no step left before the show, so its share stays in Cold.
+rt.create.money_off	Create path refusal (panel Accept and Claude)	Moving budget is switched off on this deployment, so both campaigns can only be made paused.
+rt.create.nothing	Create path refusal	There’s nothing to build: no tier has an audience.
+rt.create.no_account	Create path refusal	The show’s ad account isn’t known, so nothing can be made in it.
+rt.create.passed	Create path refusal	The show has passed.
+rt.create.ad_unread	Create path refusal	The ad it reuses ({name}) can’t be read.
+rt.create.budget_changed	Create path refusal	{name}’s budget was changed in Ads Manager since the plan. Plan it again.
+rt.create.switch_on	Create path, built but not switched on	Built and paused, but not switched on. Ask again to switch it on.
+meta.name.audience	Ads Manager audience name; {source} and {n} as the tier row says them	{code} · {source} · {n} days
+meta.name.lookalike	Ads Manager lookalike name; {source} is the source audience’s name without the code, never an internal key	{code} · Lookalike 1 % UK · {source}

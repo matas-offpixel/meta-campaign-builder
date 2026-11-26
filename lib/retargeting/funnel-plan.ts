@@ -238,12 +238,12 @@ export function splitLine(tiers: TierMinor): string {
 }
 
 /** Wider as the plan sizes it (show-campaigns.ts planWider), for the words. */
-export type WiderWords = { lifetimeMinor: number; dailyMinor: number; daysLeft: number; endDay: string; steps: readonly { day: string; beforeMinor: number; afterMinor: number; wantDailyMinor: number; givenDailyMinor: number; atFloor: boolean }[] };
+export type WiderWords = { lifetimeMinor: number; dailyMinor: number; daysLeft: number; endDay: string; /** tc.create.sets: the wd.set.* names of the ad sets that will be made, in order. */ sets?: readonly string[]; steps: readonly { day: string; beforeMinor: number; afterMinor: number; wantDailyMinor: number; givenDailyMinor: number; atFloor: boolean }[] };
 
 /** TC1's Create card: Wider, Retargeting, the split, the show's total, (presale) the note, and the geo line (muted, last). */
 export function createLines(plan: FunnelShowPlan, wider: WiderWords, presale: boolean): { lines: string[]; muted: string[] } {
   const lines = [
-    fill("tc.create.wider", { l: money(wider.lifetimeMinor), date: rfDay(wider.endDay), n: wider.daysLeft, d: money(wider.dailyMinor) }),
+    fill("tc.create.wider", { l: money(wider.lifetimeMinor), date: rfDay(wider.endDay), n: wider.daysLeft, d: money(wider.dailyMinor), sets: (wider.sets ?? []).join(", ") }),
     fill("tc.create.retargeting", { x: money(plan.totalMinor), p: plan.share, stretch: stretchName(plan.stretch) }),
     splitLine(wordsSplit(plan)),
     fill("tc.create.total", { s: money(plan.showDailyMinor), d: money(wider.dailyMinor), x: money(plan.totalMinor) }),
@@ -252,9 +252,9 @@ export function createLines(plan: FunnelShowPlan, wider: WiderWords, presale: bo
   return { lines, muted: [fill("tc.create.geo")] };
 }
 
-/** PENDING DESIGN: a step that lowers Retargeting (a payday week ending into "normally"); Wider's remaining budget goes back up. */
+/** rt.next.down: a step that lowers Retargeting (a payday week ending into "normally"); Wider's remaining budget goes back up. */
 export function nextGivesBack(args: { stretch: string; date: string; p: number; x: string; y: string; n: number }): string {
-  return `Next: ${args.stretch} from ${args.date} · ${args.p} % · Retargeting down £${args.x} a day, Wider’s remaining budget up £${args.y} (£${args.x} a day × ${args.n} days)`;
+  return fill("rt.next.down", { stretch: args.stretch, date: args.date, p: args.p, x: args.x, y: args.y, n: args.n });
 }
 
 /**
@@ -289,8 +289,7 @@ export function matchedPagesLine(pages: MatchedPages): string {
   return fill("claude.rt.plan.pages", {
     venue: pages.venue ?? fill("claude.rt.plan.pages.no_venue"),
     brands: pages.brands.length ? pages.brands.join(", ") : fill("claude.rt.plan.pages.no_brand"),
-    // PENDING DESIGN: no row covers a show with no lineup Page matched; it reads as the slots above do.
-    artists: pages.artists.length ? pages.artists.join(", ") : fill("claude.rt.plan.pages.no_brand"),
+    artists: pages.artists.length ? pages.artists.join(", ") : fill("claude.rt.plan.pages.no_artists"),
   });
 }
 
@@ -302,25 +301,26 @@ export function existingLine(campaign: string, action: ExistingAction): string {
   return fill("claude.rt.plan.existing", { campaign, action: fill(EXISTING_ROW[action]) });
 }
 
-/** TC3 / TC8: Similar skipped, told to Claude. A group under Meta's minimum has no row yet (PENDING DESIGN). */
+/** TC3 / TC8: Similar skipped, told to Claude. */
 export function similarSkipLine(reason: SimilarSkip, args: { code: string; genre: string | null }): string {
-  if (reason === "too_small") return "Similar skipped: its page group’s audience is under Meta’s minimum, so its share goes to Cold.";
+  if (reason === "too_small") return fill("claude.rt.plan.similar.skip", { reason: fill("claude.rt.plan.similar.small") });
   const why = reason === "no_genre" ? fill("claude.rt.plan.similar.genre", { code: args.code }) : fill("claude.rt.plan.similar.group", { genre: args.genre ?? "" });
   return fill("claude.rt.plan.similar.skip", { reason: why });
 }
 
 /**
- * PENDING DESIGN (Matas, 27 Nov: "Yes, at the next step"): a group confirmed
- * after the build — Similar comes back at the next stretch step; or the read
- * couldn't add it at that step (its share stays in Cold, and why).
+ * Matas, 27 Nov ("Yes, at the next step"): a group confirmed after the build —
+ * Similar comes back at the next stretch step; or the read couldn't add it at
+ * that step (its share stays in Cold, and why). The 27 Nov list's rows.
  */
+const reasonOf = (reason: string) => reason.replace(/\.$/, "");
 export const SIMILAR_RETURN = {
-  row: (date: string, x: string) => `Similar comes back at the next step, ${date}: its £${x} a day moves back from Cold then.`,
-  rowNoStep: (x: string) => `Similar can't come back: there's no step left before the show. Its £${x} a day stays in Cold.`,
-  rowRefused: (date: string, reason: string, x: string) => `Similar couldn't be added on ${date}: ${reason.replace(/\.$/, "")}. Its £${x} a day stays in Cold.`,
-  claude: (date: string) => `Similar comes back at the next step, ${date}, now its page group is confirmed.`,
-  claudeNoStep: "Similar can't come back: there's no step left before the show, so its share stays in Cold.",
-  claudeRefused: (date: string, reason: string) => `Similar couldn't be added on ${date}: ${reason.replace(/\.$/, "")}. Its share stays in Cold.`,
+  row: (date: string, x: string) => fill("rt.similar.back", { date, x }),
+  rowNoStep: (x: string) => fill("rt.similar.back.none", { x }),
+  rowRefused: (date: string, reason: string, x: string) => fill("rt.similar.back.failed", { date, reason: reasonOf(reason), x }),
+  claude: (date: string) => fill("claude.rt.similar.back", { date }),
+  claudeNoStep: fill("claude.rt.similar.back.none"),
+  claudeRefused: (date: string, reason: string) => fill("claude.rt.similar.back.failed", { date, reason: reasonOf(reason) }),
 } as const;
 
 /** The Similar return line for Claude: refused at a step, else the next step (or none left). */
@@ -331,7 +331,7 @@ export function similarReturnLine(args: { nextDay: string | null; refused: { day
 
 /** TC3: the Similar row in place of its audiences (muted), with the £ a day that went to Cold. */
 export function similarSkipRow(reason: SimilarSkip, args: { code: string; genre: string | null; minor: number }): string {
-  if (reason === "too_small") return `Similar skipped: its page group’s audience is under Meta’s minimum, so its £${money(args.minor)} a day goes to Cold.`;
+  if (reason === "too_small") return fill("rt.similar.skip.small", { x: money(args.minor) });
   return reason === "no_genre" ? fill("rt.similar.skip.genre", { code: args.code, x: money(args.minor) }) : fill("rt.similar.skip.group", { genre: args.genre ?? "", x: money(args.minor) });
 }
 
@@ -376,24 +376,26 @@ export function claudePlanLines(
   return lines;
 }
 
-export type SkipReason = "no_pixel" | "no_link" | "no_signup_link" | "soon" | "archived" | "built" | "no_budget";
-
-/** PENDING DESIGN: the two skip reasons TC left without a row (claude.rt.skip.no_money is withdrawn). */
-export const SKIP_PENDING = {
-  no_budget: "it has no prospecting budget to fold into Wider",
-  no_signup_link: "it has no sign-up page link",
-} as const;
+export type SkipReason = "no_pixel" | "no_link" | "no_signup_link" | "soon" | "archived" | "built" | "no_budget" | "not_on_sale";
 
 const SKIP_ROW = {
+  no_budget: "claude.rt.skip.no_budget",
+  no_signup_link: "claude.rt.skip.no_signup_link",
   no_pixel: "claude.rt.skip.no_pixel",
   no_link: "claude.rt.skip.no_link",
   soon: "claude.rt.skip.soon",
   archived: "claude.rt.skip.archived",
   built: "claude.rt.skip.built",
+  not_on_sale: "claude.rt.skip.not_on_sale",
 } as const;
 
+/** A skip reason's words, as {reason} in claude.rt.skip and claude.rt.refused.skip. */
+export function skipReasonWords(reason: SkipReason): string {
+  return fill(SKIP_ROW[reason]);
+}
+
 export function skipLine(code: string, reason: SkipReason): string {
-  const why = reason === "no_budget" || reason === "no_signup_link" ? SKIP_PENDING[reason] : fill(SKIP_ROW[reason]);
+  const why = fill(SKIP_ROW[reason]);
   return fill("claude.rt.skip", { code, reason: why });
 }
 

@@ -92,15 +92,16 @@ export function funnelMetaWithToken(token: string): FunnelMeta {
 }
 
 /** The read's Similar step for the cron (runRetargetingRead's `similarStep`). */
+/** PENDING DESIGN: the step's own refusals (no owner, no token, no draft); the rest are the create path's rows. */
 export function similarStepFor(db: SupabaseClient, env: Record<string, string | undefined>) {
   return async (args: { event: { id: string; client_id: string | null }; build: FunnelBuild; pageGroup: PageGroup; day: string }): Promise<SimilarStepOutcome> => {
     const owner = await db.from("events").select("user_id").eq("id", args.event.id).maybeSingle();
     const userId = (owner.data as { user_id?: string } | null)?.user_id ?? null;
     const empty = { progress: {} };
-    if (!userId) return { state: "failed", reason: "The show's owner isn't known, so Similar wasn't added.", ...empty };
+    if (!userId) return { state: "failed", reason: "The show’s owner isn’t known, so Similar wasn’t added.", ...empty };
     const token = await refreshTokenFor(db, userId);
-    if (!token) return { state: "failed", reason: "There's no Facebook token for the show's owner, so Similar wasn't added.", ...empty };
-    if (!args.build.draftId) return { state: "failed", reason: "The build has no draft to record its writes on, so Similar wasn't added.", ...empty };
+    if (!token) return { state: "failed", reason: "There’s no Facebook token for the show’s owner, so Similar wasn’t added.", ...empty };
+    if (!args.build.draftId) return { state: "failed", reason: "The build has no draft to record its writes on, so Similar wasn’t added.", ...empty };
     // The build's own chat yes, as its scheduled steps carry it.
     const yes = await db.from("scheduled_meta_changes").select("approval_asked, approval_answer").eq("user_id", userId).eq("event_id", args.event.id).like("call_key", `rf:${args.event.id}:%`).limit(1).maybeSingle();
     const approval = (yes.data as { approval_asked?: string; approval_answer?: string } | null) ?? null;

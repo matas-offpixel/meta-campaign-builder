@@ -96,7 +96,7 @@ const INSTRUCTIONS = [
   "The shows tools change the app only, never Meta: create_client (a sub-brand is its own client under parent_client) and create_event make a client and a show; set_lineup sets the show's Lab lineup in billing order; get_releases reads the Releases card and the claims its ladder gives now (use a claim only when it is met); set_release sets a release's state or count as the card does.",
   AUD_TOOL_WORDS.instructions,
   // PENDING DESIGN: M3c's line.
-  "plan_retargeting reads what each show's two campaigns, Wider and Retargeting, would be today (one code, a list, or \"live\" for every show on sale or in presale), with the Pages it matched, and changes nothing; create_show_campaigns makes one show's, paused or live, only after Matas says yes in this chat, as the other Meta tools do. Pausing or folding an existing prospecting campaign is Matas's yes too, and create_show_campaigns never does it.",
+  "plan_retargeting reads what each show’s two campaigns, Wider and Retargeting, would be today (one code, a list, or “live” for every show on sale or in presale), with the Pages it matched, and changes nothing; create_show_campaigns makes one show’s, paused or live, only after Matas says yes in this chat, as the other Meta tools do. Pausing or folding an existing prospecting campaign is Matas’s yes too, and create_show_campaigns never does it.",
   "Before a draft tool, call get_draft and pass its updatedAt as updated_at; every draft tool answers with the new updated_at and the launch checks. get_draft gives the ids the draft tools take (ads, ad sets, audience groups).",
 ].join(" ");
 

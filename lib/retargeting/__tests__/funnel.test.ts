@@ -31,13 +31,13 @@ import {
 import { claudePlanLines, createLines, doneLine, matchedPagesLine, nextLine, planFunnelShow, planHead, shareLine, similarSkipRow, skipLine, skipReason, splitLine, wordsSplit, type FunnelShowPlan, type WiderWords } from "../funnel-plan.ts";
 import { planWider } from "../show-campaigns.ts";
 
-const TSV = new URL("./fixtures/words-retargeting-2026-11-26.tsv", import.meta.url);
+const TSV = new URL("./fixtures/words-retargeting-2026-11-27.tsv", import.meta.url);
 
-test("the words: the design list, row for row, character for character (sha b1a51f4b…)", () => {
+test("the words: the design list, row for row, character for character (sha 986bcc53…)", () => {
   const raw = readFileSync(TSV);
-  assert.equal(createHash("sha256").update(raw).digest("hex"), "b1a51f4bcb28e462096e7a591c7e4735fe7292f2cbe65d96da6bf5cb896f8a67");
+  assert.equal(createHash("sha256").update(raw).digest("hex"), "986bcc53e97973357ee678c6156a71412e300aa4ba9fbfac725f6242a5e361e2");
   const rows = raw.toString("utf8").split("\n").filter(Boolean).slice(1).map((line) => line.split("\t"));
-  assert.equal(rows.length, 109);
+  assert.equal(rows.length, 147);
   assert.deepEqual(Object.keys(RF_WORDS), rows.map((row) => row[0]));
   for (const [key, , words] of rows) assert.equal(RF_WORDS[key as keyof typeof RF_WORDS], words, key);
 });
@@ -221,7 +221,7 @@ test("TC3: no group or no genre skips Similar, and its share goes to Cold, exact
 /** Wider as plan.ts sizes it, for the words. */
 function widerOf(plan: FunnelShowPlan, runDay: string, endDay = SHOW): WiderWords {
   const w = planWider({ showDailyMinor: plan.showDailyMinor, retargetingMinor: plan.totalMinor, runDay, showDay: SHOW, endDay, adSets: 4, steps: plan.steps.filter((step) => step.day <= endDay) });
-  return { lifetimeMinor: w.lifetimeMinor, dailyMinor: w.dailyMinor, daysLeft: w.daysLeft, endDay, steps: w.steps };
+  return { lifetimeMinor: w.lifetimeMinor, dailyMinor: w.dailyMinor, daysLeft: w.daysLeft, endDay, sets: ["Broad", "Similar pages", "Lookalikes"], steps: w.steps };
 }
 
 test("TC1 / TW-A: the Create line names both campaigns, Wider first, then the split, the show's total and the next step", () => {
@@ -229,7 +229,7 @@ test("TC1 / TW-A: the Create line names both campaigns, Wider first, then the sp
   const wider = widerOf(plan, "2026-11-26");
   assert.deepEqual(createLines(plan, wider, false), {
     lines: [
-      "Wider · £663.00 lifetime to Sat 12 Dec (17 days, £39.00 a day) · Advantage+ audience · Broad, Similar pages, Interests, Lookalikes",
+      "Wider · £663.00 lifetime to Sat 12 Dec (17 days, £39.00 a day) · Advantage+ audience · Broad, Similar pages, Lookalikes",
       "Retargeting · £21.00 a day · 35 % of the show’s daily spend · final month · Advantage+ off",
       "Similar £3.15 · Cold £5.25 · Warm £7.35 · Hot £5.25",
       "The show’s daily spend stays at £60.00: £39.00 Wider and £21.00 Retargeting.",
@@ -273,7 +273,7 @@ test("TC7: a presale show — sign-ups left out of both campaigns, Hot is sign-u
   const plan = planFunnelShow({ code: "XMPL-CELLAR", runDay: "2026-11-26", showDay: "2027-02-13", announceDay: "2026-11-23", prospecting: [{ id: "p", kind: "adset", name: "Broad", dailyMinor: 4000, adSets: 1 }], sources: presale, spec: { ...TWO, presale: true } });
   const wider = widerOf(plan, "2026-11-26", "2026-12-04");
   assert.deepEqual(createLines(plan, wider, true).lines, [
-    "Wider · £270.00 lifetime to Fri 4 Dec (9 days, £30.00 a day) · Advantage+ audience · Broad, Similar pages, Interests, Lookalikes",
+    "Wider · £270.00 lifetime to Fri 4 Dec (9 days, £30.00 a day) · Advantage+ audience · Broad, Similar pages, Lookalikes",
     "Retargeting · £10.00 a day · 25 % of the show’s daily spend · announce · Advantage+ off",
     "Similar £2.50 · Cold £4.50 · Warm £2.00 · Hot £1.00",
     "The show’s daily spend stays at £40.00: £30.00 Wider and £10.00 Retargeting.",

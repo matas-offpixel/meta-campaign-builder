@@ -690,7 +690,7 @@ export async function runRetargetingRead(input: {
       // Matas, 27 Nov: a group confirmed after the build brings Similar back at the next stretch step.
       let similarOutcome: SimilarStepOutcome | null = null;
       if (similarStepDue({ dryRun, ruled: SHOW_CAMPAIGNS_RULED, row: buildRow, pageGroup, day }) && input.similarStep) {
-        similarOutcome = await input.similarStep({ event, build: buildRow!.build as FunnelBuild, pageGroup: pageGroup!, day }).catch((err) => ({ state: "failed" as const, reason: "Similar couldn't be added this read.", progress: buildRow!.progress ?? {}, error: err instanceof Error ? err.message : String(err) }));
+        similarOutcome = await input.similarStep({ event, build: buildRow!.build as FunnelBuild, pageGroup: pageGroup!, day }).catch((err) => ({ state: "failed" as const, reason: "Similar couldn’t be added this read.", progress: buildRow!.progress ?? {}, error: err instanceof Error ? err.message : String(err) }));
         if (similarOutcome.state !== "skipped") {
           buildRow!.progress = similarOutcome.progress;
           funnelBuilt = funnelBuiltOf(buildRow, widerId ? { remainingMinor, doneDays: widerDoneDays(stepRows, event.id) } : null);

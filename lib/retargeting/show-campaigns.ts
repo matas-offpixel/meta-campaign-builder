@@ -18,8 +18,7 @@
  * Each stretch step lowers Wider's remaining lifetime budget by the step ×
  * the days left, never below £1.00 a day per ad set.
  *
- * Words are the two-campaign record's rows (wd.*, GEO_WORDS); the fold
- * refusal is PENDING DESIGN.
+ * Words are the rows (wd.*, claude.rt.refused.fold, GEO_WORDS).
  * Pure. Relative imports only (node:test).
  */
 
@@ -213,7 +212,7 @@ export function widerGive(args: { remainingMinor: number; wantDailyMinor: number
   return Math.max(0, Math.min(args.wantDailyMinor, Math.floor((args.remainingMinor - floor) / rest)));
 }
 
-/** PENDING DESIGN: a live create refused while the prospecting Wider replaces still runs. */
+/** claude.rt.refused.fold: a live create refused while the prospecting Wider replaces still runs. */
 export function foldFirstLine(code: string, names: readonly string[]): string {
-  return `Refused: ${code}'s prospecting still runs (${names.join(" · ")}). Fold or pause it first, on Matas's yes, then make it live. Nothing was changed.`;
+  return fill("claude.rt.refused.fold", { code, names: names.join(" · ") });
 }

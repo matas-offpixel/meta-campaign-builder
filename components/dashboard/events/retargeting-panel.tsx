@@ -466,7 +466,7 @@ function FunnelTable({ rows }: { rows: FunnelTierRow[] }) {
             <td className="py-2 pr-2 font-medium">{row.label}</td>
             <td className="py-2 pr-2">
               {row.skipped ? (
-                <p className="text-muted-foreground" data-similar-skipped>
+                <p className={toneClass(row.skippedTone ?? "muted")} data-similar-skipped data-tone={row.skippedTone ?? "muted"}>
                   {k(row.skipped)}
                 </p>
               ) : null}
@@ -507,7 +507,7 @@ function FunnelCards({ rows }: { rows: FunnelTierRow[] }) {
             <span className="tabular-nums">{row.budgetMinor == null ? NO_FIGURE : k(funnelBudget(row.budgetMinor))}</span>
           </p>
           {row.skipped ? (
-            <p className="mt-0.5 text-muted-foreground" data-similar-skipped>
+            <p className={`mt-0.5 ${toneClass(row.skippedTone ?? "muted")}`} data-similar-skipped data-tone={row.skippedTone ?? "muted"}>
               {k(row.skipped)}
             </p>
           ) : (

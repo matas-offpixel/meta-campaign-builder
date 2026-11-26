@@ -159,7 +159,7 @@ describe("RF4 live: the ceiling on the show's total, prospecting first, then on,
     const { calls, deps, ctx } = setup({ budgets: { 5001: 3000, 5002: 1400, 5003: 1000 } });
     const out = await applyFunnel(deps, buildFor(), ctx("live"));
     assert.equal(out.state, "failed");
-    assert.equal(out.reason, "Broad · Advantage+'s budget changed in Ads Manager since the plan.");
+    assert.equal(out.reason, "Broad · Advantage+’s budget was changed in Ads Manager since the plan. Plan it again.");
     assert.deepEqual(names(calls, "createCampaign"), []);
   });
 

@@ -29,12 +29,13 @@ import { midBuildable, pagesWithoutRole, perLinkAudiences, tierSpecs, usablePage
 import { firedOn, landingLinks, landingShared, pixelOnOwnDomains, pixelOnPlatforms, ticketLinks, type PixelHosts } from "./links.ts";
 import { callFor, type PooledRead } from "./test.ts";
 import { isPresale, planFunnelShow, splitLine, wordsSplit, type FunnelShowPlan, type MatchedPages, type WiderWords } from "./funnel-plan.ts";
+import { fill as fillRf } from "./funnel-words.ts";
 export { isPresale };
 import { funnelCampaignName, FUNNEL_TIERS, splitOf, splitTotal, type SpecOptions, type FunnelAccount, type FunnelTier, type ProspectingBudget, type TakeLine, type TierMinor, type TierWeek } from "./funnel.ts";
 import { funnelSourcesOf, proposedPanel, runningPanel, type FunnelPanel, type RunningWider } from "./funnel-view.ts";
 import type { FunnelBuild } from "./funnel-apply.ts";
 import type { PageGroup } from "./funnel.ts";
-import { planWider, widerCampaignName, widerSpecs, type Interest } from "./show-campaigns.ts";
+import { planWider, WIDER_AD_SET_LABEL, widerCampaignName, widerSpecs, type Interest } from "./show-campaigns.ts";
 import { currentDailyMinor, daysToShow, isShare, type Funding, type Share } from "./budget.ts";
 import {
   audiencesNarrow,
@@ -542,7 +543,8 @@ function widerFor(input: RetargetingInput, plan: FunnelShowPlan, sources: Return
     const tiers = splitTotal(w.retargetingMinor, splitOf(step.stretch, true, spec.twoCampaigns === true && plan.similarSkip != null), { buildable })?.tiers ?? step.tiers;
     return { ...step, totalMinor: w.retargetingMinor, tiers, deltaMinor: w.givenDailyMinor };
   });
-  const words: WiderWords = { lifetimeMinor: wider.lifetimeMinor, dailyMinor: wider.dailyMinor, daysLeft: wider.daysLeft, endDay, steps: wider.steps };
+  // tc.create.sets: only the ad sets that will be made (no Interests until the genre's interests are read).
+  const words: WiderWords = { lifetimeMinor: wider.lifetimeMinor, dailyMinor: wider.dailyMinor, daysLeft: wider.daysLeft, endDay, sets: sets.map((set) => WIDER_AD_SET_LABEL[set.key]), steps: wider.steps };
   return {
     plan: { ...plan, steps: reconciled },
     words,
@@ -558,8 +560,8 @@ function widerFor(input: RetargetingInput, plan: FunnelShowPlan, sources: Return
   };
 }
 
-/** PENDING DESIGN: the not-proposed sentence for a show with no prospecting budget to fold into Wider (RF4's take words are withdrawn). */
-export const NO_BUDGET = "No Retargeting campaign: this show has no prospecting budget to fold into Wider.";
+/** rt.none.no_budget: the not-proposed sentence for a show with no prospecting budget to fold into Wider. */
+export const NO_BUDGET = fillRf("rt.none.no_budget");
 
 export function planRetargeting(input: RetargetingInput): RetargetingPlan {
   const code = input.eventCode;

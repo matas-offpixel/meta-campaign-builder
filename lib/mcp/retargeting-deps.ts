@@ -41,11 +41,11 @@ import { realLiveDeps } from "./meta-deps";
 import { LOOKALIKE_SPEC } from "./audiences/specs";
 import type { McpRetargetingDeps } from "./retargeting/types";
 
-/** Meta's own words never reach Claude: the refresh's plain reasons for the known cases, else one sentence (PENDING DESIGN). */
+/** Meta's own words never reach Claude: the refresh's plain reasons for the known cases (matched as written), else claude.rt.meta_refused's words. */
 export function claudeMetaReason(err: unknown): string {
   const plain = plainMetaReason(err);
   const known = ["the video is still processing", "it's limiting calls", "the Facebook connection has expired", "permissions don't allow it", "as many ads as Meta allows"];
-  return known.some((part) => plain.includes(part)) ? plain : "Meta didn't take this.";
+  return known.some((part) => plain.includes(part)) ? plain : "Meta didn’t take this.";
 }
 
 const act = (id: string) => (id.startsWith("act_") ? id : `act_${id}`);
