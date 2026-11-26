@@ -12,10 +12,10 @@ rt.src.video95	Tier row, audiences (Warm)	Video viewers 95 % · 60 days
 rt.src.ticket30	Tier row, audiences (Hot)	Ticket-link visitors · 30 days
 rt.src.checkout	Tier row, audiences (Hot)	Checkout starters
 rt.src.signups	Tier row, audiences (Hot)	Registrations · signup list
-rt.src.similar	Tier row, audiences (Hot); {n} with a one-form	{n} similar lists
+rt.src.similar	Tier row, audiences (Warm now, TC4); {n} with a one-form (re-ruled 26 Nov, TC)	{n} similar lists
 rt.src.similar.one	Tier row, audiences (Hot), one	1 similar list
-rt.src.accounts	Tier row, after an account-based source; {n} with a one-form	{n} accounts
-rt.src.accounts.one	Tier row, one account	1 account
+rt.src.accounts	Tier row, after an account-based source; {n} with a one-form (withdrawn 26 Nov by TC: not used)	{n} accounts
+rt.src.accounts.one	Tier row, one account (withdrawn 26 Nov by TC: not used)	1 account
 rt.m.freq	Tier card at 393, under the tier name	Frequency {f}
 rt.m.leaves	Tier card at 393, after the frequency; {x} is rt.leaves.*	leaves out {x}
 rt.leaves.cold	Tier row, Leaves out (Cold)	Warm · Hot · buyers
@@ -28,13 +28,13 @@ rt.stretch.final_month	Panel, stretch name	final month
 rt.stretch.final_2w	Panel, stretch name	final 2 weeks
 rt.stretch.final_week	Panel, stretch name	final week
 rt.share.line	Panel, under the title, and the Create line’s first line	£{x} a day · {p} % of the show’s daily spend · {stretch}
-rt.share.split	Create line, after the share line	Cold £{c} · Warm £{w} · Hot £{h}
-rt.next	Panel footer: the next stretch, its share and what it moves	Next: {stretch} from {date} · {p} % · moves £{x} a day from {from} to retargeting
+rt.share.split	Create line and panel: the Retargeting split (TC5) (re-ruled 26 Nov, TC)	Similar £{s} · Cold £{c} · Warm £{w} · Hot £{h}
+rt.next	Panel footer: the next stretch, what it raises and what it lowers (TC6) (re-ruled 26 Nov, TC)	Next: {stretch} from {date} · {p} % · Retargeting up £{x} a day, Wider’s remaining budget down £{y} (£{x} a day × {n} days)
 rt.next.none	Panel footer, the final week	Last stretch: the show is {date}.
-rt.take	Create line: where the money comes from; {from} is rt.take.from joined with “ · ”	Takes £{x} a day from prospecting, largest first: {from}. The show stays at £{s} a day.
-rt.take.from	{from}, one ad set or campaign budget	{name} £{a} → £{b}
-rt.take.short	Create line, when prospecting can’t give the whole share (Matas, 26 Nov: take what’s there)	Prospecting can give £{y} of the £{x} without going under £1.00 an ad set, so retargeting starts at £{y} a day.
-rt.take.none	Create line, prospecting has nothing to give	Prospecting has nothing above £1.00 an ad set to give, so there’s no money for retargeting. Raise the show’s budget first.
+rt.take	Create line: where the money comes from; {from} is rt.take.from joined with “ · ” (withdrawn 26 Nov by TC: not used)	Takes £{x} a day from prospecting, largest first: {from}. The show stays at £{s} a day.
+rt.take.from	{from}, one ad set or campaign budget (withdrawn 26 Nov by TC: not used)	{name} £{a} → £{b}
+rt.take.short	Create line, when prospecting can’t give the whole share (Matas, 26 Nov: take what’s there) (withdrawn 26 Nov by TC: not used)	Prospecting can give £{y} of the £{x} without going under £1.00 an ad set, so retargeting starts at £{y} a day.
+rt.take.none	Create line, prospecting has nothing to give (withdrawn 26 Nov by TC: not used)	Prospecting has nothing above £1.00 an ad set to give, so there’s no money for retargeting. Raise the show’s budget first.
 rt.cap	Tier row, under Budget (ochre): the tier is capped	Capped at £{c} a day: frequency {f} over 7 days. £{x} a day went to {to}.
 rt.cap.back	Tier row, the extra went back to prospecting	Capped at £{c} a day: frequency {f} over 7 days. £{x} a day went back to {to}.
 rt.cap.plus	Tier row, under Budget (muted): a warmer tier’s capped extra came here	Plus £{x} a day from {from}.
@@ -49,8 +49,8 @@ cc.lineup.existing	Campaign creator, an existing draft’s lineup ad set (ochre)
 cc.lineup.move	Button	Move to Broad
 cc.lineup.keep	Button	Keep
 rt.floor	Tier row, under Budget (muted): the tier sits at Meta’s minimum	At the £1.00 floor, so it takes a little more than its share.
-claude.rt.plan.line	Told to Claude, plan_retargeting, one line per show	{code} · {stretch} · {p} % · £{x} a day: Cold £{c} · Warm £{w} · Hot £{h} · from {from} · audiences {made} made, {make} to make, {missing} missing access
-claude.rt.plan.short	Told to Claude, plan_retargeting, after the line when prospecting is short	Prospecting can give £{y} of the £{x}.
+claude.rt.plan.line	Told to Claude, plan_retargeting, one line per show (TC8) (re-ruled 26 Nov, TC)	{code} · {stretch} · {p} %: Wider £{l} lifetime (£{d} a day) · Retargeting £{x} a day: Similar £{s} · Cold £{c} · Warm £{w} · Hot £{h} · audiences {made} made, {make} to make, {missing} missing access
+claude.rt.plan.short	Told to Claude, plan_retargeting, after the line when prospecting is short (withdrawn 26 Nov by TC: not used)	Prospecting can give £{y} of the £{x}.
 claude.rt.plan.access	Told to Claude, plan_retargeting, after the line when accounts lack access	Needs advertiser access: {names}.
 claude.rt.plan.next	Told to Claude, plan_retargeting, after the line	Then {stretch} from {date} at {p} %, as a scheduled change.
 claude.rt.plan.head	Told to Claude, plan_retargeting("live"), first line	{n} shows on sale: {a} to build, {c} skipped.
@@ -59,8 +59,52 @@ claude.rt.skip.no_pixel	{reason}	its ads optimise on no pixel
 claude.rt.skip.no_link	{reason}	it has no ticket link
 claude.rt.skip.soon	{reason}	the show is within 3 days
 claude.rt.skip.archived	{reason}	its client is archived
-claude.rt.skip.built	{reason}	it already has a Retargeting campaign
-claude.rt.skip.no_money	{reason}	prospecting has nothing above £1.00 an ad set to give
-claude.rt.done	Told to Claude, create_retargeting done; {state} is paused or live	Done: {code} · Retargeting created {state} · 3 ad sets · {made} audiences made. Takes £{x} a day from prospecting{when}.
-claude.rt.done.when.paused	{when}, paused	 once it’s live
-claude.rt.done.when.live	{when}, live	
+claude.rt.skip.built	{reason} (re-ruled 26 Nov, TC)	it already has a Wider or Retargeting campaign
+claude.rt.skip.no_money	{reason} (withdrawn 26 Nov by TC: not used)	prospecting has nothing above £1.00 an ad set to give
+claude.rt.done	Told to Claude, create_show_campaigns done; {state} is paused or live (TC8) (re-ruled 26 Nov, TC)	Done: {code} · Wider and Retargeting created {state} · {n} ad sets · {made} audiences made.
+claude.rt.done.when.paused	{when}, paused (withdrawn 26 Nov by TC: not used)	 once it’s live
+claude.rt.done.when.live	{when}, live (withdrawn 26 Nov by TC: not used)	
+wd.name.campaign	Meta campaign name	{code} · Wider
+wd.name.adset	Meta ad set name; {set} is wd.set.*	{code} · Wider · {set}
+wd.set.broad	Wider ad set	Broad
+wd.set.similar_pages	Wider ad set	Similar pages
+wd.set.interests	Wider ad set	Interests
+wd.set.lookalikes	Wider ad set	Lookalikes
+wd.leaves	Wider, Leaves out	Warm · Hot · buyers
+wd.leaves.presale	Wider, Leaves out, presale (TC7)	Warm · Hot · signed up
+rt.tier.similar	Retargeting tier name; Meta ad set name suffix	Similar
+rt.tier.buyers	Retargeting tier name, only with upsells	Buyers
+rt.leaves.similar	Tier row, Leaves out (Similar)	Cold · Warm · Hot · buyers
+rt.buyers.note	Tier row (Buyers), under Budget (muted)	Outside the share: £{x} a day of its own, while the show has upsells.
+rt.src.page_group	Tier row, audiences (Similar); {genre} as stored, e.g. drum & bass	Engagers of the {genre} page group · {n} pages · 365 days
+rt.src.page_group.audiences	After rt.src.page_group, when the group needs more than one audience	{n} audiences, 5 pages each at most
+rt.similar.skip.group	Tier row (Similar), muted, in place of audiences: no page group for the genre	Similar skipped: there’s no {genre} page group yet, so its £{x} a day goes to Cold.
+rt.similar.skip.genre	Tier row (Similar), muted: the show has no genre	Similar skipped: {code} has no genre, so its £{x} a day goes to Cold.
+rt.src.from	Tier row, last line of the audiences (muted): whose Pages and accounts the account-based sources come from; {n} with a one-form	From the venue’s and promoter’s Pages and the lineup artists: {n} accounts
+rt.src.from.one	The same, one account	From the venue’s and promoter’s Pages and the lineup artists: 1 account
+claude.rt.plan.pages	Told to Claude, plan_retargeting, after the line: the Pages the show matched, so Matas can correct one; {brands} and {artists} joined with “, ”	Matched Pages · venue {venue} · promoter {brands} · lineup {artists}. If one is wrong, Matas corrects it before the build.
+claude.rt.plan.pages.no_venue	{venue} when no venue Page matched	not matched
+claude.rt.plan.pages.no_brand	{brands} when no promoter Page matched	not matched
+tc.create.wider	Create line, Wider	Wider · £{l} lifetime to {date} ({n} days, £{d} a day) · Advantage+ audience · Broad, Similar pages, Interests, Lookalikes
+tc.create.retargeting	Create line, Retargeting; {stretch} is rt.stretch.*	Retargeting · £{x} a day · {p} % of the show’s daily spend · {stretch} · Advantage+ off
+tc.create.total	Create line, after both	The show’s daily spend stays at £{s}: £{d} Wider and £{x} Retargeting.
+tc.create.geo	Create line, last (muted)	Location expansion off on every ad set.
+wd.row	Panel, Wider row	Wider · £{left} of £{l} lifetime left · £{d} a day to {date}
+wd.step	Panel, Wider row, after a step (muted)	Lowered by £{y} on {date}: £{x} a day × {n} days moved to Retargeting for {stretch}.
+wd.step.floor	Panel, Wider row, when a step meets the floor (ochre)	Wider can give £{y} a day of the £{x} without going under £1.00 a day an ad set, so Retargeting rises by £{y} a day.
+rt.presale.note	Panel, under the share line, presale shows	Presale: signing up is the goal, so sign-ups are left out of both campaigns and get the presale reminder and WhatsApp invite instead.
+rt.src.signup_visitors	Tier row, audiences (Hot, presale)	Sign-up page visitors · 30 days · not signed up
+rt.src.show_visitors60	Tier row, audiences (Warm, presale)	Show page visitors · 60 days
+rt.leaves.similar.presale	Tier row, Leaves out (Similar, presale)	Cold · Warm · Hot · signed up
+rt.leaves.cold.presale	Tier row, Leaves out (Cold, presale)	Warm · Hot · signed up
+rt.leaves.warm.presale	Tier row, Leaves out (Warm, presale)	Hot · signed up
+rt.leaves.hot.presale	Tier row, Leaves out (Hot, presale)	Signed up
+rt.presale.onsale	Panel footer, presale shows	On sale from {date}: sign-ups move into Hot, and buying becomes the goal.
+claude.rt.plan.similar.skip	Told to Claude, plan_retargeting, after the line; {reason} is claude.rt.plan.similar.*	Similar skipped: {reason}, so its share goes to Cold.
+claude.rt.plan.similar.group	{reason}	no {genre} page group yet
+claude.rt.plan.similar.genre	{reason}	{code} has no genre
+claude.rt.plan.presale	Told to Claude, plan_retargeting, presale shows	Presale: {n} sign-ups are left out of both campaigns and listed for the presale reminder.
+claude.rt.plan.existing	Told to Claude, plan_retargeting, one line per existing prospecting campaign; {action} is claude.rt.plan.existing.*	Existing prospecting: {campaign} · {action}.
+claude.rt.plan.existing.keep	{action}	keep
+claude.rt.plan.existing.pause	{action}	pause, once Matas says yes
+claude.rt.plan.existing.fold	{action}	fold into Wider, once Matas says yes

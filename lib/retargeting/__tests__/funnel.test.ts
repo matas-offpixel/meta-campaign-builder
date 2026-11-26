@@ -30,11 +30,11 @@ import { claudePlanLines, doneLine, nextLine, planFunnelShow, planHead, shareLin
 
 const TSV = new URL("./fixtures/words-retargeting-2026-11-26.tsv", import.meta.url);
 
-test("the words: the design list, row for row, character for character (sha fcbd2820…)", () => {
+test("the words: the design list, row for row, character for character (sha b1a51f4b…)", () => {
   const raw = readFileSync(TSV);
-  assert.equal(createHash("sha256").update(raw).digest("hex"), "fcbd282068d78ab9a9810e52c79c568d641b9581ba34cad830e896f9f886546c");
+  assert.equal(createHash("sha256").update(raw).digest("hex"), "b1a51f4bcb28e462096e7a591c7e4735fe7292f2cbe65d96da6bf5cb896f8a67");
   const rows = raw.toString("utf8").split("\n").filter(Boolean).slice(1).map((line) => line.split("\t"));
-  assert.equal(rows.length, 65);
+  assert.equal(rows.length, 109);
   assert.deepEqual(Object.keys(RF_WORDS), rows.map((row) => row[0]));
   for (const [key, , words] of rows) assert.equal(RF_WORDS[key as keyof typeof RF_WORDS], words, key);
 });

@@ -465,14 +465,24 @@ function FunnelTable({ rows }: { rows: FunnelTierRow[] }) {
           <tr key={row.tier} className="border-b border-border/60 align-top" data-tier={row.tier}>
             <td className="py-2 pr-2 font-medium">{row.label}</td>
             <td className="py-2 pr-2">
+              {row.skipped ? (
+                <p className="text-muted-foreground" data-similar-skipped>
+                  {k(row.skipped)}
+                </p>
+              ) : null}
               {row.audiences.map((line) => (
                 <p key={line}>{k(line)}</p>
               ))}
+              {row.from ? (
+                <p className="text-muted-foreground" data-from>
+                  {k(row.from)}
+                </p>
+              ) : null}
             </td>
-            <td className="py-2 pr-2">{k(row.leavesOut)}</td>
+            <td className="py-2 pr-2">{row.leavesOut ? k(row.leavesOut) : NO_FIGURE}</td>
             <td className="py-2 pr-2 tabular-nums">{row.frequency == null ? NO_FIGURE : row.frequency.toFixed(1)}</td>
             <td className="py-2 tabular-nums">
-              <p>{k(funnelBudget(row.budgetMinor))}</p>
+              <p>{row.budgetMinor == null ? NO_FIGURE : k(funnelBudget(row.budgetMinor))}</p>
               {row.lines.map((line) => (
                 <p key={line.text} className={`mt-0.5 ${toneClass(line.tone)}`} data-tone={line.tone}>
                   {k(line.text)}
@@ -494,14 +504,25 @@ function FunnelCards({ rows }: { rows: FunnelTierRow[] }) {
         <li key={row.tier} className="rounded border border-border/70 p-3 text-xs" data-tier={row.tier}>
           <p className="flex items-baseline justify-between gap-2">
             <span className="text-sm font-medium">{row.label}</span>
-            <span className="tabular-nums">{k(funnelBudget(row.budgetMinor))}</span>
+            <span className="tabular-nums">{row.budgetMinor == null ? NO_FIGURE : k(funnelBudget(row.budgetMinor))}</span>
           </p>
-          <p className="mt-0.5 text-muted-foreground">{k(cardMeta(row))}</p>
+          {row.skipped ? (
+            <p className="mt-0.5 text-muted-foreground" data-similar-skipped>
+              {k(row.skipped)}
+            </p>
+          ) : (
+            <p className="mt-0.5 text-muted-foreground">{k(cardMeta(row))}</p>
+          )}
           {row.audiences.map((line) => (
             <p key={line} className="mt-0.5">
               {k(line)}
             </p>
           ))}
+          {row.from ? (
+            <p className="mt-0.5 text-muted-foreground" data-from>
+              {k(row.from)}
+            </p>
+          ) : null}
           {row.lines.map((line) => (
             <p key={line.text} className={`mt-0.5 ${toneClass(line.tone)}`} data-tone={line.tone}>
               {k(line.text)}
@@ -528,13 +549,16 @@ function FunnelCreate({ title, funnel, line, shadow, apply, actions, share }: { 
         <div className="min-w-0 flex-1">
           <p className="flex flex-wrap items-baseline gap-x-2">
             <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Create</span>
-            <span className="text-sm font-medium">{title}</span>
+            <span className="text-sm font-medium">{create.title || title}</span>
           </p>
-          <p className="mt-0.5 text-xs" data-share-line>{k(funnel.shareLine)}</p>
+          {create.lines.map((text) => (
+            <p key={text} className="mt-0.5 text-xs" data-create-line>
+              {k(text)}
+            </p>
+          ))}
           {funnel.access ? <p className="mt-0.5 text-xs text-destructive" data-access>{k(funnel.access)}</p> : null}
-          {create.noMoney ? null : <p className="mt-0.5 text-xs" data-split>{k(create.split)}</p>}
-          {create.take.map((text, index) => (
-            <p key={text} className={`mt-0.5 text-xs ${index === 0 && !create.noMoney ? "" : "text-muted-foreground"}`} data-take>
+          {create.muted.map((text) => (
+            <p key={text} className="mt-0.5 text-xs text-muted-foreground" data-create-muted>
               {k(text)}
             </p>
           ))}
@@ -650,7 +674,22 @@ export function RetargetingPanelView({ view, line = null, callLine = null, clien
       {view.funnel && !view.funnel.create ? (
         <>
           <p className="mt-1 text-xs text-muted-foreground" data-share-line>{k(view.funnel.shareLine)}</p>
+          {view.funnel.notes.map((text) => (
+            <p key={text} className="mt-1 text-xs text-muted-foreground" data-note>
+              {k(text)}
+            </p>
+          ))}
           {view.funnel.access ? <p className="mt-1 text-xs text-destructive" data-access>{k(view.funnel.access)}</p> : null}
+          {view.funnel.wider ? (
+            <div className="mt-2 text-xs" data-wider>
+              <p>{k(view.funnel.wider.row)}</p>
+              {view.funnel.wider.line ? (
+                <p className={`mt-0.5 ${toneClass(view.funnel.wider.line.tone)}`} data-tone={view.funnel.wider.line.tone}>
+                  {k(view.funnel.wider.line.text)}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
         </>
       ) : null}
       {view.funnel?.create ? <FunnelCreate title={view.title} funnel={view.funnel} line={line} shadow={shadow} apply={apply} actions={actions} share={share} /> : create ? <CreateCard view={view} line={line} shadow={shadow} apply={apply} actions={actions} share={share} /> : null}

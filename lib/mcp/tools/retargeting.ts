@@ -26,10 +26,9 @@
  */
 import { z } from "zod";
 import type { FunnelBuild, FunnelProgress } from "../../retargeting/funnel-apply.ts";
-import { claudePlanLines, doneLine, planHead, similarSkipLine, skipLine, skipReason, type SkipReason } from "../../retargeting/funnel-plan.ts";
-import { SPLIT_WITH_SIMILAR } from "../../retargeting/funnel.ts";
-import { funnelSourcesOf } from "../../retargeting/funnel-view.ts";
-import { adviceLine, adviseExisting, foldFirstLine, geoNotReadLine, SHOW_CAMPAIGNS_RULED, untickLine, widerPlanLine } from "../../retargeting/show-campaigns.ts";
+import { claudePlanLines, doneLine, isPresale, planHead, similarSkipLine, skipLine, skipReason, type SkipReason } from "../../retargeting/funnel-plan.ts";
+import { funnelSourcesOf, genreWords } from "../../retargeting/funnel-view.ts";
+import { adviseExisting, foldFirstLine, geoNotReadLine, untickLine } from "../../retargeting/show-campaigns.ts";
 import type { RetargetingRecord } from "../../retargeting/runner.ts";
 import { approvalInput, requireMetaApproval } from "../meta/approval.ts";
 import { EVENT_WORDS } from "../meta/words.ts";
@@ -59,7 +58,17 @@ export const RT_CLAUDE_WORDS = {
 /** RF9's skip for a show the read planned; archived is found before the read. */
 export function recordSkip(record: RetargetingRecord): SkipReason | null {
   const input = record.input!;
-  return skipReason({ archived: false, built: record.plan.state === "running", runDay: input.runDay, showDay: input.eventDate, pixelId: input.read?.pixel?.id ?? null, hasTicketLink: input.sources.links.some((link) => link.kind === "ticket"), plan: record.plan.funnel ?? null });
+  return skipReason({
+    archived: false,
+    built: record.plan.state === "running",
+    runDay: input.runDay,
+    showDay: input.eventDate,
+    pixelId: input.read?.pixel?.id ?? null,
+    hasTicketLink: input.sources.links.some((link) => link.kind === "ticket"),
+    hasSignupLink: input.sources.links.some((link) => link.kind === "landing"),
+    presale: isPresale(input),
+    plan: record.plan.funnel ?? null,
+  });
 }
 
 function requireRetargeting(ctx: ToolContext): McpRetargetingDeps {
@@ -89,6 +98,7 @@ async function archivedCodes(ctx: ToolContext, codes: readonly string[]): Promis
 
 type ShowLines = { code: string; skipped: SkipReason | "not_on_sale" | null; lines: string[] };
 
+/** TC8: the plan's lines for one show — both campaigns, matched Pages, access, Similar skipped, presale sign-ups, existing prospecting, the next stretch. */
 function linesFor(record: RetargetingRecord): ShowLines {
   const code = record.eventCode ?? record.eventId;
   const input = record.input;
@@ -96,19 +106,17 @@ function linesFor(record: RetargetingRecord): ShowLines {
   const skip = recordSkip(record);
   if (skip) return { code, skipped: skip, lines: [skipLine(code, skip)] };
   const plan = record.plan.funnel!;
-  return { code, skipped: null, lines: claudePlanLines(plan, funnelSourcesOf(input.sources, input.accounts)) };
-}
-
-/** Staged: once the two-campaign record is ruled, each show's current campaigns, keep / pause / fold into Wider (advice only). */
-function withAdvice(row: ShowLines, record: RetargetingRecord, ruled: boolean): ShowLines {
-  if (!ruled || row.skipped === "archived" || row.skipped === "not_on_sale") return row;
-  const build = record.plan.build;
-  const wider = build && build.kind === "retargeting_funnel_create" && build.wider ? build.wider : null;
-  const extra = [
-    ...(wider ? [widerPlanLine(row.code, wider, wider.adSets.map((set) => set.key))] : []),
-    ...[adviceLine(adviseExisting(record.input?.campaigns ?? []))].filter((line): line is string => Boolean(line)),
-  ];
-  return extra.length ? { ...row, lines: [...row.lines, ...extra] } : row;
+  const wider = record.plan.wider;
+  if (!wider) return { code, skipped: "no_budget", lines: [skipLine(code, "no_budget")] };
+  const presale = isPresale(input);
+  const signups = input.signups && input.signups.state === "on" ? input.signups.count : null;
+  // TC8: each existing prospecting campaign as keep, pause or fold into Wider (pausing and folding only after Matas says yes).
+  const existing = adviseExisting(input.campaigns ?? []).map((row) => ({ name: row.name, action: row.advice }));
+  return {
+    code,
+    skipped: null,
+    lines: claudePlanLines(plan, funnelSourcesOf(input.sources, input.accounts), { wider, pages: input.matchedPages ?? null, genre: genreWords(input.genreFamily ?? null), presale, presaleSignups: presale ? signups : null, existing }),
+  };
 }
 
 /** PENDING DESIGN: "Use as a suggestion" still on after create. */
@@ -142,8 +150,7 @@ export const planRetargetingTool: McpTool = {
     } catch {
       throw new ToolInputError(RT_CLAUDE_WORDS.readFailed, { refused: "read_failed" });
     }
-    const ruled = ctx.showCampaignsRuled ?? SHOW_CAMPAIGNS_RULED;
-    const shows: ShowLines[] = read.records.map((record) => withAdvice(linesFor(record), record, ruled));
+    const shows: ShowLines[] = read.records.map(linesFor);
     for (const code of codes ?? []) {
       if (archived.has(code.toUpperCase())) shows.push({ code, skipped: "archived", lines: [skipLine(code, "archived")] });
       else if (!shows.some((row) => row.code.toUpperCase() === code.toUpperCase())) shows.push({ code, skipped: "not_on_sale", lines: [`${code} · skipped: ${RT_CLAUDE_WORDS.notOnSale}.`] });
@@ -225,7 +232,7 @@ export const createShowCampaignsTool: McpTool = {
       const skip = recordSkip(record);
       if (skip) throw new ToolInputError(RT_CLAUDE_WORDS.refusedSkip(skipLine(code!, skip)), { ...base, refused: skip });
       if (record.plan.held) throw new ToolInputError(RT_CLAUDE_WORDS.held(record.plan.held), { ...base, refused: "held" });
-      if (!record.plan.build || record.plan.build.kind !== "retargeting_funnel_create") throw new ToolInputError(RT_CLAUDE_WORDS.refusedSkip(skipLine(code!, "no_money")), { ...base, refused: "no_build" });
+      if (!record.plan.build || record.plan.build.kind !== "retargeting_funnel_create") throw new ToolInputError(RT_CLAUDE_WORDS.refusedSkip(skipLine(code!, "no_budget")), { ...base, refused: "no_build" });
       build = record.plan.build;
     }
     // Two campaigns (staged): Wider folds the show's prospecting, so it goes live only once that's folded or paused (Matas's yes, through pause).
@@ -273,8 +280,9 @@ export const createShowCampaignsTool: McpTool = {
       ...readBack.filter((row) => row.read !== false && !row.geoOff).map((row) => untickLine(row.name)),
       ...readBack.filter((row) => row.read !== false && !row.advantageOff).map((row) => suggestionOnLine(row.name)),
     ];
-    const similarSkipped = progress.similarSkipped ? [similarSkipLine(progress.similarSkipped, SPLIT_WITH_SIMILAR[build.plan.stretch].similar)] : [];
-    const message = [doneLine({ code: code!, live, made: ids.audiences_made, takenMinor: taken }), ...similarSkipped, ...(live && out.step === "schedule" ? [RT_CLAUDE_WORDS.stepsNotScheduled] : []), ...settings].join("\n");
+    const similarSkipped = progress.similarSkipped ? [similarSkipLine(progress.similarSkipped, { code: code!, genre: genreWords(build.spec?.genreFamily ?? null) })] : [];
+    const adSets = Object.values(progress.adSets ?? {}).filter(Boolean).length + Object.values(progress.wider?.adSets ?? {}).filter(Boolean).length;
+    const message = [doneLine({ code: code!, live, adSets, made: ids.audiences_made }), ...similarSkipped, ...(live && out.step === "schedule" ? [RT_CLAUDE_WORDS.stepsNotScheduled] : []), ...settings].join("\n");
     return { data: { message, ...ids, ads_manager: link }, eventId, clientId: ownerRow.client_id, summary: { ...summary, takenMinor: taken } };
   },
 };

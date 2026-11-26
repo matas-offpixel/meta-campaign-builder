@@ -81,6 +81,8 @@ export type FunnelBuild = {
   campaignIds: string[];
   /** The tiers' options it was planned with (two campaigns: Similar and its group, Similar lists in Warm; presale). */
   spec?: SpecOptions;
+  /** TC7: a presale show — both campaigns optimise on sign-ups (CompleteRegistration). */
+  presale?: boolean;
   /**
    * STAGED (two-campaign record): "{code} · Wider", folding the show's
    * prospecting (Matas, 26 Nov), one CBO lifetime budget. Absent = Retargeting
@@ -91,6 +93,8 @@ export type FunnelBuild = {
     dailyMinor: number;
     lifetimeMinor: number;
     daysLeft: number;
+    /** The show day, or the on-sale date for a presale show (TC7). */
+    endDay: string;
     adSets: { key: WiderAdSetKey; interests: Interest[]; suggestionKeys: string[]; lookalikes: LookalikeAudience[]; excludeKeys: string[] }[];
     steps: WiderStep[];
   } | null;

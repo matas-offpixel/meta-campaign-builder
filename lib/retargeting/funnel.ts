@@ -502,6 +502,8 @@ export function funnelSpecs(sources: FunnelSources, opts: SpecOptions = {}): Fun
     if (opts.presale) {
       // Hot: visited the sign-up page and didn't register (registrants are left out below).
       if (landing.length) hot.push({ key: `rf:signup_visitors:${RF2_WINDOWS.ticket}`, source: "visitors", kind: "pixel_url", pixelId, urlContains: landing, retentionDays: RF2_WINDOWS.ticket });
+      // TC7: Warm's visitors are show page visitors (no ticket link yet), 60 days.
+      if (landing.length) warm.push({ key: `rf:show_visitors:${RF2_WINDOWS.visitors}`, source: "visitors", kind: "pixel_url", pixelId, urlContains: landing, retentionDays: RF2_WINDOWS.visitors });
     } else {
       const both = [...landing, ...tickets];
       if (both.length) warm.push({ key: `rf:visitors:${RF2_WINDOWS.visitors}`, source: "visitors", kind: "pixel_url", pixelId, urlContains: both, retentionDays: RF2_WINDOWS.visitors });
@@ -578,56 +580,60 @@ const SOURCE_ROW: Record<Exclude<FunnelSource, "engaged" | "similar" | "signups"
   registrations: "rt.src.signups",
 };
 
-/** "{n} accounts" with its one-form. */
-export function accountsText(n: number): string {
-  return n === 1 ? fill("rt.src.accounts.one") : fill("rt.src.accounts", { n });
-}
-
 /**
- * RF2: each audience row of a tier, the source and its window, with
- * "{n} accounts" after an account-based source. Registrations and the
- * signup list are one row.
+ * RF2 / TC4 / TC7 / TC9: each audience row of a tier, the source and its
+ * window. TC9: the per-source "· {n} accounts" goes; whose Pages the account
+ * sources come from is one muted line (tierFromLine). Registrations and the
+ * signup list are one row; similar lists end Warm's row (TC4).
  */
-export function tierAudienceLines(spec: FunnelSpec | undefined, sources: FunnelSources): string[] {
+export function tierAudienceLines(spec: FunnelSpec | undefined, opts: { presale?: boolean; genreLabel?: string | null } = {}): string[] {
   if (!spec) return [];
-  const accounts = usableAccounts(sources.accounts);
-  const pagesWithVideo = (threshold: 75 | 95) => new Set(spec.includes.flatMap((aud) => (aud.kind === "video" && aud.threshold === threshold ? [aud.pageId] : []))).size;
   const lines: string[] = [];
   const has = (source: FunnelSource) => spec.includes.some((aud) => aud.source === source);
-  const withAccounts = (text: string, n: number) => `${text}${JOIN}${accountsText(n)}`;
   const engagedDays = spec.tier === "cold" ? RF2_WINDOWS.engagedCold : spec.tier === "warm" ? RF2_WINDOWS.engagedWarm : RF2_WINDOWS.engagedHot;
-  const engaged = () => withAccounts(fill("rt.src.engaged", { n: engagedDays }), accounts.length);
   const similarLists = spec.includes.filter((aud) => aud.source === "similar").length;
-  const listsLine = () => (similarLists === 1 ? fill("rt.src.similar.one") : fill("rt.src.similar", { n: similarLists }));
+  const listsLine = () => fill(similarLists === 1 ? "rt.src.similar.one" : "rt.src.similar", { n: similarLists });
   if (spec.tier === "similar") {
-    // PENDING DESIGN: the Similar tier's row (the genre group's engagers).
-    const pages = new Set(spec.includes.flatMap((aud) => ("pageIds" in aud ? aud.pageIds : []))).size;
-    lines.push(`Engagers of similar pages · ${SIMILAR_ENGAGED_DAYS} days${JOIN}${pages === 1 ? "1 page" : `${pages} pages`}`);
+    const group = spec.includes.filter((aud) => aud.source === "similar_pages");
+    const pages = new Set(group.flatMap((aud) => (aud.kind === "page_fb" ? aud.pageIds : []))).size;
+    const head = fill("rt.src.page_group", { genre: opts.genreLabel ?? "", n: pages });
+    lines.push(group.length > 1 ? `${head}${JOIN}${fill("rt.src.page_group.audiences", { n: group.length })}` : head);
   } else if (spec.tier === "cold") {
-    if (has("video75")) lines.push(withAccounts(fill(SOURCE_ROW.video75), pagesWithVideo(75)));
-    if (has("engaged")) lines.push(engaged());
-    if (has("followers")) lines.push(withAccounts(fill(SOURCE_ROW.followers), accounts.length));
+    if (has("video75")) lines.push(fill(SOURCE_ROW.video75));
+    if (has("engaged")) lines.push(fill("rt.src.engaged", { n: engagedDays }));
+    if (has("followers")) lines.push(fill(SOURCE_ROW.followers));
   } else if (spec.tier === "warm") {
-    if (has("visitors")) lines.push(fill(SOURCE_ROW.visitors));
-    if (has("engaged")) lines.push(engaged());
-    if (has("video95")) lines.push(withAccounts(fill(SOURCE_ROW.video95), pagesWithVideo(95)));
+    if (has("visitors")) lines.push(fill(opts.presale ? "rt.src.show_visitors60" : SOURCE_ROW.visitors));
+    if (has("engaged")) lines.push(fill("rt.src.engaged", { n: engagedDays }));
+    if (has("video95")) lines.push(fill(SOURCE_ROW.video95));
     if (similarLists) lines.push(listsLine());
   } else {
-    if (has("ticket")) lines.push(fill(SOURCE_ROW.ticket));
-    if (has("checkout")) lines.push(fill(SOURCE_ROW.checkout));
-    if (has("registrations") || has("signups")) lines.push(fill(SOURCE_ROW.registrations));
-    if (has("engaged")) lines.push(engaged());
+    if (opts.presale) {
+      if (has("visitors")) lines.push(fill("rt.src.signup_visitors"));
+    } else {
+      if (has("ticket")) lines.push(fill(SOURCE_ROW.ticket));
+      if (has("checkout")) lines.push(fill(SOURCE_ROW.checkout));
+      if (has("registrations") || has("signups")) lines.push(fill(SOURCE_ROW.registrations));
+    }
+    if (has("engaged")) lines.push(fill("rt.src.engaged", { n: engagedDays }));
     if (similarLists) lines.push(listsLine());
   }
   return lines;
 }
 
-const LEAVES_ROW: Record<Exclude<FunnelTier, "similar">, RfKey> = { cold: "rt.leaves.cold", warm: "rt.leaves.warm", hot: "rt.leaves.hot" };
+/** TC9: the tier's muted last line — whose Pages and accounts its account sources use — or null with none. */
+export function tierFromLine(spec: FunnelSpec | undefined, sources: FunnelSources): string | null {
+  if (!spec?.includes.some((aud) => aud.source === "video75" || aud.source === "video95" || aud.source === "engaged" || aud.source === "followers")) return null;
+  const n = usableAccounts(sources.accounts).length;
+  return n === 1 ? fill("rt.src.from.one") : fill("rt.src.from", { n });
+}
 
-export function leavesOutText(tier: FunnelTier): string {
-  // PENDING DESIGN: Similar's leave-outs.
-  if (tier === "similar") return "Cold · Warm · Hot · buyers";
-  return fill(LEAVES_ROW[tier]);
+const LEAVES_ROW: Record<FunnelTier, RfKey> = { similar: "rt.leaves.similar", cold: "rt.leaves.cold", warm: "rt.leaves.warm", hot: "rt.leaves.hot" };
+const LEAVES_PRESALE_ROW: Record<FunnelTier, RfKey> = { similar: "rt.leaves.similar.presale", cold: "rt.leaves.cold.presale", warm: "rt.leaves.warm.presale", hot: "rt.leaves.hot.presale" };
+
+/** TC2 / TC7: a tier's Leaves out; presale reads "signed up" for buyers. */
+export function leavesOutText(tier: FunnelTier, presale = false): string {
+  return fill((presale ? LEAVES_PRESALE_ROW : LEAVES_ROW)[tier]);
 }
 
 /** RF6's one line, under the share line, with its one-form. Null when nothing is missing. */

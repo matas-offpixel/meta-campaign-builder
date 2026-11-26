@@ -28,8 +28,9 @@ import { shortCampaign } from "../onsale-refresh/purchase-campaign.ts";
 import { midBuildable, pagesWithoutRole, perLinkAudiences, tierSpecs, usablePages, type SourceSet } from "./audiences.ts";
 import { firedOn, landingLinks, landingShared, pixelOnOwnDomains, pixelOnPlatforms, ticketLinks, type PixelHosts } from "./links.ts";
 import { callFor, type PooledRead } from "./test.ts";
-import { planFunnelShow, type FunnelShowPlan } from "./funnel-plan.ts";
-import { funnelCampaignName, type FunnelAccount, type FunnelTier, type ProspectingBudget, type TakeLine, type TierMinor, type TierWeek } from "./funnel.ts";
+import { isPresale, planFunnelShow, splitLine, type FunnelShowPlan, type MatchedPages, type WiderWords } from "./funnel-plan.ts";
+export { isPresale };
+import { funnelCampaignName, FUNNEL_TIERS, splitOf, splitTotal, type SpecOptions, type FunnelAccount, type FunnelTier, type ProspectingBudget, type TakeLine, type TierMinor, type TierWeek } from "./funnel.ts";
 import { funnelSourcesOf, proposedPanel, runningPanel, type FunnelPanel } from "./funnel-view.ts";
 import type { FunnelBuild } from "./funnel-apply.ts";
 import type { PageGroup } from "./funnel.ts";
@@ -253,7 +254,7 @@ export type RetargetingInput = {
   /** Audience keys already made for the show (onsale_refresh_audiences). */
   madeAudiences?: string[];
   /** The show's funnel build (retargeting_builds), when it has one. */
-  funnelBuilt?: { state: string; mode: "paused" | "live" | null; campaignId: string | null; tiers: TierMinor; took: TakeLine[] } | null;
+  funnelBuilt?: { state: string; mode: "paused" | "live" | null; campaignId: string | null; tiers: TierMinor; took: TakeLine[]; wider?: (WiderWords & { remainingMinor: number | null }) | null } | null;
   /** RF5: each tier's 7-day frequency and spend, once it runs. */
   funnelWeek?: Partial<Record<FunnelTier, TierWeek>>;
   /** Staged two-campaign record: Wider and the Similar tier are planned (SHOW_CAMPAIGNS_RULED). */
@@ -267,6 +268,8 @@ export type RetargetingInput = {
   /** The lineup artists that are Meta interests, and the genre's interests (Wider's suggestions). */
   lineupInterests?: Interest[];
   genreInterests?: Interest[];
+  /** TC9: the venue, brand and lineup Pages the show matched (plan_retargeting's line). */
+  matchedPages?: MatchedPages | null;
   /** Staged two-campaign record: the show's on-sale campaigns and their delivering ad sets, for keep / pause / fold. */
   campaigns?: { id: string; name: string; adSetNames: string[]; delivering: boolean }[];
 };
@@ -307,6 +310,8 @@ export type RetargetingPlan = {
   build: FunnelBuild | RetargetingBuild | null;
   /** RF1–RF9: the show's funnel plan (plan_retargeting reads it). */
   funnel?: FunnelShowPlan | null;
+  /** TC1 / TC6: Wider as planned (or as built, for a running show). */
+  wider?: (NonNullable<FunnelBuild["wider"]> & { remainingMinor?: number | null }) | null;
   /** Accept is held for every share: no ads to reuse, no draft. */
   held: string | null;
 };
@@ -497,7 +502,12 @@ export function retargetingOnSaleDay(event: { presale_at?: string | null; genera
 }
 
 /** RF3's dates and RF4's budgets for the funnel plan of one show (a build's tiers and take when it has one). */
-function funnelPlanOf(input: RetargetingInput): FunnelShowPlan | null {
+/** The tiers' options for this show (TC: two campaigns, Similar and its group, presale). */
+function specOf(input: RetargetingInput, presale: boolean): SpecOptions {
+  return { twoCampaigns: input.twoCampaigns ?? true, pageGroup: input.pageGroup ?? null, genreFamily: input.genreFamily ?? null, similarTooSmall: input.similarTooSmall ?? false, presale };
+}
+
+function funnelPlanOf(input: RetargetingInput, presale: boolean): FunnelShowPlan | null {
   if (!input.eventDate) return null;
   const sources = funnelSourcesOf(input.sources, input.accounts);
   return planFunnelShow({
@@ -509,9 +519,42 @@ function funnelPlanOf(input: RetargetingInput): FunnelShowPlan | null {
     minDailyMinor: input.minDailyMinor,
     sources,
     made: new Set(input.madeAudiences ?? []),
-    spec: input.twoCampaigns ? { twoCampaigns: true, pageGroup: input.pageGroup ?? null, genreFamily: input.genreFamily ?? null, similarTooSmall: input.similarTooSmall ?? false } : undefined,
+    spec: specOf(input, presale),
     existing: input.funnelBuilt ? { totalMinor: input.funnelBuilt.tiers.similar + input.funnelBuilt.tiers.cold + input.funnelBuilt.tiers.warm + input.funnelBuilt.tiers.hot, took: input.funnelBuilt.took } : null,
   });
+}
+
+/**
+ * TC1 / TC6: Wider for this show — folding its prospecting, one CBO lifetime
+ * budget to the show (to on-sale for a presale show) — and the plan's steps
+ * as Wider can give them: when the £1.00 floor stops a full step, Retargeting
+ * rises only by what Wider gives, re-split by the stretch's split.
+ */
+function widerFor(input: RetargetingInput, plan: FunnelShowPlan, sources: ReturnType<typeof funnelSourcesOf>, spec: SpecOptions, endDay: string): { plan: FunnelShowPlan; build: NonNullable<FunnelBuild["wider"]>; words: WiderWords } {
+  const sets = widerSpecs({ sources, pageGroup: input.pageGroup ?? null, lineupInterests: input.lineupInterests ?? [], genreInterests: input.genreInterests ?? [] });
+  const steps = plan.steps.filter((step) => step.day <= endDay);
+  const wider = planWider({ showDailyMinor: plan.showDailyMinor, retargetingMinor: plan.totalMinor, runDay: input.runDay, showDay: input.eventDate!, endDay, adSets: sets.length, steps });
+  const reconciled = steps.map((step) => {
+    const w = wider.steps.find((row) => row.day === step.day);
+    if (!w || w.retargetingMinor === step.totalMinor) return step;
+    const buildable = FUNNEL_TIERS.filter((tier) => step.tiers[tier] > 0);
+    const tiers = splitTotal(w.retargetingMinor, splitOf(step.stretch, true, spec.twoCampaigns === true && plan.similarSkip != null), { buildable })?.tiers ?? step.tiers;
+    return { ...step, totalMinor: w.retargetingMinor, tiers, deltaMinor: w.givenDailyMinor };
+  });
+  const words: WiderWords = { lifetimeMinor: wider.lifetimeMinor, dailyMinor: wider.dailyMinor, daysLeft: wider.daysLeft, endDay, steps: wider.steps };
+  return {
+    plan: { ...plan, steps: reconciled },
+    words,
+    build: {
+      campaignName: widerCampaignName(input.eventCode),
+      dailyMinor: wider.dailyMinor,
+      lifetimeMinor: wider.lifetimeMinor,
+      daysLeft: wider.daysLeft,
+      endDay,
+      adSets: sets.map((set) => ({ key: set.key, interests: set.interests, suggestionKeys: set.suggestions.map((aud) => aud.key), lookalikes: set.lookalikes, excludeKeys: set.excludes.map((aud) => aud.key) })),
+      steps: wider.steps,
+    },
+  };
 }
 
 export function planRetargeting(input: RetargetingInput): RetargetingPlan {
@@ -519,31 +562,29 @@ export function planRetargeting(input: RetargetingInput): RetargetingPlan {
   const title = funnelCampaignName(code);
   const base = { code, title, create: null, signal: null, tiers: [], notes: [], running: null };
   const none = (state: RetargetingState, notProposed: string | null, takes: boolean): RetargetingPlan => ({ state, takes, view: { ...base, state, notProposed }, build: null, held: null });
-  // Before the on-sale date, nothing changes (RT9).
-  if (!input.onSaleDay || input.onSaleDay > input.runDay) return none("before_onsale", input.onSaleDay ? startsOnSale(input.onSaleDay) : null, false);
+  const presale = isPresale(input);
+  // Before the on-sale date, nothing changes (RT9) — unless the show is announced: then it's a presale show (TC7).
+  if (!presale && (!input.onSaleDay || input.onSaleDay > input.runDay)) return none("before_onsale", input.onSaleDay ? startsOnSale(input.onSaleDay) : null, false);
   const sources = funnelSourcesOf(input.sources, input.accounts);
-  // The show already has the campaign (a build record, or one that delivers): it runs.
+  const spec = specOf(input, presale);
+  const endDay = presale ? input.onSaleDay! : input.eventDate;
+  // The show already has a campaign (a build record, or one that delivers): it runs.
   if (input.funnelBuilt || input.existing) {
-    const plan = funnelPlanOf(input);
+    const planned = funnelPlanOf(input, presale);
     const built = input.funnelBuilt ?? null;
     const tiers: TierMinor = built?.tiers ?? { similar: 0, cold: 0, warm: 0, hot: 0 };
-    const funnel = plan && input.eventDate ? runningPanel(plan, sources, input.eventDate, { tiers, took: built?.took ?? [], week: input.funnelWeek }) : null;
+    const wider = built?.wider ?? null;
+    const funnel = planned && input.eventDate ? runningPanel(planned, sources, { showDay: input.eventDate, today: input.runDay, built: { tiers, took: built?.took ?? [], week: input.funnelWeek }, wider, spec, onSaleDay: presale ? input.onSaleDay : null }) : null;
     const read = input.read;
     const path = read ? signalPath(read) : null;
     const signal = read && (path === "own_domain" || path === "platform") ? { wide: signalLine(path, { pixelName: read.pixelName, domain: read.domain }), narrow: signalNarrow(path, { pixelName: read.pixelName, domain: read.domain }) } : null;
-    return {
-      state: "running",
-      takes: true,
-      view: { ...base, state: "running", notProposed: null, signal, funnel, running: null },
-      build: null,
-      held: null,
-      funnel: plan,
-    };
+    return { state: "running", takes: true, view: { ...base, state: "running", notProposed: null, signal, funnel, running: null }, build: null, held: null, funnel: planned };
   }
   const read = input.read;
   if (!read || read.state === "not_read") return none("not_read", NOT_READ, true);
   if (read.state === "no_pixel" || !read.pixel) return none("no_pixel", NO_PIXEL, false);
-  const path = signalPath(read);
+  // TC7: a presale show optimises on sign-ups, so the purchase read's signal doesn't decide it.
+  const path = presale ? "platform" : signalPath(read);
   if (path === "sells_elsewhere") {
     const share = read.platformShare;
     const host = share?.elsewhereHost ?? "another site";
@@ -557,22 +598,24 @@ export function planRetargeting(input: RetargetingInput): RetargetingPlan {
   if (path === "no_url") return none("no_url", NO_PAGE_OR_TICKET, false);
   // Still silent in the record (a shared domain, no domain of its own, no ticket link stored): not proposed, and the refresh's default stands.
   if (path !== "own_domain" && path !== "platform") return none("no_signal", null, false);
-  if (!input.eventDate) return none("no_signal", null, false);
+  if (!input.eventDate || !endDay) return none("no_signal", null, false);
   // RT13: the show's links come from CIRQLIN; without them nothing can be built.
   if (input.linksRead === "no_page") return none("links_no_page", LINKS_NO_PAGE, true);
   if (input.linksRead === "failed") return none("links_failed", LINKS_NOT_READ, true);
 
-  const plan = funnelPlanOf(input)!;
-  const funnel = proposedPanel(plan, sources, input.eventDate);
-  const signal = { wide: signalLine(path, { pixelName: read.pixelName, domain: read.domain }), narrow: signalNarrow(path, { pixelName: read.pixelName, domain: read.domain }) };
-  // RF4: nothing to give, no Create; the line says to raise the show's budget first.
-  if (plan.noMoney) return { state: "no_money", takes: true, view: { ...base, state: "no_money", notProposed: null, signal, funnel }, build: null, held: null, funnel: plan };
+  const first = funnelPlanOf(input, presale)!;
+  const { plan, build: wider, words } = widerFor(input, first, sources, spec, endDay);
+  const funnel = proposedPanel(plan, sources, { showDay: input.eventDate, wider: words, spec, onSaleDay: presale ? input.onSaleDay : null });
+  const signal = presale ? null : { wide: signalLine(path, { pixelName: read.pixelName, domain: read.domain }), narrow: signalNarrow(path, { pixelName: read.pixelName, domain: read.domain }) };
+  // Nothing to split (no prospecting budget to fold): no Create.
+  if (plan.noMoney) return { state: "no_money", takes: true, view: { ...base, state: "no_money", notProposed: null, signal, funnel }, build: null, held: null, funnel: plan, wider };
   const legacy = input.legacy.filter((row) => row.adSets > 0).map((row) => legacyAdSets(row.adSets, shortCampaign(row.campaign)));
-  const option: ShareOption = { share: plan.share, totalMinor: plan.totalMinor, tiers: plan.tiers, atFloor: plan.atFloor.length > 0, holdMinor: 0, line: funnel.shareLine, split: funnel.create!.split, hold: funnel.create!.take.join(" "), blocked: null, stretch: null };
+  const card = funnel.create!;
+  const option: ShareOption = { share: plan.share, totalMinor: plan.totalMinor, tiers: plan.tiers, atFloor: plan.atFloor.length > 0, holdMinor: 0, line: card.lines.join(" "), split: splitLine(plan.tiers), hold: card.muted.join(" "), blocked: null, stretch: null };
   const days = Math.max(0, daysToShow(input.runDay, input.eventDate));
-  const create: CreateCard = { title, defaultShare: plan.share, options: [option], legacy, writeText: CREATE_WRITE, days };
+  const create: CreateCard = { title: card.title, defaultShare: plan.share, options: [option], legacy, writeText: CREATE_WRITE, days };
   const held = !input.where.draftId || !input.where.adAccountId ? NOT_OURS : input.ads.length ? null : NO_ADS;
-  const customConversion = path === "own_domain" && read.domain ? { name: `${code} · Purchase on ${read.domain}`, domain: read.domain } : null;
+  const customConversion = !presale && path === "own_domain" && read.domain ? { name: `${code} · Purchase on ${read.domain}`, domain: read.domain } : null;
   const build: FunnelBuild = {
     kind: "retargeting_funnel_create",
     eventId: input.eventId,
@@ -591,24 +634,11 @@ export function planRetargeting(input: RetargetingInput): RetargetingPlan {
     draftId: input.where.draftId,
     adAccountId: input.where.adAccountId,
     campaignIds: input.where.campaignIds,
-    spec: input.twoCampaigns ? { twoCampaigns: true, pageGroup: input.pageGroup ?? null, genreFamily: input.genreFamily ?? null, similarTooSmall: input.similarTooSmall ?? false } : undefined,
-    wider: input.twoCampaigns ? widerBuild(input, plan, sources) : null,
+    spec,
+    presale,
+    wider: spec.twoCampaigns ? wider : null,
   };
-  return { state: "proposed", takes: true, view: { ...base, state: "proposed", notProposed: null, create, signal, funnel }, build, held, funnel: plan };
-}
-
-/** STAGED: Wider for this show (folding its prospecting, one CBO lifetime budget). */
-function widerBuild(input: RetargetingInput, plan: FunnelShowPlan, sources: ReturnType<typeof funnelSourcesOf>): FunnelBuild["wider"] {
-  const sets = widerSpecs({ sources, pageGroup: input.pageGroup ?? null, lineupInterests: input.lineupInterests ?? [], genreInterests: input.genreInterests ?? [] });
-  const wider = planWider({ showDailyMinor: plan.showDailyMinor, retargetingMinor: plan.totalMinor, runDay: input.runDay, showDay: input.eventDate!, adSets: sets.length, steps: plan.steps });
-  return {
-    campaignName: widerCampaignName(input.eventCode),
-    dailyMinor: wider.dailyMinor,
-    lifetimeMinor: wider.lifetimeMinor,
-    daysLeft: wider.daysLeft,
-    adSets: sets.map((set) => ({ key: set.key, interests: set.interests, suggestionKeys: set.suggestions.map((aud) => aud.key), lookalikes: set.lookalikes, excludeKeys: set.excludes.map((aud) => aud.key) })),
-    steps: wider.steps,
-  };
+  return { state: "proposed", takes: true, view: { ...base, state: "proposed", notProposed: null, create, signal, funnel }, build, held, funnel: plan, wider };
 }
 
 /** RT8's first not-proposed state, for a show whose on-sale date hasn't come (no read runs for it yet). */

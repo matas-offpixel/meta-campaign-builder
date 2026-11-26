@@ -23,23 +23,24 @@
  */
 
 import { GEO_WORDS, geoExpansionOf } from "../meta/geo-expansion.ts";
+import { fill } from "./funnel-words.ts";
 import { FLOOR_MINOR, funnelSpecs, similarAudiences, type FunnelAudience, type FunnelSources, type PageGroup } from "./funnel.ts";
 
 /** Off until the two-campaign record merges and Matas rules the split. */
 export const SHOW_CAMPAIGNS_RULED = false;
 
-// PENDING DESIGN: the Wider campaign's names.
+/** TC1: "{code} · Wider". */
 export function widerCampaignName(code: string): string {
-  return `${code} · Wider`;
+  return fill("wd.name.campaign", { code });
 }
 
 export type WiderAdSetKey = "broad" | "similar_pages" | "interests" | "lookalikes";
 
-// PENDING DESIGN: Wider's ad set names.
-export const WIDER_AD_SET_LABEL: Record<WiderAdSetKey, string> = { broad: "Broad", similar_pages: "Similar pages", interests: "Interests", lookalikes: "Lookalikes" };
+export const WIDER_AD_SET_LABEL: Record<WiderAdSetKey, string> = { broad: fill("wd.set.broad"), similar_pages: fill("wd.set.similar_pages"), interests: fill("wd.set.interests"), lookalikes: fill("wd.set.lookalikes") };
 
+/** TC1: "{code} · Wider · {set}". */
 export function widerAdSetName(code: string, key: WiderAdSetKey): string {
-  return `${widerCampaignName(code)} · ${WIDER_AD_SET_LABEL[key]}`;
+  return fill("wd.name.adset", { code, set: WIDER_AD_SET_LABEL[key] });
 }
 
 export type Interest = { id: string; name: string };
@@ -92,17 +93,6 @@ export function widerSpecs(input: WiderInputs): WiderAdSet[] {
   return out;
 }
 
-/**
- * Wider's lifetime budget lowered by one stretch step: the step's money a
- * day × the days left, never below £1.00 a day per ad set for those days.
- */
-export function widerAfterStep(args: { remainingMinor: number; stepMinor: number; daysLeft: number; adSets: number }): { afterMinor: number; floorMinor: number; lowered: number; atFloor: boolean } {
-  const floorMinor = FLOOR_MINOR * Math.max(1, args.adSets) * Math.max(0, args.daysLeft);
-  const want = args.remainingMinor - Math.max(0, args.stepMinor) * Math.max(0, args.daysLeft);
-  const afterMinor = Math.max(floorMinor, Math.min(args.remainingMinor, want));
-  return { afterMinor, floorMinor, lowered: args.remainingMinor - afterMinor, atFloor: afterMinor === floorMinor && want < floorMinor };
-}
-
 export type ExistingCampaign = { id: string; name: string; adSetNames: string[]; delivering: boolean };
 
 export type ExistingAdvice = { id: string; name: string; advice: "keep" | "pause" | "fold" };
@@ -129,19 +119,6 @@ export function adviseExisting(campaigns: readonly ExistingCampaign[]): Existing
   });
 }
 
-// PENDING DESIGN: the advice line for Claude.
-export function adviceLine(rows: readonly ExistingAdvice[]): string | null {
-  if (!rows.length) return null;
-  const by = (advice: ExistingAdvice["advice"]) => rows.filter((row) => row.advice === advice).map((row) => row.name);
-  const parts = [["Keep", by("keep")], ["Pause", by("pause")], ["Fold into Wider", by("fold")]].filter(([, names]) => names.length).map(([verb, names]) => `${verb}: ${(names as string[]).join(" · ")}`);
-  return `${parts.join(". ")}. Nothing is paused without Matas's yes.`;
-}
-
-/** PENDING DESIGN: a show whose genre has no confirmed page group skips Similar and says so. */
-export function noGroupLine(genreFamily: string | null): string {
-  return genreFamily ? `No confirmed page group for ${genreFamily}, so there's no Similar tier.` : "No genre set, so there's no Similar tier.";
-}
-
 /** Design's ruled lines (#1401, 27 Nov): GEO_WORDS, lib/meta/geo-expansion.ts. */
 export const untickLine = GEO_WORDS.untick;
 export const geoNotReadLine = GEO_WORDS.notRead;
@@ -166,34 +143,37 @@ export function daysLeft(from: string, showDay: string): number {
   return Math.max(0, Math.round((Date.parse(`${showDay}T12:00:00Z`) - Date.parse(`${from}T12:00:00Z`)) / 86_400_000) + 1);
 }
 
-export type WiderStep = { day: string; beforeMinor: number; afterMinor: number; deltaDailyMinor: number; atFloor: boolean };
+export type WiderStep = { day: string; beforeMinor: number; afterMinor: number; deltaDailyMinor: number; wantDailyMinor: number; givenDailyMinor: number; atFloor: boolean; retargetingMinor: number };
 
 export type WiderPlan = {
   /** Wider's money a day today: the show's daily spend less Retargeting's. */
   dailyMinor: number;
-  /** Its campaign (CBO) lifetime budget: that × the days left. */
+  /** Its campaign (CBO) lifetime budget: that × the days left to its end. */
   lifetimeMinor: number;
   daysLeft: number;
+  /** The show day, or the on-sale date for a presale show (TC7). */
+  endDay: string;
   adSets: number;
-  /** Each stretch step: the campaign's lifetime budget before → after (a scheduled change, lifetime_budget). */
+  /** Each stretch step: the campaign's lifetime budget before → after, and what Retargeting gets (TC6). */
   steps: WiderStep[];
   /** Wider can't keep £1.00 a day per ad set today. */
   tooSmall: boolean;
 };
 
 /**
- * Wider's money (Matas, 26 Nov: "folds prospecting" and "Campaign (CBO)"):
- * one lifetime budget on the campaign, (the show's daily spend −
- * Retargeting's) × the days left. Each stretch step changes it by the step's
- * money a day × the days left from that day; spend to that day is taken as
- * the plan's money a day, so the remaining budget is the lifetime less it.
- * READING (the coordinator's, 26 Nov): under CBO, "never below £1 a day per
- * ad set" is the campaign's remaining lifetime never going below £1.00 × the
- * Wider ad sets × the days left.
+ * TC6 (Matas, 26 Nov: "folds prospecting", "Campaign (CBO)"): Wider's
+ * lifetime is (the show's daily spend − Retargeting's) × the days to its end.
+ * Each stretch step raises Retargeting by £x a day and lowers Wider's
+ * remaining budget by £x × the days left, never below £1.00 a day per Wider
+ * ad set (the coordinator's reading under CBO: remaining ≥ £1.00 × ad sets ×
+ * days left). When the floor stops a full step, Retargeting rises only by
+ * what Wider can give, to the penny. A step that lowers Retargeting gives
+ * Wider its money back. Spend to a step is taken as the plan's money a day.
  */
-export function planWider(args: { showDailyMinor: number; retargetingMinor: number; runDay: string; showDay: string; adSets: number; steps: readonly { day: string; totalMinor: number }[] }): WiderPlan {
+export function planWider(args: { showDailyMinor: number; retargetingMinor: number; runDay: string; showDay: string; endDay?: string; adSets: number; steps: readonly { day: string; totalMinor: number }[] }): WiderPlan {
   const adSets = Math.max(1, args.adSets);
-  const left = daysLeft(args.runDay, args.showDay);
+  const endDay = args.endDay ?? args.showDay;
+  const left = daysLeft(args.runDay, endDay);
   const dailyMinor = Math.max(0, args.showDailyMinor - args.retargetingMinor);
   const lifetimeMinor = dailyMinor * left;
   const steps: WiderStep[] = [];
@@ -203,28 +183,23 @@ export function planWider(args: { showDailyMinor: number; retargetingMinor: numb
   let from = args.runDay;
   let retargeting = args.retargetingMinor;
   for (const step of args.steps) {
+    if (step.day > endDay) break;
     spent += daily * (daysLeft(from, step.day) - 1);
     const remaining = lifetime - spent;
-    const rest = daysLeft(step.day, args.showDay);
-    const deltaDaily = step.totalMinor - retargeting;
+    const rest = daysLeft(step.day, endDay);
+    const want = step.totalMinor - retargeting;
     const floor = FLOOR_MINOR * adSets * rest;
-    const wantRemaining = remaining - deltaDaily * rest;
-    const afterRemaining = deltaDaily > 0 ? Math.max(floor, Math.min(remaining, wantRemaining)) : wantRemaining;
+    let given = want;
+    if (want > 0) given = Math.max(0, Math.min(want, Math.floor((remaining - floor) / Math.max(1, rest))));
+    const afterRemaining = remaining - given * rest;
     const after = spent + afterRemaining;
-    steps.push({ day: step.day, beforeMinor: lifetime, afterMinor: after, deltaDailyMinor: deltaDaily, atFloor: deltaDaily > 0 && wantRemaining < floor });
+    steps.push({ day: step.day, beforeMinor: lifetime, afterMinor: after, deltaDailyMinor: given, wantDailyMinor: want, givenDailyMinor: given, atFloor: want > 0 && given < want, retargetingMinor: retargeting + given });
     lifetime = after;
     daily = rest > 0 ? Math.floor(afterRemaining / rest) : 0;
-    retargeting = step.totalMinor;
+    retargeting += given;
     from = step.day;
   }
-  return { dailyMinor, lifetimeMinor, daysLeft: left, adSets, steps, tooSmall: dailyMinor < FLOOR_MINOR * adSets };
-}
-
-/** PENDING DESIGN: Claude's line for Wider in the plan. */
-export function widerPlanLine(code: string, wider: Pick<WiderPlan, "dailyMinor" | "lifetimeMinor" | "daysLeft">, adSets: readonly WiderAdSetKey[]): string {
-  const adSetNames = adSets.map((key) => WIDER_AD_SET_LABEL[key]);
-  const pounds = (minor: number) => `£${(minor / 100).toFixed(2)}`;
-  return `${widerCampaignName(code)} · ${pounds(wider.dailyMinor)} a day · ${pounds(wider.lifetimeMinor)} over ${wider.daysLeft} days (lifetime) · ${adSetNames.join(" · ")}`;
+  return { dailyMinor, lifetimeMinor, daysLeft: left, endDay, adSets, steps, tooSmall: dailyMinor < FLOOR_MINOR * adSets };
 }
 
 /** PENDING DESIGN: a live create refused while the prospecting Wider replaces still runs. */

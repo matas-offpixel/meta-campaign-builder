@@ -1,10 +1,16 @@
 /**
- * The Retargeting panel under the funnel (docs/design-record/2026-11-26-retargeting-funnel.html,
- * frames RF-A, RF-B, RF-C): the share line, RF6's access line, the Create
- * card (split, where the money comes from, the next stretch), and one row
- * per tier — Cold, Warm, Hot — with its audiences, leave-outs, frequency
- * and budget, and under the budget the cap (ochre), the lift, a warmer
- * tier's extra and the floor (muted). The footer names the next stretch.
+ * The Retargeting panel under the two campaigns (docs/design-record/2026-11-26-retargeting-two-campaigns.html,
+ * TC1–TC9, frames TW-A, TW-B, TW-C; RF-B and RF-C stand for RF5 and RF6):
+ *   - the Create card (TC1): Wider, Retargeting, the split, the show's total,
+ *     the presale note (TC7), location expansion off, and the next step;
+ *   - a running build's Wider row (TC6): what's left, the last step and the
+ *     floor line;
+ *   - one row per tier, Similar · Cold · Warm · Hot (TC2): audiences, the
+ *     muted "From the venue's and promoter's Pages and the lineup artists"
+ *     line (TC9), leave-outs ("signed up" for presale), frequency, budget,
+ *     and under Budget the cap (ochre), its lift, a warmer tier's extra, the
+ *     floor and Similar's share when it's skipped (muted, TC3);
+ *   - the footer: the next step, the last stretch, or the on-sale date (TC7).
  *
  * What stands from the 17 Nov records: the panel's place, Accept and
  * Reject, the purchase read and the not-proposed sentences. Pure.
@@ -12,23 +18,29 @@
 
 import { tierBudget } from "./words.ts";
 import {
+  accessLine,
   capTiers,
   funnelSpecs,
   FUNNEL_TIERS,
   FUNNEL_TIER_LABEL,
   leavesOutText,
-  accessLine,
+  SPLIT_WITH_SIMILAR,
+  splitTotal,
+  stretchName,
   tierAudienceLines,
+  tierFromLine,
   type FunnelAccount,
   type FunnelSources,
   type FunnelTier,
+  type SpecOptions,
   type TakeLine,
   type TierMinor,
   type TierWeek,
 } from "./funnel.ts";
-import { FLOOR_LINE, nextLine, shareLine, splitLine, takeLines, type FunnelShowPlan } from "./funnel-plan.ts";
-import { fill, freq, JOIN, money } from "./funnel-words.ts";
+import { createLines, FLOOR_LINE, nextLine, shareLine, similarSkipRow, type FunnelShowPlan, type WiderWords } from "./funnel-plan.ts";
+import { fill, freq, JOIN, money, rfDay } from "./funnel-words.ts";
 import type { SourcePage, SourceSet } from "./audiences.ts";
+import { genreLabelInSentence, type GenreFamilyKey } from "../learning/genre/families.ts";
 
 export type FunnelLine = { text: string; tone: "ochre" | "muted" };
 
@@ -36,29 +48,40 @@ export type FunnelTierRow = {
   tier: FunnelTier;
   label: string;
   audiences: string[];
+  /** TC9: whose Pages and accounts the account sources use (muted, last). */
+  from: string | null;
+  /** TC3: Similar skipped, in place of its audiences (muted); its budget reads "—". */
+  skipped: string | null;
   leavesOut: string;
   /** 7-day frequency; null before the campaign runs. */
   frequency: number | null;
-  budgetMinor: number;
-  /** Under Budget: the cap (ochre) and its lift, a warmer tier's extra, the floor (muted). */
+  /** Null when the tier is skipped. */
+  budgetMinor: number | null;
+  /** Under Budget: the cap (ochre) and its lift, a warmer tier's extra (Similar's when it's skipped), the floor (muted). */
   lines: FunnelLine[];
 };
 
 export type FunnelPanel = {
+  /** Retargeting's share line (the running panel's first line). */
   shareLine: string;
   /** RF6: once per panel, under the share line (brick). */
   access: string | null;
-  create: { split: string; take: string[]; next: string | null; noMoney: boolean } | null;
+  /** TC7: the presale note under the share line (running). */
+  notes: string[];
+  /** TC1: "CREATE {code} · Wider and {code} · Retargeting", its lines, the muted geo line and the next step. */
+  create: { title: string; lines: string[]; muted: string[]; next: string | null; noMoney: boolean } | null;
+  /** TC6: a running build's Wider row and the line after it (muted, or ochre at the floor). */
+  wider: { row: string; line: FunnelLine | null } | null;
   tiers: FunnelTierRow[];
-  /** The footer on a running campaign: the next stretch, or the last. */
+  /** The footer: the next step, the last stretch, or a presale show's on-sale date. */
   next: string | null;
 };
 
-/** RF2 / RF6: the promoter's and lineup's Facebook Pages and Instagram accounts, from the read's pages. */
+/** RF2 / RF6 / TC9: the promoter's brand Pages, the venue's Page and the lineup's Facebook Pages and Instagram accounts. */
 export function accountsFromPages(pages: readonly SourcePage[]): FunnelAccount[] {
   const out: FunnelAccount[] = [];
   for (const page of pages) {
-    if (page.kind !== "promoter" && page.kind !== "lineup") continue;
+    if (page.kind !== "promoter" && page.kind !== "lineup" && page.kind !== "venue") continue;
     out.push({ pageId: page.id, name: page.name, platform: "facebook", kind: page.kind, access: page.hasRole });
     if (page.igId) out.push({ pageId: page.id, igId: page.igId, name: page.name, platform: "instagram", kind: page.kind, access: page.hasRole });
   }
@@ -74,15 +97,41 @@ export function funnelSourcesOf(set: SourceSet, accounts?: readonly FunnelAccoun
   return { pixelId: set.pixelId, links: set.links, accounts: list, videos, lists: set.lists };
 }
 
+/** "drum & bass": a genre as the rows write it. */
+export function genreWords(genre: string | null | undefined): string | null {
+  if (!genre) return null;
+  try {
+    return genreLabelInSentence(genre as GenreFamilyKey);
+  } catch {
+    return genre;
+  }
+}
+
 const plusLine = (from: FunnelTier, minor: number): FunnelLine => ({ text: fill("rt.cap.plus", { x: money(minor), from: FUNNEL_TIER_LABEL[from] }), tone: "muted" });
 
+export type RowOptions = {
+  atFloor?: readonly FunnelTier[];
+  week?: Partial<Record<FunnelTier, TierWeek>>;
+  took?: readonly TakeLine[];
+  spec?: SpecOptions;
+  /** TC3: Similar skipped this read (its share is in Cold's budget): the reason, the code and its share. */
+  similar?: { reason: "no_genre" | "no_group" | "too_small"; code: string; minor: number } | null;
+};
+
 /** The tier rows for these budgets; with the 7-day figures (a running campaign), RF5's caps. */
-export function funnelTierRows(sources: FunnelSources, shares: TierMinor, opts: { atFloor?: readonly FunnelTier[]; week?: Partial<Record<FunnelTier, TierWeek>>; took?: readonly TakeLine[] } = {}): FunnelTierRow[] {
-  const specs = funnelSpecs(sources);
+export function funnelTierRows(sources: FunnelSources, shares: TierMinor, opts: RowOptions = {}): FunnelTierRow[] {
+  const specs = funnelSpecs(sources, opts.spec);
+  const presale = opts.spec?.presale === true;
+  const genre = genreWords(opts.spec?.genreFamily ?? opts.spec?.pageGroup?.genreFamily ?? null);
   const caps = opts.week ? capTiers(shares, opts.week, opts.took ?? []) : null;
   const rows: FunnelTierRow[] = [];
   for (const tier of FUNNEL_TIERS) {
     const spec = specs.find((row) => row.tier === tier);
+    if (tier === "similar" && !spec) {
+      // TC3: the row says Similar is skipped, and Cold takes its share.
+      if (opts.similar) rows.push({ tier, label: FUNNEL_TIER_LABEL[tier], audiences: [], from: null, skipped: similarSkipRow(opts.similar.reason, { code: opts.similar.code, genre, minor: opts.similar.minor }), leavesOut: "", frequency: null, budgetMinor: null, lines: [] });
+      continue;
+    }
     if (!spec) continue;
     const lines: FunnelLine[] = [];
     const cap = caps?.caps[tier];
@@ -93,33 +142,83 @@ export function funnelTierRows(sources: FunnelSources, shares: TierMinor, opts: 
       lines.push({ text: fill("rt.cap.lift"), tone: "muted" });
     }
     for (const plus of caps?.plus[tier] ?? []) lines.push(plusLine(plus.from, plus.minor));
+    let budget = shares[tier];
+    if (tier === "cold" && opts.similar) {
+      budget -= opts.similar.minor;
+      lines.push(plusLine("similar", opts.similar.minor));
+    }
     if (opts.atFloor?.includes(tier)) lines.push({ text: FLOOR_LINE, tone: "muted" });
     const frequency = opts.week?.[tier]?.frequency ?? null;
-    rows.push({ tier, label: FUNNEL_TIER_LABEL[tier], audiences: tierAudienceLines(spec, sources), leavesOut: leavesOutText(tier), frequency: frequency == null ? null : Math.round(frequency * 10) / 10, budgetMinor: shares[tier], lines });
+    rows.push({ tier, label: FUNNEL_TIER_LABEL[tier], audiences: tierAudienceLines(spec, { presale, genreLabel: genre }), from: tierFromLine(spec, sources), skipped: null, leavesOut: leavesOutText(tier, presale), frequency: frequency == null ? null : Math.round(frequency * 10) / 10, budgetMinor: budget, lines });
   }
   return rows;
 }
 
+/** TC3: Similar's share this stretch, when it's skipped (it's already in Cold's budget). */
+export function similarShareOf(plan: Pick<FunnelShowPlan, "similarSkip" | "totalMinor" | "stretch" | "code">): RowOptions["similar"] {
+  if (!plan.similarSkip) return null;
+  const minor = splitTotal(plan.totalMinor, SPLIT_WITH_SIMILAR[plan.stretch])?.tiers.similar ?? 0;
+  return { reason: plan.similarSkip, code: plan.code, minor };
+}
+
+/** PENDING DESIGN: the Create card's title joins the two campaign names with "and" (as TW-A draws it). */
+export function createTitle(code: string): string {
+  return `${fill("wd.name.campaign", { code })} and ${fill("rt.name.campaign", { code })}`;
+}
+
 /** A proposed show: the Create card and the rows at its budgets. */
-export function proposedPanel(plan: FunnelShowPlan, sources: FunnelSources, showDay: string): FunnelPanel {
+export function proposedPanel(plan: FunnelShowPlan, sources: FunnelSources, args: { showDay: string; wider: WiderWords; spec?: SpecOptions; onSaleDay?: string | null }): FunnelPanel {
+  const presale = args.spec?.presale === true;
+  const card = createLines(plan, args.wider, presale);
+  const footer = nextLine(plan, args.showDay, args.wider, presale && args.onSaleDay ? { onSaleDay: args.onSaleDay } : null);
   return {
     shareLine: shareLine(plan),
     access: accessLine(sources.accounts),
-    create: { split: splitLine(plan.tiers), take: takeLines(plan), next: nextLine(plan, showDay), noMoney: plan.noMoney },
-    tiers: plan.noMoney ? [] : funnelTierRows(sources, plan.tiers, { atFloor: plan.atFloor }),
-    next: null,
+    notes: [],
+    create: { title: createTitle(plan.code), lines: card.lines, muted: card.muted, next: presale ? null : footer, noMoney: plan.noMoney },
+    wider: null,
+    tiers: plan.noMoney ? [] : funnelTierRows(sources, plan.tiers, { atFloor: plan.atFloor, spec: args.spec, similar: similarShareOf(plan) }),
+    next: presale ? footer : null,
   };
 }
 
-/** A running (or paused) build: its share line at today's stretch, its rows, caps from the 7-day figures, the next stretch. */
-export function runningPanel(plan: FunnelShowPlan, sources: FunnelSources, showDay: string, built: { tiers: TierMinor; took: readonly TakeLine[]; week?: Partial<Record<FunnelTier, TierWeek>> }): FunnelPanel {
-  const total = FUNNEL_TIERS.reduce((sum, tier) => sum + built.tiers[tier], 0);
+/**
+ * A running (or paused) build: Retargeting's share line, Wider's row (what's
+ * left of its lifetime, its money a day, the last step or the floor), the
+ * rows with caps from the 7-day figures, and the next step.
+ */
+export function runningPanel(
+  plan: FunnelShowPlan,
+  sources: FunnelSources,
+  args: { showDay: string; today: string; built: { tiers: TierMinor; took: readonly TakeLine[]; week?: Partial<Record<FunnelTier, TierWeek>> }; wider?: (WiderWords & { remainingMinor: number | null }) | null; spec?: SpecOptions; onSaleDay?: string | null },
+): FunnelPanel {
+  const total = FUNNEL_TIERS.reduce((sum, tier) => sum + args.built.tiers[tier], 0);
+  const presale = args.spec?.presale === true;
+  let wider: FunnelPanel["wider"] = null;
+  if (args.wider) {
+    const w = args.wider;
+    const done = w.steps.filter((step) => step.day <= args.today).at(-1) ?? null;
+    const left = w.remainingMinor ?? w.lifetimeMinor;
+    const rest = Math.max(1, Math.round((Date.parse(`${w.endDay}T12:00:00Z`) - Date.parse(`${args.today}T12:00:00Z`)) / 86_400_000) + 1);
+    const daily = Math.floor(left / rest);
+    const row = fill("wd.row", { left: money(left), l: money(w.lifetimeMinor), d: money(daily), date: rfDay(w.endDay) });
+    let line: FunnelLine | null = null;
+    if (done && done.atFloor) line = { text: fill("wd.step.floor", { y: money(done.givenDailyMinor), x: money(done.wantDailyMinor) }), tone: "ochre" };
+    else if (done && done.givenDailyMinor > 0) {
+      const n = Math.max(0, Math.round((Date.parse(`${w.endDay}T12:00:00Z`) - Date.parse(`${done.day}T12:00:00Z`)) / 86_400_000) + 1);
+      const stepStretch = plan.steps.find((step) => step.day === done.day)?.stretch ?? plan.stretch;
+      line = { text: fill("wd.step", { y: money(done.givenDailyMinor * n), date: rfDay(done.day), x: money(done.givenDailyMinor), n, stretch: stretchName(stepStretch) }), tone: "muted" };
+    }
+    wider = { row, line };
+  }
   return {
     shareLine: shareLine({ targetMinor: total, share: plan.share, stretch: plan.stretch }),
     access: accessLine(sources.accounts),
+    notes: presale ? [fill("rt.presale.note")] : [],
     create: null,
-    tiers: funnelTierRows(sources, built.tiers, { week: built.week, took: built.took }),
-    next: nextLine(plan, showDay),
+    wider,
+    tiers: funnelTierRows(sources, args.built.tiers, { week: args.built.week, took: args.built.took, spec: args.spec, similar: args.built.tiers.similar === 0 ? similarShareOf(plan) : null }),
+    next: nextLine({ ...plan, steps: plan.steps.filter((step) => step.day > args.today) }, args.showDay, args.wider ?? null, presale && args.onSaleDay ? { onSaleDay: args.onSaleDay } : null),
   };
 }
 
@@ -128,7 +227,7 @@ export function funnelBudget(minor: number): string {
   return tierBudget(minor);
 }
 
-/** RF-B / RF-C at 393: "Frequency 3.2 · leaves out Warm · Hot · buyers", or "leaves out …" before figures. */
+/** RF-B / TW at 393: "Frequency 3.2 · leaves out Warm · Hot · buyers", or "leaves out …" before figures. */
 export function cardMeta(row: FunnelTierRow): string {
   const leaves = fill("rt.m.leaves", { x: row.leavesOut });
   return row.frequency == null ? leaves : `${fill("rt.m.freq", { f: freq(row.frequency) })}${JOIN}${leaves}`;

@@ -208,87 +208,148 @@ export function planFunnelShow(input: FunnelShowInput): FunnelShowPlan {
   return { ...base, totalMinor: sum(split.tiers), tiers: split.tiers, atFloor: split.atFloor, take, short: take.short && take.takenMinor < targetMinor, noMoney: false, steps };
 }
 
-// ─── The words: the panel's Create line and RF9's lines for Claude ───────────
+/** TC7: a presale show — announced, not on sale yet, the show still ahead. */
+export function isPresale(input: { onSaleDay: string | null; runDay: string; announceDay?: string | null; eventDate: string | null }): boolean {
+  return Boolean(input.onSaleDay && input.onSaleDay > input.runDay && input.announceDay && input.announceDay <= input.runDay && input.eventDate && input.eventDate > input.runDay);
+}
 
-/** "£15.00 a day · 25 % of the show's daily spend · announce" */
+// ─── The words: the panel's Create card (TC1), the footer (TC6) and the lines for Claude (TC8) ───
+
+/** "£21.00 a day · 35 % of the show's daily spend · final month" (Retargeting's share; the running panel's first line). */
 export function shareLine(plan: Pick<FunnelShowPlan, "targetMinor" | "share" | "stretch">): string {
   return fill("rt.share.line", { x: money(plan.targetMinor), p: plan.share, stretch: stretchName(plan.stretch) });
 }
 
-/** "Cold £9.00 · Warm £4.50 · Hot £1.50"; with the staged Similar tier, "Similar £{s} · " before it (PENDING DESIGN). */
+/** TC5: "Similar £3.15 · Cold £5.25 · Warm £7.35 · Hot £5.25" */
 export function splitLine(tiers: TierMinor): string {
-  const line = fill("rt.share.split", { c: money(tiers.cold), w: money(tiers.warm), h: money(tiers.hot) });
-  return tiers.similar > 0 ? `Similar £${money(tiers.similar)}${JOIN}${line}` : line;
+  return fill("rt.share.split", { s: money(tiers.similar), c: money(tiers.cold), w: money(tiers.warm), h: money(tiers.hot) });
 }
 
-/** The take's line(s): rt.take, then rt.take.short when short; rt.take.none alone with nothing to give. */
-export function takeLines(plan: FunnelShowPlan): string[] {
-  if (plan.noMoney) return [fill("rt.take.none")];
-  const lines = [fill("rt.take", { x: money(plan.take.takenMinor), from: takeFromText(plan.take.from), s: money(plan.showDailyMinor) })];
-  if (plan.short) lines.push(fill("rt.take.short", { y: money(plan.take.takenMinor), x: money(plan.targetMinor) }));
-  return lines;
+/** Wider as the plan sizes it (show-campaigns.ts planWider), for the words. */
+export type WiderWords = { lifetimeMinor: number; dailyMinor: number; daysLeft: number; endDay: string; steps: readonly { day: string; beforeMinor: number; afterMinor: number; wantDailyMinor: number; givenDailyMinor: number; atFloor: boolean }[] };
+
+/** TC1's Create card: Wider, Retargeting, the split, the show's total, (presale) the note, and the geo line (muted, last). */
+export function createLines(plan: FunnelShowPlan, wider: WiderWords, presale: boolean): { lines: string[]; muted: string[] } {
+  const lines = [
+    fill("tc.create.wider", { l: money(wider.lifetimeMinor), date: rfDay(wider.endDay), n: wider.daysLeft, d: money(wider.dailyMinor) }),
+    fill("tc.create.retargeting", { x: money(plan.totalMinor), p: plan.share, stretch: stretchName(plan.stretch) }),
+    splitLine(plan.tiers),
+    fill("tc.create.total", { s: money(plan.showDailyMinor), d: money(wider.dailyMinor), x: money(plan.totalMinor) }),
+    ...(presale ? [fill("rt.presale.note")] : []),
+  ];
+  return { lines, muted: [fill("tc.create.geo")] };
 }
 
-/** PENDING DESIGN: a step that gives money back (a payday week ending). No row covers it. */
-export function nextGivesBack(args: { stretch: string; date: string; p: number; x: string; to: string }): string {
-  return `Next: ${args.stretch} from ${args.date} · ${args.p} % · moves £${args.x} a day from retargeting to ${args.to}`;
+/** PENDING DESIGN: a step that lowers Retargeting (a payday week ending into "normally"); Wider's remaining budget goes back up. */
+export function nextGivesBack(args: { stretch: string; date: string; p: number; x: string; y: string; n: number }): string {
+  return `Next: ${args.stretch} from ${args.date} · ${args.p} % · Retargeting down £${args.x} a day, Wider’s remaining budget up £${args.y} (£${args.x} a day × ${args.n} days)`;
 }
 
-/** PENDING DESIGN: a step prospecting can't give anything more to (it was short already). No row covers it. */
-export function nextMovesNothing(args: { stretch: string; date: string; p: number }): string {
-  return `Next: ${args.stretch} from ${args.date} · ${args.p} % · prospecting has nothing more to give`;
-}
-
-/** The footer: the next stretch and what it moves, or the last stretch's show day. */
-export function nextLine(plan: FunnelShowPlan, showDay: string): string | null {
+/**
+ * TC6's footer: the next step with both sides (Retargeting up by what Wider
+ * gives, Wider's remaining budget down by that × the days left); the last
+ * stretch's show day; a presale show's on-sale date (TC7).
+ */
+export function nextLine(plan: FunnelShowPlan, showDay: string, wider: WiderWords | null, presale?: { onSaleDay: string } | null): string | null {
   if (plan.noMoney) return null;
+  if (presale) return fill("rt.presale.onsale", { date: rfDay(presale.onSaleDay) });
   const step = plan.steps[0];
   if (!step) return fill("rt.next.none", { date: rfDay(showDay) });
-  const names = [...new Set(step.prospecting.map((row) => row.name))].join(JOIN);
-  if (step.deltaMinor === 0) return nextMovesNothing({ stretch: stretchName(step.stretch), date: rfDay(step.day), p: step.share });
-  if (step.deltaMinor < 0) return nextGivesBack({ stretch: stretchName(step.stretch), date: rfDay(step.day), p: step.share, x: money(-step.deltaMinor), to: names });
-  return fill("rt.next", { stretch: stretchName(step.stretch), date: rfDay(step.day), p: step.share, x: money(step.deltaMinor), from: names });
+  const w = wider?.steps.find((row) => row.day === step.day);
+  const n = daysFrom(step.day, wider?.endDay ?? showDay);
+  const x = w ? w.givenDailyMinor : step.deltaMinor;
+  if (x < 0) return nextGivesBack({ stretch: stretchName(step.stretch), date: rfDay(step.day), p: step.share, x: money(-x), y: money(-x * n), n });
+  return fill("rt.next", { stretch: stretchName(step.stretch), date: rfDay(step.day), p: step.share, x: money(x), y: money(x * n), n });
+}
+
+/** Days from a day to the end, both counted. */
+function daysFrom(from: string, to: string): number {
+  return Math.max(0, Math.round((Date.parse(`${to}T12:00:00Z`) - Date.parse(`${from}T12:00:00Z`)) / 86_400_000) + 1);
 }
 
 /** RF8's muted line on a tier at the floor. */
 export const FLOOR_LINE = fill("rt.floor");
 
-/** RF9: the plan's line for Claude, then up to three short lines. */
-export function claudePlanLines(plan: FunnelShowPlan, sources: FunnelSources): string[] {
-  let first = fill("claude.rt.plan.line", {
+/** TC9: the Pages a show matched — its venue's, the promoter's brand Pages, the lineup's. An empty slot is "not matched". */
+export type MatchedPages = { venue: string | null; brands: string[]; artists: string[] };
+
+export function matchedPagesLine(pages: MatchedPages): string {
+  return fill("claude.rt.plan.pages", {
+    venue: pages.venue ?? fill("claude.rt.plan.pages.no_venue"),
+    brands: pages.brands.length ? pages.brands.join(", ") : fill("claude.rt.plan.pages.no_brand"),
+    // PENDING DESIGN: no row covers a show with no lineup Page matched; it reads as the slots above do.
+    artists: pages.artists.length ? pages.artists.join(", ") : fill("claude.rt.plan.pages.no_brand"),
+  });
+}
+
+export type ExistingAction = "keep" | "pause" | "fold";
+
+const EXISTING_ROW = { keep: "claude.rt.plan.existing.keep", pause: "claude.rt.plan.existing.pause", fold: "claude.rt.plan.existing.fold" } as const;
+
+export function existingLine(campaign: string, action: ExistingAction): string {
+  return fill("claude.rt.plan.existing", { campaign, action: fill(EXISTING_ROW[action]) });
+}
+
+/** TC3 / TC8: Similar skipped, told to Claude. A group under Meta's minimum has no row yet (PENDING DESIGN). */
+export function similarSkipLine(reason: SimilarSkip, args: { code: string; genre: string | null }): string {
+  if (reason === "too_small") return "Similar skipped: its page group’s audience is under Meta’s minimum, so its share goes to Cold.";
+  const why = reason === "no_genre" ? fill("claude.rt.plan.similar.genre", { code: args.code }) : fill("claude.rt.plan.similar.group", { genre: args.genre ?? "" });
+  return fill("claude.rt.plan.similar.skip", { reason: why });
+}
+
+/** TC3: the Similar row in place of its audiences (muted), with the £ a day that went to Cold. */
+export function similarSkipRow(reason: SimilarSkip, args: { code: string; genre: string | null; minor: number }): string {
+  if (reason === "too_small") return `Similar skipped: its page group’s audience is under Meta’s minimum, so its £${money(args.minor)} a day goes to Cold.`;
+  return reason === "no_genre" ? fill("rt.similar.skip.genre", { code: args.code, x: money(args.minor) }) : fill("rt.similar.skip.group", { genre: args.genre ?? "", x: money(args.minor) });
+}
+
+/**
+ * TC8: the plan's line for Claude (both campaigns), then the matched Pages
+ * (TC9), missing access (RF6), Similar skipped, presale sign-ups, each
+ * existing prospecting campaign, and the next stretch.
+ */
+export function claudePlanLines(
+  plan: FunnelShowPlan,
+  sources: FunnelSources,
+  extra: { wider: WiderWords; pages?: MatchedPages | null; genre?: string | null; presale?: boolean; presaleSignups?: number | null; existing?: readonly { name: string; action: ExistingAction }[] },
+): string[] {
+  const lines = [
+    fill("claude.rt.plan.line", {
       code: plan.code,
       stretch: stretchName(plan.stretch),
       p: plan.share,
-      x: money(plan.targetMinor),
+      l: money(extra.wider.lifetimeMinor),
+      d: money(extra.wider.dailyMinor),
+      x: money(plan.totalMinor),
+      s: money(plan.tiers.similar),
       c: money(plan.tiers.cold),
       w: money(plan.tiers.warm),
       h: money(plan.tiers.hot),
-      from: takeFromText(plan.take.from),
       made: plan.audiences.made,
       make: plan.audiences.toMake,
       missing: plan.audiences.missingAccess,
-    });
-  // PENDING DESIGN: the staged Similar tier's money, before Cold.
-  if (plan.tiers.similar > 0) first = first.replace(": Cold £", `: Similar £${money(plan.tiers.similar)}${JOIN}Cold £`);
-  const lines = [first];
-  if (plan.short) lines.push(fill("claude.rt.plan.short", { y: money(plan.take.takenMinor), x: money(plan.targetMinor) }));
+    }),
+  ];
+  if (extra.pages) lines.push(matchedPagesLine(extra.pages));
   const missing = missingAccess(sources.accounts);
   if (missing.length) {
     lines.push(fill("claude.rt.plan.access", { names: missing.map((row) => fill("rt.access.name", { account: row.name, platform: row.platform === "facebook" ? "Facebook" : "Instagram" })).join(JOIN) }));
   }
-  if (plan.similarSkip) lines.push(similarSkipLine(plan.similarSkip, SPLIT_WITH_SIMILAR[plan.stretch].similar));
+  if (plan.similarSkip) lines.push(similarSkipLine(plan.similarSkip, { code: plan.code, genre: extra.genre ?? null }));
+  if (extra.presale && extra.presaleSignups != null) lines.push(fill("claude.rt.plan.presale", { n: extra.presaleSignups }));
+  for (const row of extra.existing ?? []) lines.push(existingLine(row.name, row.action));
   const step = plan.steps[0];
-  if (step) lines.push(fill("claude.rt.plan.next", { stretch: stretchName(step.stretch), date: rfDay(step.day), p: step.share }));
+  if (step && !extra.presale) lines.push(fill("claude.rt.plan.next", { stretch: stretchName(step.stretch), date: rfDay(step.day), p: step.share }));
   return lines;
 }
 
-/** PENDING DESIGN (the two-campaign record should rule it): Similar skipped, and where its share went. */
-export function similarSkipLine(reason: SimilarSkip, pct: number): string {
-  const why = reason === "no_genre" ? "the show has no genre set" : reason === "no_group" ? "there's no confirmed page group for its genre" : "the page group's audience is under Meta's minimum";
-  return `Similar is skipped: ${why}, so its ${pct} % goes to Cold this stretch.`;
-}
+export type SkipReason = "no_pixel" | "no_link" | "no_signup_link" | "soon" | "archived" | "built" | "no_budget";
 
-export type SkipReason = "no_pixel" | "no_link" | "soon" | "archived" | "built" | "no_money";
+/** PENDING DESIGN: the two skip reasons TC left without a row (claude.rt.skip.no_money is withdrawn). */
+export const SKIP_PENDING = {
+  no_budget: "it has no prospecting budget to fold into Wider",
+  no_signup_link: "it has no sign-up page link",
+} as const;
 
 const SKIP_ROW = {
   no_pixel: "claude.rt.skip.no_pixel",
@@ -296,11 +357,11 @@ const SKIP_ROW = {
   soon: "claude.rt.skip.soon",
   archived: "claude.rt.skip.archived",
   built: "claude.rt.skip.built",
-  no_money: "claude.rt.skip.no_money",
 } as const;
 
 export function skipLine(code: string, reason: SkipReason): string {
-  return fill("claude.rt.skip", { code, reason: fill(SKIP_ROW[reason]) });
+  const why = reason === "no_budget" || reason === "no_signup_link" ? SKIP_PENDING[reason] : fill(SKIP_ROW[reason]);
+  return fill("claude.rt.skip", { code, reason: why });
 }
 
 export function planHead(args: { shows: number; build: number; skipped: number }): string {
@@ -314,18 +375,18 @@ export function isSoon(runDay: string, showDay: string): boolean {
   return Date.parse(`${showDay}T12:00:00Z`) - Date.parse(`${runDay}T12:00:00Z`) <= SOON_DAYS * 86_400_000;
 }
 
-/** RF9's skip for a show, in RF9's order of reasons, or null when it's built. */
-export function skipReason(args: { archived: boolean; built: boolean; runDay: string; showDay: string | null; pixelId: string | null; hasTicketLink: boolean; plan: FunnelShowPlan | null }): SkipReason | null {
+/** RF9's skip for a show, in RF9's order (TC8: "already built" is either campaign). A presale show needs a sign-up link, not a ticket link. */
+export function skipReason(args: { archived: boolean; built: boolean; runDay: string; showDay: string | null; pixelId: string | null; hasTicketLink: boolean; hasSignupLink?: boolean; presale?: boolean; plan: FunnelShowPlan | null }): SkipReason | null {
   if (args.archived) return "archived";
   if (args.built) return "built";
   if (!args.showDay || isSoon(args.runDay, args.showDay)) return "soon";
   if (!args.pixelId) return "no_pixel";
-  if (!args.hasTicketLink) return "no_link";
-  if (!args.plan || args.plan.noMoney) return "no_money";
+  if (args.presale ? !args.hasSignupLink : !args.hasTicketLink) return args.presale ? "no_signup_link" : "no_link";
+  if (!args.plan || args.plan.noMoney) return "no_budget";
   return null;
 }
 
-/** RF9: create_retargeting's answer. */
-export function doneLine(args: { code: string; live: boolean; made: number; takenMinor: number }): string {
-  return fill("claude.rt.done", { code: args.code, state: args.live ? "live" : "paused", made: args.made, x: money(args.takenMinor), when: fill(args.live ? "claude.rt.done.when.live" : "claude.rt.done.when.paused") });
+/** TC8: create_show_campaigns' answer. */
+export function doneLine(args: { code: string; live: boolean; adSets: number; made: number }): string {
+  return fill("claude.rt.done", { code: args.code, state: args.live ? "live" : "paused", n: args.adSets, made: args.made });
 }
