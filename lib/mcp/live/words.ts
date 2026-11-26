@@ -5,7 +5,8 @@
  *   - rows from design's list (scratch/mcp/words-mcp-today-2026-11-25.tsv,
  *     a copy in lib/mcp/__tests__/fixtures), word for word, re-used from
  *     lib/mcp/meta/words.ts or rendered here from their row (pinned by
- *     lib/mcp/__tests__/live-words.test.ts);
+ *     lib/mcp/__tests__/live-words.test.ts, with the count helpers and
+ *     londonWhen's "Thu 26 Nov, 18:00");
  *   - PENDING DESIGN: every string with no row yet. Each is in LIVE_FOR_DESIGN
  *     with its key, where it shows and the builder's candidate; the PR body's
  *     "For design" table is that list. When design rules them, the ruled words
@@ -72,9 +73,16 @@ export const LIVE_THINGS: Record<"campaign" | "adset" | "ad", [string, string]> 
   ad: ["ad", "ads"],
 };
 
-/** today.mcp.count.ads / .one, today.mcp.count.adsets / .one */
-export const countAds = (n: number) => (n === 1 ? "1 ad" : `${n} ads`);
-export const countAdSets = (n: number) => (n === 1 ? "1 ad set" : `${n} ad sets`);
+/** The count rows, word for word: {n} {things}, and its .one form at 1. */
+const counted = (one: string, many: string) => (n: number) => (n === 1 ? one : many.replace("{n}", String(n)));
+/** today.mcp.count.ads / .one */
+export const countAds = counted("1 ad", "{n} ads");
+/** today.mcp.count.adsets / .one */
+export const countAdSets = counted("1 ad set", "{n} ad sets");
+/** today.mcp.count.tiers / .one */
+export const countTiers = counted("1 tier", "{n} tiers");
+/** today.mcp.count.changes / .one (Today's section header: "{n} today"). */
+export const countChanges = counted("1 today", "{n} today");
 
 // ── PENDING DESIGN ───────────────────────────────────────────────────────────
 

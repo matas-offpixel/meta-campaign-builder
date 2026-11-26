@@ -25,6 +25,7 @@ import { checkSpendCeiling } from "../meta/ceiling.ts";
 import type { Db } from "../tool-types.ts";
 import { londonDaysLeft, round2 } from "./resolve.ts";
 import type { LiveObject, McpLiveDeps } from "./types.ts";
+import { LIVE_CHANGES_SHIPPED } from "./shipped.ts";
 
 export const SCHEDULED_TABLE = "scheduled_meta_changes";
 export const MAX_DUE_PER_RUN = 50;
@@ -111,6 +112,8 @@ export function moneyAfter(o: Pick<LiveObject, "lifetimeBudgetMinor" | "budgetRe
 }
 
 export interface ScheduledRunResult {
+  /** Set when the run did nothing on purpose ("m3b_not_shipped"). */
+  skippedReason?: string;
   due: number;
   applied: number;
   skipped: number;
@@ -124,9 +127,11 @@ export interface ScheduledRunResult {
  * The cron's run: every due row (run_at ≤ now, still scheduled), oldest
  * first, at most MAX_DUE_PER_RUN.
  */
-export async function runScheduledChanges(input: { db: Db; live: Pick<McpLiveDeps, "switches" | "readObjects" | "setBudget" | "accountInfo">; now: Date }): Promise<ScheduledRunResult> {
+export async function runScheduledChanges(input: { db: Db; live: Pick<McpLiveDeps, "switches" | "readObjects" | "setBudget" | "accountInfo">; now: Date; /** M3b on (live/shipped.ts); omitted means LIVE_CHANGES_SHIPPED. */ shipped?: boolean }): Promise<ScheduledRunResult> {
   const { db, live, now } = input;
   const out: ScheduledRunResult = { due: 0, applied: 0, skipped: 0, failed: 0, taken: 0, metaGets: 0 };
+  // M3b ships switched off (live/shipped.ts): nothing is read or applied until it's on.
+  if (!(input.shipped ?? LIVE_CHANGES_SHIPPED)) return { ...out, skippedReason: "m3b_not_shipped" };
   const due = await db.from("scheduled_meta_changes").select(COLUMNS).eq("status", "scheduled").lte("run_at", now.toISOString()).order("run_at", { ascending: true }).limit(MAX_DUE_PER_RUN);
   if (due.error) throw new Error("scheduled_unreadable");
   const rows = (due.data ?? []) as ScheduledRow[];

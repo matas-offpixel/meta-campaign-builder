@@ -153,6 +153,8 @@ export interface ToolContext {
   isMatas?: boolean;
   /** Today's Undo exists; omitted means TODAY_UNDO_SHIPPED (meta/today-undo.ts). Injected so tests cover both. */
   todayUndo?: boolean;
+  /** M3b's live tools are on; omitted means LIVE_CHANGES_SHIPPED (live/shipped.ts, false until Today's rows land). Injected so tests cover both. */
+  liveShipped?: boolean;
   /** MATAS_USER_IDS sees client names on cross-client learnings; other operators don't. */
   seesClientNames: boolean;
   /** Today's London date (YYYY-MM-DD); injected so tests are stable. */

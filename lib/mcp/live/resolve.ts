@@ -102,12 +102,17 @@ export async function placeObject(ctx: ToolContext, live: McpLiveDeps, event: Li
   return { object, campaign, ledger: { draftId: campaign.draftId, eventId: event.id }, name };
 }
 
-/** "Thu 26 Nov 18:00", London. */
+/**
+ * "Thu 26 Nov, 18:00": the weekday, day and month, then the 24-hour time, in
+ * London (design's verdict, 26 Nov). The weekday comes from the same instant
+ * in Europe/London as the date, never from UTC, so a late-evening or BST
+ * time can't slip a day.
+ */
 export function londonWhen(iso: string): string {
   const d = new Date(iso);
-  const date = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/London", weekday: "short", day: "numeric", month: "short" }).format(d).replace(",", "");
-  const time = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/London", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(d);
-  return `${date} ${time}`;
+  const parts = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/London", weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(d);
+  const get = (type: Intl.DateTimeFormatPartTypes) => parts.find((p) => p.type === type)?.value ?? "";
+  return `${get("weekday")} ${get("day")} ${get("month")}, ${get("hour")}:${get("minute")}`;
 }
 
 const londonDate = (d: Date) => new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/London", year: "numeric", month: "2-digit", day: "2-digit" }).format(d);

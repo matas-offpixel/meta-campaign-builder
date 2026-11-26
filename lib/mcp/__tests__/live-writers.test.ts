@@ -16,7 +16,7 @@ import { writeObjectName } from "../../meta/object-name-write.ts";
 import { campaignsInRunningStudies, studyPayload, writeAdStudy } from "../../meta/ad-study.ts";
 import { mergeAudienceIntoTargeting } from "../../meta/adset-targeting-write.ts";
 import { moveAdSetDailyBudget, type MovePlan } from "../../onsale-refresh/apply.ts";
-import { LIVE_FOR_DESIGN, LIVE_ROWS, LIVE_WORDS, countAdSets, countAds } from "../live/words.ts";
+
 import { fakeDb } from "./fake-db.ts";
 import { OPERATOR } from "./helpers.ts";
 
@@ -128,37 +128,3 @@ test("migration 271: scheduled_meta_changes service role only (RLS on, no policy
   assert.match(createHash("sha256").update(raw).digest("hex"), /^[0-9a-f]{64}$/);
 });
 
-test("M3b words: the rows it reuses are design's, word for word; every new string is listed for design once, under its own key", () => {
-  const rows = new Map(
-    readFileSync(new URL("./fixtures/words-mcp-today-2026-11-25.tsv", import.meta.url), "utf8")
-      .split("\n")
-      .slice(1)
-      .filter(Boolean)
-      .map((l) => {
-        const [k, , w] = l.split("\t");
-        return [k!, w!] as const;
-      }),
-  );
-  const row = (k: string, v: Record<string, string> = {}) => rows.get(k)!.replace(/\{([a-z]+)\}/g, (m, n: string) => v[n] ?? m);
-  assert.equal(LIVE_ROWS.refusedSwitch, row("claude.mcp.refused.switch"));
-  assert.equal(LIVE_ROWS.failed("R"), row("claude.mcp.failed", { result: "R" }));
-  assert.equal(LIVE_ROWS.changePause("N"), row("today.mcp.change.pause", { name: "N" }));
-  assert.equal(LIVE_ROWS.changeResume("N"), row("today.mcp.change.resume", { name: "N" }));
-  assert.equal(LIVE_ROWS.changeMove(5, "A", "B"), row("today.mcp.change.move_budget", { x: "5.00", from: "A", to: "B" }));
-  assert.equal(LIVE_ROWS.changeAddCreatives("S", "1 ad", "2 ad sets"), row("today.mcp.change.add_creatives", { stage: "S", ads: "1 ad", adsets: "2 ad sets" }));
-  assert.equal(LIVE_ROWS.changeAddAudiences("S", "A", "2 ad sets"), row("today.mcp.change.add_audiences", { stage: "S", audiences: "A", adsets: "2 ad sets" }));
-  assert.equal(LIVE_ROWS.created(["test", "tests"], ["x"]), row("today.mcp.result.created.one", { thing: "test", id: "x" }));
-  assert.equal(LIVE_ROWS.undoResume, row("today.mcp.undo.resume"));
-  assert.equal(LIVE_ROWS.undoPause, row("today.mcp.undo.pause"));
-  assert.equal(LIVE_ROWS.undoBudget(30), row("today.mcp.undo.budget", { x: "30.00" }));
-  assert.equal(LIVE_ROWS.undoMove(5, "A"), row("today.mcp.undo.move", { x: "5.00", from: "A" }));
-  assert.equal(countAds(1), row("today.mcp.count.ads.one"));
-  assert.equal(countAdSets(3), row("today.mcp.count.adsets", { n: "3" }));
-  const keys = LIVE_FOR_DESIGN.map((w) => w.key);
-  assert.equal(new Set(keys).size, keys.length, "one entry per key");
-  for (const k of keys) assert.ok(!rows.has(k), `${k} isn't a row yet`);
-  for (const w of LIVE_FOR_DESIGN) assert.ok(w.where && w.candidate, w.key);
-  // Refusals end as the house rule says.
-  for (const w of LIVE_FOR_DESIGN.filter((x) => x.candidate.startsWith("Refused:"))) assert.match(w.candidate, /(Nothing was sent to Meta|Nothing was changed|Nothing was scheduled|nothing was changed\. Try again)\.$/, w.key);
-  assert.ok(LIVE_WORDS.metaFailed);
-});

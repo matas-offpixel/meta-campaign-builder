@@ -216,11 +216,11 @@ test("set_budget with at: stored with the yes, nothing sent now; applied once at
   // The same ask twice is the same row.
   assert.equal(await schedule(ctx, "2026-11-26T18:00:00Z"), id);
 
-  const before = await runScheduledChanges({ db: ctx.db, live: ctx.live!, now: new Date("2026-11-26T17:45:00Z") });
+  const before = await runScheduledChanges({ db: ctx.db, live: ctx.live!, now: new Date("2026-11-26T17:45:00Z"), shipped: true });
   assert.equal(before.due, 0);
-  const at = await runScheduledChanges({ db: ctx.db, live: ctx.live!, now: new Date("2026-11-26T18:00:00Z") });
+  const at = await runScheduledChanges({ db: ctx.db, live: ctx.live!, now: new Date("2026-11-26T18:00:00Z"), shipped: true });
   assert.deepEqual([at.applied, at.skipped], [1, 0]);
-  const again = await runScheduledChanges({ db: ctx.db, live: ctx.live!, now: new Date("2026-11-26T18:15:00Z") });
+  const again = await runScheduledChanges({ db: ctx.db, live: ctx.live!, now: new Date("2026-11-26T18:15:00Z"), shipped: true });
   assert.equal(again.due, 0, "applied once");
   const budgetWrites = writes(spy).filter((c) => c.method === "setBudget");
   assert.equal(budgetWrites.length, 1);
@@ -241,7 +241,7 @@ test("a scheduled change is skipped when the object changed since (budget edited
     const { ctx, spy } = liveCtx({ ceiling: 500 });
     await schedule(ctx, "2026-11-26T18:00:00Z");
     await change(spy, ctx);
-    const out = await runScheduledChanges({ db: ctx.db, live: ctx.live!, now: new Date("2026-11-26T18:00:00Z") });
+    const out = await runScheduledChanges({ db: ctx.db, live: ctx.live!, now: new Date("2026-11-26T18:00:00Z"), shipped: true });
     assert.deepEqual([out.applied, out.skipped], [0, 1], reason);
     assert.equal(writes(spy).filter((c) => c.method === "setBudget").length, 0, reason);
     const listed = await run(listScheduledTool, ctx, { event: CODE });
@@ -255,14 +255,14 @@ test("cancel_scheduled: a cancelled change never runs; cancelling twice changes 
   const { ctx, spy } = liveCtx({ ceiling: 500 });
   const id = await schedule(ctx, "2026-11-26T18:00:00Z");
   const out = await run(cancelScheduledTool, ctx, { id, approval: { asked: "Cancel it?", answer: "yes" } });
-  assert.match((out.data as { message: string }).message, /^Cancelled: Broad: £30\.00 → £40\.00 a day at Thu 26 Nov 18:00 London won’t run\.$/);
+  assert.match((out.data as { message: string }).message, /^Cancelled: Broad: £30\.00 → £40\.00 a day at Thu 26 Nov, 18:00 London won’t run\.$/);
   await run(cancelScheduledTool, ctx, { id, approval: { asked: "Cancel it?", answer: "yes" } });
-  const ran = await runScheduledChanges({ db: ctx.db, live: ctx.live!, now: new Date("2026-11-27T00:00:00Z") });
+  const ran = await runScheduledChanges({ db: ctx.db, live: ctx.live!, now: new Date("2026-11-27T00:00:00Z"), shipped: true });
   assert.equal(ran.due, 0);
   assert.equal(writes(spy).filter((c) => c.method === "setBudget").length, 0);
 
   const id2 = await schedule(ctx, "2026-11-26T19:00:00Z", 45);
-  await runScheduledChanges({ db: ctx.db, live: ctx.live!, now: new Date("2026-11-26T19:00:00Z") });
+  await runScheduledChanges({ db: ctx.db, live: ctx.live!, now: new Date("2026-11-26T19:00:00Z"), shipped: true });
   await refused(run(cancelScheduledTool, ctx, { id: id2, approval: { asked: "Cancel it?", answer: "yes" } }), /is already applied\. Nothing was changed\.$/);
   await refused(run(cancelScheduledTool, ctx, { id: "5c000000-0000-4000-8000-000000000009", approval: { asked: "Cancel it?", answer: "yes" } }), /there’s no scheduled change/);
 });

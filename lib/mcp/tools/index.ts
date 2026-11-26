@@ -21,6 +21,7 @@ import { cancelScheduledTool, listScheduledTool, moveBudgetTool, setBudgetTool }
 import { renameTool } from "./live-rename.ts";
 import { addAudienceToStageTool, addCreativesToStageTool } from "./live-stage.ts";
 import { createSplitTestTool } from "./live-test.ts";
+import { switchedOffUntilShipped } from "../live/shipped.ts";
 import { getRenderPackageTool, renderPackageTool } from "./render.ts";
 import { replicateToEventTool } from "./draft-replicate.ts";
 import { setDraftAudiencesTool } from "./draft-audiences.ts";
@@ -73,18 +74,20 @@ export const META_TOOLS: readonly McpTool[] = [
   launchDraftTool,
   uploadDraftAssetsTool,
   updateEventTool,
-  // M3b: live changes
-  getLiveTool,
-  pauseTool,
-  resumeTool,
-  setBudgetTool,
-  listScheduledTool,
-  cancelScheduledTool,
-  moveBudgetTool,
-  renameTool,
-  addCreativesToStageTool,
-  addAudienceToStageTool,
-  createSplitTestTool,
+  // M3b: live changes, switched off until Today's rows land (lib/mcp/live/shipped.ts).
+  ...[
+    getLiveTool,
+    pauseTool,
+    resumeTool,
+    setBudgetTool,
+    listScheduledTool,
+    cancelScheduledTool,
+    moveBudgetTool,
+    renameTool,
+    addCreativesToStageTool,
+    addAudienceToStageTool,
+    createSplitTestTool,
+  ].map(switchedOffUntilShipped),
 ];
 
 /** Scope mcp:render (MATAS_USER_IDS only, M4a): each takes Matas's chat yes. */
