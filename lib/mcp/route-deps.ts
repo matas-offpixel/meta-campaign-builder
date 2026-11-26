@@ -19,6 +19,7 @@ import { realLiveDeps, realMetaDeps } from "./meta-deps";
 import { realFolderDeps } from "./folder-in-deps";
 import { realShowsDeps } from "./shows-deps";
 import { realAudienceDeps } from "./audience-deps";
+import { realRetargetingDeps } from "./retargeting-deps";
 import { startDeps } from "@/lib/render-templates/server-deps";
 import { realReaders } from "./readers";
 import { createSupabaseStore, devMemoryStore, type McpStore } from "./oauth/store";
@@ -61,6 +62,8 @@ export function mcpHandlerDeps(): McpHandlerDeps {
     shows: realShowsDeps(db),
     // M3c: the audience tools (the Audience Builder's create) and artist Page access from the client's Business Manager.
     audiences: realAudienceDeps(db),
+    // M3c: plan_retargeting's dry-run read and create_retargeting's funnel create (lib/mcp/retargeting-deps.ts).
+    retargeting: realRetargetingDeps(db),
   };
 }
 

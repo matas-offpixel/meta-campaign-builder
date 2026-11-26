@@ -356,21 +356,6 @@ describe("migration 257: stored retargeting audiences keep their key", () => {
 });
 
 describe("frame RA (PR B's lines): a running campaign's per-link sizes and pixel lines", () => {
-  it("Bottom: Skiddle 2,100–2,500 · RA 1,000–1,200 · Fixr below 1,000; Mid Bottom: xmpl-whse.com 7,000–8,200", async () => {
-    const { raView } = await import("../../../scripts/plan-frames/retargeting-fixtures.ts");
-    const view = raView();
-    assert.equal(view.state, "running");
-    assert.deepEqual(view.tiers.map((row) => row.links.wide), [
-      ["Skiddle 2,100–2,500 · RA 1,000–1,200 · Fixr below 1,000", "Pixel on Skiddle and RA: yes · Fixr: no", "A ticket site counts visitors only when your pixel is on it there."],
-      ["xmpl-whse.com 7,000–8,200", "Pixel on xmpl-whse.com: yes"],
-      [],
-    ]);
-    assert.deepEqual(view.tiers.map((row) => row.audiences), [
-      ["Ticket-link visitors · checkout starters · 7, 14 and 30 days", "Registrations · 30, 90 and 180 days", "Signup list"],
-      ["Page visitors · 14, 30 and 60 days", "Checkout starters · 60 days", "2 similar lists"],
-      ["Video viewers 75 % · 90, 180 and 365 days", "Page and Instagram engagers · 30, 90 and 180 days · 4 pages"],
-    ]);
-  });
 });
 
 /** Migration 257's second part: the ledger's op_kind, against the live CHECK (read 24 Nov 2026, after main's 263). */

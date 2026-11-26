@@ -81,3 +81,21 @@ describe("keep-whole: the markup", () => {
     assert.match(panel, /k\(figure\(row\.purchases\)\)/);
   });
 });
+
+describe("the funnel (26 Nov)", () => {
+  it("\"3 accounts\" and \"final 2 weeks\" stay whole", () => {
+    const whole = (text: string) => keepWholeParts(text).filter((part) => part.whole).map((part) => part.text);
+    assert.deepEqual(whole("Page and Instagram engagers · 180 days · 3 accounts"), ["180 days", "3 accounts"]);
+    assert.deepEqual(whole("£24.00 a day · 40 % of the show’s daily spend · final 2 weeks"), ["£24.00 a day", "2 weeks"]);
+  });
+});
+
+describe("design's verdict on #1399 (27 Nov)", () => {
+  it("campaign names, \"{n} audiences\" and the split's \"{tier} £{x}\" stay whole", () => {
+    const whole = (text: string) => keepWholeParts(text).filter((part) => part.whole).map((part) => part.text);
+    assert.deepEqual(whole("NX26-RUDIMENTAL · Wider and NX26-RUDIMENTAL · Retargeting"), ["NX26-RUDIMENTAL · Wider", "NX26-RUDIMENTAL · Retargeting"]);
+    assert.deepEqual(whole("Engagers of the drum & bass page group · 7 pages · 365 days · 2 audiences, 5 pages each at most"), ["7 pages", "365 days", "2 audiences", "5 pages"]);
+    assert.deepEqual(whole("Similar £3.15 · Cold £5.25 · Warm £7.35 · Hot £5.25"), ["Similar £3.15", "Cold £5.25", "Warm £7.35", "Hot £5.25"]);
+    assert.deepEqual(whole("Plus £3.15 a day from Similar."), ["£3.15 a day"]);
+  });
+});

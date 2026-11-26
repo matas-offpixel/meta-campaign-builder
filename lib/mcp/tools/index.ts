@@ -15,6 +15,8 @@
  * M3c adds the audience tools (scope mcp:meta, Matas only): list_audiences,
  * audience_sources and pending_access read; create_audiences and
  * request_page_access take his chat yes.
+ * M3c adds plan_retargeting (reads) and create_show_campaigns (scope mcp:meta,
+ * Matas only, on his chat yes), switched off with M3b until it ships.
  */
 import type { McpTool } from "../tool-types.ts";
 import { getArtistTool } from "./artist.ts";
@@ -44,6 +46,7 @@ import { morningToplineTool } from "./topline.ts";
 import { strictAuditTool } from "./strict-audit.ts";
 import { audienceSourcesTool, createAudiencesTool, listAudiencesTool } from "./audiences.ts";
 import { pendingAccessTool, requestPageAccessTool } from "./page-access.ts";
+import { createShowCampaignsTool, planRetargetingTool } from "./retargeting.ts";
 
 export const READ_TOOLS: readonly McpTool[] = [
   morningToplineTool,
@@ -115,6 +118,9 @@ export const META_TOOLS: readonly McpTool[] = [
     addCreativesToStageTool,
     addAudienceToStageTool,
     createSplitTestTool,
+    // M3c: retargeting from the connector (RF1–RF9); its steps are M3b's scheduled changes, so it ships with them.
+    planRetargetingTool,
+    createShowCampaignsTool,
   ].map(switchedOffUntilShipped),
   // M3c: audiences and artist Page access. The reads run now; create_audiences and request_page_access check the M3b switch themselves.
   listAudiencesTool,

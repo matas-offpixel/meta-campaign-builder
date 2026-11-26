@@ -14,7 +14,7 @@ import { rbView, rdStates } from "../../../scripts/plan-frames/retargeting-fixtu
 import { linkKey, midBuildable, RT14, tierSpecs, tiersMatching, type SourceSet, type TierSpec } from "../audiences.ts";
 import { urlRule } from "../links.ts";
 import { currentDailyMinor, daysToShow, fundHold, startingBudget } from "../budget.ts";
-import { pickedShare, planRetargeting, retargetingOnSaleDay, retargetingState, signalPath, tierRows } from "../plan.ts";
+import { planRetargeting, retargetingOnSaleDay, retargetingState, signalPath, tierRows } from "../plan.ts";
 import * as words from "../words.ts";
 
 describe("RT4: the starting budget", () => {
@@ -201,35 +201,8 @@ describe("RT2 / RT13 / RT14: the tiers and their audiences", () => {
 });
 
 describe("RT1 / RT8: the states and the Create line", () => {
-  it("RB, from the rules: the Create line, the split, the hold, the legacy note and all three missing states", () => {
-    const view = rbView();
-    const option = view.create!.options.find((row) => row.share === 10)!;
-    assert.equal(view.title, "XMPL-ROOF · Retargeting");
-    assert.equal(option.line, "£5.80 a day · 10 % of current daily spend · Bottom £2.90 · Mid Bottom £1.45 · Mid £1.45");
-    assert.equal(option.split, "Bottom £2.90 · Mid Bottom £1.45 · Mid £1.45");
-    assert.equal(option.hold, "£185.60 to the show (32 days) · from plan headroom");
-    assert.deepEqual(view.create!.legacy, ["1 retargeting ad set already runs in XMPL-ROOF · Tickets: pause it once this is live."]);
-    assert.equal(view.create!.writeText, "New campaign, audiences and ad sets through the Purchase create path · goes in live");
-    const [bottom, midBottom, mid] = view.tiers;
-    // -2.html: RT14's windows, RT15's registrations and signup line, and the links (ops' ruling of 17 Nov on the words).
-    assert.deepEqual(bottom!.audiences, ["Ticket-link visitors · checkout starters · 7, 14 and 30 days", "Registrations · 30, 90 and 180 days"]);
-    assert.equal(bottom!.audiencesNarrow, "Ticket-link visitors · checkout starters · 7, 14 and 30 days · registrations · 30, 90 and 180 days");
-    // RT18 (-3.html): the sizes before Apply, the pixel per platform, and the ticket-site line; at 393 the same lines.
-    assert.deepEqual(bottom!.links.wide, ["By link: known after create", "Pixel on Skiddle: yes · Fatsoma and DICE: no", "A ticket site counts visitors only when your pixel is on it there."]);
-    assert.deepEqual(bottom!.links.narrow, bottom!.links.wide);
-    assert.deepEqual(bottom!.missing.map((line) => [line.text, line.actions.map((a) => [a.label, a.role])]), [["No signup list yet, so Bottom runs on ticket-link visitors, checkout starters and registrations only.", [["Upload the signup list", "signups"]]]]);
-    assert.deepEqual(midBottom!.audiences, ["Page visitors · 14, 30 and 60 days", "Checkout starters · 60 days"]);
-    assert.deepEqual(midBottom!.links.wide, ["By link: known after create", "Pixel on xmpl-roof.com: yes"]);
-    assert.deepEqual([bottom!.leavesOut, midBottom!.leavesOut, mid!.leavesOut], ["", "Bottom", "Mid Bottom · Bottom"]);
-    assert.deepEqual(mid!.audiences, ["Video viewers 75 % · 90, 180 and 365 days", "Page and Instagram engagers · 30, 90 and 180 days · 3 of 4 pages"]);
-    assert.deepEqual(mid!.missing.map((line) => [line.text, line.narrow]), [["Mira Vale isn't in Mid: your Facebook user has no role on the page. Granting ADVERTISE on it adds it at the next read.", "Mira Vale: no page role, not in Mid."]]);
-    assert.deepEqual(view.notes.map((line) => [line.text, line.actions.map((a) => [a.label, a.role])]), [["No buyers list yet, so buyers aren't left out and will keep seeing these ads.", [["Upload a buyers list", "buyers"]]]]);
-    // RT3 (revised 17 Nov): before Apply no pool is read or carried; the panel says "Known after create".
-    assert.deepEqual(view.tiers.map((row) => row.pool), [null, null, null]);
-    assert.equal(view.state, "proposed");
-  });
 
-  it("RD 393: the ten not-proposed states, each replacing the Create line, in the record's words", () => {
+  it("RD 393: the not-proposed states, each replacing the Create line, in the record's words (no budget to fold in place of no spend)", () => {
     assert.deepEqual(
       rdStates().map((view) => [view.state, view.notProposed, view.create]),
       [
@@ -237,7 +210,8 @@ describe("RT1 / RT8: the states and the Create line", () => {
         ["no_pixel", "No Retargeting campaign: these ads have no pixel to optimise on.", null],
         ["sells_elsewhere", "No Retargeting campaign: this pixel mostly sells on universe.com (74 % of 512 purchases in 28 days), not on Skiddle.", null],
         ["not_read", "Retargeting not proposed: purchases couldn't be read this run. The next run tries again.", null],
-        ["no_spend", "No spend in the last 7 days to size a budget from.", null],
+        // Two campaigns: no prospecting budget to fold into Wider (PENDING DESIGN; RF4's take words are withdrawn).
+        ["no_money", "No Retargeting campaign: this show has no prospecting budget to fold into Wider.", null],
         ["nothing_reaches", "No Retargeting campaign: no purchase has reached xmpl-roof.com in 28 days, and the ticket link isn't on a ticket platform.", null],
         ["no_purchases", "No Retargeting campaign: this pixel has had no purchases in 28 days.", null],
         ["no_url", "No Retargeting campaign: this show has no page or ticket link to read purchases from.", null],
@@ -246,16 +220,7 @@ describe("RT1 / RT8: the states and the Create line", () => {
         ["links_failed", "Retargeting not proposed: the show's links couldn't be read from CIRQLIN this run. The next run tries again.", null],
       ],
     );
-  });
-
-  it("None of RT8's missing sources blocks Create; the hold over the cap holds Accept with its sentence", () => {
-    const view = rbView();
-    assert.equal(view.create!.options.find((row) => row.share === 10)!.blocked, null);
-    // RT11: one share, today's; the 10 / 15 / 20 % choice is withdrawn.
-    assert.deepEqual(view.create!.options.map((row) => row.share), [10]);
-    assert.deepEqual(pickedShare(view, 10), { ok: true, share: 10 });
-    assert.deepEqual(pickedShare(view, 15), { ok: false, error: "The Create line's share is today's; there's no other to pick." });
-    assert.deepEqual(pickedShare(view, null), { ok: true, share: null });
+    assert.equal(rdStates().find((view) => view.state === "no_money")!.funnel, null);
   });
 
   it("RT1's signal: own domain with a purchase in 28 days, else the platform path past T2's guard", () => {

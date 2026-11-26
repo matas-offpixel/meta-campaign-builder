@@ -202,7 +202,21 @@ describe("no path writes genre_family without an operator", () => {
       // M3c: the client's buildable Pages read each act's genre_family (events, select only) for Job 4's page-group seed.
       "lib/mcp/audiences/client-sources.ts",
       "lib/mcp/__tests__/audience-tools.test.ts",
+      // The retargeting funnel's staged Similar tier (two-campaign record): the 08:00 read reads events.genre_family; page_groups has a genre_family column of its own.
+      "lib/retargeting/runner.ts",
+      "lib/retargeting/page-groups.ts",
+      // Name it in comments and types only (Similar's "no genre" skip).
+      "lib/retargeting/funnel.ts",
+      "lib/retargeting/plan.ts",
+      "lib/retargeting/__tests__/show-campaigns.test.ts",
+      "lib/retargeting/__tests__/migration-275.test.ts",
+      "scripts/page-groups-seed.mts",
+      "supabase/migrations/275_retargeting_builds.sql",
     ]);
+    // None of them writes events.
+    for (const file of ["lib/retargeting/runner.ts", "lib/retargeting/page-groups.ts", "scripts/page-groups-seed.mts"]) {
+      assert.doesNotMatch(readFileSync(file, "utf8"), /from\(\s*["']events["']\s*\)\s*\.(update|upsert|insert|delete)\(/, file);
+    }
     const named = ["app", "components", "lib", "scripts", "supabase/migrations"].flatMap((dir) => walk(dir)).filter((file) => readFileSync(file, "utf8").includes("genre_family"));
     assert.deepEqual(named.filter((file) => !allowed.has(file)), []);
     const shadow = readFileSync("lib/learning/genre/shadow.ts", "utf8");

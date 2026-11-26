@@ -42,7 +42,8 @@ import { callLine, planRetargeting, retargetingBeforeOnSale, type RetargetingInp
 import { runsInOwnCampaign } from "../../lib/retargeting/words.ts";
 import { OR6_PROPOSALS } from "./refresh-fixtures.ts";
 
-export const RETARGETING_FRAME_IDS = ["RA", "RB", "RD", "RE", "RG"] as const;
+/** RD stands; RA, RB, RE and RG are re-ruled by the funnel (retargeting-funnel-fixtures.ts). */
+export const RETARGETING_FRAME_IDS = ["RD"] as const;
 
 const TODAY = "2026-11-17";
 

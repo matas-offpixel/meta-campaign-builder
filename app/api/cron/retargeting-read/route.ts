@@ -5,6 +5,7 @@ import { createServiceRoleClient } from "@/lib/supabase/server";
 import { graphGetWithToken, graphPostWithToken } from "@/lib/meta/client";
 import { graphMultiGetByIds } from "@/lib/meta/graph-multi-get";
 import { isRetargetingReadEnabled, runRetargetingRead } from "@/lib/retargeting/runner";
+import { similarStepFor } from "@/lib/retargeting/similar-step-deps";
 
 /**
  * GET /api/cron/retargeting-read
@@ -17,7 +18,10 @@ import { isRetargetingReadEnabled, runRetargetingRead } from "@/lib/retargeting/
  *
  * Meta is read only, with `META_ACCESS_TOKEN`, one attempt per call: the
  * on-sale refresh's purchase read, the operator's pages with a role
- * (`/me/accounts`) and each account's min_daily_budget. Never a write.
+ * (`/me/accounts`) and each account's min_daily_budget. Two writes, each
+ * behind the apply gates and as the event's owner: RT13's rule rewrite, and
+ * (Matas, 27 Nov) the Similar ad set added to a live two-campaign build at
+ * the stretch step after its page group is confirmed.
  *
  * vercel.json runs "0 7,8 * * *" (UTC) and the read acts on the one that
  * is 08:00 London (07:00 UTC in summer, 08:00 in winter); `?force=1` runs it
@@ -61,6 +65,8 @@ async function handleGET(req: NextRequest) {
       graphReason: token ? undefined : "META_ACCESS_TOKEN is not configured",
       // RT13's rule rewrite: the on-sale refresh Apply's write (graphPostWithToken), with the event owner's refresh token, behind its gates.
       graphPost: (path, body, ownerToken) => graphPostWithToken(path, body, ownerToken),
+      // Matas, 27 Nov: a page group confirmed after the build brings Similar back at the next stretch step (the create path's gates).
+      similarStep: similarStepFor(supabase, process.env),
     });
     return NextResponse.json(result, { status: "errors" in result && !result.ok ? 207 : 200 });
   } catch (err) {

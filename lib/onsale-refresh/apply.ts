@@ -47,7 +47,7 @@ import { LAST_ADSET_STAYS, RETARGETING_STAYS } from "./decide.ts";
 import { applyNewAdSet, type NewAdSetDeps } from "./apply-adsets.ts";
 import { applyPurchaseCampaign, campaignSpendGbp, type PurchaseMeta } from "./apply-purchase.ts";
 import { applyCopyAudience, applyScalePurchase } from "./apply-purchase-scale.ts";
-import { applyRetargetingCampaign, type RetargetingDeps } from "../retargeting/apply.ts";
+import { applyFunnel, type FunnelBuild, type FunnelDeps } from "../retargeting/funnel-apply.ts";
 import { applyTestCall, type CallMeta } from "../retargeting/apply-call.ts";
 import { MIN_DAILY_BUDGET_MINOR, appliedMovesGbp, moveDeltaMinor, moveGuard, planGuard, projectedSpend, spendToDate } from "./plan-guard.ts";
 import { RETARGETING, type AddCopy } from "./rules.ts";
@@ -100,8 +100,13 @@ export type ApplyDeps = {
   adsets?: Pick<NewAdSetDeps, "meta" | "ensureAudience">;
   /** P4 PR B: the Purchase campaign's Meta calls. Absent = that line fails without a write. */
   purchase?: PurchaseMeta;
-  /** RT1: the Retargeting campaign's Meta calls and the audience builder. Absent = that line fails without a write. */
-  retargeting?: Pick<RetargetingDeps, "meta" | "ensureAudience">;
+  /**
+   * RF1–RF5: the funnel's Meta calls and the audience builder (the panel's
+   * Accept). Absent = that line fails without a write. The stretch steps
+   * aren't scheduled from here: a scheduled change carries a chat yes
+   * (migration 271), so the panel's steps wait for M3b on Today (Job 1).
+   */
+  retargeting?: Pick<FunnelDeps, "meta" | "createAudience"> & Partial<Pick<FunnelDeps, "scheduleChange" | "checkCeiling">>;
   /** RT17: the layout test's call (pause, end the test, budgets). */
   retargetingCall?: CallMeta;
   now?: Date;
@@ -555,20 +560,24 @@ export async function applyAccepted(args: { deps: ApplyDeps; eventId: string; us
           if (!deps.retargeting) {
             outcome = { state: "failed", reason: "Making the Retargeting campaign isn't wired on this deployment, so nothing was built.", result: {} };
           } else {
-            const mainId = typeof (line.write?.main as { campaignId?: unknown } | null | undefined)?.campaignId === "string" ? String((line.write!.main as { campaignId: string }).campaignId) : null;
-            const moved = proposal.window_end ? await appliedMovesGbp(db, event.id, proposal.window_end, line.id) : 0;
-            outcome = await applyRetargetingCampaign(
+            // RF4: the Accept goes in live; a full take leaves the show's total the same, so no client ceiling is read here.
+            const out = await applyFunnel(
               {
                 db,
                 env: deps.env,
-                ...deps.retargeting,
-                plan: { budget, spend: budget != null ? spend || (await spendToDate(db, event.id)) : 0, today, appliedMovesGbp: moved },
-                mainSpentNow: mainId ? await campaignSpendGbp(db, mainId) : 0,
+                meta: deps.retargeting.meta,
+                createAudience: deps.retargeting.createAudience,
+                scheduleChange: deps.retargeting.scheduleChange ?? (async () => {
+                  throw new Error("scheduled changes aren't wired for the panel's Accept");
+                }),
+                checkCeiling: deps.retargeting.checkCeiling ?? (async () => undefined),
                 owner: { userId: event.user_id, clientId: event.client_id ?? null, eventId: event.id, launchRunId: crypto.randomUUID() },
+                source: "panel",
               },
-              { id: line.id, write: line.write, applied_result: line.applied_result },
-              { ledger, adAccountId: guard.adAccountId, plainMetaReason },
+              line.write as unknown as FunnelBuild,
+              { mode: "live", ledger, plainMetaReason, today },
             );
+            outcome = { state: out.state, reason: out.reason, result: { retargeting: out.progress, ...(out.error ? { error: out.error, step: out.step } : {}) } };
           }
         } else if (line.kind === "purchase_campaign") {
           if (!deps.purchase) {

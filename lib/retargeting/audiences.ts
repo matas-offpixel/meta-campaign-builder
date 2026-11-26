@@ -245,6 +245,18 @@ export function groupVideosByPage(videos: readonly { id: string; pageId?: string
   return [...byPage].sort((a, b) => a[0].localeCompare(b[0])).map(([contextId, videoIds]) => ({ contextId, videoIds }));
 }
 
+/**
+ * The funnel (Job 2's finding, 26 Nov: the video walk drops ad videos with no
+ * Page — all 13 on NX26-RUDIMENTAL): videos grouped by Page, and the ones with
+ * no Page kept in one group with contextId "" (the funnel credits them to the
+ * show's promoter Page, funnel-apply.ts).
+ */
+export function groupVideosKeepingUnpaged(videos: readonly { id: string; pageId?: string | null }[]): { contextId: string; videoIds: string[] }[] {
+  const paged = groupVideosByPage(videos);
+  const unpaged = [...new Set(videos.filter((video) => !video.pageId).map((video) => video.id))];
+  return unpaged.length ? [...paged, { contextId: "", videoIds: unpaged }] : paged;
+}
+
 /** RT13: each pixel audience's URL rules, by key (what Apply wrote and the daily read compares). */
 export function pixelRules(specs: readonly TierSpec[]): Record<string, string[]> {
   const out: Record<string, string[]> = {};

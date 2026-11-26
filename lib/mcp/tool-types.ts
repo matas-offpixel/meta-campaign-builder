@@ -21,6 +21,7 @@ import type { McpLiveDeps } from "./live/types.ts";
 import type { McpFolderDeps } from "./folder-in/place.ts";
 import type { ReleasesData } from "./shows/claims.ts";
 import type { McpAudienceDeps } from "./audiences/types.ts";
+import type { McpRetargetingDeps } from "./retargeting/types.ts";
 
 export type Db = Pick<SupabaseClient, "from">;
 
@@ -216,6 +217,8 @@ export interface ToolContext {
   shows?: McpShowsDeps;
   /** M3c's audience and artist-access reach (lib/mcp/audience-deps.ts); absent unless the route wires it. */
   audiences?: McpAudienceDeps;
+  /** M3c's retargeting reach (the 08:00 read as a dry run, the funnel's create path); absent unless the route wires it. */
+  retargeting?: McpRetargetingDeps;
   /** The caller is in MATAS_USER_IDS (mcp:meta tools check it again). */
   isMatas?: boolean;
   /** Today's Undo exists; omitted means TODAY_UNDO_SHIPPED (meta/today-undo.ts). Injected so tests cover both. */

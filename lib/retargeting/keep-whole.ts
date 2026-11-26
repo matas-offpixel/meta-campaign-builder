@@ -5,6 +5,7 @@ import { createElement, Fragment, type ReactNode } from "react";
  * its unit in the Retargeting panel. Each of these stays whole on one line:
  *
  *   "{n} days" (the last window in a list: "30, 90, 180 days" keeps "180 days")
+ *   "{n} accounts" and "{n} weeks" (the funnel, 26 Nov)
  *   "{n} pages" and "{k} of {n} pages"
  *   "{n} similar lists"
  *   "{n} purchases"
@@ -12,6 +13,8 @@ import { createElement, Fragment, type ReactNode } from "react";
  *   "below {n}"
  *   a pool range, "3,900–4,600"
  *   a date, "Wed 18 Nov", "18 Nov" and a range's first end "Tue 17" (design, 25 Nov, RG)
+ *   a campaign name "{code} · Wider" / "{code} · Retargeting", "{n} audiences"
+ *   and the split's "{tier} £{x}" (design's verdict on #1399, 27 Nov)
  *
  * The words are never changed: the match is wrapped in a nowrap span and the
  * rest is left as written. The same file, name and exports are on #1314 and
@@ -32,6 +35,13 @@ const KEEP_WHOLE = new RegExp(
     `${START}${NUM}${SP}similar${SP}lists?\\b`,
     `${START}${NUM}${SP}purchases?\\b`,
     `${START}${NUM}${SP}days?\\b`,
+    // RF (26 Nov): "{n} accounts" and a stretch's "final 2 weeks" stay whole too.
+    `${START}${NUM}${SP}accounts?\\b`,
+    `${START}${NUM}${SP}weeks?\\b`,
+    // Design's verdict on #1399 (27 Nov): a campaign name, "{n} audiences" and the split's "{tier} £{x}" stay whole.
+    `\\b[A-Z0-9][A-Z0-9-]*${SP}·${SP}(?:Wider|Retargeting)\\b`,
+    `${START}${NUM}${SP}audiences?\\b`,
+    `\\b(?:Similar|Cold|Warm|Hot)${SP}£${NUM}(?!${SP}a${SP}day)`,
     `\\b[Bb]elow${SP}${NUM}`,
     `${START}${NUM}–${NUM}(?![\\d,])`,
     `\\b(?:${WEEKDAY}${SP})?\\d{1,2}${SP}${MONTH}\\b`,
