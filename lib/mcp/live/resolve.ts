@@ -41,7 +41,7 @@ export function requireLive(ctx: ToolContext): McpLiveDeps {
 }
 
 /** The event by code, the caller's own, with its campaign tree read live. */
-export async function liveEvent(ctx: ToolContext, live: McpLiveDeps, codeArg: unknown): Promise<LiveEvent> {
+export async function liveEvent(ctx: Pick<ToolContext, "db" | "userId">, live: McpLiveDeps, codeArg: unknown): Promise<LiveEvent> {
   let code: string;
   try {
     code = normaliseCode(codeArg);
@@ -77,7 +77,7 @@ export function metaId(value: unknown, kind: LiveKind): string {
 }
 
 /** Reads one object live and places it in the event's tree; refuses anything outside it. */
-export async function placeObject(ctx: ToolContext, live: McpLiveDeps, event: LiveEvent, kind: LiveKind, id: string): Promise<Placed> {
+export async function placeObject(ctx: Pick<ToolContext, "userId">, live: McpLiveDeps, event: LiveEvent, kind: LiveKind, id: string): Promise<Placed> {
   let read: Awaited<ReturnType<McpLiveDeps["readObjects"]>>;
   try {
     read = await live.readObjects(ctx.userId, kind, [id]);
@@ -148,7 +148,7 @@ export const round2 = (n: number) => Math.round(n * 100) / 100;
  * `gbp`, the money a day the change sets running (M3a's basis: the change's
  * own money a day). An account not in £ is refused (ceilings are in £).
  */
-export async function checkLiveCeiling(ctx: ToolContext, live: McpLiveDeps, input: { event: LiveEvent; accountId: string | null; name: string; gbp: number }): Promise<{ ceilingGbp: number; moneyGbp: number; currency: string }> {
+export async function checkLiveCeiling(ctx: Pick<ToolContext, "db" | "userId">, live: McpLiveDeps, input: { event: LiveEvent; accountId: string | null; name: string; gbp: number }): Promise<{ ceilingGbp: number; moneyGbp: number; currency: string }> {
   let currency = "GBP";
   if (input.accountId) {
     try {
@@ -160,6 +160,20 @@ export async function checkLiveCeiling(ctx: ToolContext, live: McpLiveDeps, inpu
   if (currency !== "GBP") throw new ToolInputError(LIVE_WORDS.currency(input.name, currency), { refused: "not_gbp", currency });
   const checked = await checkSpendCeiling(ctx.db, { clientId: input.event.clientId, clientName: input.event.clientName, money: { gbp: input.gbp, basis: "ad_set_daily", days: null, currency: "GBP" } });
   return { ...checked, currency };
+}
+
+/**
+ * A refusal thrown inside `run` keeps the change's own summary (code, name,
+ * before and after) beside its reason, so Today can draw the refused row's
+ * change line (FC1: refusals are logged muted, with their short reason).
+ */
+export async function withBase<T>(base: Record<string, unknown>, run: () => Promise<T>): Promise<T> {
+  try {
+    return await run();
+  } catch (e) {
+    if (e instanceof ToolInputError) throw new ToolInputError(e.message, { ...base, ...(e.summary ?? {}) }, e.data);
+    throw e;
+  }
 }
 
 /** The ledger key of one ask: the tool, its arguments (without the approval) and the chat yes. A retry of the same ask gives the same key. */

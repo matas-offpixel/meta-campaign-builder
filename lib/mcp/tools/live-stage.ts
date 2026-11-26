@@ -32,7 +32,8 @@ import type { AdCreativeDraft, CampaignDraft, CTAType } from "../../types.ts";
 import { approvalInput, requireMetaApproval } from "../meta/approval.ts";
 import { LAUNCH_WORDS, MCP_WORDS, RESULT_WORDS } from "../meta/words.ts";
 import { loadTemplatesFor } from "../drafts/templates.ts";
-import { callKey, checkLiveCeiling, errorReason, keyUuid, liveEvent, moneyADay, requireLive, round2, type LiveEvent } from "../live/resolve.ts";
+import { callKey, checkLiveCeiling, errorReason, keyUuid, liveEvent, moneyADay, requireLive, round2, withBase, type LiveEvent } from "../live/resolve.ts";
+import { undoOnToday } from "../meta/today-undo.ts";
 import { advantageAudience } from "../live/strict.ts";
 import { LIVE_THINGS, LIVE_WORDS, STAGE_ARG, countAdSets, countAds } from "../live/words.ts";
 import { ToolInputError, type McpTool, type ToolContext } from "../tool-types.ts";
@@ -119,7 +120,7 @@ export const addCreativesToStageTool: McpTool = {
     const adSetCount = Object.values(selection).reduce((n, s) => n + s.length, 0);
     const adCount = (draftCreativeIds.length + fileIds.length + pairs.length) * adSetCount;
     if (campaigns.length > BULK_ATTACH_CAP || adCount > TOTAL_ADS_CAP) throw new ToolInputError(LIVE_WORDS.tooManyAds(adCount, campaigns.length), { refused: "over_caps", ads: adCount, campaigns: campaigns.length });
-    const base = { code: event.code, stage, campaigns: campaigns.map((c) => c.metaCampaignId), adSets: adSetCount, live: goLive };
+    const base = { code: event.code, stage, campaigns: campaigns.map((c) => c.metaCampaignId), adSets: adSetCount, adsPlanned: adCount, live: goLive, ledgerDraftId: campaigns[0]?.draftId ?? null };
 
     // Live ads start spend: the ad sets' money a day against the ceiling, before any file moves.
     let ceiling: { ceilingGbp: number; moneyGbp: number } | null = null;
@@ -137,7 +138,7 @@ export const addCreativesToStageTool: McpTool = {
       } catch {
         throw new ToolInputError(LIVE_WORDS.readFailed, { ...base, refused: "meta_unread" });
       }
-      ceiling = await checkLiveCeiling(ctx, live, { event, accountId: account, name: event.code, gbp: round2(money) });
+      ceiling = await withBase(base, () => checkLiveCeiling(ctx, live, { event, accountId: account, name: event.code, gbp: round2(money) }));
     }
 
     // The ads.
@@ -211,7 +212,8 @@ export const addCreativesToStageTool: McpTool = {
     const partial = Number(res.body.totalAdsFailed ?? 0) > 0 || missed.length > 0;
     return {
       data: {
-        message: partial ? LIVE_WORDS.failed(result) : MCP_WORDS.done(result),
+        // FC2: paused ads Claude made have an Undo (delete), so "Matas can undo this on Today." follows Done.
+        message: partial ? LIVE_WORDS.failed(result) : [MCP_WORDS.done(result), ...(!goLive && undoOnToday(ctx) ? [MCP_WORDS.undoNote] : [])].join("\n"),
         change: LIVE_WORDS.changeAddCreatives(stageLabel(stage), countAds(adIds.length), countAdSets(reached.size)),
         mode: goLive ? LAUNCH_WORDS.live(ceiling?.moneyGbp ?? 0) : LAUNCH_WORDS.paused,
         ...(missed.length ? { notAdded: LIVE_WORDS.notAdded(countAdSets(missed.length), missed.join(", ")) } : {}),
@@ -331,7 +333,7 @@ export const addAudienceToStageTool: McpTool = {
       },
       eventId: event.id,
       clientId: event.clientId,
-      summary: { ...base, key, audiences: wanted, written: [...written], advantageAdSets: advantage, skipped: skipped.length, failedCalls },
+      summary: { ...base, key, audiences: wanted, audienceNames, written: [...written], advantageAdSets: advantage, skipped: skipped.length, failedCalls },
     };
   },
 };
