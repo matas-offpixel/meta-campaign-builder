@@ -176,7 +176,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   try {
     const resolved = await resolveServerMetaToken(supabase, user.id);
     token = resolved.token;
-    console.info(`[interest-validate] token: source=${resolved.source} prefix=${token.slice(0, 12)}…`);
+    console.info(`[interest-validate] token: source=${resolved.source}`);
   } catch (err) {
     console.error("[interest-validate] no Meta access token:", err);
     return NextResponse.json(

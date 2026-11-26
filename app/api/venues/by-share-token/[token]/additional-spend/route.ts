@@ -75,7 +75,7 @@ export async function GET(
     scope.eventCode,
   );
   console.log(
-    `[venue-share-spend GET] client_id=${scope.clientId} event_code=${scope.eventCode} token=${token.slice(0, 8)}… entriesReturned=${entries.length}`,
+    `[venue-share-spend GET] client_id=${scope.clientId} event_code=${scope.eventCode} entriesReturned=${entries.length}`,
   );
   return NextResponse.json({ ok: true, entries });
 }
@@ -168,12 +168,12 @@ export async function POST(
       venueEventCode: scope.eventCode,
     });
     console.log(
-      `[venue-share-spend POST] client_id=${scope.clientId} event_code=${scope.eventCode} token=${token.slice(0, 8)}… inserted id=${row?.id} amount=${amount} date=${date}`,
+      `[venue-share-spend POST] client_id=${scope.clientId} event_code=${scope.eventCode} inserted id=${row?.id} amount=${amount} date=${date}`,
     );
     return NextResponse.json({ ok: true, entry: row });
   } catch (err) {
     console.error(
-      `[venue-share-spend POST] client_id=${scope.clientId} event_code=${scope.eventCode} token=${token.slice(0, 8)}… insert failed:`,
+      `[venue-share-spend POST] client_id=${scope.clientId} event_code=${scope.eventCode} insert failed:`,
       err instanceof Error ? err.stack : err,
     );
     const msg = err instanceof Error ? err.message : "Insert failed";

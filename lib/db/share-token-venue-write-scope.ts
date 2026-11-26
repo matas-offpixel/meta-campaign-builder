@@ -146,7 +146,7 @@ export async function assertVenueShareTokenWritable(
     }
     if (event.user_id !== ownerUserId) {
       console.warn(
-        `[venue-share-token] owner mismatch token=${token.slice(0, 6)} event_owner=${event.user_id} share_owner=${ownerUserId}`,
+        `[venue-share-token] owner mismatch event_owner=${event.user_id} share_owner=${ownerUserId}`,
       );
       return {
         ok: false,
@@ -213,7 +213,7 @@ export async function assertVenueShareTokenWritable(
   }
   if (candidate.user_id !== ownerUserId) {
     console.warn(
-      `[venue-share-token] owner mismatch token=${token.slice(0, 6)} event_owner=${candidate.user_id} share_owner=${ownerUserId}`,
+      `[venue-share-token] owner mismatch event_owner=${candidate.user_id} share_owner=${ownerUserId}`,
     );
     return {
       ok: false,

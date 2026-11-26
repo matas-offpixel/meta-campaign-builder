@@ -97,7 +97,7 @@ export async function GET(req: Request) {
     tokenSource = resolved.source;
     console.info(
       `[/api/meta/custom-audiences] token resolved: source=${tokenSource} ` +
-      `len=${token.length} prefix=${token.slice(0, 12)}…`,
+      `len=${token.length}`,
     );
   } catch (err) {
     console.error("[/api/meta/custom-audiences] no Meta access token available:", err);

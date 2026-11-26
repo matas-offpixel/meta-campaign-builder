@@ -1926,9 +1926,9 @@ export async function createEngagementAudience(
   const systemToken = process.env.META_ACCESS_TOKEN;
   const token = spec.userToken || systemToken;
   const tokenSource = spec.userToken
-    ? `user-oauth-token (len=${spec.userToken.length}, prefix=${spec.userToken.slice(0, 10)}…)`
+    ? `user-oauth-token (len=${spec.userToken.length})`
     : systemToken
-      ? `META_ACCESS_TOKEN/system (len=${systemToken.length}, prefix=${systemToken.slice(0, 10)}…)`
+      ? `META_ACCESS_TOKEN/system (len=${systemToken.length})`
       : "MISSING";
 
   if (!token) {
@@ -2315,7 +2315,6 @@ export async function uploadImageAsset(
     adAccountId,
     tokenSource: token ? "explicit" : "META_ACCESS_TOKEN (env)",
     token_present: !!effectiveToken,
-    token_prefix: effectiveToken ? effectiveToken.slice(0, 12) : "(missing)",
   });
 
   if (!effectiveToken) {
@@ -2505,7 +2504,6 @@ export async function uploadVideoAsset(
     thumbOffsetMs: thumbOffsetMs ?? "(none — Meta default frame)",
     tokenSource: token ? "explicit" : "META_ACCESS_TOKEN (env)",
     token_present: !!effectiveToken,
-    token_prefix: effectiveToken ? effectiveToken.slice(0, 12) : "(missing)",
   });
 
   if (!effectiveToken) {

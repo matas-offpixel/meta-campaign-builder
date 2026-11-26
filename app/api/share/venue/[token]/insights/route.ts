@@ -104,7 +104,6 @@ export async function GET(
 
   if (forceRefresh) {
     console.log("[share-venue-insights] force-refresh", {
-      token: token.slice(0, 6),
       eventCode: share.event_code,
       preset: datePreset,
     });

@@ -112,7 +112,7 @@ export async function GET() {
     META_API_VERSION: apiVersion,
     META_AD_ACCOUNT_ID: adAccountId ?? "(NOT SET)",
     META_ACCESS_TOKEN: token
-      ? `${token.slice(0, 12)}…${token.slice(-6)} (${token.length} chars)`
+      ? `(set, ${token.length} chars)`
       : "(NOT SET)",
     token_present: !!token,
     ad_account_present: !!adAccountId,

@@ -124,7 +124,7 @@ export async function POST(
   // creator's credentials.
   if (event.user_id !== ownerUserId) {
     console.warn(
-      `[rollup-sync/by-share-token] owner mismatch token=${token.slice(0, 6)} event_owner=${event.user_id} share_owner=${ownerUserId}`,
+      `[rollup-sync/by-share-token] owner mismatch event_owner=${event.user_id} share_owner=${ownerUserId}`,
     );
     return NextResponse.json(
       { ok: false, error: "Share owner does not match event owner" },
