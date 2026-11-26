@@ -32,8 +32,11 @@ export const TODAY_META_WORDS = {
   "today.mcp.row.done": "Done · {result}",
   "today.mcp.row.failed": "Failed · {result}",
   "today.mcp.row.failed.none": "Failed · Meta didn’t take it, so nothing changed",
-  "today.mcp.row.refused": "Refused · it would take {client} to £{x} a day, over its £{c} ceiling",
-  "today.mcp.row.refused.none": "Refused · {client} has no daily ceiling, and this starts spend",
+  // The show's spend ceiling (ruled 27 Nov with #1397): its line and its no-ceiling line.
+  "today.mcp.ceiling": "{code}: £{x} of £{c} committed",
+  "today.mcp.ceiling.none": "{code}: no spend ceiling, so Claude can’t start or raise spend",
+  "today.mcp.row.refused": "Refused · it would take {code} to £{x} committed, over its £{c} ceiling",
+  "today.mcp.row.refused.none": "Refused · {code} has no spend ceiling, and this starts or raises spend",
   "today.mcp.row.refused.no_approval": "Refused · no approval given",
   "today.mcp.row.refused.switch": "Refused · this is switched off in Off/Pixel, so nothing was sent",
   "today.mcp.row.refused.checks": "Refused · {n} launch checks to fix",
@@ -117,7 +120,7 @@ export const TODAY_META_WORDS = {
   "today.mcp.skip.budget_changed": "the budget changed after it was scheduled",
   "today.mcp.skip.paused": "it was paused after it was scheduled",
   "today.mcp.skip.ended": "it ended or was deleted after it was scheduled",
-  "today.mcp.skip.ceiling": "by then it would have gone over the client’s daily ceiling, or the client had no ceiling",
+  "today.mcp.skip.ceiling": "by then it would have taken the show over its spend ceiling, or the show had no ceiling",
   "today.mcp.skip.switch": "budget changes were switched off in Off/Pixel",
   "today.mcp.skip.unread": "Meta couldn’t be read when it was due",
   // Ruled 27 Nov with #1400: create_audiences and request_page_access.
@@ -185,11 +188,11 @@ export const money = (n: number) => n.toFixed(2);
 
 /**
  * PENDING DESIGN, composed from ruled rows: an Undo's refusal reason is the
- * logged refusal's own short reason ("Undo refused · {reason}", FC-B's
- * "Undo refused · Puzzle has no daily ceiling, and this starts spend").
+ * logged refusal's own short reason ("Undo refused · {reason}", e.g.
+ * "Undo refused · P26-BDAY has no spend ceiling, and this starts or raises spend").
  */
 export const TODAY_COMPOSED = [
-  { key: "today.mcp.undo.refused · {reason}", where: "Today, Undo refused: {reason} is the refusal row after “Refused · ” or “Failed · ”", candidate: "Undo refused · {client} has no daily ceiling, and this starts spend" },
+  { key: "today.mcp.undo.refused · {reason}", where: "Today, Undo refused: {reason} is the refusal row after “Refused · ” or “Failed · ”", candidate: "Undo refused · {code} has no spend ceiling, and this starts or raises spend" },
 ] as const;
 
 /** {reason} for "Undo refused · {reason}": a refused or failed row's words after its "Refused · " / "Failed · ". */

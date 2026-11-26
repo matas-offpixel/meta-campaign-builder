@@ -28,7 +28,8 @@ import { driveFromEnv } from "@/lib/drive/client";
 import { PICKER_BUCKET, copyPickedFile } from "@/lib/drive/picker";
 import { fetchAudienceMultiCampaignVideos } from "@/lib/audiences/sources";
 import { createAudienceDraft } from "@/lib/db/meta-custom-audiences";
-import { checkAudienceReadiness, createMetaAd, createMetaAdSet, createMetaCreative, graphGetWithToken, graphPostWithToken } from "@/lib/meta/client";
+import { checkAudienceReadiness, createMetaAd, createMetaAdSet, createMetaCreative, getAdSetTargetingByIds, graphGetWithToken, graphPostWithToken } from "@/lib/meta/client";
+import { checkLocationExpansion } from "@/lib/meta/geo-expansion";
 import { sanitiseInterests, type MetaAdSetPayload } from "@/lib/meta/adset";
 import { createMetaCustomAudience } from "@/lib/meta/audience-write";
 import { buildCreativePayload } from "@/lib/meta/creative";
@@ -164,6 +165,9 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     return { videoId: json.videoId, imageHash: json.hash };
   };
 
+  // Every ad set this run creates (new ad sets, the Purchase campaign, Retargeting): read back for location expansion below.
+  const createdAdSets: { name: string; metaAdSetId: string }[] = [];
+
   // P3: the new ad sets. The launch path's ad-set create; the builder for a default's audiences (pixel and video sources only).
   const adsets: Pick<NewAdSetDeps, "meta" | "ensureAudience"> = {
     meta: {
@@ -188,6 +192,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       readAdSet: (adsetId) => meta.readAdSet(adsetId),
       async createAdSet(adAccountId, payload) {
         const { id } = await createMetaAdSet(adAccountId, payload as unknown as MetaAdSetPayload, token);
+        createdAdSets.push({ name: typeof payload.name === "string" && payload.name ? payload.name : id, metaAdSetId: id });
         return id;
       },
       createAd: (adAccountId, ad) => meta.createAd(adAccountId, ad),
@@ -333,6 +338,10 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     retry: body.retry === true,
     lineIds,
   });
-  if (!result.ok) return NextResponse.json({ ok: false, error: result.error }, { status: result.status });
-  return NextResponse.json(result);
+  // Location expansion read-back (lib/meta/geo-expansion.ts): one GET of targeting per ≤ 50 ad sets created this run, read-only.
+  const { notes: locationExpansion } = await checkLocationExpansion(createdAdSets, getAdSetTargetingByIds(token));
+  if (!result.ok) {
+    return NextResponse.json({ ok: false, error: result.error, ...(locationExpansion.length ? { locationExpansion } : {}) }, { status: result.status });
+  }
+  return NextResponse.json(locationExpansion.length ? { ...result, locationExpansion } : result);
 }

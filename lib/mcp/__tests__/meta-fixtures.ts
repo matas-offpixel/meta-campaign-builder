@@ -9,7 +9,8 @@ import type { DriveApi, DriveFile, DriveMediaFile } from "../../drive/client.ts"
 import type { McpMetaDeps, ToolContext } from "../tool-types.ts";
 import { CLIENT_NX } from "./fixtures.ts";
 import { OPERATOR } from "./helpers.ts";
-import { D_DRAFT, EV_SRC, TGT_SIGNUP, draftCtx, fakeDrive, fakeDraftDeps, newSpies, readRow } from "./draft-fixtures.ts";
+import { D_DRAFT, EV_SRC, EV_TGT, TGT_SIGNUP, draftCtx, fakeDrive, fakeDraftDeps, newSpies, readRow } from "./draft-fixtures.ts";
+import { liveDeps, liveSpy } from "./live-fixtures.ts";
 
 export const SCOPE_ALL = "mcp:read mcp:draft mcp:meta";
 export const YES = { asked: "Launch [NX27-GLITTERBOX] SIGNUP to Meta paused? 2 ad sets, £50 a day once switched on.", answer: "yes, paused" };
@@ -118,10 +119,15 @@ export async function metaCtx(opts: { storage?: boolean; ceiling?: number | null
   const made = draftCtx({ scope: opts.scope ?? SCOPE_ALL });
   const { ctx, db } = made;
   await makeLaunchable(db, { storage: opts.storage });
-  if (opts.ceiling != null) await db.from("client_spend_ceilings").insert({ client_id: CLIENT_NX, daily_gbp: opts.ceiling, set_by: OPERATOR, set_at: "2026-11-25T10:00:00Z" });
+  // PR D: `ceiling` is the show's own total (EV_TGT, NX27-GLITTERBOX); with none, the NX default (£3,000) applies.
+  if (opts.ceiling != null) await db.from("show_spend_ceilings").insert({ id: "5e000000-0000-4000-8000-0000000000f1", event_id: EV_TGT, group_name: null, total_gbp: opts.ceiling, set_by: OPERATOR, set_at: "2026-11-25T10:00:00Z" });
   db.writes.length = 0;
   const spy: MetaSpy = { uploads: [], launches: [], waited: [], failUpload: false, erroredVideos: [] };
   (ctx as ToolContext).meta = metaDeps(db, spy);
+  // The show's existing campaigns are read through the live reads (none on EV_TGT); never a write.
+  const live = liveSpy();
+  live.objects = new Map();
+  (ctx as ToolContext).live = liveDeps(live);
   (ctx as ToolContext).isMatas = opts.isMatas ?? true;
   return { ...made, spy };
 }

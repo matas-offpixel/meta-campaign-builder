@@ -67,7 +67,8 @@ describe("Advantage+ Audience age — payload snapshot", () => {
       age_min: 18,
       age_max: 65,
       age_range: [18, 45],
-      targeting_automation: { advantage_audience: 1, individual_setting: { age: 1 } },
+      // geo 0 (location expansion off, cc/meta-geo-expansion-off) sits beside age 1.
+      targeting_automation: { advantage_audience: 1, individual_setting: { age: 1, geo: 0 } },
       geo_locations: { countries: ["GB"] },
       custom_audiences: SUGGESTION_IDS.map((id) => ({ id })),
     });
@@ -87,7 +88,7 @@ describe("step 2 up front: an objective that can't take an age suggestion", () =
     assert.deepEqual(JSON.parse(JSON.stringify(payload.targeting)), {
       age_min: 18,
       age_max: 65,
-      targeting_automation: { advantage_audience: 1 },
+      targeting_automation: { advantage_audience: 1, individual_setting: { geo: 0 } },
       geo_locations: { countries: ["GB"] },
       custom_audiences: SUGGESTION_IDS.map((id) => ({ id })),
     });
@@ -109,7 +110,7 @@ describe("step 2 up front: an objective that can't take an age suggestion", () =
     const t = withoutAgeSuggestion(buildMetaTargeting(adSet(), audiences));
     assert.equal(t.age_range, undefined);
     assert.equal(t.age_max, 65);
-    assert.deepEqual(t.targeting_automation, { advantage_audience: 1 });
+    assert.deepEqual(t.targeting_automation, { advantage_audience: 1, individual_setting: { geo: 0 } });
     assert.equal(t.custom_audiences?.length, SUGGESTION_IDS.length);
   });
 });
@@ -152,7 +153,7 @@ describe("strict ad sets are unchanged", () => {
     assert.equal(t.age_min, 18);
     assert.equal(t.age_max, 45);
     assert.equal(t.age_range, undefined);
-    assert.deepEqual(t.targeting_automation, { advantage_audience: 0 });
+    assert.deepEqual(t.targeting_automation, { advantage_audience: 0, individual_setting: { geo: 0 } });
   });
 
   it("suggestions-only audiences still refuse strict targeting", () => {

@@ -276,6 +276,8 @@ const EXTERNAL_READERS: Record<string, readonly string[]> = {
   "lib/meta/location-search.ts": ["selectionFromGeoResult", "locationSearchQuery", "parseLocationSearchHits"],
   "lib/meta/location-radius.ts": ["clampCityRadius"],
   "lib/meta/location-targeting.ts": ["groupTier", "withGroupTier"],
+  // strict_audit's location expansion read and line (pure; cc/meta-geo-expansion-off).
+  "lib/meta/geo-expansion.ts": ["geoExpansionOf", "GEO_WORDS"],
   "lib/wizard/adset-suggestions.ts": [
     "addLocationToEveryAdSet",
     "adSetsTargetingLocation",
@@ -339,7 +341,7 @@ const EXTERNAL_READERS: Record<string, readonly string[]> = {
   "lib/render-templates/load.ts": ["compareTracks", "loadClips", "loadLineup"],
   "lib/creative-tests/snippet.ts": ["DROP_FOUND", "NO_CLEAR_DROP", "cantUseText", "dropSetBy", "mmss"],
   // M3b: the event's campaign tree (database reads, and Meta through the reader the live seam passes) and its pure helpers.
-  "lib/campaign-tree/load.ts": ["loadCampaignTree"],
+  "lib/campaign-tree/load.ts": ["loadCampaignTree", "loadEventAdSets", "loadEventDrafts", "splitCampaignIds"],
   "lib/campaign-tree/tree.ts": ["canWrite", "defaultSelection", "stageAccount", "stageLabel", "stageSheetCampaigns"],
   // M3d-a: the Releases card's ladder reckoning and its words (pure), as the card runs it.
   "lib/releases/types.ts": ["RELEASE_STATES", "stateIndex"],
@@ -381,7 +383,7 @@ const EXTERNAL_WRITERS: Record<string, Record<string, RegExp>> = {
  * lib/meta modules the MCP may import: pure helpers and the token read. No
  * Meta write path (lib/meta/client.ts, the Graph client, is never imported).
  */
-const META_IMPORTS_ALLOWED = /\/meta\/(ad-account|location-pins|location-search|location-radius|location-targeting|server-token|advantage-plus-compat|adset|audience-payload|page-access-request|reuse-existing-audience)(\.ts)?["']/;
+const META_IMPORTS_ALLOWED = /\/meta\/(ad-account|location-pins|location-search|location-radius|location-targeting|server-token|advantage-plus-compat|adset|geo-expansion|audience-payload|page-access-request|reuse-existing-audience)(\.ts)?["']/;
 
 const isOwn = (f: string) => f.startsWith("lib/mcp/") || f.startsWith("app/") || f.startsWith("components/mcp/");
 

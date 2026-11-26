@@ -64,7 +64,8 @@ describe("blank ad set — buildMetaTargeting / buildAdSetPayload", () => {
     assert.equal(payload.targeting.age_min, 18);
     assert.equal(payload.targeting.age_max, 65);
     assert.equal(payload.targeting.age_range, undefined);
-    assert.equal(payload.targeting.targeting_automation?.individual_setting, undefined);
+    // No age suggestion (no individual_setting.age); location expansion off (geo 0) is the only setting.
+    assert.deepEqual(payload.targeting.targeting_automation?.individual_setting, { geo: 0 });
   });
 
   it("also forces Advantage+ when advantagePlus is (correctly) true — same result either way", () => {

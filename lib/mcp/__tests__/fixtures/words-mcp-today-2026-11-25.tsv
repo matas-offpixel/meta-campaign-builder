@@ -12,8 +12,8 @@ today.mcp.row.rejected.note	Request row, under Rejected	“{note}”
 today.mcp.row.done	Request row, result	Done · {result}
 today.mcp.row.failed	Request row, result (brick)	Failed · {result}
 today.mcp.row.expired	Request row, state (muted)	Expired · not approved within 24 hours, so nothing was sent
-today.mcp.row.refused	Request row, state (brick), refused before it reached you	Refused · it would take {client} to £{x} a day, over its £{c} ceiling
-today.mcp.row.refused.none	Log row, state (brick)	Refused · {client} has no daily ceiling, and this starts spend
+today.mcp.row.refused	Log row, state (brick), over the show’s ceiling (ruled 27 Nov with #1397)	Refused · it would take {code} to £{x} committed, over its £{c} ceiling
+today.mcp.row.refused.none	Log row, state (brick), no ceiling (ruled 27 Nov with #1397)	Refused · {code} has no spend ceiling, and this starts or raises spend
 today.mcp.result	Result, counts and ids	{n} {things} changed · {ids}
 today.mcp.result.one	Result (1)	1 {thing} changed · {id}
 today.mcp.result.partial	Result, part taken	{n} of {m} {things} changed · {ids}
@@ -22,8 +22,8 @@ today.mcp.reject	Request row, button	Reject
 today.mcp.reject.note	Reject, optional field	Why (Claude sees this)
 today.mcp.reject.confirm	Reject, button	Reject
 today.mcp.reject.cancel	Reject, button	Cancel
-today.mcp.ceiling	Today, section header, per client	{client}: £{s} of £{c} a day
-today.mcp.ceiling.none	Today, section header, per client	{client}: no daily ceiling, so Claude can’t start spend
+today.mcp.ceiling	Today, section header, one line per show with a change today (ruled 27 Nov with #1397: the ceiling is the show’s total)	{code}: £{x} of £{c} committed
+today.mcp.ceiling.none	Today, section header, a show with no ceiling (ruled 27 Nov with #1397)	{code}: no spend ceiling, so Claude can’t start or raise spend
 claude.mcp.waiting	Told to Claude, on request	Waiting for {name} to approve this on Today.
 claude.mcp.done	Told to Claude, when it ran	Done: {result}.
 claude.mcp.failed	Told to Claude, when Meta took part	Meta didn’t take it all: {result}.
@@ -142,7 +142,7 @@ launch.upload.video	Launch progress, second step, when videos are sent	Waiting f
 launch.upload.video.one	Launch progress, second step (1)	Waiting for Meta to finish 1 video…
 launch.upload.stopped	Launch panel (brick), an upload failed	Launch stopped: {n} files didn’t reach Meta, so nothing was created.
 launch.upload.stopped.one	Launch panel (brick) (1)	Launch stopped: 1 file didn’t reach Meta, so nothing was created.
-consent.line2.meta	Consent page, line 2, when the scope includes mcp:meta (straight apostrophes, as the page’s other lines)	It can read every client's events, spend, signup and ticket counts, drafts and learnings, make events and clients, set lineups, ticket releases and the Lab's drops and clip owners, put files in a show's own Drive folders, and make, change and archive campaign drafts. It can also send files to Meta, launch drafts paused or live, change live campaigns, make audiences (lookalikes too), ask artists' Facebook Pages for advertiser access from the client's own Business Manager, and change an event's dates and links, each only after you say yes in Claude. It can't start or raise spend past a client's daily ceiling, and every change is listed on Today.
+consent.line2.meta	Consent page, line 2, when the scope includes mcp:meta (straight apostrophes, as the page’s other lines). Ruled 27 Nov: #1397 carries the ceiling clause, #1400 the audiences clause; the second to merge lands this exact line	It can read every client's events, spend, signup and ticket counts, drafts and learnings, make events and clients, set lineups, ticket releases and the Lab's drops and clip owners, put files in a show's own Drive folders, and make, change and archive campaign drafts. It can also send files to Meta, launch drafts paused or live, change live campaigns, make audiences (lookalikes too), ask artists' Facebook Pages for advertiser access from the client's own Business Manager, and change an event's dates and links, each only after you say yes in Claude. It can't start or raise spend past a show's spend ceiling, and every change is listed on Today.
 consent.title.upgrade.meta	Consent page, title, when a drafts grant is adding mcp:meta	Let Claude make Meta changes in Off/Pixel
 consent.title.upgrade.meta.loopback	Consent page, title, the same for an app on this computer	Let an app on this computer make Meta changes in Off/Pixel
 consent.upgrade.cancel_note.meta	Consent page, above the buttons, when a drafts grant is adding mcp:meta	If you cancel, it keeps the drafts access it has now.
@@ -245,7 +245,7 @@ today.mcp.row.skipped	Log row, state (muted), a scheduled change skipped; {reaso
 today.mcp.skip.budget_changed	{reason}	the budget changed after it was scheduled
 today.mcp.skip.paused	{reason}	it was paused after it was scheduled
 today.mcp.skip.ended	{reason}	it ended or was deleted after it was scheduled
-today.mcp.skip.ceiling	{reason}	by then it would have gone over the client’s daily ceiling, or the client had no ceiling
+today.mcp.skip.ceiling	{reason} (ruled 27 Nov with #1397)	by then it would have taken the show over its spend ceiling, or the show had no ceiling
 today.mcp.skip.switch	{reason}	budget changes were switched off in Off/Pixel
 today.mcp.skip.unread	{reason}	Meta couldn’t be read when it was due
 today.mcp.action.create_audiences	Log row title, create_audiences (thing: audience; result: created; no Undo) (ruled 27 Nov with #1400)	Make audiences

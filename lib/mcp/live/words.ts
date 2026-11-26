@@ -20,6 +20,8 @@
  * Relative imports only (node:test).
  */
 
+import { CEILING_WORDS } from "../meta/ceiling-words.ts";
+
 const money = (n: number) => n.toFixed(2);
 
 export interface PendingWord {
@@ -268,7 +270,8 @@ export const LIVE_WORDS = {
     budget_changed: T.skipChanged,
     paused: T.skipPaused,
     ended: T.skipEnded,
-    ceiling: T.skipCeiling,
+    // The show's spend ceiling (PR D, PENDING DESIGN in meta/ceiling-words.ts); the ruled client-ceiling row stays in LIVE_RULED as the record.
+    ceiling: CEILING_WORDS.skip,
     switch: T.skipSwitch,
     unread: T.skipUnread,
   } as Record<string, string>,

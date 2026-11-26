@@ -143,6 +143,27 @@ describe("the gate", () => {
 });
 
 describe("Approve variants", () => {
+  it("reads the new ad set back once for location expansion: geo 0 says nothing, anything else names it (cc/meta-geo-expansion-off)", async () => {
+    const off = seed();
+    const offFakes = fakes(off);
+    const readOriginal = offFakes.deps.meta.readAdSet;
+    offFakes.deps.meta.readAdSet = async (id) => {
+      const row = await readOriginal(id);
+      return id === "as-tests" ? { ...row, targeting: { targeting_automation: { advantage_audience: 1, individual_setting: { geo: 0 } } } } : row;
+    };
+    const quiet = await approveTest(offFakes.deps, { testId: "t1", userId: MATAS });
+    assert.equal(quiet.status, 200);
+    assert.equal(quiet.body.locationExpansion, undefined);
+    assert.equal(offFakes.calls.filter((c) => c === "readAdSet as-tests").length, 1, "one read-back GET");
+
+    // The default fake's targeting carries no geo key: not proof it's off, so the line is there.
+    const { deps } = fakes(seed());
+    const said = await approveTest(deps, { testId: "t1", userId: MATAS });
+    assert.deepEqual(said.body.locationExpansion, [
+      { name: "P26-BDAY · Tests · Video · 16 Nov", metaAdSetId: "as-tests", state: "not_set", message: "P26-BDAY · Tests · Video · 16 Nov still has location expansion on. Untick “Reach more people likely to respond to your ads” for it in Ads Manager." },
+    ]);
+  });
+
   it("creates the Tests campaign and the test's Video ad set ACTIVE, sized by TF1, then the ads ACTIVE through the launch route", async () => {
     const mem = seed();
     const { deps, calls, launches } = fakes(mem);

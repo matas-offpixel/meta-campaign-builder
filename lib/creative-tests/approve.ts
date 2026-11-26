@@ -39,6 +39,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { buildLabDraft, type LabDraftAd } from "../creative-lab/lab-draft.ts";
 import type { LabLaunchResponse, LabUploadRequest, LabUploadResult } from "../creative-lab/launch.ts";
+import { checkLocationExpansion, type LocationExpansionNote } from "../meta/geo-expansion.ts";
 import { withMetaWriteIdempotency, type MetaWriteContext } from "../meta/write-idempotency.ts";
 import { spendToDate } from "../onsale-refresh/plan-guard.ts";
 import { planCheck, sizeTest, type CboCampaign, type MainAdSet } from "./budget.ts";
@@ -89,7 +90,7 @@ export type ApproveDeps = {
   now?: Date;
 };
 
-export type ApproveResult = { status: number; body: { ok: boolean; error?: string; testId?: string; campaignId?: string; adsetId?: string; ads?: { variantId: string; metaAdId: string }[]; failed?: { variantId: string; error: string }[] } };
+export type ApproveResult = { status: number; body: { ok: boolean; error?: string; testId?: string; campaignId?: string; adsetId?: string; ads?: { variantId: string; metaAdId: string }[]; failed?: { variantId: string; error: string }[]; locationExpansion?: LocationExpansionNote[] } };
 
 type Row = Record<string, unknown>;
 const str = (row: Row | null | undefined, key: string): string => String(row?.[key] ?? "").trim();
@@ -330,6 +331,7 @@ export async function approveTest(deps: ApproveDeps, input: { testId: string; us
   let adsetId = str(test, "meta_adset_id");
   let adSetName = adsetId ? str(await deps.meta.readAdSet(adsetId), "name") : "";
   if (!adSetName) adSetName = testsAdSetName(eventCode, pair ? pairAdSetKind(pair.pair) : creativeTestKind(format), startedAt, adsetId ? [] : await deps.meta.listAdSetNames(campaignId));
+  let locationExpansion: LocationExpansionNote[] = [];
   if (!adsetId) {
     const payload = testAdSetPayload(source, { name: adSetName, campaignId, dailyMinor: sized.dailyMinor, startTime: startedAt });
     adsetId = await withMetaWriteIdempotency(ledger, "adset_create", { creative_test: input.testId, format, campaign_id: campaignId, targeting: payload.targeting }, () => deps.meta.createAdSet(adAccountId, payload), { required: true });
@@ -338,6 +340,9 @@ export async function approveTest(deps: ApproveDeps, input: { testId: string; us
       { onConflict: "meta_adset_id" },
     );
     if (recorded.error) throw new Error(`launched_ad_sets: ${recorded.error.message}`);
+    // Location expansion read-back: the ad set's targeting, one GET, read-only (lib/meta/geo-expansion.ts).
+    const createdId = adsetId;
+    locationExpansion = (await checkLocationExpansion([{ name: adSetName, metaAdSetId: createdId }], async () => ({ [createdId]: await deps.meta.readAdSet(createdId) }))).notes;
   }
 
   // The test holds what it's sized at before any ad goes in, so a retry reuses the campaign, the ad set and its start.
@@ -397,5 +402,5 @@ export async function approveTest(deps: ApproveDeps, input: { testId: string; us
     const done = await db.from("creative_tests").update({ state: "running", approved_by: input.userId, approved_at: now.toISOString() }).eq("id", input.testId).eq("state", "making");
     if (done.error) throw new Error(`creative_tests: ${done.error.message}`);
   }
-  return { status: allMade ? 200 : 207, body: { ok: allMade, testId: input.testId, campaignId, adsetId, ads: made, failed } };
+  return { status: allMade ? 200 : 207, body: { ok: allMade, testId: input.testId, campaignId, adsetId, ads: made, failed, ...(locationExpansion.length ? { locationExpansion } : {}) } };
 }

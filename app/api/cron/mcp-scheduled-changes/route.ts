@@ -15,7 +15,7 @@ import { createServiceRoleClient } from "@/lib/supabase/server";
  * budget write as set_budget now (lib/mcp/live/scheduled.ts). A row whose
  * object changed since it was asked (budget edited in Ads Manager, paused,
  * ended) is skipped with the reason, never forced; a spend-raising one
- * re-checks the client's ceiling.
+ * re-checks the show's spend ceiling (lib/mcp/meta/show-ceiling.ts).
  *
  * Killswitch: ENABLE_MCP must be exactly "1" (the connector's own switch, no
  * new env var). Off, it answers 200 with skippedReason "killswitch" and

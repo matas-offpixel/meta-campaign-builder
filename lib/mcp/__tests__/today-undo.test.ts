@@ -25,7 +25,7 @@ const undoRows = (ctx: { db: { from: (t: string) => unknown } }) =>
   (ctx.db as unknown as { writes: Array<{ table: string; op: string; rows: unknown }> }).writes.filter((w) => w.table === "mcp_actions" && w.op === "insert").flatMap((w) => (Array.isArray(w.rows) ? w.rows : [w.rows]) as Array<Record<string, unknown>>).filter((r) => r.tool === "today_undo");
 
 test("pause → Undo resumes it: the status write ACTIVE keyed undo:{row}, the ceiling checked; the row reads Undone by Matas; a second press does nothing", async () => {
-  const { ctx, spy } = liveCtx({ ceiling: 500 });
+  const { ctx, spy } = liveCtx({ ceiling: 5000 });
   const a = await call(ctx, pauseTool, { event: CODE, kind: "ad_set", id: AS_BROAD, approval: YES }, AT);
   const before = writes(spy).length;
   assert.deepEqual(await undo(ctx, a.id, PRESS), { state: "undone" });
@@ -42,22 +42,22 @@ test("pause → Undo resumes it: the status write ACTIVE keyed undo:{row}, the c
   assert.equal(writes(spy).length, before + 1);
 });
 
-test("pause → Undo with no ceiling: refused, nothing sent, the row reads FC-B's “Undo refused · {client} has no daily ceiling, and this starts spend”", async () => {
+test("pause → Undo with no ceiling: refused, nothing sent, the row reads “Undo refused · {code} has no spend ceiling, and this starts or raises spend”", async () => {
   const { ctx, spy } = liveCtx({ ceiling: null });
   const a = await call(ctx, pauseTool, { event: CODE, kind: "ad_set", id: AS_BROAD, approval: YES }, AT);
   const before = writes(spy).length;
   const out = await undo(ctx, a.id, PRESS);
-  assert.deepEqual(out, { state: "refused", refused: "no_ceiling", reason: "NX Live has no daily ceiling, and this starts spend" });
+  assert.deepEqual(out, { state: "refused", refused: "no_ceiling", reason: "DHB27-LIVE has no spend ceiling, and this starts or raises spend" });
   assert.equal(writes(spy).length, before);
   const row = rowOf(await todayLog(ctx, LATER), a.id);
-  assert.deepEqual([row.undo, row.note], [null, "Undo refused · NX Live has no daily ceiling, and this starts spend"]);
+  assert.deepEqual([row.undo, row.note], [null, "Undo refused · DHB27-LIVE has no spend ceiling, and this starts or raises spend"]);
 });
 
 test("resume → Undo pauses it (stops spend: no ceiling read)", async () => {
-  const { ctx, spy } = liveCtx({ ceiling: 500 });
+  const { ctx, spy } = liveCtx({ ceiling: 5000 });
   spy.objects.get(AS_BROAD)!.status = "PAUSED";
   const r = await call(ctx, resumeTool, { event: CODE, kind: "ad_set", id: AS_BROAD, approval: { asked: "It was paused in Ads Manager; resume Broad?", answer: "yes" } }, AT);
-  await ctx.db.from("client_spend_ceilings").update({ daily_gbp: 0 }).eq("client_id", CLIENT);
+  await ctx.db.from("show_spend_ceilings").update({ total_gbp: 0 }).eq("total_gbp", 5000);
   const before = writes(spy).length;
   assert.deepEqual(await undo(ctx, r.id, PRESS), { state: "undone" });
   assert.deepEqual(writes(spy).slice(before).map((c) => [c.method, c.input.status]), [["setStatus", "PAUSED"]]);
@@ -65,7 +65,7 @@ test("resume → Undo pauses it (stops spend: no ceiling read)", async () => {
 
 test("budget → Undo puts it back: daily, lifetime and a scheduled change that ran; raising it back meets the ceiling", async () => {
   {
-    const { ctx, spy } = liveCtx({ ceiling: 500 });
+    const { ctx, spy } = liveCtx({ ceiling: 5000 });
     const a = await call(ctx, setBudgetTool, { event: CODE, kind: "ad_set", id: AS_FANS, daily_gbp: 30, approval: YES }, AT);
     const before = writes(spy).length;
     assert.deepEqual(await undo(ctx, a.id, PRESS), { state: "undone" });
@@ -74,11 +74,11 @@ test("budget → Undo puts it back: daily, lifetime and a scheduled change that 
     assert.equal(spy.objects.get(AS_FANS)!.dailyBudgetMinor, 2000);
   }
   {
-    // A budget lowered: Undo raises it, so it meets the ceiling.
-    const { ctx, spy } = liveCtx({ ceiling: 25 });
+    // A budget lowered: Undo raises it, so it meets the ceiling (back to £1,625.00 committed, over £1,500).
+    const { ctx, spy } = liveCtx({ ceiling: 1500 });
     const a = await call(ctx, setBudgetTool, { event: CODE, kind: "ad_set", id: AS_BROAD, daily_gbp: 10, approval: YES }, AT);
     const before = writes(spy).length;
-    assert.deepEqual(await undo(ctx, a.id, PRESS), { state: "refused", refused: "over_ceiling", reason: "it would take NX Live to £30.00 a day, over its £25.00 ceiling" });
+    assert.deepEqual(await undo(ctx, a.id, PRESS), { state: "refused", refused: "over_ceiling", reason: "it would take DHB27-LIVE to £1625.00 committed, over its £1500.00 ceiling" });
     assert.equal(writes(spy).length, before);
   }
   {
@@ -91,7 +91,7 @@ test("budget → Undo puts it back: daily, lifetime and a scheduled change that 
     assert.deepEqual([w!.input.field, w!.input.minor], ["lifetime_budget", 50000]);
   }
   {
-    const { ctx, spy } = liveCtx({ ceiling: 500 });
+    const { ctx, spy } = liveCtx({ ceiling: 5000 });
     const out = await call(ctx, setBudgetTool, { event: CODE, kind: "ad_set", id: AS_BROAD, daily_gbp: 40, at: "2026-11-27T09:00:00Z", approval: YES }, AT);
     const id = (out.data as { scheduled_id: string }).scheduled_id;
     await runScheduledChanges({ db: ctx.db, live: ctx.live!, now: new Date("2026-11-27T09:05:00Z") });
@@ -104,7 +104,7 @@ test("budget → Undo puts it back: daily, lifetime and a scheduled change that 
 });
 
 test("move → Undo moves the money back, from the receiver to the giver, the giver's new budget against the ceiling", async () => {
-  const { ctx, spy } = liveCtx({ ceiling: 500 });
+  const { ctx, spy } = liveCtx({ ceiling: 5000 });
   const a = await call(ctx, moveBudgetTool, { event: CODE, from_ad_set: AS_BROAD, to_ad_set: AS_FANS, gbp_a_day: 5, approval: YES }, AT);
   const before = writes(spy).length;
   assert.deepEqual(await undo(ctx, a.id, PRESS), { state: "undone" });
@@ -142,11 +142,11 @@ test("paused objects Claude made → Undo deletes them, only after the one confi
     const { ctx, spy } = liveCtx({ ceiling: null });
     const id = "6a000000-0000-4000-8000-000000000001";
     Object.assign(spy.objects.get(CAMP_A)!, { status: "PAUSED", effectiveStatus: "PAUSED" });
-    await ctx.db.from("mcp_actions").insert({ id, user_id: OPERATOR, tool: "launch_draft", kind: "meta", status: "done", args: { draft_id: DRAFT_A, mode: "paused", approval: YES }, result: { draftId: DRAFT_A, mode: "paused", metaCampaignId: CAMP_A, campaignName: "[NX27-LIVE] ON SALE", adSetIds: [], adIds: [] }, event_id: EVENT, client_id: CLIENT, approved_at: AT, created_at: AT });
+    await ctx.db.from("mcp_actions").insert({ id, user_id: OPERATOR, tool: "launch_draft", kind: "meta", status: "done", args: { draft_id: DRAFT_A, mode: "paused", approval: YES }, result: { draftId: DRAFT_A, mode: "paused", metaCampaignId: CAMP_A, campaignName: "[DHB27-LIVE] ON SALE", adSetIds: [], adIds: [] }, event_id: EVENT, client_id: CLIENT, approved_at: AT, created_at: AT });
     const row = rowOf(await todayLog(ctx, LATER), id);
     assert.deepEqual([row.title, row.change, row.outcome?.text, row.undo?.line, row.undo?.confirm?.question], [
-      "Launch draft · NX27-LIVE",
-      "[NX27-LIVE] ON SALE: draft → paused",
+      "Launch draft · DHB27-LIVE",
+      "[DHB27-LIVE] ON SALE: draft → paused",
       `Done · 1 campaign launched · ${CAMP_A}`,
       "Undo deletes the paused campaign Claude made.",
       "Delete the paused campaign Claude made? This can’t be undone.",
@@ -169,7 +169,7 @@ test("paused objects Claude made → Undo deletes them, only after the one confi
 });
 
 test("no Undo on a live launch, added audiences, a test or a part-done move; and none for anyone's row but the caller's", async () => {
-  const { ctx, spy } = liveCtx({ ceiling: 500 });
+  const { ctx, spy } = liveCtx({ ceiling: 5000 });
   const aud = await call(ctx, addAudienceToStageTool, { event: CODE, stage: "on_sale", audience_ids: [AUD], approval: YES }, AT);
   const ab = await call(ctx, createSplitTestTool, { event: CODE, campaign_ids: [CAMP_A, CAMP_B], start: "2026-11-27T00:00:00Z", end: "2026-12-19T00:00:00Z", name: "T", approval: YES }, AT);
   const liveId = "6a000000-0000-4000-8000-000000000003";
@@ -191,7 +191,7 @@ test("no Undo on a live launch, added audiences, a test or a part-done move; and
 
 test("changed since: an object no longer as the change left it is left alone (“Changed since, so Undo is off.”), and so is one a later change touched", async () => {
   {
-    const { ctx, spy } = liveCtx({ ceiling: 500 });
+    const { ctx, spy } = liveCtx({ ceiling: 5000 });
     const a = await call(ctx, pauseTool, { event: CODE, kind: "ad_set", id: AS_BROAD, approval: YES }, AT);
     spy.objects.get(AS_BROAD)!.status = "ACTIVE"; // resumed in Ads Manager
     const before = writes(spy).length;
@@ -200,13 +200,13 @@ test("changed since: an object no longer as the change left it is left alone (�
     assert.equal(rowOf(await todayLog(ctx, LATER), a.id).note, "Changed since, so Undo is off.");
   }
   {
-    const { ctx, spy } = liveCtx({ ceiling: 500 });
+    const { ctx, spy } = liveCtx({ ceiling: 5000 });
     const a = await call(ctx, setBudgetTool, { event: CODE, kind: "ad_set", id: AS_FANS, daily_gbp: 30, approval: YES }, AT);
     spy.objects.get(AS_FANS)!.dailyBudgetMinor = 3500; // edited in Ads Manager
     assert.deepEqual(await undo(ctx, a.id, PRESS), { state: "off" });
   }
   {
-    const { ctx, spy } = liveCtx({ ceiling: 500 });
+    const { ctx, spy } = liveCtx({ ceiling: 5000 });
     const a = await call(ctx, renameTool, { event: CODE, kind: "ad", id: AD_1, name: "One", approval: YES }, AT);
     await call(ctx, renameTool, { event: CODE, kind: "ad", id: AD_1, name: "Two", approval: { asked: "Rename again?", answer: "yes" } }, "2026-11-26T10:30:00Z");
     const row = rowOf(await todayLog(ctx, LATER), a.id);
@@ -219,7 +219,7 @@ test("changed since: an object no longer as the change left it is left alone (�
 
 test("a switch that's off refuses the Undo before anything is read; Meta failing leaves the Undo to press again", async () => {
   {
-    const { ctx, spy } = liveCtx({ ceiling: 500 });
+    const { ctx, spy } = liveCtx({ ceiling: 5000 });
     const a = await call(ctx, pauseTool, { event: CODE, kind: "ad_set", id: AS_BROAD, approval: YES }, AT);
     spy.switches.adsetStatus = false;
     const calls = spy.calls.length;

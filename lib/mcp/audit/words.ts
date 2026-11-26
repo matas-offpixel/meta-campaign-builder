@@ -7,6 +7,9 @@
  * (overnight 26 Nov). "No event with code {code}." is M1's own answer
  * (get_event, get_learnings), reused as is.
  *
+ * The location expansion hits' per-ad-set line is GEO_WORDS.untick
+ * (lib/meta/geo-expansion.ts), the launch result's line, PENDING DESIGN.
+ *
  * Names, counts, ids and links only: never a Meta error or a token.
  * Relative imports only (node:test).
  */
@@ -51,4 +54,18 @@ export const STRICT_WORDS = {
   noMeta: "Meta couldn’t be read, so the audit didn’t run. Try again.",
   /** PENDING DESIGN claude.mcp.strict.failed: the server's failedText. */
   failed: "The audit couldn’t run. Try again.",
+
+  // ── Location expansion (cc/meta-geo-expansion-off), all PENDING DESIGN ──
+  /** PENDING DESIGN claude.mcp.strict.geo_found / .geo_found.one */
+  geoFound: (n: number) =>
+    n === 1
+      ? "1 live ad set has location expansion on, so Meta can deliver it outside the places it targets."
+      : `${n} live ad sets have location expansion on, so Meta can deliver them outside the places they target.`,
+  /** PENDING DESIGN claude.mcp.strict.geo_none */
+  geoNone: "No live ad set has location expansion on.",
+  /** PENDING DESIGN claude.mcp.strict.geo_not_set / .geo_not_set.one: no geo key on Meta, which isn't proof it's off. */
+  geoNotSet: (n: number) =>
+    n === 1
+      ? "1 live ad set doesn’t show the location expansion setting on Meta, so it isn’t counted as on or off."
+      : `${n} live ad sets don’t show the location expansion setting on Meta, so they aren’t counted as on or off.`,
 } as const;

@@ -127,7 +127,7 @@ function fcB(): Array<{ lead: string; row: MetaLogRow; openAsked?: boolean; conf
   const launch = ENZO_LAUNCH();
   const live = act({ tool: "launch_draft", status: "done", event_id: ev.pvd, created_at: "2026-11-25T11:10:00Z", args: { draft_id: "d-pvd", mode: "live", ...YES("Launch [NX27-PAULVANDYK] Test live?") }, result: { draftId: "d-pvd", mode: "live", metaCampaignId: "120252330918840755", campaignName: "[NX27-PAULVANDYK] Test" } });
   const p26 = act({ tool: "pause", status: "done", event_id: ev.p26, created_at: "2026-11-25T10:02:00Z", args: { event: "P26-BDAY", ...YES("Pause Broad · Southampton?") }, result: { code: "P26-BDAY", kind: "adset", objectId: "120249027723480540", name: "Broad · Southampton" } });
-  const undos: UndoAttempt[] = [{ status: "failed", result: { undoOf: p26.id, refused: "no_ceiling", reason: "Puzzle has no daily ceiling, and this starts spend" }, created_at: "2026-11-25T10:20:00Z" }];
+  const undos: UndoAttempt[] = [{ status: "failed", result: { undoOf: p26.id, refused: "no_ceiling", reason: "P26-BDAY has no spend ceiling, and this starts or raises spend" }, created_at: "2026-11-25T10:20:00Z" }];
   const rows = buildMetaLog({ actions: [launch, live, p26], undos, scheduled: [], ctx }).rows;
   const by = (id: string) => rows.find((r) => r.key === id)!;
   return [
