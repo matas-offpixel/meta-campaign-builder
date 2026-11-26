@@ -2,7 +2,7 @@ key	where	words
 consent.line1.drafts	Consent, Claude's callback, grant with drafts	Claude is asking to use Off/Pixel as {email}.
 consent.line1.drafts.loopback	Consent, loopback, grant with drafts	An app on this computer, calling itself “{client name}”, is asking to use Off/Pixel as {email}.
 consent.line1.drafts.loopback.unnamed	Consent, loopback, no name, grant with drafts	An app on this computer is asking to use Off/Pixel as {email}.
-consent.line2.drafts	Consent, grant with drafts	It can read every client's events, spend, signup and ticket counts, drafts and learnings. It can also make, change and archive campaign drafts that aren't published, including adding creatives from Google Drive. It can't publish, launch or send anything.
-consent.title.upgrade	Consent, existing read grant adding drafts	Let Claude change drafts in Off/Pixel
-consent.title.upgrade.loopback	Consent, loopback, existing read grant adding drafts	Let an app on this computer change drafts in Off/Pixel
+consent.line2.drafts	Consent, grant with drafts	It can read every client's events, spend, signup and ticket counts, drafts and learnings. It can also make events and clients, set a show's lineup and ticket releases, mark drops and whose footage clips are in the Lab, put files in a show's own Drive folders, and make, change and archive campaign drafts that aren't published, including adding creatives from Google Drive. It can't publish, launch or send anything.
+consent.title.upgrade	Consent, existing read grant adding drafts	Let Claude change drafts and set up shows in Off/Pixel
+consent.title.upgrade.loopback	Consent, loopback, existing read grant adding drafts	Let an app on this computer change drafts and set up shows in Off/Pixel
 consent.upgrade.cancel_note	Consent, existing read grant adding drafts, above the buttons	If you cancel, it keeps the read-only access it has now.
