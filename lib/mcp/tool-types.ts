@@ -134,6 +134,29 @@ export interface McpRenderDeps {
   readLowPcm(storagePath: string): Promise<Uint8Array>;
 }
 
+/**
+ * M3d-b (scope mcp:draft): the Lab paths the Lab tools call, each the app's
+ * own. The route passes the real ones (lib/mcp/lab-deps.ts, a pinned seam);
+ * tests pass spies. App database, Storage and the show's Drive Audio folder
+ * only: nothing here reaches Meta.
+ */
+export interface McpLabDeps {
+  /**
+   * Opening the Snippet tab on one act (GET /api/creative-lab/events/[id]/snippet):
+   * scanArtistAudio with the route's intakeDeps. The act's 02 Source / Audio /
+   * {artist} folder is made on first need and every new audio file is read in
+   * (checked, copied to Storage, drop and waveform). `scanned` is false when
+   * Drive isn't configured. Counts only come back.
+   */
+  scanAudio(input: { userId: string; eventId: string; artist: { libraryArtistId: string; name: string } }): Promise<{ scanned: boolean; added: number; failed: number }>;
+  /** The Snippet tab's edit (saveAudioEdit, lib/creative-tests/audio-edits.ts): here only { kind: "drop" }. */
+  saveAudioEdit(input: { userId: string; fileId: string; edit: { kind: "drop"; dropS: number } }): Promise<{ ok: true; dropS: number | null } | { ok: false; status: number }>;
+  /** The Clips card's "Whose footage is this" (saveClipOwner, lib/creative-lab/card-write.ts). */
+  saveClipOwner(input: { userId: string; clipId: string; owner: "promoter" | "artist"; artistId: string | null; who: string; when: string }): Promise<void>;
+  /** "Drop set by {first name}": the Lab's first names for drop_set_by ids (displayName), never an email. */
+  firstNames(userIds: readonly string[]): Promise<Map<string, string>>;
+}
+
 export interface ToolContext {
   db: Db;
   readers: McpReaders;
@@ -146,6 +169,8 @@ export interface ToolContext {
   meta?: McpMetaDeps;
   /** M4a's render reach (the track's low end, the kit); absent unless the route wires it. */
   render?: McpRenderDeps;
+  /** M3d-b's Lab paths (the Snippet tab's scan and drop, the Clips card's owner); absent unless the route wires it. */
+  lab?: McpLabDeps;
   /** The caller is in MATAS_USER_IDS (mcp:meta tools check it again). */
   isMatas?: boolean;
   /** Today's Undo exists; omitted means TODAY_UNDO_SHIPPED (meta/today-undo.ts). Injected so tests cover both. */

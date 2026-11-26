@@ -41,6 +41,7 @@ import {
   type PairBox,
 } from "@/lib/creative-tests/pair";
 import { LENGTHS, NO_CLEAR_DROP, PREVIEW_FAILED, SNIPPET, SNIPPET_TAB, dropLabel, spanText, mmss } from "@/lib/creative-tests/snippet";
+import { pressSeconds } from "@/lib/creative-tests/press";
 import { makeButtonText, pickerHeading, pickerHeadingShort, type FileView, type PairView, type PickerRow, type RenderView, type SnippetView } from "@/lib/creative-tests/snippet-view";
 
 type Preview = { audioUrl: string | null; imageUrl: string | null; failed: boolean };
@@ -414,11 +415,7 @@ export function TrackEditor({ title, file, preview, onEdit, pair = null }: { tit
   const duration = Math.max(1, file.durationS);
   const lengthS = pair ? pair.form.lengthS : file.lengthS;
   const x = (s: number) => (s / duration) * 1000;
-  const secondsAt = (clientX: number) => {
-    const box = svg.current?.getBoundingClientRect();
-    if (!box) return 0;
-    return Math.min(duration, Math.max(0, ((clientX - box.left) / box.width) * duration));
-  };
+  const secondsAt = (clientX: number) => pressSeconds(clientX, svg.current?.getBoundingClientRect(), duration);
 
   // One window, or a pair's two boxes (each its window and its marker), as dragging leaves them.
   const boxes: { box: 0 | 1 | null; startS: number | null; dropS: number | null; active: boolean }[] = pair
@@ -481,8 +478,13 @@ export function TrackEditor({ title, file, preview, onEdit, pair = null }: { tit
           className="h-28 w-full touch-none select-none"
           onPointerDown={(e) => {
             // VP2: on a pair, a press on the waveform places the active box's drop marker.
-            if (!pair || e.target !== e.currentTarget) return;
+            // CT4: on one window (a file with no drop too), a press places the drop marker there and saves it, as releasing a drag does.
+            if (e.target !== e.currentTarget) return;
             const at = secondsAt(e.clientX);
+            if (!pair) {
+              onEdit({ kind: "drop", dropS: at });
+              return;
+            }
             const b = pair.form.boxes[pair.active];
             pair.onBox(pair.active, { dropS: round2(at), startS: round2(movedStart(b, at, duration, lengthS)) });
           }}

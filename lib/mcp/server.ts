@@ -31,7 +31,7 @@ import { checkBearer, scopeIncludes, wwwAuthenticate, type FlowDeps } from "./oa
 import type { ActionLogger } from "./action-log.ts";
 import { checkRateLimit } from "./rate-limit.ts";
 import { MCP_TOOLS } from "./tools/index.ts";
-import { ToolInputError, type Db, type McpDraftDeps, type McpMetaDeps, type McpReaders, type McpRenderDeps, type McpTool, type ToolContext } from "./tool-types.ts";
+import { ToolInputError, type Db, type McpDraftDeps, type McpLabDeps, type McpMetaDeps, type McpReaders, type McpRenderDeps, type McpTool, type ToolContext } from "./tool-types.ts";
 
 /** Claude's result limit is about 150,000 characters; stay under it. */
 export const MAX_RESULT_CHARS = 140_000;
@@ -52,6 +52,8 @@ export interface McpHandlerDeps extends FlowDeps {
   meta?: McpMetaDeps;
   /** M4a's render reach (lib/mcp/render-deps.ts). */
   render?: McpRenderDeps;
+  /** M3d-b's Lab paths (lib/mcp/lab-deps.ts). */
+  lab?: McpLabDeps;
 }
 
 const ALLOWED_ORIGINS = new Set(["https://claude.ai", "https://claude.com"]);
@@ -70,6 +72,7 @@ const INSTRUCTIONS = [
   "The read tools only read. The draft tools change campaign drafts in the app (status draft only) and never Meta: nothing launches or spends.",
   "The Meta tools (launch_draft, upload_draft_assets, update_event) run only after Matas says yes in this chat: ask him exactly what will change, where, the money a day and paused or live, then pass approval with your question and his reply word for word. Never fill in approval yourself. A live launch is refused over the client's daily ceiling.",
   "render_package renders a package (the 15 s montage, 9 files) and files it in the event's Drive folder, only after Matas says yes in this chat: ask him the recipe and file count, whose clips they are, the claim and any text in the artist's voice, then pass approval with your question and his reply word for word. get_render_package reads where it is.",
+  "The Lab tools change the show's Lab material in the app only, never Meta: list_tracks (reads the act's Audio folder first, as the Snippet tab does) and set_track_drop place a track's drop; list_clips and set_clip_owner say whose footage a clip is. render_package's picks.trackId takes a track id from list_tracks.",
   "Before a draft tool, call get_draft and pass its updatedAt as updated_at; every draft tool answers with the new updated_at and the launch checks. get_draft gives the ids the draft tools take (ads, ad sets, audience groups).",
 ].join(" ");
 
@@ -236,6 +239,7 @@ export async function handleMcpRequest(req: Request, deps: McpHandlerDeps): Prom
     draft: deps.draft,
     meta: deps.meta,
     render: deps.render,
+    lab: deps.lab,
     isMatas,
     seesClientNames: isMatas,
     today: londonToday(now),
