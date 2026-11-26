@@ -73,7 +73,7 @@ export const requestPageAccessTool: McpTool = {
     if (!event.clientId) throw new ToolInputError(AUD_WORDS.noClient(event.code), { code: event.code, refused: "no_client" });
     const client = event.clientName ?? event.code;
     const business = businessOrRefuse(await clientBusiness(ctx.db, deps, ctx.userId, event.clientId, event.adAccountId), client);
-    const base = { code: event.code, business: business.id, pages: pageIds, tasks };
+    const base = { code: event.code, business: business.id, businessName: business.name, pages: pageIds, tasks };
 
     const perms = await deps.tokenPermissions(ctx.userId).catch(() => undefined);
     if (perms === undefined) throw new ToolInputError(AUD_WORDS.readFailed, { ...base, refused: "meta_unread" });
@@ -117,12 +117,14 @@ export const requestPageAccessTool: McpTool = {
         lines.push(AUD_WORDS.sentFailed(nameOf.get(pageId) ?? pageId, pageId));
       }
     }
-    if (ok === 0) throw new ToolInputError(lines.join("\n"), { ...base, refused: "meta_failed", failed });
+    const pageNames = pageIds.map((id) => nameOf.get(id) ?? id);
+    if (ok === 0) throw new ToolInputError(lines.join("\n"), { ...base, pageNames, refused: "meta_failed", failed });
     return {
       data: { message: AUD_WORDS.sentDone(ok, business.name, PAGE_REQUESTS_PER_DAY - sent - ok), lines },
       eventId: event.id,
       clientId: event.clientId,
-      summary: { ...base, sent: ok, failed, key },
+      // Today's row (FC1, no Undo): the Pages by name, the business, the ids sent.
+      summary: { ...base, pageNames, sent: ok, sentIds: pageIds.filter((id) => !failed.includes(id)), failed, key },
     };
   },
 };

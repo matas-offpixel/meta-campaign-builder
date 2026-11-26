@@ -28,9 +28,9 @@ export const CONSENT_WORDS = {
   /** consent.line2.drafts */
   drafts:
     "It can read every client's events, spend, signup and ticket counts, drafts and learnings. It can also make events and clients, set a show's lineup and ticket releases, mark drops and whose footage clips are in the Lab, put files in a show's own Drive folders, and make, change and archive campaign drafts that aren't published, including adding creatives from Google Drive. It can't publish, launch or send anything.",
-  /** consent.line2.meta (record 2026-11-25-mcp-m3a-words MW1): the whole mcp:meta scope. */
+  /** consent.line2.meta (record 2026-11-25-mcp-m3a-words MW1): the whole mcp:meta scope; #1400's audiences clause, ruled 27 Nov (the second of #1397 and #1400 to merge lands the list's full line). */
   meta:
-    "It can read every client's events, spend, signup and ticket counts, drafts and learnings, make events and clients, set lineups, ticket releases and the Lab's drops and clip owners, put files in a show's own Drive folders, and make, change and archive campaign drafts. It can also send files to Meta, launch drafts paused or live, change live campaigns, and change an event's dates and links, each only after you say yes in Claude. It can't start or raise spend past a client's daily ceiling, and every change is listed on Today.",
+    "It can read every client's events, spend, signup and ticket counts, drafts and learnings, make events and clients, set lineups, ticket releases and the Lab's drops and clip owners, put files in a show's own Drive folders, and make, change and archive campaign drafts. It can also send files to Meta, launch drafts paused or live, change live campaigns, make audiences (lookalikes too), ask artists' Facebook Pages for advertiser access from the client's own Business Manager, and change an event's dates and links, each only after you say yes in Claude. It can't start or raise spend past a client's daily ceiling, and every change is listed on Today.",
   /** consent.title.upgrade.meta */
   titleUpgradeMeta: "Let Claude make Meta changes in Off/Pixel",
   /** consent.title.upgrade.meta.loopback */

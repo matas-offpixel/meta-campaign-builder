@@ -37,7 +37,7 @@
 import { stageLabel, type TreeGroup } from "../../campaign-tree/tree.ts";
 import { londonWhen } from "../live/resolve.ts";
 import type { ScheduledRow } from "../live/scheduled.ts";
-import { countAdSets, countAds, countScheduled, countToday, money, reasonOf, result, things, tw, type Thing, type TodayMetaKey } from "./words.ts";
+import { countAdSets, countAds, countAudiences, countScheduled, countToday, money, reasonOf, result, things, tw, type Thing, type TodayMetaKey } from "./words.ts";
 
 type Json = Record<string, unknown>;
 
@@ -64,7 +64,7 @@ export interface UndoAttempt {
 export const UNDO_TOOL = "today_undo";
 
 /** The tools whose calls are rows. */
-export const LOGGED_TOOLS = ["launch_draft", "pause", "resume", "set_budget", "move_budget", "rename", "add_creatives_to_stage", "add_audience_to_stage", "create_split_test"] as const;
+export const LOGGED_TOOLS = ["launch_draft", "pause", "resume", "set_budget", "move_budget", "rename", "add_creatives_to_stage", "add_audience_to_stage", "create_split_test", "create_audiences", "request_page_access"] as const;
 export type LoggedTool = (typeof LOGGED_TOOLS)[number];
 
 /** Meta refused the whole change (MB1: "Failed · Meta didn't take it, so nothing changed"). */
@@ -161,6 +161,9 @@ const ACTION_KEY: Record<Exclude<LoggedTool, "pause" | "resume">, TodayMetaKey> 
   add_creatives_to_stage: "today.mcp.action.add_creatives",
   add_audience_to_stage: "today.mcp.action.add_audiences",
   create_split_test: "today.mcp.action.split_test",
+  // Ruled 27 Nov with #1400: FC1 rows, no Undo.
+  create_audiences: "today.mcp.action.create_audiences",
+  request_page_access: "today.mcp.action.request_page_access",
 };
 
 function actionKey(a: LoggedAction): TodayMetaKey {
@@ -223,6 +226,13 @@ function changeLine(a: LoggedAction, ctx: LogContext): string {
       const names = str(r.audienceNames) ?? (list(args.audience_ids).join(" · ") || str(args.template) || "");
       return tw("today.mcp.change.add_audiences", { stage: stageWord(r.stage ?? args.stage), audiences: names, adsets: countAdSets(sets) });
     }
+    case "create_audiences":
+      // "{audiences} on the show’s ad account": the audiences asked for.
+      return tw("today.mcp.change.create_audiences", { audiences: countAudiences(num(r.asked) ?? (Array.isArray(args.specs) ? args.specs.length : 0)) });
+    case "request_page_access": {
+      const pages = list(r.pageNames).length ? list(r.pageNames) : list(r.pages).length ? list(r.pages) : list(args.page_ids);
+      return tw("today.mcp.change.request_page_access", { pages: pages.join(" · "), business: str(r.businessName) ?? str(r.business) ?? "" });
+    }
     case "create_split_test": {
       const ids = list(r.campaigns).length ? list(r.campaigns) : list(args.campaign_ids);
       const start = str(r.start) ?? str(args.start);
@@ -258,6 +268,10 @@ export function objectsOf(a: LoggedAction): string[] {
       return list(r.written);
     case "create_split_test":
       return list(r.campaigns);
+    case "create_audiences":
+      return list(r.madeIds);
+    case "request_page_access":
+      return [];
   }
   return [];
 }
@@ -312,6 +326,10 @@ function doneResult(a: LoggedAction): { text: string; partial: boolean } {
       return { text: result("changed", "adset", list(r.written)), partial: num(r.skipped) != null && num(r.skipped)! > 0 };
     case "create_split_test":
       return { text: result("created", "test", [str(r.studyId) ?? ""]), partial: false };
+    case "create_audiences":
+      return { text: result("created", "audience", list(r.madeIds)), partial: (num(r.failed) ?? 0) > 0 };
+    case "request_page_access":
+      return { text: result("sent", "request", list(r.sentIds)), partial: list(r.failed).length > 0 };
   }
   return { text: "", partial: false };
 }
@@ -358,6 +376,8 @@ function undoFor(a: LoggedAction): { button: UndoButton | null; note: string | n
     case "create_split_test":
       return { button: null, note: tw("today.mcp.undo.test") };
     case "add_audience_to_stage":
+    case "create_audiences":
+    case "request_page_access":
       return { button: null, note: null };
   }
   return { button: null, note: null };

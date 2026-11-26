@@ -240,11 +240,15 @@ export const createAudiencesTool: McpTool = {
       if (key) seen.set(key, { name: insert.name, id: results[results.length - 1]!.id });
     }
     const n = (s: string) => results.filter((x) => x.state === s).length;
+    const madeIds = results.filter((x) => x.state === "made").map((x) => x.id).filter((v): v is string => Boolean(v));
+    // Nothing made and Meta refused some: Today's "Failed · Meta didn’t take it, so nothing changed".
+    if (madeIds.length === 0 && n("failed") > 0) throw new ToolInputError([AUD_WORDS.doneLine(0, n("reused"), n("failed")), ...lines].join("\n"), { code: event.code, account: event.adAccountId, refused: "meta_failed", asked: specs.length, reused: n("reused"), failed: n("failed") });
     return {
       data: { message: AUD_WORDS.doneLine(n("made"), n("reused"), n("failed")), lines, audiences: results },
       eventId: event.id,
       clientId: event.clientId,
-      summary: { code: event.code, account: event.adAccountId, made: n("made"), reused: n("reused"), failed: n("failed"), ids: results.map((x) => x.id).filter(Boolean) },
+      // Today's row (FC1, no Undo): what was asked, the ids made, and a no-op when everything was already there.
+      summary: { code: event.code, account: event.adAccountId, asked: specs.length, made: n("made"), reused: n("reused"), failed: n("failed"), madeIds, ids: results.map((x) => x.id).filter(Boolean), ...(madeIds.length === 0 ? { noop: "all_reused" } : {}) },
     };
   },
 };

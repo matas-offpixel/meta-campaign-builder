@@ -142,7 +142,7 @@ launch.upload.video	Launch progress, second step, when videos are sent	Waiting f
 launch.upload.video.one	Launch progress, second step (1)	Waiting for Meta to finish 1 video…
 launch.upload.stopped	Launch panel (brick), an upload failed	Launch stopped: {n} files didn’t reach Meta, so nothing was created.
 launch.upload.stopped.one	Launch panel (brick) (1)	Launch stopped: 1 file didn’t reach Meta, so nothing was created.
-consent.line2.meta	Consent page, line 2, when the scope includes mcp:meta (straight apostrophes, as the page’s other lines)	It can read every client's events, spend, signup and ticket counts, drafts and learnings, make events and clients, set lineups, ticket releases and the Lab's drops and clip owners, put files in a show's own Drive folders, and make, change and archive campaign drafts. It can also send files to Meta, launch drafts paused or live, change live campaigns, and change an event's dates and links, each only after you say yes in Claude. It can't start or raise spend past a client's daily ceiling, and every change is listed on Today.
+consent.line2.meta	Consent page, line 2, when the scope includes mcp:meta (straight apostrophes, as the page’s other lines)	It can read every client's events, spend, signup and ticket counts, drafts and learnings, make events and clients, set lineups, ticket releases and the Lab's drops and clip owners, put files in a show's own Drive folders, and make, change and archive campaign drafts. It can also send files to Meta, launch drafts paused or live, change live campaigns, make audiences (lookalikes too), ask artists' Facebook Pages for advertiser access from the client's own Business Manager, and change an event's dates and links, each only after you say yes in Claude. It can't start or raise spend past a client's daily ceiling, and every change is listed on Today.
 consent.title.upgrade.meta	Consent page, title, when a drafts grant is adding mcp:meta	Let Claude make Meta changes in Off/Pixel
 consent.title.upgrade.meta.loopback	Consent page, title, the same for an app on this computer	Let an app on this computer make Meta changes in Off/Pixel
 consent.upgrade.cancel_note.meta	Consent page, above the buttons, when a drafts grant is adding mcp:meta	If you cancel, it keeps the drafts access it has now.
@@ -248,3 +248,15 @@ today.mcp.skip.ended	{reason}	it ended or was deleted after it was scheduled
 today.mcp.skip.ceiling	{reason}	by then it would have gone over the client’s daily ceiling, or the client had no ceiling
 today.mcp.skip.switch	{reason}	budget changes were switched off in Off/Pixel
 today.mcp.skip.unread	{reason}	Meta couldn’t be read when it was due
+today.mcp.action.create_audiences	Log row title, create_audiences (thing: audience; result: created; no Undo) (ruled 27 Nov with #1400)	Make audiences
+today.mcp.change.create_audiences	Log row, what changes, create_audiences; {audiences} is today.mcp.count.audiences	{audiences} on the show’s ad account
+today.mcp.count.audiences	{audiences}	{n} audiences
+today.mcp.count.audiences.one	{audiences} (1)	1 audience
+today.mcp.thing.audience	{thing}	audience
+today.mcp.thing.audience.many	{things}	audiences
+today.mcp.action.request_page_access	Log row title, request_page_access (thing: request; result: sent; no Undo) (ruled 27 Nov with #1400)	Ask for Page access
+today.mcp.change.request_page_access	Log row, what changes; {pages} joined with “ · ”	{pages} · from {business}
+today.mcp.thing.request	{thing}	request
+today.mcp.thing.request.many	{things}	requests
+today.mcp.result.sent	Result, for access requests	{n} {things} sent · {ids}
+today.mcp.result.sent.one	Result (1), for access requests	1 {thing} sent · {id}

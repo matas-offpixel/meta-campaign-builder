@@ -244,9 +244,13 @@ test("create_audiences: 1 to 30 specs", async () => {
 
 test("create_audiences: a failed create is said by name, never Meta's error", async () => {
   const { deps } = spyDeps({ createAudience: async () => { throw new Error("(#2654) secret Meta words"); } });
-  const out = await run(createAudiencesTool, ctxOf(deps).ctx, { event: CODE, approval: YES, specs: [{ kind: "page_engagers", page_id: PROMO_PAGE, retention_days: 30 }] });
-  assert.doesNotMatch(JSON.stringify(out.data), /2654|secret/);
-  assert.equal(out.data.message, "Done: 0 made, 0 already on the account, 1 not made. Nothing spends until an ad set uses them.");
+  // Nothing made: a refusal Today logs as "Failed · Meta didn’t take it, so nothing changed".
+  await assert.rejects(run(createAudiencesTool, ctxOf(deps).ctx, { event: CODE, approval: YES, specs: [{ kind: "page_engagers", page_id: PROMO_PAGE, retention_days: 30 }] }), (e: Error & { summary?: Record<string, unknown> }) => {
+    assert.doesNotMatch(e.message, /2654|secret/);
+    assert.equal(e.message.split("\n")[0], "Done: 0 made, 0 already on the account, 1 not made. Nothing spends until an ad set uses them.");
+    assert.equal(e.summary?.refused, "meta_failed");
+    return true;
+  });
 });
 
 // ── reads ───────────────────────────────────────────────────────────────────

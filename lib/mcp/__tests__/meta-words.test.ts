@@ -17,7 +17,9 @@ import { APPROVAL_WORDS } from "../meta/approval.ts";
 import { CEILING_WORDS } from "../meta/ceiling.ts";
 
 const FIXTURE = new URL("./fixtures/words-mcp-today-2026-11-25.tsv", import.meta.url);
-const SHA256 = "542174265f860b0167ecae82ee56622e94f23262fd46e4bdabf13423d6523477";
+// Design's list (sha256 e2df1a10…) re-rules #1397's ceiling rows too; until #1397 merges, this copy carries
+// #1400's part only: the 12 rows ruled 27 Nov with #1400 and consent.line2.meta with the audiences clause.
+const SHA256 = "b77da000099d6ed433911fca621ebb73664ff212e64af0e2fd5fc29f1d0952f8";
 
 const raw = readFileSync(FIXTURE);
 const rows = new Map(
@@ -39,9 +41,9 @@ function row(key: string, vars: Record<string, string | number> = {}): string {
   return words!.replace(/\{([a-z_, ]+)\}/g, (m, name: string) => (name in vars ? String(vars[name]) : m));
 }
 
-test("the fixture is design's list: header + 249 rows (consent.line2.meta and settings.claude.scope.drafts re-ruled 26 Nov; record 2026-11-26-mcp-m3b-today adds 32), sha256 54217426…", () => {
+test("the fixture is design's list: header + 261 rows (consent.line2.meta and settings.claude.scope.drafts re-ruled 26 Nov; record 2026-11-26-mcp-m3b-today adds 32; #1400 adds 12 and the consent audiences clause, 27 Nov), sha256 b77da000…", () => {
   assert.equal(createHash("sha256").update(raw).digest("hex"), SHA256);
-  assert.equal(rows.size, 249);
+  assert.equal(rows.size, 261);
 });
 
 test("the last six (MW2's rules): the draft refusals, the changed draft, the thrown upload, the event code", () => {
