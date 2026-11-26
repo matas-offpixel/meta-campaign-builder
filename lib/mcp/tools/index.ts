@@ -4,7 +4,8 @@
  * M1's eight read tools, get_artist (AL5) and strict_audit (M3d-d) (scope mcp:read), then the
  * draft tools (scope mcp:draft: app database only, campaign_drafts with
  * status draft): M2's eight and M2b's nine, enough to build a whole
- * campaign as a draft, and M3a's set_draft_name. Then the meta tools
+ * campaign as a draft, M3a's set_draft_name, and M3d-c's
+ * upload_to_event_folder (one file into a show's own Drive folder). Then the meta tools
  * (scope mcp:meta, Matas only, each on his chat yes): launch_draft,
  * upload_draft_assets and update_event. M3d-a adds the shows tools (scope
  * mcp:draft): create_event, create_client, set_lineup, get_releases,
@@ -17,6 +18,7 @@ import { applyAudienceTemplateTool, archiveDraftTool, setDraftBudgetTool, setDra
 import { launchDraftTool, uploadDraftAssetsTool } from "./meta-launch.ts";
 import { updateEventTool } from "./meta-event.ts";
 import { getRenderPackageTool, renderPackageTool } from "./render.ts";
+import { uploadToEventFolderTool } from "./folder-in.ts";
 import { createClientTool, createEventTool, getReleasesTool, setLineupTool, setReleaseTool } from "./shows.ts";
 import { replicateToEventTool } from "./draft-replicate.ts";
 import { setDraftAudiencesTool } from "./draft-audiences.ts";
@@ -65,6 +67,8 @@ export const DRAFT_TOOLS: readonly McpTool[] = [
   setDraftAdNamesTool,
   // M3a
   setDraftNameTool,
+  // M3d-c
+  uploadToEventFolderTool,
   // M3d-a: shows and setup
   createClientTool,
   createEventTool,
