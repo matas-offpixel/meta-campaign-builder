@@ -12,6 +12,8 @@ import { folderDepsFor, sourceTag } from "../folder-in/place.ts";
 import { folderSegments, resolveFolderPath } from "../folder-in/resolve.ts";
 import { ToolInputError, type ToolContext } from "../tool-types.ts";
 import { skipReason } from "../../drive/pickup.ts";
+import { audioFilesIn } from "../../creative-tests/audio-intake.ts";
+import { APP_ID_KEY, APP_TAG_KEY } from "../../drive/client.ts";
 import type { DriveApi, DriveFile } from "../../drive/client.ts";
 
 const DRIVE = "0ADRIVE";
@@ -199,7 +201,7 @@ test("folder paths: the five targets resolve by the tree's own keys; w/c is one 
   assert.equal((r("w/c 30 Nov / Electric Studios / Videos") as { refused: string }).refused, "owner_not_found");
 });
 
-test("a shared-drive file of the show's client is copied into the show's folder, tagged so the pickup skips it", async () => {
+test("a shared-drive file of the show's client is copied into the show's folder, marked as the connector's so the pickup reads it in", async () => {
   const drive = spyDrive();
   const { ctx } = ctxFor(drive);
   const out = await run(ctx, { folder: "w/c 30 Nov / Enzo Siragusa / Videos", drive_file_id: "CLIP_OWN" });
@@ -212,9 +214,12 @@ test("a shared-drive file of the show's client is copied into the show's folder,
   const args = w[0]!.args[0] as { fileId: string; parentId: string; appProperties: Record<string, string> };
   assert.equal(args.fileId, "CLIP_OWN");
   assert.equal(args.parentId, "F_WC_ENZO_V");
-  // Pickup's own predicate reads the new file as the app's own.
+  // Matas, 26 Nov ("Yes, read them in."): the connector's marker, never the export's skip tag.
   const placed = drive.created[0]!;
-  assert.equal(skipReason({ fileId: placed.id, removed: false, file: placed }), "ours");
+  assert.equal(args.appProperties.offpixel_placed_by, "mcp");
+  assert.equal(APP_TAG_KEY in args.appProperties, false);
+  assert.equal(APP_ID_KEY in args.appProperties, false);
+  assert.equal(skipReason({ fileId: placed.id, removed: false, file: placed }), null);
   assert.equal(out.summary.rights, "own");
 });
 
@@ -290,7 +295,8 @@ test("a Storage file on one of the show's drafts is uploaded; a path that isn't 
   const a = w[0]!.args[0] as { name: string; mimeType: string; parentId: string; appProperties: Record<string, string> };
   assert.deepEqual([a.name, a.mimeType, a.parentId], ["enzo-cut.mp4", "video/mp4", "F_CLIPS_ENZO"]);
   assert.equal(a.appProperties.offpixel_source, sourceTag({ storagePath: "drive-picks/videos/abc.mp4" }));
-  assert.equal(skipReason({ fileId: "x", removed: false, file: drive.created[0]! }), "ours");
+  assert.equal(skipReason({ fileId: "x", removed: false, file: drive.created[0]! }), null);
+  assert.match((out.data as { message: string }).message, /The Drive pickup reads it in as Enzo Siragusa’s clip on the show within 15 minutes\.$/);
 
   const d2 = spyDrive();
   const c2 = ctxFor(d2);
@@ -330,4 +336,25 @@ test("refusals before anything is read or written: scope, event, owner, source a
   await refused(run(ctxFor(drive).ctx, { drive_file_id: "PHOTO_OWN" }), "folder");
   await refused(run(ctxFor(null).ctx, { folder: "01 Open files", drive_file_id: "PHOTO_OWN" }), "no_drive");
   assert.deepEqual(writes(drive), []);
+});
+
+test("a track the connector puts in 02 Source / Audio / {artist} is read by the Snippet scan; an export-tagged one still isn't", async () => {
+  const drive = spyDrive();
+  const { ctx } = ctxFor(drive);
+  const out = await run(ctx, { folder: "02 Source / Audio / Enzo Siragusa", drive_file_id: "WAV_OWN" });
+  const placed = drive.created[0]!;
+  assert.equal(placed.parents?.[0], "F_AUDIO_ENZO");
+  // The Snippet tab's own filter over the folder's children.
+  const exportTagged: DriveFile = { id: "EXP", name: "render.wav", mimeType: "audio/wav", parents: ["F_AUDIO_ENZO"], appProperties: { [APP_TAG_KEY]: "lab_render", [APP_ID_KEY]: "rd1" } };
+  assert.deepEqual(audioFilesIn([placed, exportTagged]).map((f) => f.id), [placed.id]);
+  assert.match((out.data as { message: string }).message, /It’s read in as Enzo Siragusa’s track the next time the Snippet tab opens or list_tracks runs\.$/);
+});
+
+test("a retry finds the connector's own copy by its marker and places nothing twice", async () => {
+  const drive = spyDrive();
+  const { ctx } = ctxFor(drive);
+  await run(ctx, { folder: "02 Source / Artist clips / Enzo Siragusa", drive_file_id: "CLIP_OWN" });
+  const again = await run(ctx, { folder: "02 Source / Artist clips / Enzo Siragusa", drive_file_id: "CLIP_OWN" });
+  assert.equal((again.data as { placed: boolean }).placed, false);
+  assert.deepEqual(writes(drive).map((c) => c.fn), ["copyFile"]);
 });

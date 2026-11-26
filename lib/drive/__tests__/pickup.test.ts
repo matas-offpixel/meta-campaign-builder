@@ -11,6 +11,7 @@ import { DRIVE_REFUSED, NO_FOLDER, shareEventFolder, stopSharingEventFolder } fr
 import { runDriveTick } from "../tick.ts";
 import { fortnightlyFrom } from "../tree.ts";
 import { fakeDrive, type FakeDrive } from "./fake-drive.ts";
+import { placedProperties } from "../../mcp/folder-in/place.ts";
 
 type TestDb = FakeDb & DriveDb;
 const NOW = new Date("2026-11-17T10:00:00Z");
@@ -249,6 +250,48 @@ describe("routing by folder (S22)", () => {
     assert.equal(result.skipped.folder, 1);
     // gone.mp4's first sighting (before the trash) imports; the trash itself does not.
     assert.deepEqual(calls.map((c) => c.name), ["gone.mp4"]);
+  });
+
+  it("reads in a connector upload in Artist clips like a hand-dropped file (Matas, 26 Nov: \"Yes, read them in.\")", async () => {
+    const db = seed();
+    const drive = fakeDrive();
+    await primed(db, drive);
+    const enzo = folderId(drive, `${EVENT} / 02 Source / Artist clips / Enzo Siragusa`);
+    drive.drop(enzo, "enzo-crowd.mp4", { appProperties: placedProperties("e1", "drive:CLIP_OWN") });
+    const { calls, importClip } = recorder();
+    const result = await runDrivePickup(db, drive, { now: NOW, importClip });
+    assert.equal(result.skipped.ours ?? 0, 0);
+    assert.deepEqual(calls, [{ labArtistId: calls[0]!.labArtistId, eventId: "e1", name: "enzo-crowd.mp4" }]);
+  });
+
+  it("still skips the export's own tag beside a connector upload: the two marks can't be confused", async () => {
+    const db = seed();
+    const drive = fakeDrive();
+    await primed(db, drive);
+    const enzo = folderId(drive, `${EVENT} / 02 Source / Artist clips / Enzo Siragusa`);
+    drive.drop(enzo, "P26-BDAY_enzo-siragusa-1_r1_9x16.mp4", { appProperties: { [APP_TAG_KEY]: "lab_render", [APP_ID_KEY]: "rd1" } });
+    drive.drop(enzo, "enzo-crowd.mp4", { appProperties: placedProperties("e1", "drive:CLIP_OWN") });
+    const placed = placedProperties("e1", "drive:CLIP_OWN");
+    assert.equal(APP_TAG_KEY in placed, false);
+    assert.equal(APP_ID_KEY in placed, false);
+    const { calls, importClip } = recorder();
+    const result = await runDrivePickup(db, drive, { now: NOW, importClip });
+    assert.equal(result.skipped.ours, 1);
+    assert.deepEqual(calls.map((c) => c.name), ["enzo-crowd.mp4"]);
+  });
+
+  it("treats a connector upload outside 02 Source exactly as a hand-dropped file there", async () => {
+    const outcome = async (appProperties?: Record<string, string>) => {
+      const db = seed();
+      const drive = fakeDrive();
+      await primed(db, drive);
+      const open = folderId(drive, `${EVENT} / 01 Open files`);
+      drive.drop(open, "artwork.psd", { mimeType: "image/vnd.adobe.photoshop", ...(appProperties ? { appProperties } : {}) });
+      const { calls, importClip } = recorder();
+      const result = await runDrivePickup(db, drive, { now: NOW, importClip });
+      return { calls: calls.length, kit: rows(db, "drive_kit_audit_files").map((r) => r.name), skipped: result.skipped, kitFiles: result.kitFiles };
+    };
+    assert.deepEqual(await outcome(placedProperties("e1", "drive:KIT")), await outcome());
   });
 
   it("01 Open files and _Brand kit queue one kit-audit row per file", async () => {

@@ -20,8 +20,10 @@ export const FOLDER_IN_WORDS = {
   done: (file: string, folder: string, link: string) => `Done: ${file} is in ${folder}. Drive: ${link}`,
   /** claude.mcp.folder_in.already: a retry of the same file into the same folder. */
   already: (file: string, folder: string, link: string) => `Nothing changed: ${file} is already in ${folder}. Drive: ${link}`,
-  /** claude.mcp.folder_in.not_picked_up: the file carries the app's own tag, so the pickup and the Snippet scan skip it. */
-  notPickedUp: "Off/Pixel files it as its own, so the Drive pickup doesn’t read it in as a new clip or track.",
+  /** claude.mcp.folder_in.read_in.clip: a clip in 02 Source / Artist clips / {artist}; the Drive pickup (every 15 min) reads it in (Matas, 26 Nov: "Yes, read them in."). */
+  readInClip: (artist: string) => `The Drive pickup reads it in as ${artist}’s clip on the show within 15 minutes.`,
+  /** claude.mcp.folder_in.read_in.track: a track in 02 Source / Audio / {artist}; the Snippet tab's scan (and list_tracks) reads it in. */
+  readInTrack: (artist: string) => `It’s read in as ${artist}’s track the next time the Snippet tab opens or list_tracks runs.`,
   /** claude.mcp.folder_in.refused.folder: the folder text isn't one of the five. */
   refusedFolder:
     "Refused: the folder must be 01 Open files, 3 On sale, 02 Source / Artist clips / {artist}, 02 Source / Audio / {artist} or w/c {d Mon} / {owner} / Videos or Statics. Nothing was changed.",
@@ -75,6 +77,6 @@ export const FOLDER_IN_DESCRIPTION = [
   "Puts one file into a folder of a show's Drive tree, as the Off/Pixel service account: 01 Open files, 3 On sale, 02 Source / Artist clips / {artist}, 02 Source / Audio / {artist}, or w/c {d Mon} / {owner} / Videos | Statics (an owner folder the filing already made).",
   "The file is a Drive file id from the Off/Pixel shared drive (copied; the original stays where it is) or a Storage path on one of the show's drafts (uploaded). Only the show's client's own files or the artist library.",
   "It never shares, moves, renames or deletes anything, and makes no folders: a folder the show doesn't have yet is refused.",
-  "The copy is tagged as Off/Pixel's own, so the Drive pickup doesn't read it back in as a new clip or track.",
+  "A clip in Artist clips and a track in Audio are read into the Lab like a file dropped there by hand.",
   'Example: upload_to_event_folder({ event_code: "ES27-ENZOSIRAGUSA", folder: "w/c 30 Nov / Enzo Siragusa / Videos", drive_file_id: "1AbC…" }).',
 ].join(" ");

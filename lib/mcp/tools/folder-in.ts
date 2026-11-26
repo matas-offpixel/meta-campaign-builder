@@ -12,9 +12,11 @@
  * Rights (lib/drive/file-owner.ts, as attach_drive_creatives): the show's
  * client's own files or the artist library, never another client's.
  * Never a permission, share, move, rename or delete; no folder is made.
- * The new file carries the app's own tag, so the Drive pickup skips it.
- * A retry finds the file it already placed (same source tag in the
- * folder) and places nothing.
+ * The new file carries the connector's own marker (MCP_MARK_KEY), never
+ * the export's skip tag, so the Drive pickup and the Snippet scan read it
+ * in like a hand-dropped file (Matas, 26 Nov: "Yes, read them in."). A
+ * retry finds the file it already placed (same source in the folder) and
+ * places nothing.
  *
  * Writes only through ctx.folderIn (lib/mcp/folder-in-deps.ts).
  * Relative imports only (node:test).
@@ -23,14 +25,14 @@ import { z } from "zod";
 import { SCOPE_DRAFT } from "../config.ts";
 import { scopeIncludes } from "../oauth/flow.ts";
 import { mayUseFor, resolveDriveOwner } from "../../drive/file-owner.ts";
-import { FOLDER_MIME, SHORTCUT_MIME, APP_TAG_KEY } from "../../drive/client.ts";
+import { FOLDER_MIME, SHORTCUT_MIME } from "../../drive/client.ts";
 import { loadLineupArtists } from "../../drive/lineup.ts";
 import { PICKER_BUCKET } from "../../drive/picker.ts";
 import { PICKER_MAX_IMAGE_BYTES, PICKER_MAX_VIDEO_BYTES } from "../../drive/picker-model.ts";
 import { EVENT_WORDS } from "../meta/words.ts";
 import { FOLDER_IN_DESCRIPTION, FOLDER_IN_WORDS as W } from "../folder-in/words.ts";
 import { fileFits, resolveFolderId, resolveFolderPath, type MapRow, type Target } from "../folder-in/resolve.ts";
-import { FOLDER_IN_TAG, SOURCE_KEY, driveLink, placedProperties, sourceTag, type McpFolderDeps } from "../folder-in/place.ts";
+import { driveLink, placedFrom, placedProperties, sourceTag, type McpFolderDeps } from "../folder-in/place.ts";
 import { ToolInputError, type Db, type McpTool, type ToolContext } from "../tool-types.ts";
 import { loadEventByCode, normaliseCode } from "./shared.ts";
 
@@ -152,6 +154,14 @@ async function checkRights(
   throw new ToolInputError(W.refusedOwnerUnknown(name), { refused: "owner_unknown" });
 }
 
+/** What happens next to a clip or a track (the pickup and the Snippet scan read it in); other folders say nothing more. */
+function readInLine(target: { key: string; label: string }): string | null {
+  const artist = target.label.split(/\s*\/\s*/).at(-1) ?? "";
+  if (target.key.startsWith("02/artist-clips/")) return W.readInClip(artist);
+  if (target.key.startsWith("02/audio/")) return W.readInTrack(artist);
+  return null;
+}
+
 export const uploadToEventFolderTool: McpTool = {
   name: "upload_to_event_folder",
   title: "Put a file in a show's Drive folder",
@@ -244,7 +254,7 @@ export const uploadToEventFolderTool: McpTool = {
 
     // ── A retry places nothing: the folder already holds this source's copy ──
     const already = (await drive.listChildren(target.folderId, { name: newName })).find(
-      (f) => f.appProperties?.[APP_TAG_KEY] === FOLDER_IN_TAG && f.appProperties?.[SOURCE_KEY] === source,
+      (f) => placedFrom(f, source),
     );
     if (already) {
       return {
@@ -277,7 +287,7 @@ export const uploadToEventFolderTool: McpTool = {
         fileId: placed.id,
         link: driveLink(placed),
         placed: true,
-        message: `${W.done(newName, target.label, driveLink(placed))} ${W.notPickedUp}`,
+        message: [W.done(newName, target.label, driveLink(placed)), readInLine(target)].filter(Boolean).join(" "),
       },
       eventId: event.id,
       clientId: event.client_id,
