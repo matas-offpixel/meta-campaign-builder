@@ -73,7 +73,7 @@ export interface McpAudienceDeps {
    * and the whole read after `budgetMs`, answering with what it has. Omitted =
    * READ_LIMITS (lib/mcp/audiences/sources.ts). Tests pass small ones.
    */
-  limits?: { perReadMs: number; budgetMs: number };
+  limits?: { perReadMs: number; budgetMs: number; listMs?: number };
   /** OFFPIXEL_META_AUDIENCE_WRITES_ENABLED (the Audience Builder's own gate). */
   audienceWrites(): boolean;
   /** GET /act_{id}/customaudiences (paged). */

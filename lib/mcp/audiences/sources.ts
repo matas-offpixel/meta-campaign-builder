@@ -187,7 +187,7 @@ const yesNo = (n: number | null) => (n == null ? AUD_WORDS.pixelEventUnread : n 
  * read after `budgetMs`, and the tool answers with what it has plus a
  * "couldn't be read" line per source.
  */
-export const READ_LIMITS = { perReadMs: 10_000, budgetMs: 60_000 } as const;
+export const READ_LIMITS = { perReadMs: 10_000, budgetMs: 60_000, listMs: 30_000 } as const;
 /** A read that stops on the budget (the audience list) gets this long to hand back what it had. */
 const GRACE_MS = 500;
 
@@ -205,12 +205,12 @@ export async function readSources(ctx: ToolContext, deps: McpAudienceDeps, event
    * read" line; the other reads go on. A read that stops on the budget gets
    * GRACE_MS to hand back what it had (the audience list's partial answer).
    */
-  const within = async <T,>(source: UnreadSource | null, fallback: T, run: (signal: AbortSignal) => Promise<T>, perReadMs: number | null = limits.perReadMs): Promise<{ value: T; read: boolean }> => {
+  const within = async <T,>(source: UnreadSource | null, fallback: T, run: (signal: AbortSignal) => Promise<T>, perReadMs: number | null = limits.perReadMs, grace = perReadMs == null): Promise<{ value: T; read: boolean }> => {
     const signal = perReadMs ? AbortSignal.any([budget.signal, AbortSignal.timeout(perReadMs)]) : budget.signal;
     let graceTimer: ReturnType<typeof setTimeout> | null = null;
     const stop = new Promise<never>((_, reject) => {
       const fire = () => {
-        graceTimer = setTimeout(() => reject(new Error("timed out")), perReadMs ? 0 : GRACE_MS);
+        graceTimer = setTimeout(() => reject(new Error("timed out")), grace ? GRACE_MS : 0);
       };
       if (signal.aborted) fire();
       else signal.addEventListener("abort", fire, { once: true });
@@ -245,7 +245,8 @@ export async function readSources(ctx: ToolContext, deps: McpAudienceDeps, event
   // CIRQLIN's read says itself when it couldn't be read (the links line), so it adds no second line.
   const linksP = event.tag ? within(null, null as ShowLinkLite[] | null, (signal) => deps.pageLinks(event.tag!, signal).catch(() => null)) : Promise.resolve({ value: null as ShowLinkLite[] | null, read: true });
   const promoteP = within("pages", { pages: [] as Awaited<ReturnType<McpAudienceDeps["promotePages"]>>["pages"], metaGets: 0 }, (signal) => deps.promotePages(ctx.userId, event.adAccountId, signal));
-  const existingP = within("audiences", { audiences: [] as AccountAudience[], metaGets: 0, complete: false }, (signal) => deps.listAudiences(ctx.userId, event.adAccountId, signal), null);
+  // The account's audiences: up to listMs (a big account's list runs long), handing back what it read.
+  const existingP = within("audiences", { audiences: [] as AccountAudience[], metaGets: 0, complete: false }, (signal) => deps.listAudiences(ctx.userId, event.adAccountId, signal), limits.listMs ?? null, true);
   const clientSourcesP =
     business.kind === "one" && event.clientId
       ? within(null, null as ClientBuildableSource[] | null, (signal) => loadClientBuildableSources(ctx.db, { businessAssets: (u, b) => deps.businessAssets(u, b, signal) }, ctx.userId, event.clientId!, business.business.id), null)
