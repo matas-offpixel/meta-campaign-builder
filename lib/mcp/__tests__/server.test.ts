@@ -125,7 +125,7 @@ test("full path: initialize → tools/list (all readOnlyHint) → tools/call, lo
 
   const list = await (await handleMcpRequest(rpc("tools/list", {}, tokens.access_token), deps)).json();
   const tools = list.result.tools as Array<{ name: string; annotations: Record<string, boolean>; description: string }>;
-  assert.equal(tools.length, 38, "a read-only grant still lists the draft, meta and render tools (calling one asks for the step-up)");
+  assert.equal(tools.length, 39, "a read-only grant still lists the draft, meta and render tools (calling one asks for the step-up)");
   const readNames = new Set(READ_TOOLS.map((t) => t.name));
   for (const t of tools) {
     assert.equal(t.annotations.readOnlyHint, readNames.has(t.name) || t.name === "list_drive_creatives" || t.name === "get_releases", t.name);
