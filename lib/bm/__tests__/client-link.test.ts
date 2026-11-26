@@ -43,7 +43,7 @@ test("each case links or says why not", () => {
     u: "accounts_unread",
     z: "no_ad_account",
   });
-  assert.ok(OFF_PIXEL_BUSINESS_IDS.includes("944651277948334"));
+  assert.deepEqual(OFF_PIXEL_BUSINESS_IDS, ["944651277948334", "237857750137825"]);
 });
 
 test("a client already linked to its BM stays linked; an Off/Pixel-owned account doesn't block the client's own", () => {

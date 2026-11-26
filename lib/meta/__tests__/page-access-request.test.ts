@@ -5,7 +5,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { DEFAULT_PAGE_REQUEST_TASKS, OFF_PIXEL_BUSINESS_ID, OffPixelBusinessRefused, PAGE_REQUESTS_PER_DAY, writePageAccessRequest } from "../page-access-request.ts";
+import { DEFAULT_PAGE_REQUEST_TASKS, OFF_PIXEL_BUSINESS_IDS, OffPixelBusinessRefused, isOffPixelBusiness, PAGE_REQUESTS_PER_DAY, writePageAccessRequest } from "../page-access-request.ts";
 import { MetaWriteLedgerRequiredError } from "../write-idempotency.ts";
 import { fakeDb } from "../../mcp/__tests__/fake-db.ts";
 
@@ -18,13 +18,17 @@ function setup(tables: Record<string, Record<string, unknown>[]> = { meta_write_
   return { db, posts, graph, ledger: { supabase: db, userId: "u1", draftId: DRAFT, eventId: "e1" } };
 }
 
-test("Off/Pixel's business is fixed and refused before the ledger or Graph is touched", async () => {
-  assert.equal(OFF_PIXEL_BUSINESS_ID, "944651277948334");
-  const { db, posts, graph, ledger } = setup();
-  await assert.rejects(writePageAccessRequest({ ledger, graph, businessId: " 944651277948334 ", pageId: "5550002", tasks: ["ADVERTISE"], key: "k" }), OffPixelBusinessRefused);
-  assert.deepEqual(posts, []);
-  assert.deepEqual(db.writes, []);
-  assert.deepEqual(db.reads, []);
+test("both Off/Pixel businesses are fixed in one constant and each is refused before the ledger or Graph is touched", async () => {
+  assert.deepEqual(OFF_PIXEL_BUSINESS_IDS, ["944651277948334", "237857750137825"]);
+  for (const id of ["944651277948334", "237857750137825", " 237857750137825 "]) {
+    assert.equal(isOffPixelBusiness(id), true, id);
+    const { db, posts, graph, ledger } = setup();
+    await assert.rejects(writePageAccessRequest({ ledger, graph, businessId: id, pageId: "5550002", tasks: ["ADVERTISE"], key: "k" }), OffPixelBusinessRefused, id);
+    assert.deepEqual(posts, [], id);
+    assert.deepEqual(db.writes, [], id);
+    assert.deepEqual(db.reads, [], id);
+  }
+  assert.equal(isOffPixelBusiness("7770001"), false);
 });
 
 test("one POST to the client's business, the tasks as Meta's JSON array, on the ledger as page_access_request", async () => {

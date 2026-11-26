@@ -356,7 +356,7 @@ const EXTERNAL_READERS: Record<string, readonly string[]> = {
   "lib/meta/reuse-existing-audience.ts": ["matchExistingCustomAudience"],
   "lib/retargeting/links.ts": ["linksFallback", "urlRule"],
   "lib/onsale-refresh/purchases.ts": ["resolvePixel"],
-  "lib/meta/page-access-request.ts": ["DEFAULT_PAGE_REQUEST_TASKS", "OFF_PIXEL_BUSINESS_ID", "PAGE_REQUESTS_PER_DAY", "PAGE_REQUEST_TASKS"],
+  "lib/meta/page-access-request.ts": ["DEFAULT_PAGE_REQUEST_TASKS", "OFF_PIXEL_BUSINESS_IDS", "PAGE_REQUESTS_PER_DAY", "PAGE_REQUEST_TASKS"],
 };
 
 /**
@@ -573,7 +573,8 @@ test("M3c: the audience seam imports exactly the Audience Builder's create, the 
   const write = readFileSync(join(ROOT, "lib/meta/audience-write.ts"), "utf8");
   assert.match(write, /export async function createMetaCustomAudience\([\s\S]*?assertMetaAudienceWritesEnabled\(\);/);
   const helper = strip(readFileSync(join(ROOT, "lib/meta/page-access-request.ts"), "utf8"));
-  assert.match(helper, /if \(businessId === OFF_PIXEL_BUSINESS_ID\) throw new OffPixelBusinessRefused\(\);[\s\S]*withMetaWriteIdempotency\([\s\S]*"page_access_request"[\s\S]*\{ required: true \}/);
+  assert.match(helper, /export const OFF_PIXEL_BUSINESS_IDS: readonly string\[\] = \["944651277948334", "237857750137825"\];/);
+  assert.match(helper, /if \(isOffPixelBusiness\(businessId\)\) throw new OffPixelBusinessRefused\(\);[\s\S]*withMetaWriteIdempotency\([\s\S]*"page_access_request"[\s\S]*\{ required: true \}/);
   const importers = [...files.entries()].filter(([f, s2]) => f !== AUDIENCE_SEAM && /from\s+["'][^"']*audience-deps["']/.test(s2)).map(([f]) => f);
   assert.deepEqual(importers, ["lib/mcp/route-deps.ts"]);
 });

@@ -307,7 +307,7 @@ test("request_page_access: from the client's own Business Manager, as Matas, ADV
   assert.equal(req.length, 1);
   const input = req[0]!.input as Record<string, unknown>;
   assert.equal(input.businessId, BM);
-  assert.notEqual(input.businessId, "944651277948334");
+  assert.ok(!["944651277948334", "237857750137825"].includes(String(input.businessId)));
   assert.equal(input.pageId, ACT_PAGE);
   assert.deepEqual(input.tasks, ["ADVERTISE", "ANALYZE"]);
   assert.deepEqual(input.ledger, { draftId: D1, eventId: EV });
@@ -318,7 +318,9 @@ test("request_page_access: from the client's own Business Manager, as Matas, ADV
 test("request_page_access: every refusal sends nothing", async () => {
   const cases: Array<[string, Parameters<typeof spyDeps>[0], Parameters<typeof ctxOf>[1], Record<string, unknown>, RegExp | string]> = [
     ["no BM linked", {}, { tables: { client_business_managers: [] } }, ask(), AUD_WORDS.noBusiness("XMPL Promoter")],
-    ["Off/Pixel's BM linked", {}, { tables: { client_business_managers: [{ business_id: "944651277948334", business_name: "Off / Pixel", client_id: CL }] } }, ask(), AUD_WORDS.offPixelBusiness],
+    ["Off/Pixel's BM 944651277948334 linked", {}, { tables: { client_business_managers: [{ business_id: "944651277948334", business_name: "Off / Pixel", client_id: CL }] } }, ask(), AUD_WORDS.offPixelBusiness],
+    ["Off/Pixel's BM 237857750137825 linked", {}, { tables: { client_business_managers: [{ business_id: "237857750137825", business_name: "Off/Pixel", client_id: CL }] } }, ask(), AUD_WORDS.offPixelBusiness],
+    ["Off/Pixel's BM 237857750137825 owns the account among two linked", { accountBusiness: async () => ({ id: "237857750137825", name: "Off/Pixel" }) }, { tables: { client_business_managers: [{ business_id: BM, business_name: "XMPL BM", client_id: CL }, { business_id: "237857750137825", business_name: "Off/Pixel", client_id: CL }] } }, ask(), AUD_WORDS.offPixelBusiness],
     ["two BMs, neither owns the account", { accountBusiness: async () => ({ id: "1234567", name: "Elsewhere" }) }, { tables: { client_business_managers: [{ business_id: BM, business_name: "XMPL BM", client_id: CL }, { business_id: "7770002", business_name: "XMPL BM 2", client_id: CL }] } }, ask(), AUD_WORDS.manyBusinesses("XMPL Promoter", 2)],
     ["no pages_manage_metadata", { tokenPermissions: async () => new Set(["pages_show_list"]) }, {}, ask(), "Reconnect Facebook in Off/Pixel to allow access requests."],
     ["no Facebook token", { tokenPermissions: async () => null }, {}, ask(), AUD_WORDS.noToken],
@@ -446,4 +448,13 @@ test("audience_sources: every Page and Instagram account the client's Business M
   ]);
   assert.deepEqual(sent(calls, "businessAssets").map((c) => c.input), [BM]);
   noWrites(calls);
+});
+
+test("pending_access: an Off/Pixel business linked to the client is refused like request_page_access, and not read", async () => {
+  for (const id of ["944651277948334", "237857750137825"]) {
+    const { deps, calls } = spyDeps();
+    await refused(run(pendingAccessTool, ctxOf(deps, { tables: { client_business_managers: [{ business_id: id, business_name: "Off/Pixel", client_id: CL }] } }).ctx, { client: CL }), AUD_WORDS.offPixelBusiness);
+    assert.deepEqual(sent(calls, "pendingPages"), [], id);
+    noWrites(calls);
+  }
 });

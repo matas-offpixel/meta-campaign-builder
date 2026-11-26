@@ -10,8 +10,8 @@
  *     (McpAudienceDeps.requestPage → lib/meta/page-access-request.ts, ledger
  *     page_access_request). Refused, nothing sent: no approval; no Business
  *     Manager linked to the client (or more than one and none owns the
- *     event's ad account); the linked one is Off/Pixel's (944651277948334,
- *     refused again in the helper); Matas's token lacks pages_manage_metadata;
+ *     event's ad account); the linked one is Off/Pixel's (944651277948334 or
+ *     237857750137825, refused again in the helper); Matas's token lacks pages_manage_metadata;
  *     Matas isn't an admin there; a Page already shared with or already
  *     asked for from that business; more than 5 requests in 24 hours from
  *     that business. A request spends nothing, so no ceiling. Switched off
@@ -26,7 +26,7 @@
 import { z } from "zod";
 import { ACCESS } from "../audiences/access.ts";
 
-const { DEFAULT_PAGE_REQUEST_TASKS, OFF_PIXEL_BUSINESS_ID, PAGE_REQUESTS_PER_DAY, PAGE_REQUEST_TASKS } = ACCESS;
+const { DEFAULT_PAGE_REQUEST_TASKS, OFF_PIXEL_BUSINESS_IDS, PAGE_REQUESTS_PER_DAY, PAGE_REQUEST_TASKS } = ACCESS;
 import { approvalInput, requireMetaApproval } from "../meta/approval.ts";
 import { liveChangesOn } from "../live/shipped.ts";
 import { LIVE_ROWS } from "../live/words.ts";
@@ -42,7 +42,7 @@ export const MAX_PAGES_PER_CALL = 5;
 function businessOrRefuse(result: Awaited<ReturnType<typeof clientBusiness>>, client: string): ClientBusiness {
   if (result.kind === "none") throw new ToolInputError(AUD_WORDS.noBusiness(client), { refused: "no_business" });
   if (result.kind === "many") throw new ToolInputError(AUD_WORDS.manyBusinesses(client, result.n), { refused: "many_businesses", n: result.n });
-  if (result.business.id === OFF_PIXEL_BUSINESS_ID) throw new ToolInputError(AUD_WORDS.offPixelBusiness, { refused: "off_pixel_business" });
+  if (OFF_PIXEL_BUSINESS_IDS.includes(result.business.id.trim())) throw new ToolInputError(AUD_WORDS.offPixelBusiness, { refused: "off_pixel_business" });
   return result.business;
 }
 

@@ -19,8 +19,10 @@
  * Relative imports only (node:test).
  */
 
-/** Off/Pixel's own businesses: never a client's (944651277948334 is the one access is never asked from). */
-export const OFF_PIXEL_BUSINESS_IDS: readonly string[] = ["944651277948334", "237857750137825"];
+import { OFF_PIXEL_BUSINESS_IDS } from "../meta/page-access-request.ts";
+
+/** Off/Pixel's own businesses (one constant, the access helper's): never a client's. */
+export { OFF_PIXEL_BUSINESS_IDS };
 
 export interface LinkClient {
   id: string;

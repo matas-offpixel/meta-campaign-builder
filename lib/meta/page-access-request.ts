@@ -9,8 +9,10 @@
  * GET /{business_id}/pending_client_pages.
  *
  * Matas, 26 Nov: "do it from the clients business manager so data and access
- * stays with them". So Off/Pixel's own business is refused here, whatever
- * the caller passes, and there is no fallback to another business.
+ * stays with them". So Off/Pixel's own businesses are refused here, whatever
+ * the caller passes, and there is no fallback to another business. There are
+ * two named Off/Pixel: 944651277948334, and 237857750137825 (Matas, 26 Nov on
+ * #1400: "Yes, block it too").
  *
  * Every request is on meta_write_idempotency as `page_access_request`
  * (migration 273) with `{ required: true }`, keyed on the ask; the payload
@@ -23,8 +25,12 @@
 
 import { withMetaWriteIdempotency, type MetaWriteContext } from "./write-idempotency.ts";
 
-/** Off/Pixel's own Business Manager: never the requester. */
-export const OFF_PIXEL_BUSINESS_ID = "944651277948334";
+/** Off/Pixel's own Business Managers: never the requester. */
+export const OFF_PIXEL_BUSINESS_IDS: readonly string[] = ["944651277948334", "237857750137825"];
+
+export function isOffPixelBusiness(businessId: string): boolean {
+  return OFF_PIXEL_BUSINESS_IDS.includes(businessId.trim());
+}
 
 /** The Page tasks Meta accepts on a client_pages request (lib/bm/asset-kinds.ts PAGE.permittedTasks). */
 export const PAGE_REQUEST_TASKS = ["MANAGE", "CREATE_CONTENT", "MODERATE", "ADVERTISE", "ANALYZE"] as const;
@@ -53,7 +59,7 @@ export async function writePageAccessRequest(args: {
   key: string;
 }): Promise<string> {
   const businessId = args.businessId.trim();
-  if (businessId === OFF_PIXEL_BUSINESS_ID) throw new OffPixelBusinessRefused();
+  if (isOffPixelBusiness(businessId)) throw new OffPixelBusinessRefused();
   if (!/^\d+$/.test(businessId)) throw new Error(`not a business id: ${businessId}`);
   if (!/^\d+$/.test(args.pageId)) throw new Error(`not a Page id: ${args.pageId}`);
   const tasks = [...new Set(args.tasks)];
