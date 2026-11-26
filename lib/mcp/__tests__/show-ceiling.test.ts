@@ -23,7 +23,7 @@ import {
   resolveShowCeiling,
   type ShowChange,
 } from "../meta/show-ceiling.ts";
-import { CEILING_FOR_DESIGN } from "../meta/ceiling-words.ts";
+import { CEILING_FOR_DESIGN, CEILING_WORDS, sourceWords } from "../meta/ceiling-words.ts";
 import { fakeDb } from "./fake-db.ts";
 import { OPERATOR } from "./helpers.ts";
 import { ACT, ACT2, AS_BROAD, AS_FANS, BASE_COMMITTED, CAMP_A, CAMP_B, CODE, EVENT, NOW, liveDeps, liveSpy, liveTables } from "./live-fixtures.ts";
@@ -133,7 +133,7 @@ test("a shared group: one total over both shows' committed spend, named in the r
     const { check } = withGroup(2000, 500);
     const e = await refused(
       check({ starts: true }),
-      /^Refused: this would take DHB27-LIVE to £2,125\.00 committed, over its £2,000\.00 ceiling \(shared by DHB27-LIVE and DHB27-LIVE2\)\. That’s £500\.00 spent to date \(Off\/Pixel’s Meta insights, to 24 Nov\)/,
+      /^Refused: this would take DHB27-LIVE to £2,125\.00 committed, over its £2,000\.00 ceiling \(shared by DHB27-LIVE and DHB27-LIVE2\)\. Committed is £500\.00 spent \(to 24 Nov\), plus/,
     );
     assert.equal(e.summary?.refused, "over_ceiling");
   }
@@ -162,7 +162,7 @@ test("a launch that would cross the ceiling is refused; under it, it's checked a
   assert.deepEqual(addedLine(line, { id: EVENT, code: CODE, eventDate: "2026-12-20" }, NOW), { lifetime: 0, daily: 250 });
   {
     const { check } = setup({ ceiling: 1800 });
-    const e = await refused(check({ starts: true, added: [line] }), /to £1,875\.00 committed, over its £1,800\.00 ceiling \(set for this show\)\. .*this change adds £250\.00\./);
+    const e = await refused(check({ starts: true, added: [line] }), /to £1,875\.00 committed, over its £1,800\.00 ceiling \(set for this show\)\. .* This change adds £250\.00\./);
     assert.deepEqual([e.summary?.before, e.summary?.after, e.summary?.delta], [BASE_COMMITTED, 1875, 250]);
   }
   {
@@ -287,6 +287,21 @@ test("a ceiling that can't be read refuses (never assumed); Meta unread refuses 
       return true;
     });
   }
+});
+
+test(`a group's codes read "A and B", "A, B and C" (design, 27 Nov)`, () => {
+  assert.equal(sourceWords({ kind: "group", codes: ["P26-A", "P26-B"] }), "shared by P26-A and P26-B");
+  assert.equal(sourceWords({ kind: "group", codes: ["A1", "B2", "C3"] }), "shared by A1, B2 and C3");
+  assert.equal(sourceWords({ kind: "group", codes: ["A1", "B2", "C3", "D4"] }), "shared by A1, B2, C3 and D4");
+  assert.equal(sourceWords({ kind: "own" }), "set for this show");
+  assert.equal(sourceWords({ kind: "default", brand: "NX" }), "the NX default");
+});
+
+test("design's 27 Nov words for the over-ceiling refusal, word for word", () => {
+  assert.equal(
+    CEILING_WORDS.over({ show: "NX26-AZYR", after: 3250, ceiling: 3000, source: { kind: "default", brand: "NX" }, spent: 1200, through: "25 Nov", lifetime: 800, daily: 1250, delta: 300 }),
+    "Refused: this would take NX26-AZYR to £3,250.00 committed, over its £3,000.00 ceiling (the NX default). Committed is £1,200.00 spent (to 25 Nov), plus £800.00 left on live lifetime budgets and £1,250.00 in live daily budgets to their end or the show, read from Meta now. This change adds £300.00. Nothing was sent to Meta.",
+  );
 });
 
 test("every ceiling refusal is declared for design (PENDING DESIGN) and ends saying nothing was sent", () => {

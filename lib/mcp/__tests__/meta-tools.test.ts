@@ -158,7 +158,7 @@ test("launch_draft live: refused with no show ceiling and when it would cross th
     const { ctx, spy } = await metaCtx({ ceiling: 1000 });
     const e = await refused(
       run(launchDraftTool, ctx, { draft_id: D_DRAFT, mode: "live", approval: YES }),
-      /^Refused: this would take NX27-GLITTERBOX to £1,350\.00 committed, over its £1,000\.00 ceiling \(set for this show\)\. That’s £0\.00 spent to date \(Off\/Pixel’s Meta insights, none yet\), £0\.00 left on live lifetime budgets and £1,350\.00 in live daily budgets to their end or show day \(both read from Meta now\); this change adds £1,350\.00\. Nothing was sent to Meta\.$/,
+      /^Refused: this would take NX27-GLITTERBOX to £1,350\.00 committed, over its £1,000\.00 ceiling \(set for this show\)\. Committed is £0\.00 spent \(none yet\), plus £0\.00 left on live lifetime budgets and £1,350\.00 in live daily budgets to their end or the show, read from Meta now\. This change adds £1,350\.00\. Nothing was sent to Meta\.$/,
     );
     assert.deepEqual([e.summary?.refused, e.summary?.after, e.summary?.ceilingGbp, e.summary?.delta], ["over_ceiling", 1350, 1000, 1350]);
     assert.deepEqual([spy.uploads.length, spy.launches.length], [0, 0]);

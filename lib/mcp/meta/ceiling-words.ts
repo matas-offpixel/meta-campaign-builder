@@ -41,7 +41,7 @@ const T = {
   over: pending(
     "claude.mcp.ceiling.over",
     "Told to Claude, a change that would take a show's committed spend over its ceiling",
-    "Refused: this would take {show} to £{after} committed, over its £{ceiling} ceiling ({source}). That’s £{spent} spent to date (Off/Pixel’s Meta insights, {through}), £{lifetime} left on live lifetime budgets and £{daily} in live daily budgets to their end or show day (both read from Meta now); this change adds £{delta}. Nothing was sent to Meta.",
+    "Refused: this would take {show} to £{after} committed, over its £{ceiling} ceiling ({source}). Committed is £{spent} spent ({through}), plus £{lifetime} left on live lifetime budgets and £{daily} in live daily budgets to their end or the show, read from Meta now. This change adds £{delta}. Nothing was sent to Meta.",
   ),
   none: pending(
     "claude.mcp.ceiling.none",
@@ -85,7 +85,9 @@ export type CeilingSource = { kind: "default"; brand: string } | { kind: "own" }
 export function sourceWords(s: CeilingSource): string {
   if (s.kind === "default") return fill(T.sourceDefault, { brand: s.brand });
   if (s.kind === "own") return T.sourceOwn;
-  return fill(T.sourceGroup, { codes: s.codes.join(" and ") });
+  // "A and B", "A, B and C" (design, 27 Nov).
+  const codes = s.codes.length <= 2 ? s.codes.join(" and ") : `${s.codes.slice(0, -1).join(", ")} and ${s.codes[s.codes.length - 1]}`;
+  return fill(T.sourceGroup, { codes });
 }
 
 export const CEILING_WORDS = {

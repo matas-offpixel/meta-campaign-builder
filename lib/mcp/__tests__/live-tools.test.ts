@@ -155,7 +155,7 @@ test("resume: paused outside Off/Pixel is refused unless the question says so; t
   for (const [ceiling, re] of [
     [null, /^Refused: DHB27-LIVE has no spend ceiling, so nothing that starts or raises spend can run\./],
     // Without Broad the show commits £875.00; Broad back on adds £30 × 25 days.
-    [1000, /^Refused: this would take DHB27-LIVE to £1,625\.00 committed, over its £1,000\.00 ceiling \(set for this show\)\. That’s £0\.00 spent to date \(Off\/Pixel’s Meta insights, none yet\), £0\.00 left on live lifetime budgets and £1,625\.00 in live daily budgets to their end or show day \(both read from Meta now\); this change adds £750\.00\. Nothing was sent to Meta\.$/],
+    [1000, /^Refused: this would take DHB27-LIVE to £1,625\.00 committed, over its £1,000\.00 ceiling \(set for this show\)\. Committed is £0\.00 spent \(none yet\), plus £0\.00 left on live lifetime budgets and £1,625\.00 in live daily budgets to their end or the show, read from Meta now\. This change adds £750\.00\. Nothing was sent to Meta\.$/],
   ] as const) {
     const { ctx, spy } = liveCtx({ ceiling });
     spy.objects.get(AS_BROAD)!.status = "PAUSED";
@@ -196,7 +196,7 @@ test("set_budget: down needs no ceiling; up is checked; the type must match; the
   {
     // Spent to date counts (ad_daily_insights): £200 spent + £1,625.00 committed is over £1,800.
     const { ctx, spy } = liveCtx({ ceiling: 1800, spent: 200 });
-    await refused(run(setBudgetTool, ctx, { event: CODE, kind: "ad_set", id: AS_BROAD, daily_gbp: 31, approval: YES }), /to £1,850\.00 committed, over its £1,800\.00 ceiling \(set for this show\)\. That’s £200\.00 spent to date \(Off\/Pixel’s Meta insights, to 25 Nov\)/);
+    await refused(run(setBudgetTool, ctx, { event: CODE, kind: "ad_set", id: AS_BROAD, daily_gbp: 31, approval: YES }), /to £1,850\.00 committed, over its £1,800\.00 ceiling \(set for this show\)\. Committed is £200\.00 spent \(to 25 Nov\), plus/);
     // A cut is never blocked, over the ceiling or not.
     await run(setBudgetTool, ctx, { event: CODE, kind: "ad_set", id: AS_BROAD, daily_gbp: 10, approval: YES });
     assert.equal(writes(spy).length, 1);

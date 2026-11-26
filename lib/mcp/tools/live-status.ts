@@ -158,7 +158,7 @@ export const resumeTool: McpTool = {
   failedText: LIVE_WORDS.metaFailed,
   description: describe(
     "Switches back on",
-    /* PENDING DESIGN: claude.mcp.tool.resume.ceiling */ "This starts spend, so it's refused when the show's committed spend would pass its spend ceiling (and without one). If it was paused outside Off/Pixel, in Ads Manager, say so in your question to Matas.",
+    /* PENDING DESIGN: claude.mcp.tool.resume.ceiling */ "This starts spend, so it's refused when the show's committed spend would pass its spend ceiling (and without one). If it was paused outside Off/Pixel, say so in your question to Matas.",
   ),
   inputSchema,
   run: (ctx, args) => runStatus(ctx, args, "ACTIVE", "resume"),
