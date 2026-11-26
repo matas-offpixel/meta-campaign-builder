@@ -37,7 +37,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   try {
     const resolved = await resolveServerMetaToken(supabase, user.id);
     token = resolved.token;
-    console.info(`[interest-search] token: source=${resolved.source} prefix=${token.slice(0, 12)}…`);
+    console.info(`[interest-search] token: source=${resolved.source}`);
   } catch (err) {
     console.error("[interest-search] no Meta access token:", err);
     return NextResponse.json(

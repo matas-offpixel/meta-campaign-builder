@@ -754,7 +754,7 @@ async function launchCampaign(
   console.log(
     "[launch-campaign] DB token diagnostics:" +
     `\n  user_id:          ${user.id}` +
-    `\n  provider_token:   ${userFbToken ? `PRESENT len=${userFbToken.length} prefix=${userFbToken.slice(0, 12)}…` : "MISSING"}` +
+    `\n  provider_token:   ${userFbToken ? `PRESENT len=${userFbToken.length}` : "MISSING"}` +
     `\n  updated_at:       ${dbTokenUpdatedAt ?? "unknown"}` +
     `\n  expires_at:       ${dbTokenExpiresAt ?? "unknown (run migration 004 to start tracking this)"}` +
     `\n  pre_launch_expiry:${dbTokenExpiredNow ? " ⚠️  EXPIRED" : " ok"}`,
@@ -779,7 +779,7 @@ async function launchCampaign(
     );
   }
   console.log(
-    `[launch-campaign] launchToken: source=${launchTokenSource} len=${launchToken.length} prefix=${launchToken.slice(0, 12)}…`,
+    `[launch-campaign] launchToken: source=${launchTokenSource} len=${launchToken.length}`,
   );
 
   if (!launchToken) {

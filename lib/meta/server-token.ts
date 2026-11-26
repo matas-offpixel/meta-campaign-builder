@@ -146,8 +146,9 @@ export async function validateMetaToken(token: string): Promise<TokenValidation>
  * log exactly how old and how fresh the stored token is.
  *
  * Logs a diagnostic line for each resolution step:
- *   [resolveToken] source=db  len=240 prefix=EAABwzL… updated_at=… expires_at=… expired=false
- *   [resolveToken] source=env len=185 prefix=EAABwzL…
+ *   [resolveToken] source=db updated_at=… expires_at=… expires_in_h=… expired=false
+ *   [resolveToken] source=env
+ * Never any part of the token (27 Nov: the db line printed its first 12 characters).
  *
  * @throws if neither source has a token — surfaces a user-friendly message.
  */
@@ -176,8 +177,6 @@ export async function resolveServerMetaToken(
 
       console.info(
         `[resolveToken] source=db` +
-        ` len=${tok.length}` +
-        ` prefix=${tok.slice(0, 12)}…` +
         ` updated_at=${updatedAt ?? "unknown"}` +
         ` expires_at=${expiresAt ?? "unknown"}` +
         ` expires_in_h=${expiresInH}` +
@@ -220,7 +219,7 @@ export async function resolveServerMetaToken(
   const envToken = process.env.META_ACCESS_TOKEN;
   if (envToken) {
     console.info(
-      `[resolveToken] source=env len=${envToken.length} prefix=${envToken.slice(0, 8)}…`,
+      `[resolveToken] source=env`,
     );
     return { token: envToken, source: "env", updatedAt: null, expiresAt: null };
   }

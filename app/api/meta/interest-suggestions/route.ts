@@ -683,7 +683,7 @@ async function enrichCandidates(
       `&type=adinterestvalid` +
       `&interest_fbid_list=${encodeURIComponent(payload)}`;
 
-    const urlSafe = url.replace(token, token.slice(0, 12) + "…");
+    const urlSafe = url.replace(encodeURIComponent(token), "REDACTED");
     console.info(
       `[interest-suggestions] ▶ enrichment call (batch ${i / BATCH + 1}):` +
       `\n  ids: ${batch.length}` +
@@ -2938,7 +2938,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     tokenSource = resolved.source;
     console.info(
       `[interest-suggestions] token resolved: source=${tokenSource} ` +
-      `len=${token.length} prefix=${token.slice(0, 12)}…`,
+      `len=${token.length}`,
     );
   } catch (err) {
     console.error("[interest-suggestions] no Meta access token available:", err);
@@ -3023,7 +3023,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 
   // ── Step 3: Meta call helper ──────────────────────────────────────────────
 
-  const tokenPrefix = token.slice(0, 12) + "…";
+  const tokenPrefix = "(redacted)";
 
   function buildMetaUrl(seedNames: string[]): { url: string; urlSafe: string; payloadValue: string } {
     const payloadValue = JSON.stringify(seedNames);
@@ -3051,7 +3051,6 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     const { url, urlSafe, payloadValue } = buildMetaUrl(seedNames);
     console.info(
       `[interest-suggestions] ▶ Meta call (${attempt}):` +
-      `\n  token prefix: ${tokenPrefix}` +
       `\n  payload mode: interest_list` +
       `\n  seedCount: ${seedNames.length}` +
       `\n  seedNamesSent: ${JSON.stringify(seedNames)}` +

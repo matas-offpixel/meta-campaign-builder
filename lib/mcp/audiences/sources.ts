@@ -33,6 +33,7 @@ import { linksFallback } from "../../retargeting/links.ts";
 import type { Db, ToolContext } from "../tool-types.ts";
 import type { AudienceEvent, ClientBusinessResult } from "./show.ts";
 import type { AccountAudience, McpAudienceDeps, PixelEvents, ShowLinkLite } from "./types.ts";
+import type { UnreadSource } from "./words.ts";
 import type { SpecContext } from "./specs.ts";
 import { loadClientBuildableSources, type ClientBuildableSource } from "./client-sources.ts";
 import { AUD_WORDS } from "./words.ts";
@@ -179,41 +180,81 @@ export function existingFollowers(audiences: readonly AccountAudience[], sourceI
 const share = (n: number) => Math.round(n * 1000) / 10;
 const yesNo = (n: number | null) => (n == null ? AUD_WORDS.pixelEventUnread : n > 0 ? AUD_WORDS.pixelEventYes : AUD_WORDS.pixelEventNo);
 
-export async function readSources(ctx: ToolContext, deps: McpAudienceDeps, event: AudienceEvent & { adAccountId: string }, business: ClientBusinessResult): Promise<SourcesRead> {
+/**
+ * Time limits (Matas, 27 Nov: audience_sources hung past Claude's 180 s on
+ * the show's video walk): each outside read gives up after `perReadMs` (each
+ * Graph request inside it after 10 s, lib/mcp/audience-deps.ts), the whole
+ * read after `budgetMs`, and the tool answers with what it has plus a
+ * "couldn't be read" line per source.
+ */
+export const READ_LIMITS = { perReadMs: 10_000, budgetMs: 60_000, listMs: 30_000 } as const;
+/** A read that stops on the budget (the audience list) gets this long to hand back what it had. */
+const GRACE_MS = 500;
+
+export async function readSources(ctx: ToolContext, deps: McpAudienceDeps, event: AudienceEvent & { adAccountId: string }, business: ClientBusinessResult, opts: { videos?: boolean } = {}): Promise<SourcesRead> {
   let metaGets = 0;
   const notes: string[] = [];
+  const limits = deps.limits ?? READ_LIMITS;
+  const budget = new AbortController();
+  const budgetTimer = setTimeout(() => budget.abort(new Error("budget")), limits.budgetMs);
 
-  // The pixel.
-  const { adSets, campaignIds } = await showAdSets(ctx.db, event, ctx.today);
-  let pixel: SourcesRead["pixel"] = null;
-  let pixelLine = AUD_WORDS.pixelNone(event.code);
-  const spent = adSets.filter((a) => a.spend > 0);
-  if (spent.length) {
-    const read = await deps.adSetPixels(ctx.userId, spent.map((a) => a.adsetId));
-    metaGets += read.metaGets;
-    const resolved = resolvePixel(spent, read.pixels, null, { secondPixelSpendShare: 0.1 });
-    if (resolved) {
-      const ev = await deps.pixelEvents(ctx.userId, resolved.pixel.id);
-      metaGets += ev.metaGets;
-      const line = AUD_WORDS.pixelLine({ name: ev.name ?? resolved.pixel.id, id: resolved.pixel.id, share: share(resolved.pixel.spendShare), purchase: yesNo(ev.events.Purchase), checkout: yesNo(ev.events.InitiateCheckout), registration: yesNo(ev.events.CompleteRegistration) });
-      pixel = { id: resolved.pixel.id, name: ev.name, spendShare: resolved.pixel.spendShare, events: ev.events, line };
-      pixelLine = line;
+  /**
+   * One outside read, with its own limit (null: the budget only, for a read
+   * made of many time-boxed requests) inside the tool's budget. A timeout or
+   * an error gives `fallback` and, when `source` is named, its "couldn't be
+   * read" line; the other reads go on. A read that stops on the budget gets
+   * GRACE_MS to hand back what it had (the audience list's partial answer).
+   */
+  const within = async <T,>(source: UnreadSource | null, fallback: T, run: (signal: AbortSignal) => Promise<T>, perReadMs: number | null = limits.perReadMs, grace = perReadMs == null): Promise<{ value: T; read: boolean }> => {
+    const signal = perReadMs ? AbortSignal.any([budget.signal, AbortSignal.timeout(perReadMs)]) : budget.signal;
+    let graceTimer: ReturnType<typeof setTimeout> | null = null;
+    const stop = new Promise<never>((_, reject) => {
+      const fire = () => {
+        graceTimer = setTimeout(() => reject(new Error("timed out")), grace ? GRACE_MS : 0);
+      };
+      if (signal.aborted) fire();
+      else signal.addEventListener("abort", fire, { once: true });
+    });
+    try {
+      return { value: await Promise.race([run(signal), stop]), read: true };
+    } catch {
+      if (source) notes.push(AUD_WORDS.notRead(source));
+      return { value: fallback, read: false };
+    } finally {
+      if (graceTimer) clearTimeout(graceTimer);
     }
-  }
+  };
 
-  // The links.
-  let links: ShowLinkLite[] | null = event.tag ? await deps.pageLinks(event.tag).catch(() => null) : null;
-  let linksLine: string;
-  if (links && links.length) linksLine = AUD_WORDS.linksCirqlin(links.length);
-  else {
-    links = linksFallback({ ticket_url: event.ticketUrl, signup_url: event.signupUrl }).map((l) => ({ kind: l.kind, name: l.name, url: `https://${l.rule}`, rule: l.rule }));
-    linksLine = links.length ? AUD_WORDS.linksFallback(links.length) : AUD_WORDS.linksNone(event.code);
-  }
+  // Independent reads, side by side: the pixel, the links, the Pages, the account's audiences, the client's BM, and the database's own.
+  const pixelP = (async () => {
+    const { adSets, campaignIds } = await showAdSets(ctx.db, event, ctx.today);
+    const spent = adSets.filter((a) => a.spend > 0);
+    if (!spent.length) return { pixel: null, line: AUD_WORDS.pixelNone(event.code), campaignIds };
+    const px = await within("pixel", null, (signal) => deps.adSetPixels(ctx.userId, spent.map((a) => a.adsetId), signal));
+    if (!px.value) return { pixel: null, line: AUD_WORDS.notRead("pixel"), campaignIds };
+    metaGets += px.value.metaGets;
+    const resolved = resolvePixel(spent, px.value.pixels, null, { secondPixelSpendShare: 0.1 });
+    if (!resolved) return { pixel: null, line: AUD_WORDS.pixelNone(event.code), campaignIds };
+    const evr = await within("pixel", null, (signal) => deps.pixelEvents(ctx.userId, resolved.pixel.id, signal));
+    if (!evr.value) return { pixel: null, line: AUD_WORDS.notRead("pixel"), campaignIds };
+    const ev = evr.value;
+    metaGets += ev.metaGets;
+    const line = AUD_WORDS.pixelLine({ name: ev.name ?? resolved.pixel.id, id: resolved.pixel.id, share: share(resolved.pixel.spendShare), purchase: yesNo(ev.events.Purchase), checkout: yesNo(ev.events.InitiateCheckout), registration: yesNo(ev.events.CompleteRegistration) });
+    return { pixel: { id: resolved.pixel.id, name: ev.name, spendShare: resolved.pixel.spendShare, events: ev.events, line } as SourcesRead["pixel"], line, campaignIds };
+  })();
+  // CIRQLIN's read says itself when it couldn't be read (the links line), so it adds no second line.
+  const linksP = event.tag ? within(null, null as ShowLinkLite[] | null, (signal) => deps.pageLinks(event.tag!, signal).catch(() => null)) : Promise.resolve({ value: null as ShowLinkLite[] | null, read: true });
+  const promoteP = within("pages", { pages: [] as Awaited<ReturnType<McpAudienceDeps["promotePages"]>>["pages"], metaGets: 0 }, (signal) => deps.promotePages(ctx.userId, event.adAccountId, signal));
+  // The account's audiences: up to listMs (a big account's list runs long), handing back what it read.
+  const existingP = within("audiences", { audiences: [] as AccountAudience[], metaGets: 0, complete: false }, (signal) => deps.listAudiences(ctx.userId, event.adAccountId, signal), limits.listMs ?? null, true);
+  const clientSourcesP =
+    business.kind === "one" && event.clientId
+      ? within(null, null as ClientBuildableSource[] | null, (signal) => loadClientBuildableSources(ctx.db, { businessAssets: (u, b) => deps.businessAssets(u, b, signal) }, ctx.userId, event.clientId!, business.business.id), null)
+      : Promise.resolve({ value: null as ClientBuildableSource[] | null, read: true });
 
-  // Pages and Instagram accounts.
-  const promote = await deps.promotePages(ctx.userId, event.adAccountId);
+  const [promoteRead, lineup, ownIds] = await Promise.all([promoteP, lineupSources(ctx.db, event.id), promoterPageIds(ctx.db, event.id, event.clientId)]);
+  const promote = promoteRead.value;
   metaGets += promote.metaGets;
-  const lineup = await lineupSources(ctx.db, event.id);
   // An act with no Page id on file takes the ad account's Page of the same name, and that Page's Instagram (checked for access like any other).
   const norm = (v: string | null | undefined) => (v ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "");
   for (const a of lineup) {
@@ -225,7 +266,6 @@ export async function readSources(ctx: ToolContext, deps: McpAudienceDeps, event
     a.igId ??= hit.igId;
     a.igUsername ??= hit.igUsername;
   }
-  const ownIds = await promoterPageIds(ctx.db, event.id, event.clientId);
   const lineupIds = new Set(lineup.map((a) => a.pageId).filter((v): v is string => Boolean(v)));
   const otherPages = promote.pages.filter((p) => !ownIds.has(p.id) && !lineupIds.has(p.id)).length;
   promote.pages = promote.pages.filter((p) => ownIds.has(p.id) || lineupIds.has(p.id));
@@ -233,25 +273,55 @@ export async function readSources(ctx: ToolContext, deps: McpAudienceDeps, event
   const businessId = business.kind === "one" ? business.business.id : null;
   const businessName = business.kind === "one" ? business.business.name : null;
   const pageIds = [...new Set([...promote.pages.map((p) => p.id), ...lineup.map((a) => a.pageId).filter((v): v is string => Boolean(v))])];
-  const access = pageIds.length ? await deps.pageAccess(ctx.userId, pageIds, businessId) : { accessible: [], names: {}, metaGets: 0 };
+  const noAccess = { accessible: [] as string[], names: {} as Record<string, string>, metaGets: 0 };
+  const accessP = pageIds.length ? within("access", noAccess, (signal) => deps.pageAccess(ctx.userId, pageIds, businessId, signal), null) : Promise.resolve({ value: noAccess, read: true });
+
+  // The show's ad videos only for create_audiences with a video spec and no video_ids (the walk is the slow read).
+  type VideoGroup = { contextId: string; videoIds: string[] };
+  const videosP: Promise<{ value: VideoGroup[]; read: boolean }> = opts.videos
+    ? pixelP.then((p) => {
+        const ids = [...new Set([...p.campaignIds, ...event.campaignIds])];
+        return ids.length ? within("videos", [] as VideoGroup[], (signal) => deps.showVideos(ctx.userId, event.adAccountId, ids, signal)) : { value: [] as VideoGroup[], read: true };
+      })
+    : Promise.resolve({ value: [] as VideoGroup[], read: true });
+
+  const [accessRead, existingRead, linksRead, pixelRead, clientSourcesRead, videosRead] = await Promise.all([accessP, existingP, linksP, pixelP, clientSourcesP, videosP]);
+  clearTimeout(budgetTimer);
+
+  const access = accessRead.value;
+  const accessChecked = accessRead.read;
   metaGets += access.metaGets;
   const accessible = new Set(access.accessible);
-  const existing = await deps.listAudiences(ctx.userId, event.adAccountId).then((r) => {
-    metaGets += r.metaGets;
-    if (!r.complete) notes.push(AUD_WORDS.partial(r.audiences.length));
-    return r.audiences;
-  });
+  const existing = existingRead.value.audiences;
+  metaGets += existingRead.value.metaGets;
+  if (existingRead.read && !existingRead.value.complete) notes.push(AUD_WORDS.partial(existing.length));
+  const pixel = pixelRead.pixel;
+  const pixelLine = pixelRead.line;
+  let links: ShowLinkLite[] | null = linksRead.value;
+  let linksLine: string;
+  if (links && links.length) linksLine = AUD_WORDS.linksCirqlin(links.length);
+  else {
+    links = linksFallback({ ticket_url: event.ticketUrl, signup_url: event.signupUrl }).map((l) => ({ kind: l.kind, name: l.name, url: `https://${l.rule}`, rule: l.rule }));
+    linksLine = links.length ? AUD_WORDS.linksFallback(links.length) : AUD_WORDS.linksNone(event.code);
+  }
+  const clientSources = clientSourcesRead.value;
+  if (!clientSourcesRead.read && business.kind === "one") notes.push(AUD_WORDS.clientSourcesUnread(business.business.name));
+  if (!opts.videos) notes.push(AUD_WORDS.videosNote);
+
   // Page followers are page_liked, Instagram followers INSTAGRAM_PROFILE_FOLLOW (the builder's rules); the lines name the source, never the event.
   const pageFollowers = (id: string, page: string, ok: boolean, who: string) => {
     const have = existingFollowers(existing, id, "page_liked");
     if (have) return AUD_WORDS.followersExisting(page, have.name ?? have.id, have.id);
+    if (!accessChecked) return AUD_WORDS.notChecked;
     return ok ? AUD_WORDS.followersOffered(page) : AUD_WORDS.followersNot(page, who);
   };
   const igFollowers = (id: string, username: string, ok: boolean, who: string) => {
     const have = existingFollowers(existing, id, "INSTAGRAM_PROFILE_FOLLOW");
     if (have) return AUD_WORDS.igFollowersExisting(username, have.name ?? have.id, have.id);
+    if (!accessChecked) return AUD_WORDS.notChecked;
     return ok ? AUD_WORDS.igFollowersOffered(username) : AUD_WORDS.igFollowersNot(username, who);
   };
+  const statusOf = (ok: boolean) => (!accessChecked ? AUD_WORDS.notChecked : ok ? AUD_WORDS.accessible : AUD_WORDS.needsAccess);
 
   const pages: SourcePage[] = [];
   const instagram: SourceInstagram[] = [];
@@ -260,7 +330,7 @@ export async function readSources(ctx: ToolContext, deps: McpAudienceDeps, event
     const ok = accessible.has(p.id);
     const name = p.name ?? access.names[p.id] ?? p.id;
     const act = lineup.find((a) => a.pageId === p.id);
-    pages.push({ id: p.id, name, owner: act ? "artist" : "promoter", artist: act?.name ?? null, accessible: ok, status: ok ? AUD_WORDS.accessible : AUD_WORDS.needsAccess, followers: pageFollowers(p.id, name, ok, act?.name ?? name) });
+    pages.push({ id: p.id, name, owner: act ? "artist" : "promoter", artist: act?.name ?? null, accessible: ok, status: statusOf(ok), followers: pageFollowers(p.id, name, ok, act?.name ?? name) });
     if (p.igId) igByPage.set(p.id, { id: p.igId, username: p.igUsername });
   }
   const promoteIds = new Set(promote.pages.map((p) => p.id));
@@ -270,8 +340,8 @@ export async function readSources(ctx: ToolContext, deps: McpAudienceDeps, event
     else if (!promoteIds.has(a.pageId) && !pages.some((p) => p.id === a.pageId)) {
       const ok = accessible.has(a.pageId);
       const name = access.names[a.pageId] ?? a.pageName ?? a.name;
-      const page: SourcePage = { id: a.pageId, name, owner: "artist", artist: a.name, accessible: ok, status: ok ? AUD_WORDS.accessible : AUD_WORDS.needsAccess, followers: pageFollowers(a.pageId, name, ok, a.name) };
-      if (!ok) {
+      const page: SourcePage = { id: a.pageId, name, owner: "artist", artist: a.name, accessible: ok, status: statusOf(ok), followers: pageFollowers(a.pageId, name, ok, a.name) };
+      if (!ok && accessChecked) {
         page.next = {
           tool: "request_page_access",
           page_ids: [a.pageId],
@@ -289,7 +359,7 @@ export async function readSources(ctx: ToolContext, deps: McpAudienceDeps, event
     const label = ig.username ?? ig.id;
     const artist = lineup.find((a) => a.igId === ig.id || (a.igUsername && ig.username && a.igUsername.toLowerCase() === ig.username.toLowerCase()));
     const pageName = pages.find((p) => p.id === pageId)?.name ?? pageId;
-    instagram.push({ id: ig.id, username: ig.username, owner: artist ? "artist" : "promoter", artist: artist?.name ?? null, accessible: ok, status: ok ? AUD_WORDS.accessible : AUD_WORDS.needsAccess, followers: igFollowers(ig.id, label, ok, artist?.name ?? pageName), linkedPageId: pageId });
+    instagram.push({ id: ig.id, username: ig.username, owner: artist ? "artist" : "promoter", artist: artist?.name ?? null, accessible: ok, status: statusOf(ok), followers: igFollowers(ig.id, label, ok, artist?.name ?? pageName), linkedPageId: pageId });
   }
   for (const a of lineup) {
     const known = instagram.some((i) => (a.igId && i.id === a.igId) || (a.igUsername && i.username && i.username.toLowerCase() === a.igUsername.toLowerCase()));
@@ -313,7 +383,7 @@ export async function readSources(ctx: ToolContext, deps: McpAudienceDeps, event
   }
 
   // What create_audiences checks a spec against.
-  const videos = campaignIds.length || event.campaignIds.length ? await deps.showVideos(ctx.userId, event.adAccountId, [...new Set([...campaignIds, ...event.campaignIds])]).catch(() => []) : [];
+  const videos = videosRead.value;
   const specContext: SpecContext | null = event.clientId
     ? {
         code: event.code,
@@ -322,21 +392,14 @@ export async function readSources(ctx: ToolContext, deps: McpAudienceDeps, event
         userId: ctx.userId,
         adAccountId: event.adAccountId,
         pixelId: pixel?.id ?? null,
-        pages: new Map(pages.map((p) => [p.id, { name: p.name, accessible: p.accessible }])),
-        igs: new Map(instagram.filter((i) => i.id).map((i) => [i.id as string, { username: i.username ?? (i.id as string), accessible: i.accessible }])),
+        pages: new Map(pages.map((p) => [p.id, { name: p.name, accessible: p.accessible, checked: accessChecked }])),
+        igs: new Map(instagram.filter((i) => i.id).map((i) => [i.id as string, { username: i.username ?? (i.id as string), accessible: i.accessible, checked: accessChecked || i.linkedPageId == null }])),
         videosByPage: new Map(videos.map((v) => [v.contextId, v.videoIds])),
+        videosUnread: !videosRead.read,
         accountAudiences: new Map(existing.map((a) => [a.id, { name: a.name, subtype: a.subtype, upper: a.upper, deliveryCode: a.deliveryCode ?? null }])),
         listed: existing,
       }
     : null;
-
-  let clientSources: ClientBuildableSource[] | null = null;
-  if (business.kind === "one" && event.clientId) {
-    clientSources = await loadClientBuildableSources(ctx.db, deps, ctx.userId, event.clientId, business.business.id).catch(() => {
-      notes.push(AUD_WORDS.clientSourcesUnread(business.business.name));
-      return null;
-    });
-  }
 
   return { pixel, pixelLine, links, linksLine, pages, instagram, clientSources, notes, metaGets, specContext };
 }

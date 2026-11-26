@@ -191,7 +191,7 @@ async function extendToken(shortToken: string): Promise<ExtendTokenResult> {
   // ── Step 2: Log short-lived token receipt ─────────────────────────────────
   console.info(
     "[fb-callback/direct] extendToken — short-lived token received:",
-    `len=${shortToken.length} prefix=${shortToken.slice(0, 12)}…`,
+    `len=${shortToken.length}`,
   );
 
   // ── Step 3: Call fb_exchange_token ────────────────────────────────────────
@@ -240,7 +240,6 @@ async function extendToken(shortToken: string): Promise<ExtendTokenResult> {
     `\n  expires_in=${expiresInSeconds}s (~${(expiresInSeconds / 86400).toFixed(1)} days)`,
     `\n  expires_at=${expiresAt}`,
     `\n  token_len=${json.access_token.length}`,
-    `\n  token_prefix=${json.access_token.slice(0, 12)}…`,
   );
   return { ok: true, token: json.access_token, expiresAt, expiresInSeconds };
 }
@@ -325,7 +324,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     }
     console.info(
       "[fb-callback/direct] short-lived token received from Facebook ✓",
-      `len=${exchangeResult.token.length} prefix=${exchangeResult.token.slice(0, 12)}…`,
+      `len=${exchangeResult.token.length}`,
       `expires_in=${exchangeResult.expiresIn ?? "unknown"}s`,
     );
 
@@ -349,7 +348,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     // extResult.ok === true — TypeScript now knows token/expiresAt are present
     console.info(
       "[fb-callback/direct] long-lived token ready for DB write ✓",
-      `len=${extResult.token.length} prefix=${extResult.token.slice(0, 12)}…`,
+      `len=${extResult.token.length}`,
       `expires_at=${extResult.expiresAt} (~${(extResult.expiresInSeconds / 86400).toFixed(1)}d)`,
     );
 

@@ -4214,7 +4214,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     tokenSource = resolved.source;
     console.info(
       `[interest-discover] token resolved: source=${resolved.source} ` +
-      `len=${token.length} prefix=${token.slice(0, 12)}…`,
+      `len=${token.length}`,
     );
   } catch (err) {
     console.error("[interest-discover] no Meta access token available:", err);

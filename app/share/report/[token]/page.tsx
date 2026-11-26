@@ -258,7 +258,7 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
     if (!decision.allowed) {
       forceRefresh = false;
       console.warn(
-        `[share-report] force-refresh throttled for token=${token.slice(0, 6)} ` +
+        `[share-report] force-refresh throttled ` +
           `retry-after-ms=${decision.retryAfterMs}`,
       );
     }
@@ -316,14 +316,14 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
         .maybeSingle(),
       loadEventFunnelView(admin, event_id).catch((err) => {
         console.warn(
-          `[share/report] funnel load failed for token=${token.slice(0, 6)}:`,
+          `[share/report] funnel load failed:`,
           err instanceof Error ? err.message : err,
         );
         return null;
       }),
       loadCrossPlatformComparison(admin, event_id).catch((err) => {
         console.warn(
-          `[share/report] comparison load failed for token=${token.slice(0, 6)}:`,
+          `[share/report] comparison load failed:`,
           err instanceof Error ? err.message : err,
         );
         return null;
@@ -1082,7 +1082,6 @@ async function resolveReportData(
     event,
     providerToken,
   } = input;
-  const tokenTag = shareToken.slice(0, 6);
 
   // Soft-skip: no Meta config means no Meta fetch and nothing
   // worth caching. Bail out early so the cache table only holds
@@ -1102,7 +1101,6 @@ async function resolveReportData(
     });
     if (hit) {
       console.log("[share-snapshots] hit", {
-        token: tokenTag,
         preset: datePreset,
         ageMs: hit.ageMs,
       });
@@ -1113,7 +1111,6 @@ async function resolveReportData(
     }
   }
   console.log("[share-snapshots] miss", {
-    token: tokenTag,
     preset: datePreset,
     forced: forceRefresh,
   });

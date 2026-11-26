@@ -84,7 +84,7 @@ export async function assertEventShareTokenWritable(
   }
   if (event.user_id !== ownerUserId) {
     console.warn(
-      `[share-token-write-scope] owner mismatch token=${token.slice(0, 6)} event_owner=${event.user_id} share_owner=${ownerUserId}`,
+      `[share-token-write-scope] owner mismatch event_owner=${event.user_id} share_owner=${ownerUserId}`,
     );
     return {
       ok: false,

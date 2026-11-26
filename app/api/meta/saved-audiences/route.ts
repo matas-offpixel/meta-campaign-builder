@@ -79,7 +79,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     tokenSource = resolved.source;
     console.info(
       `[/api/meta/saved-audiences] token resolved: source=${tokenSource} ` +
-      `len=${token.length} prefix=${token.slice(0, 12)}…`,
+      `len=${token.length}`,
     );
   } catch (err) {
     console.error("[/api/meta/saved-audiences] no Meta access token available:", err);
