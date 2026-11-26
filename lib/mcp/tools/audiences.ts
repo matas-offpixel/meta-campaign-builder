@@ -122,14 +122,15 @@ export const audienceSourcesTool: McpTool = {
       if (e instanceof ToolInputError) throw e;
       throw new ToolInputError(AUD_WORDS.readFailed, { code: event.code, refused: "meta_unread" });
     }
-    const { specContext, metaGets, ...answer } = read;
+    const { metaGets, ...rest } = read;
+    const { specContext: _unused, ...answer } = rest;
+    void _unused;
     return {
       data: {
         code: event.code,
         adAccount: event.adAccountId,
         clientBusinessManager: business.kind === "one" ? { id: business.business.id, name: business.business.name } : null,
         ...answer,
-        videoPages: specContext ? [...specContext.videosByPage].map(([pageId, ids]) => ({ pageId, videos: ids.length })) : [],
       },
       eventId: event.id,
       clientId: event.clientId,
@@ -175,9 +176,11 @@ export const createAudiencesTool: McpTool = {
     const event = await eventWithAccount(ctx, args.event);
     if (!event.clientId) throw new ToolInputError(AUD_WORDS.noClient(event.code), { code: event.code, refused: "no_client" });
     const business = await clientBusiness(ctx.db, deps, ctx.userId, event.clientId, event.adAccountId);
+    // The show's ad videos are read only when a video spec gives no video_ids (the walk is the slow read).
+    const needVideos = specs.some((x) => x && x.kind === "video_viewers" && !(Array.isArray(x.video_ids) && x.video_ids.length));
     let read: Awaited<ReturnType<typeof readSources>>;
     try {
-      read = await readSources(ctx, deps, event, business);
+      read = await readSources(ctx, deps, event, business, { videos: needVideos });
     } catch {
       throw new ToolInputError(AUD_WORDS.readFailed, { code: event.code, refused: "meta_unread" });
     }

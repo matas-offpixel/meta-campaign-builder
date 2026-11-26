@@ -68,22 +68,28 @@ export interface PendingPageRequest {
 }
 
 export interface McpAudienceDeps {
+  /**
+   * Time limits (Matas, 27 Nov): each outside read gives up after `perReadMs`
+   * and the whole read after `budgetMs`, answering with what it has. Omitted =
+   * READ_LIMITS (lib/mcp/audiences/sources.ts). Tests pass small ones.
+   */
+  limits?: { perReadMs: number; budgetMs: number };
   /** OFFPIXEL_META_AUDIENCE_WRITES_ENABLED (the Audience Builder's own gate). */
   audienceWrites(): boolean;
   /** GET /act_{id}/customaudiences (paged). */
-  listAudiences(userId: string, adAccountId: string): Promise<{ audiences: AccountAudience[]; metaGets: number; complete: boolean }>;
+  listAudiences(userId: string, adAccountId: string, signal?: AbortSignal): Promise<{ audiences: AccountAudience[]; metaGets: number; complete: boolean }>;
   /** GET /act_{id}/promote_pages with each Page's linked Instagram account. */
-  promotePages(userId: string, adAccountId: string): Promise<{ pages: PromotePage[]; metaGets: number }>;
+  promotePages(userId: string, adAccountId: string, signal?: AbortSignal): Promise<{ pages: PromotePage[]; metaGets: number }>;
   /** The Audience Builder's access check (resolvePageAccess: the token's Page tasks, then the client's Business Manager Pages). */
-  pageAccess(userId: string, pageIds: readonly string[], businessId: string | null): Promise<PageAccessRead & { metaGets: number }>;
+  pageAccess(userId: string, pageIds: readonly string[], businessId: string | null, signal?: AbortSignal): Promise<PageAccessRead & { metaGets: number }>;
   /** promoted_object.pixel_id per ad set (the purchase read's batch). Absent = not read. */
-  adSetPixels(userId: string, adsetIds: readonly string[]): Promise<{ pixels: Map<string, string | null>; metaGets: number }>;
+  adSetPixels(userId: string, adsetIds: readonly string[], signal?: AbortSignal): Promise<{ pixels: Map<string, string | null>; metaGets: number }>;
   /** The pixel's name and its Purchase / InitiateCheckout / CompleteRegistration counts in 28 days (GET /{pixel}/stats). */
-  pixelEvents(userId: string, pixelId: string): Promise<{ name: string | null; events: PixelEvents; metaGets: number }>;
+  pixelEvents(userId: string, pixelId: string, signal?: AbortSignal): Promise<{ name: string | null; events: PixelEvents; metaGets: number }>;
   /** CIRQLIN's page links for the show's tag (lib/cirqlin/page-links.ts), as RT11 reads them; null = not read. */
-  pageLinks(tag: string): Promise<ShowLinkLite[] | null>;
+  pageLinks(tag: string, signal?: AbortSignal): Promise<ShowLinkLite[] | null>;
   /** The show's ad videos, grouped by the Page each ran from (fetchAudienceMultiCampaignVideos, RT2). */
-  showVideos(userId: string, adAccountId: string, campaignIds: readonly string[]): Promise<{ contextId: string; videoIds: string[] }[]>;
+  showVideos(userId: string, adAccountId: string, campaignIds: readonly string[], signal?: AbortSignal): Promise<{ contextId: string; videoIds: string[] }[]>;
   /**
    * The Audience Builder's create for one audience: the draft row
    * (createAudienceDraft) then createMetaCustomAudience, which reuses an
@@ -91,7 +97,7 @@ export interface McpAudienceDeps {
    */
   createAudience(input: { userId: string; insert: MetaCustomAudienceInsert }): Promise<{ rowId: string; metaAudienceId: string | null; reused: boolean; failed: boolean }>;
   /** The owner business of an ad account (GET /act_{id}?fields=business). */
-  accountBusiness(userId: string, adAccountId: string): Promise<{ id: string; name: string | null } | null>;
+  accountBusiness(userId: string, adAccountId: string, signal?: AbortSignal): Promise<{ id: string; name: string | null } | null>;
   /** Matas's own token (user_facebook_tokens, never the env token): does it hold these permissions? null = no token. */
   tokenPermissions(userId: string): Promise<Set<string> | null>;
   /** Matas's role in a business (his business-scoped user on GET /{business}/business_users). */
@@ -99,7 +105,7 @@ export interface McpAudienceDeps {
   /** The business's owned and client Pages (ids). */
   businessPages(userId: string, businessId: string): Promise<Set<string>>;
   /** The business's Pages and Instagram accounts (owned_pages, client_pages, owned_instagram_assets, client_instagram_assets), as Matas. */
-  businessAssets(userId: string, businessId: string): Promise<{ pages: BusinessAsset[]; instagram: BusinessAsset[] }>;
+  businessAssets(userId: string, businessId: string, signal?: AbortSignal): Promise<{ pages: BusinessAsset[]; instagram: BusinessAsset[] }>;
   /** GET /{business}/pending_client_pages. */
   pendingPages(userId: string, businessId: string): Promise<PendingPageRequest[]>;
   /** POST /{business}/client_pages through lib/meta/page-access-request.ts (ledgered, required). */

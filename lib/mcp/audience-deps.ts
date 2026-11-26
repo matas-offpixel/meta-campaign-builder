@@ -46,6 +46,27 @@ const act = (id: string) => (id.startsWith("act_") ? id : `act_${id}`);
 const AUDIENCE_LEAN = "id,name,subtype,retention_days,approximate_count_lower_bound,approximate_count_upper_bound,delivery_status,operation_status,lookalike_spec";
 const AUDIENCE_FIELDS = `${AUDIENCE_LEAN},rule`;
 
+/** Each Graph request stops after this long (Matas, 27 Nov: audience_sources hung past Claude's 180 s on the video walk). */
+export const REQUEST_TIMEOUT_MS = 10_000;
+
+/** One request's signal: the caller's (the tool's budget, a source's limit) joined with this request's own timeout. */
+function reqSignal(outer?: AbortSignal): AbortSignal {
+  const own = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
+  return outer ? AbortSignal.any([outer, own]) : own;
+}
+
+/** For a read that takes no signal (the batch POST read, the video walk): stop waiting when the caller aborts. */
+function raceAbort<T>(p: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return p;
+  return Promise.race([
+    p,
+    new Promise<never>((_, reject) => {
+      if (signal.aborted) reject(new Error("aborted"));
+      signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+    }),
+  ]);
+}
+
 /**
  * GET a paged edge (the `after` cursor), at most `pages` pages.
  *
@@ -58,7 +79,7 @@ const AUDIENCE_FIELDS = `${AUDIENCE_LEAN},rule`;
  * A page that fails even lean is retried once, then the read stops and says
  * it's partial, keeping what it has. A first page that fails is an error.
  */
-async function edge(path: string, params: Record<string, string>, token: string, pages = 25, lean?: string): Promise<{ rows: Row[]; gets: number; complete: boolean }> {
+async function edge(path: string, params: Record<string, string>, token: string, pages = 25, lean?: string, signal?: AbortSignal): Promise<{ rows: Row[]; gets: number; complete: boolean }> {
   const rows: Row[] = [];
   let after: string | undefined;
   let gets = 0;
@@ -68,12 +89,17 @@ async function edge(path: string, params: Record<string, string>, token: string,
   for (let i = 0; i < pages; i++) {
     const get = (fields: string) => {
       gets += 1;
-      return graphGetWithToken<{ data?: Row[]; paging?: { next?: string; cursors?: { after?: string } } }>(path, { ...params, fields, limit: String(limit), ...(after ? { after } : {}) }, token, { maxAttempts: 1 });
+      return graphGetWithToken<{ data?: Row[]; paging?: { next?: string; cursors?: { after?: string } } }>(path, { ...params, fields, limit: String(limit), ...(after ? { after } : {}) }, token, { maxAttempts: 1, signal: reqSignal(signal) });
     };
     let res: Awaited<ReturnType<typeof get>>;
     try {
       res = await get(params.fields ?? "");
     } catch (e) {
+      // The caller's budget ran out: what's read so far, said as partial.
+      if (signal?.aborted) {
+        if (rows.length === 0) throw e;
+        return { rows, gets, complete: false };
+      }
       if (limit > 1) {
         limit = Math.max(1, Math.floor(limit / 2));
         i -= 1;
@@ -126,8 +152,8 @@ export function realAudienceDeps(db: SupabaseClient): McpAudienceDeps {
 
   return {
     audienceWrites: () => metaAudienceWritesEnabled(),
-    async listAudiences(userId, adAccountId) {
-      const { rows, gets, complete } = await edge(`/${act(adAccountId)}/customaudiences`, { fields: AUDIENCE_FIELDS, limit: "100" }, await opToken(userId), 400, AUDIENCE_LEAN);
+    async listAudiences(userId, adAccountId, signal) {
+      const { rows, gets, complete } = await edge(`/${act(adAccountId)}/customaudiences`, { fields: AUDIENCE_FIELDS, limit: "100" }, await opToken(userId), 400, AUDIENCE_LEAN, signal);
       const audiences: AccountAudience[] = rows.map((r) => ({
         id: String(r.id),
         name: str(r.name),
@@ -143,28 +169,40 @@ export function realAudienceDeps(db: SupabaseClient): McpAudienceDeps {
       }));
       return { audiences, metaGets: gets, complete };
     },
-    async promotePages(userId, adAccountId) {
-      const { rows, gets } = await edge(`/${act(adAccountId)}/promote_pages`, { fields: "id,name,instagram_business_account{id,username}", limit: "100" }, await opToken(userId), 10);
+    async promotePages(userId, adAccountId, signal) {
+      const { rows, gets } = await edge(`/${act(adAccountId)}/promote_pages`, { fields: "id,name,instagram_business_account{id,username}", limit: "100" }, await opToken(userId), 10, undefined, signal);
       return {
         pages: rows.map((r) => ({ id: String(r.id), name: str(r.name), igId: str((r.instagram_business_account as Row | undefined)?.id), igUsername: str((r.instagram_business_account as Row | undefined)?.username) })),
         metaGets: gets,
       };
     },
-    async pageAccess(userId, pageIds, businessId) {
-      const res = await resolvePageAccess([...pageIds], await opToken(userId), businessId ? { businessPages: businessSharedPages(businessId) } : {});
+    async pageAccess(userId, pageIds, businessId, signal) {
+      // The builder's check with its probe and its BM page list read through this seam, so each request stops on time.
+      const probe = (pageId: string, token: string) => graphGetWithToken<{ id?: string; name?: string; tasks?: string[] }>(`/${pageId}`, { fields: "id,name,tasks" }, token, { maxAttempts: 1, signal: reqSignal(signal) });
+      const businessPages = businessId
+        ? async (token: string) => {
+            const map = new Map<string, string>();
+            for (const e of ["owned_pages", "client_pages"]) {
+              const got = await edge(`/${businessId}/${e}`, { fields: "id,name", limit: "200" }, token, 25, undefined, signal).catch(() => ({ rows: [] as Row[] }));
+              for (const r of got.rows) if (r.id && !map.has(String(r.id))) map.set(String(r.id), str(r.name) ?? String(r.id));
+            }
+            return map;
+          }
+        : undefined;
+      const res = await raceAbort(resolvePageAccess([...pageIds], await opToken(userId), { probe, ...(businessPages ? { businessPages } : {}) }), signal);
       return { accessible: res.accessiblePageIds, names: res.names, metaGets: pageIds.length + (businessId ? 2 : 0) };
     },
-    async adSetPixels(userId, adsetIds) {
+    async adSetPixels(userId, adsetIds, signal) {
       const token = await opToken(userId);
-      const res = await fetchAdSetPixels((path, params) => graphMultiGetByIds(path, params, token), adsetIds);
+      const res = await raceAbort(fetchAdSetPixels((path, params) => graphMultiGetByIds(path, params, token), adsetIds), signal);
       if (res.error) throw new Error("ad set pixels unread");
       return { pixels: res.pixels, metaGets: res.calls };
     },
-    async pixelEvents(userId, pixelId) {
+    async pixelEvents(userId, pixelId, signal) {
       const token = await opToken(userId);
-      const get = (path: string, params: Record<string, string>) => graphGetWithToken<unknown>(path, params, token, { maxAttempts: 1 });
+      const get = (path: string, params: Record<string, string>) => graphGetWithToken<unknown>(path, params, token, { maxAttempts: 1, signal: reqSignal(signal) });
       let gets = 1;
-      const name = await graphGetWithToken<{ name?: string }>(`/${pixelId}`, { fields: "name" }, token, { maxAttempts: 1 })
+      const name = await graphGetWithToken<{ name?: string }>(`/${pixelId}`, { fields: "name" }, token, { maxAttempts: 1, signal: reqSignal(signal) })
         .then((r) => r?.name?.trim() || null)
         .catch(() => null);
       const events: PixelEvents = { Purchase: null, InitiateCheckout: null, CompleteRegistration: null };
@@ -175,13 +213,14 @@ export function realAudienceDeps(db: SupabaseClient): McpAudienceDeps {
       }
       return { name, events, metaGets: gets };
     },
-    async pageLinks(tag) {
-      const res = await fetchCirqlinPageLinks(tag);
+    async pageLinks(tag, signal) {
+      const res = await raceAbort(fetchCirqlinPageLinks(tag, { timeoutMs: REQUEST_TIMEOUT_MS }), signal);
       if (!res.ok) return null;
       return linksFromPages(res.pages).map((l) => ({ kind: l.kind, name: l.name, url: `https://${l.rule}`, rule: l.rule }));
     },
-    async showVideos(userId, adAccountId, campaignIds) {
-      const res = await fetchAudienceMultiCampaignVideos(act(adAccountId), [...campaignIds], await opToken(userId));
+    async showVideos(userId, adAccountId, campaignIds, signal) {
+      // The Audience Builder's own walk, unchanged; the connector stops waiting on its budget (it takes no signal).
+      const res = await raceAbort(fetchAudienceMultiCampaignVideos(act(adAccountId), [...campaignIds], await opToken(userId)), signal);
       return groupVideosByPage(res.videos as { id: string; pageId?: string | null }[]);
     },
     async createAudience({ userId, insert }) {
@@ -189,8 +228,8 @@ export function realAudienceDeps(db: SupabaseClient): McpAudienceDeps {
       const made = await createMetaCustomAudience(draft.id, { userId, supabase: db as never, rows: db, remediateSeeds: noSeedGrants });
       return { rowId: made.id, metaAudienceId: made.metaAudienceId, reused: made.reused === true, failed: made.status === "failed" };
     },
-    async accountBusiness(userId, adAccountId) {
-      const r = await graphGetWithToken<{ business?: { id?: string; name?: string } }>(`/${act(adAccountId)}`, { fields: "business{id,name}" }, await opToken(userId), { maxAttempts: 1 });
+    async accountBusiness(userId, adAccountId, signal) {
+      const r = await graphGetWithToken<{ business?: { id?: string; name?: string } }>(`/${act(adAccountId)}`, { fields: "business{id,name}" }, await opToken(userId), { maxAttempts: 1, signal: reqSignal(signal) });
       return r?.business?.id ? { id: String(r.business.id), name: r.business.name ?? null } : null;
     },
     async tokenPermissions(userId) {
@@ -212,14 +251,15 @@ export function realAudienceDeps(db: SupabaseClient): McpAudienceDeps {
       const map = await businessSharedPages(businessId)(await personal(userId));
       return new Set(map.keys());
     },
-    async businessAssets(userId, businessId) {
-      // The edges lib/bm/asset-kinds.ts verified live (client_instagram_accounts doesn't exist).
+    async businessAssets(userId, businessId, signal) {
+      // The edges lib/bm/asset-kinds.ts verified live (client_instagram_accounts doesn't exist), each request time-boxed.
       const token = await personal(userId);
+      const read = (e: string, fields: string) => edge(`/${businessId}/${e}`, { fields, limit: "100" }, token, 50, undefined, signal).then((r) => r.rows);
       const [owned, shared, ownedIg, sharedIg] = await Promise.all([
-        paginateAll<Row>(`/${businessId}/owned_pages`, { fields: "id,name" }, token),
-        paginateAll<Row>(`/${businessId}/client_pages`, { fields: "id,name" }, token),
-        paginateAll<Row>(`/${businessId}/owned_instagram_assets`, { fields: "id,ig_user_id,ig_username" }, token),
-        paginateAll<Row>(`/${businessId}/client_instagram_assets`, { fields: "id,ig_user_id,ig_username" }, token),
+        read("owned_pages", "id,name"),
+        read("client_pages", "id,name"),
+        read("owned_instagram_assets", "id,ig_user_id,ig_username"),
+        read("client_instagram_assets", "id,ig_user_id,ig_username"),
       ]);
       const page = (reach: "owned" | "client_shared") => (r: Row) => ({ id: String(r.id), name: str(r.name), reach });
       const ig = (reach: "owned" | "client_shared") => (r: Row) => ({ id: String(r.ig_user_id ?? r.id), name: str(r.ig_username), reach });

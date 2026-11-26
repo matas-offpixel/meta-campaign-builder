@@ -94,11 +94,13 @@ export interface SpecContext {
   adAccountId: string;
   pixelId: string | null;
   /** Facebook Pages the show can build from: id → name and access. */
-  pages: ReadonlyMap<string, { name: string; accessible: boolean }>;
+  pages: ReadonlyMap<string, { name: string; accessible: boolean; checked?: boolean }>;
   /** Instagram accounts: id → username and access. */
-  igs: ReadonlyMap<string, { username: string; accessible: boolean }>;
+  igs: ReadonlyMap<string, { username: string; accessible: boolean; checked?: boolean }>;
   /** The show's ad videos by the Page each ran from. */
   videosByPage: ReadonlyMap<string, readonly string[]>;
+  /** The show's ad videos weren't read in time (a video spec then needs video_ids). */
+  videosUnread?: boolean;
   /** The account's custom audiences by id (lookalike origins). */
   accountAudiences: ReadonlyMap<string, { name: string | null; subtype: string | null; upper: number | null; deliveryCode: number | null }>;
   /** Every audience on the account as listed (rules included where Meta sent them), for reuse. */
@@ -196,6 +198,7 @@ export function buildSpec(input: SpecInput, ctx: SpecContext): SpecResult {
       if (kind === "video_viewers" && ctx.igs.has(idOf(input.ig_id) || id)) return { ok: false, why: AUD_WORDS.whyVideoIg };
       return { ok: false, why: AUD_WORDS.whySource(id || "?", ctx.code) };
     }
+    if (page.checked === false) return { ok: false, why: AUD_WORDS.whyUnchecked(page.name) };
     if (!page.accessible) return { ok: false, why: AUD_WORDS.whyAccess(page.name) };
     if (kind === "page_engagers") return row("page_engagement_fb", audienceName(ctx.code, `${page.name} ${SOURCE_LABELS.pageEngagers}`, days(retention)), id, { subtype: "page_engagement_fb", pageIds: [id], pageName: page.name });
     if (kind === "page_followers") return row("page_followers_fb", audienceName(ctx.code, `${page.name} ${SOURCE_LABELS.pageFollowers}`, SOURCE_LABELS.allTime), id, { subtype: "page_followers_fb", pageIds: [id], pageName: page.name });
@@ -203,7 +206,7 @@ export function buildSpec(input: SpecInput, ctx: SpecContext): SpecResult {
     if (threshold !== 75 && threshold !== 95) return { ok: false, why: AUD_WORDS.whyThreshold };
     const given = Array.isArray(input.video_ids) ? [...new Set(input.video_ids.map(idOf).filter((v) => META_ID.test(v)))].slice(0, 1000) : [];
     const videoIds = given.length ? given : [...(ctx.videosByPage.get(id) ?? [])];
-    if (videoIds.length === 0) return { ok: false, why: AUD_WORDS.whyNoVideos(ctx.code, page.name) };
+    if (videoIds.length === 0) return { ok: false, why: ctx.videosUnread ? AUD_WORDS.whyVideosUnread : AUD_WORDS.whyNoVideos(ctx.code, page.name) };
     return row("video_views", audienceName(ctx.code, `${page.name} ${SOURCE_LABELS.video} ${threshold} %`, days(retention)), videoIds.join(","), { subtype: "video_views", threshold, videoIds, contextId: id });
   }
 
@@ -211,6 +214,7 @@ export function buildSpec(input: SpecInput, ctx: SpecContext): SpecResult {
   const id = idOf(input.ig_id);
   const ig = META_ID.test(id) ? ctx.igs.get(id) : undefined;
   if (!ig) return { ok: false, why: AUD_WORDS.whySource(id || "?", ctx.code) };
+  if (ig.checked === false) return { ok: false, why: AUD_WORDS.whyUnchecked(`@${ig.username}`) };
   if (!ig.accessible) return { ok: false, why: AUD_WORDS.whyAccess(`@${ig.username}`) };
   if (kind === "ig_engagers") return row("page_engagement_ig", audienceName(ctx.code, `@${ig.username} ${SOURCE_LABELS.igEngagers}`, days(retention)), id, { subtype: "page_engagement_ig", pageIds: [id], pageName: `@${ig.username}` });
   return row("page_followers_ig", audienceName(ctx.code, `@${ig.username} ${SOURCE_LABELS.igFollowers}`, SOURCE_LABELS.allTime), id, { subtype: "page_followers_ig", pageIds: [id], pageName: `@${ig.username}` });

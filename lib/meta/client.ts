@@ -223,6 +223,12 @@ export async function graphGetWithToken<T>(
      * a dormant account's tiny ads_management budget (Step-1 ad-account list).
      */
     maxAttempts?: number;
+    /**
+     * Stops the request (and any retry) when it aborts, e.g. a caller's
+     * per-read timeout (the connector's audience_sources). An aborted read
+     * throws; it is never retried.
+     */
+    signal?: AbortSignal;
   },
 ): Promise<T> {
   const url = new URL(`${BASE}${path}`);
@@ -230,7 +236,7 @@ export async function graphGetWithToken<T>(
   for (const [key, value] of Object.entries(params)) {
     url.searchParams.set(key, value);
   }
-  return executeGetWithRetry<T>(url, path, options?.maxAttempts ?? MAX_GET_ATTEMPTS);
+  return executeGetWithRetry<T>(url, path, options?.maxAttempts ?? MAX_GET_ATTEMPTS, options?.signal);
 }
 
 // ─── GET retry internals ─────────────────────────────────────────────────────
@@ -326,17 +332,22 @@ async function executeGetWithRetry<T>(
   url: URL,
   path: string,
   maxAttempts: number = MAX_GET_ATTEMPTS,
+  signal?: AbortSignal,
 ): Promise<T> {
   const attempts = Math.max(1, maxAttempts);
   let lastError: unknown;
+  const aborted = () => new Error(`Meta API read aborted: ${path}`);
   for (let attempt = 0; attempt < attempts; attempt += 1) {
+    if (signal?.aborted) throw aborted();
     let response: Response | null = null;
     let networkError: unknown = null;
     try {
-      response = await fetch(url.toString(), { cache: "no-store" });
+      response = await fetch(url.toString(), signal ? { cache: "no-store", signal } : { cache: "no-store" });
     } catch (err) {
       networkError = err;
     }
+    // A caller's abort (timeout) is never retried.
+    if (!response && signal?.aborted) throw aborted();
     countMetaCall();
 
     // Network failure — retryable up to `attempts`.

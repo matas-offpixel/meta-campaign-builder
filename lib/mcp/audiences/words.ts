@@ -58,6 +58,11 @@ const T = {
   linksCirqlin: pending("claude.mcp.aud.src.links.cirqlin", "audience_sources, links from CIRQLIN", "Links from CIRQLIN’s page links: {n}."),
   linksFallback: pending("claude.mcp.aud.src.links.fallback", "audience_sources, links from the event", "CIRQLIN’s page links couldn’t be read, so these are the event’s ticket and signup links: {n}."),
   otherPages: pending("claude.mcp.aud.src.other_pages", "audience_sources, the ad account's other Pages, not listed", "The ad account can also run from {pages} outside the promoter’s and this lineup’s; they aren’t listed."),
+  notRead: pending("claude.mcp.aud.src.not_read", "audience_sources and create_audiences, one outside read that timed out or failed ({source}: the pixel and its events / the ad account’s Pages / Page access / the ad account’s audiences / the show’s ad videos)", "{source} couldn’t be read in time, so it isn’t shown. Try again for it."),
+  notChecked: pending("claude.mcp.aud.src.not_checked", "audience_sources, a Page’s access or followers when Page access couldn’t be read in time", "not checked: Page access couldn’t be read in time"),
+  videosNote: pending("claude.mcp.aud.src.videos_note", "audience_sources, why it doesn’t list the show’s ad videos", "Video viewers: this doesn’t read the show’s ad videos (it’s the slow read). create_audiences reads them for a video spec, or give video_ids."),
+  whyUnchecked: pending("claude.mcp.aud.why.unchecked", "create_audiences, a spec whose source’s access couldn’t be checked in time", "{name}’s access couldn’t be checked in time; try again."),
+  whyVideosUnread: pending("claude.mcp.aud.why.videos_unread", "create_audiences, a video spec whose videos couldn’t be read in time", "the show’s ad videos couldn’t be read in time; give video_ids."),
   clientSourcesUnread: pending("claude.mcp.aud.src.client_sources.unread", "audience_sources, the client BM's Pages couldn't be read", "{business}’s Pages and Instagram accounts couldn’t be read, so they aren’t listed. Try again."),
   linksNone: pending("claude.mcp.aud.src.links.none", "audience_sources, no links", "{code} has no ticket or landing links to build visitors from."),
   accessible: pending("claude.mcp.aud.src.accessible", "audience_sources, a Page or account audiences can be built from", "accessible"),
@@ -153,6 +158,8 @@ export const AUD_WORDS = {
   linksCirqlin: (n: number) => fill(T.linksCirqlin, { n }),
   linksFallback: (n: number) => fill(T.linksFallback, { n }),
   otherPages: (n: number) => fill(T.otherPages, { pages: count(n, "other Page", "other Pages") }),
+  notRead: (source: UnreadSource) => fill(T.notRead, { source: UNREAD_SOURCE[source] }),
+  whyUnchecked: (name: string) => fill(T.whyUnchecked, { name }),
   clientSourcesUnread: (business: string) => fill(T.clientSourcesUnread, { business }),
   linksNone: (code: string) => fill(T.linksNone, { code }),
   idUnknown: (name: string, what: "Facebook Page" | "Instagram") => fill(T.idUnknown, { name, what }),
@@ -200,6 +207,16 @@ export const AUD_WORDS = {
 function pagesAre(pages: readonly string[], one: string, many: string): string {
   return pages.length === 1 ? `${pages[0]} ${one}` : `${pages.join(", ")} ${many}`;
 }
+
+/** The outside reads audience_sources time-boxes, as {source} reads them (PENDING DESIGN with notRead). */
+export const UNREAD_SOURCE = {
+  pixel: "The pixel and its events",
+  pages: "The ad account’s Pages",
+  access: "Page access",
+  audiences: "The ad account’s audiences",
+  videos: "The show’s ad videos",
+} as const;
+export type UnreadSource = keyof typeof UNREAD_SOURCE;
 
 /** ADVERTISE → Advertise, as Business Suite words the tasks. */
 export function taskWord(task: string): string {

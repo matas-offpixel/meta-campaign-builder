@@ -543,3 +543,100 @@ test("pending_access and the client listing read a Business Manager through its 
     assert.deepEqual(sent(off.calls, "pendingPages"), [], id);
   }
 });
+
+// ── Time limits (27 Nov: audience_sources hung past Claude's 180 s) ──────────
+
+const never = <T>() => new Promise<T>(() => {});
+const FAST = { perReadMs: 40, budgetMs: 300 };
+
+test("audience_sources: each outside read that never answers gives up at its limit, the tool answers within the budget, and the rest still shows", async () => {
+  const { deps } = spyDeps({
+    limits: FAST,
+    pixelEvents: () => never(),
+    pageAccess: () => never(),
+    pageLinks: () => never(),
+    listAudiences: () => never(),
+    businessAssets: () => never(),
+  });
+  const t0 = Date.now();
+  const out = await run(audienceSourcesTool, ctxOf(deps, { tables: { events: tables().events.map((e) => ({ ...e, mailchimp_tag: "XMPL-TAG" })) } }).ctx, { event: CODE });
+  const took = Date.now() - t0;
+  assert.ok(took < FAST.budgetMs + 1500, `answered in ${took} ms`);
+  const d = out.data as Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
+  assert.equal(d.pixelLine, "The pixel and its events couldn’t be read in time, so it isn’t shown. Try again for it.");
+  for (const line of [
+    "Page access couldn’t be read in time, so it isn’t shown. Try again for it.",
+    "The ad account’s audiences couldn’t be read in time, so it isn’t shown. Try again for it.",
+    "XMPL BM’s Pages and Instagram accounts couldn’t be read, so they aren’t listed. Try again.",
+  ]) assert.ok(d.notes.includes(line), line);
+  // CIRQLIN timed out: the event's own links, said as such.
+  assert.deepEqual(d.links.map((l: { rule: string }) => l.rule), ["tix.example.com/e/1", "xmpl-show.example.com"]);
+  // The Pages themselves still come back (promote_pages answered), marked not checked.
+  const promo = d.pages.find((p: { id: string }) => p.id === PROMO_PAGE);
+  assert.equal(promo.status, "not checked: Page access couldn’t be read in time");
+  assert.equal(promo.followers, "not checked: Page access couldn’t be read in time");
+  assert.equal(promo.next, undefined);
+});
+
+test("audience_sources: one slow read never holds up the others (they run side by side)", async () => {
+  const { deps, calls } = spyDeps({ limits: { perReadMs: 200, budgetMs: 1000 }, promotePages: () => never() });
+  const t0 = Date.now();
+  const out = await run(audienceSourcesTool, ctxOf(deps).ctx, { event: CODE });
+  const took = Date.now() - t0;
+  assert.ok(took < 900, `answered in ${took} ms, not one limit after another`);
+  const d = out.data as Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
+  assert.ok(d.notes.includes("The ad account’s Pages couldn’t be read in time, so it isn’t shown. Try again for it."));
+  assert.match(d.pixelLine, /^Pixel XMPL Pixel/);
+  assert.ok(sent(calls, "listAudiences").length === 1 && sent(calls, "adSetPixels").length === 1);
+});
+
+test("audience_sources: an audience list stopped by the budget hands back what it read, said as partial", async () => {
+  const { deps } = spyDeps({
+    limits: { perReadMs: 40, budgetMs: 150 },
+    listAudiences: (_u, _a, signal) =>
+      new Promise((resolve) => signal?.addEventListener("abort", () => resolve({ audiences: [{ id: "120001", name: "XMPL Likes", subtype: "ENGAGEMENT", retentionDays: 0, lower: 1000, upper: 2000, delivery: null, operation: null, rule: null }], metaGets: 3, complete: false }), { once: true })),
+  });
+  const out = await run(audienceSourcesTool, ctxOf(deps).ctx, { event: CODE });
+  const d = out.data as Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
+  assert.ok(d.notes.includes("Meta stopped answering part way through the account’s audiences, so this lists the first 1. An audience past those isn’t checked for reuse here."));
+});
+
+test("audience_sources doesn't walk the show's ad videos; create_audiences does only for a video spec with no video_ids, and a walk that never answers refuses that spec with nothing made", async () => {
+  const a = spyDeps();
+  const out = await run(audienceSourcesTool, ctxOf(a.deps).ctx, { event: CODE });
+  assert.deepEqual(sent(a.calls, "showVideos"), []);
+  assert.ok((out.data as { notes: string[] }).notes.includes("Video viewers: this doesn’t read the show’s ad videos (it’s the slow read). create_audiences reads them for a video spec, or give video_ids."));
+  const b = spyDeps();
+  await run(createAudiencesTool, ctxOf(b.deps).ctx, { event: CODE, approval: YES, specs: [{ kind: "page_engagers", page_id: PROMO_PAGE, retention_days: 30 }, { kind: "video_viewers", page_id: PROMO_PAGE, threshold: 75, retention_days: 90, video_ids: ["600000009"] }] });
+  assert.deepEqual(sent(b.calls, "showVideos"), [], "given video_ids: no walk");
+  const c = spyDeps({ limits: FAST, showVideos: () => never() });
+  await refused(
+    run(createAudiencesTool, ctxOf(c.deps).ctx, { event: CODE, approval: YES, specs: [{ kind: "video_viewers", page_id: PROMO_PAGE, threshold: 95, retention_days: 90 }] }),
+    "Refused: 1 spec can’t be built, so none were made. Nothing was sent to Meta.\nSpec 1: the show’s ad videos couldn’t be read in time; give video_ids.",
+  );
+  noWrites(c.calls);
+});
+
+test("create_audiences: a source whose access couldn't be checked in time is refused as such, nothing made", async () => {
+  const { deps, calls } = spyDeps({ limits: FAST, pageAccess: () => never() });
+  await refused(
+    run(createAudiencesTool, ctxOf(deps).ctx, { event: CODE, approval: YES, specs: [{ kind: "page_engagers", page_id: PROMO_PAGE, retention_days: 30 }] }),
+    "Refused: 1 spec can’t be built, so none were made. Nothing was sent to Meta.\nSpec 1: XMPL Promoter’s access couldn’t be checked in time; try again.",
+  );
+  noWrites(calls);
+});
+
+test("the seam: every Graph read carries a 10 s per-request signal; the Graph client stops an aborted read and never retries it", async () => {
+  const { readFileSync } = await import("node:fs");
+  const seam = readFileSync(new URL("../audience-deps.ts", import.meta.url), "utf8");
+  assert.match(seam, /export const REQUEST_TIMEOUT_MS = 10_000;/);
+  const gets = seam.split("\n").filter((l) => /graphGetWithToken[<(]/.test(l) && !/^import/.test(l.trim()));
+  const unboxed = gets.filter((l) => !/signal: reqSignal\(signal\)/.test(l));
+  // The Business Manager reads for request_page_access (permissions, business users, pending) aren't audience_sources' and keep their own path.
+  assert.deepEqual(unboxed.filter((l) => !/me\/permissions/.test(l)), []);
+  const client = readFileSync(new URL("../../meta/client.ts", import.meta.url), "utf8");
+  assert.match(client, /signal\?: AbortSignal;/);
+  assert.match(client, /return executeGetWithRetry<T>\(url, path, options\?\.maxAttempts \?\? MAX_GET_ATTEMPTS, options\?\.signal\);/);
+  assert.match(client, /if \(signal\?\.aborted\) throw aborted\(\);/);
+  assert.match(client, /if \(!response && signal\?\.aborted\) throw aborted\(\);/);
+});
