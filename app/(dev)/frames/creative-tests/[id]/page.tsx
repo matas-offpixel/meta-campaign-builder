@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { SnippetFrameMount } from "@/components/dashboard/events/creative-lab/snippet-frame-mount";
 import { SnippetPressFrameMount } from "@/components/dashboard/events/creative-lab/snippet-press-frame-mount";
 import { SNIPPET_FRAME_IDS } from "@/scripts/plan-frames/snippet-fixtures";
-import { SNIPPET_PRESS_FRAME_IDS } from "@/scripts/plan-frames/snippet-press-fixtures";
+import { SNIPPET_PRESS_FRAME_IDS, snippetPressFile } from "@/scripts/plan-frames/snippet-press-fixtures";
 import { VARIANT_PAIR_FRAME_IDS } from "@/scripts/plan-frames/variant-pair-fixtures";
 
 /**
@@ -22,7 +22,7 @@ export function generateStaticParams() {
 export default async function CreativeTestsFramePage({ params }: { params: Promise<{ id: string }> }) {
   if (process.env.ENABLE_PLAN_FRAMES !== "1") notFound();
   const { id } = await params;
-  if ((SNIPPET_PRESS_FRAME_IDS as readonly string[]).includes(id)) return <SnippetPressFrameMount id={id} />;
+  if ((SNIPPET_PRESS_FRAME_IDS as readonly string[]).includes(id)) return <SnippetPressFrameMount id={id} file={snippetPressFile(id)} />;
   if (![...SNIPPET_FRAME_IDS, ...VARIANT_PAIR_FRAME_IDS].includes(id as never)) notFound();
   return <SnippetFrameMount id={id} />;
 }
