@@ -20,6 +20,15 @@
  *   npx tsx --conditions=react-server --env-file=.env.local scripts/page-groups-seed.mts --from-meta --apply    # writes new and changed unconfirmed groups
  *   … --listing FILE in place of --from-meta · … --client UUID for one client
  *
+ * --genres FILE (Matas, 27 Nov): the page genres file
+ * (scratch/retargeting/page-genres-draft-*.csv), only its rows Matas marked
+ * "confirmed" (CONFIRMED_STATUS) with a genre that isn't "?". Each Page goes
+ * under every client its Business Manager is linked to. Run it only once he
+ * has confirmed the file; a dry run first.
+ *
+ *   npx tsx --env-file=.env.local scripts/page-groups-seed.mts --genres FILE           # dry run
+ *   npx tsx --env-file=.env.local scripts/page-groups-seed.mts --genres FILE --apply
+ *
  * --apply never confirms a group and never touches a confirmed one: Matas
  * confirms each before the build uses it. Prints ids and counts only.
  */
@@ -27,7 +36,7 @@ import { readFileSync } from "node:fs";
 import { createClient } from "@supabase/supabase-js";
 
 import { MATAS_USER_IDS } from "../lib/auth/operator-allowlist.ts";
-import { noGenreLine, planPageGroups, type ClientBuildableSource, type StoredGroup } from "../lib/retargeting/page-groups.ts";
+import { confirmedGenreRows, noGenreLine, parseGenreRows, planPageGroups, sourcesFromGenreRows, type ClientBuildableSource, type StoredGroup } from "../lib/retargeting/page-groups.ts";
 
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(name);
@@ -37,9 +46,10 @@ function arg(name: string): string | undefined {
 const APPLY = process.argv.includes("--apply");
 const LISTING = arg("--listing");
 const FROM_META = process.argv.includes("--from-meta");
+const GENRES = arg("--genres");
 const CLIENT = arg("--client");
 const USER = arg("--user") ?? MATAS_USER_IDS[0];
-if (!LISTING && !FROM_META) throw new Error("--from-meta or --listing FILE is required");
+if (!LISTING && !FROM_META && !GENRES) throw new Error("--genres FILE, --from-meta or --listing FILE is required");
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -66,7 +76,19 @@ async function fromMeta(): Promise<ClientBuildableSource[]> {
   return rows;
 }
 
-const listing = (FROM_META ? await fromMeta() : (JSON.parse(readFileSync(LISTING!, "utf8")) as ClientBuildableSource[])).filter((row) => !CLIENT || row.client_id === CLIENT);
+/** The confirmed rows of the genres file, under the clients their Business Manager links to. */
+async function fromGenres(): Promise<ClientBuildableSource[]> {
+  const rows = parseGenreRows(readFileSync(GENRES!, "utf8"));
+  const confirmed = confirmedGenreRows(rows);
+  const { data, error } = await db.from("client_business_managers").select("client_id, business_name").not("client_id", "is", null);
+  if (error) throw new Error(`client_business_managers: ${error.message}`);
+  const { sources, unlinked } = sourcesFromGenreRows(rows, (data ?? []) as { client_id: string; business_name: string | null }[]);
+  console.log(`genres file: rows=${rows.length} confirmed=${confirmed.length} ignored=${rows.length - confirmed.length} (draft, unsure, "?" or not a genre to group on)`);
+  for (const name of unlinked) console.log(`no client links business "${name}": its confirmed pages are left out`);
+  return sources;
+}
+
+const listing = (GENRES ? await fromGenres() : FROM_META ? await fromMeta() : (JSON.parse(readFileSync(LISTING!, "utf8")) as ClientBuildableSource[])).filter((row) => !CLIENT || row.client_id === CLIENT);
 const clientIds = [...new Set(listing.map((row) => row.client_id))];
 const stored: StoredGroup[] = [];
 for (let i = 0; i < clientIds.length; i += 100) {

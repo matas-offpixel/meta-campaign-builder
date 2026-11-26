@@ -456,8 +456,8 @@ export type SpecOptions = {
   similarTooSmall?: boolean;
 };
 
-/** READING: Similar's engagers window is Cold's (180 days); the staged record gives none. */
-export const SIMILAR_ENGAGED_DAYS = 180;
+/** Matas, 27 Nov: Similar's lookback is 365 days (not 180); Cold, Warm and Hot keep theirs. */
+export const SIMILAR_ENGAGED_DAYS = 365;
 
 /** The Similar tier's audiences: engagers of the group's pages, ≤ 5 pages an audience, Facebook and Instagram. */
 export function similarAudiences(group: PageGroup | null | undefined): FunnelAudience[] {

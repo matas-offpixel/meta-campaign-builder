@@ -11,7 +11,7 @@ import { describe, it } from "node:test";
 import { tierAdSetPayload, widerAdSetPayload, widerCampaignFields } from "../apply.ts";
 import { capTiers, funnelSpecs, funnelTiersMatching, RF3, SPLIT_WITH_SIMILAR, splitOf, splitTotal, stepsAfter, type FunnelSources, type PageGroup } from "../funnel.ts";
 import { claudePlanLines, planFunnelShow } from "../funnel-plan.ts";
-import { noGenreLine, planPageGroups } from "../page-groups.ts";
+import { CONFIRMED_STATUS, confirmedGenreRows, noGenreLine, parseGenreRows, planPageGroups, sourcesFromGenreRows } from "../page-groups.ts";
 import { adviseExisting, advantageOff, geoExpansionOff, geoNotReadLine, lookalikeOrigins, SHOW_CAMPAIGNS_RULED, untickLine, widerAfterStep, widerSpecs } from "../show-campaigns.ts";
 
 const SOURCES: FunnelSources = {
@@ -225,5 +225,35 @@ describe("Matas, 26 Nov: no Similar this stretch, its share goes to Cold, and th
     const after = plan({ twoCampaigns: true, pageGroup: GROUP, genreFamily: "drum_and_bass" }, { existing: built });
     assert.equal(after.similarSkip, null);
     assert.ok(after.steps[0]!.tiers.similar > 0);
+  });
+});
+
+describe("the page genres file (Matas, 27 Nov): only rows he confirmed", () => {
+  const CSV = [
+    "business,page_id,page_name,category,followers,genre_draft,status",
+    'XMPL Promotions,1000000001,"Rooftop, ""Sessions""",Club,1200,techno,confirmed',
+    "XMPL Promotions,1000000002,Warehouse,Club,900,techno,confirmed",
+    "XMPL Promotions,1000000003,Draft page,Club,800,techno,draft",
+    "XMPL Promotions,1000000004,Unsure page,Club,700,house_tech,unsure",
+    "XMPL Promotions,1000000005,Unknown,Club,600,?,confirmed",
+    "XMPL Promotions,1000000006,Mixed,Club,500,no_single_genre,confirmed",
+    "Other BM,1000000007,Elsewhere,Club,400,disco,confirmed",
+  ].join("\n");
+
+  it("reads quoted names; ignores draft, unsure and \"?\" rows (and no_single_genre); groups by client and genre", () => {
+    const rows = parseGenreRows(CSV);
+    assert.equal(rows[0]!.pageName, 'Rooftop, "Sessions"');
+    assert.equal(CONFIRMED_STATUS, "confirmed");
+    assert.deepEqual(confirmedGenreRows(rows).map((row) => row.pageId), ["1000000001", "1000000002", "1000000007"]);
+    const { sources, unlinked } = sourcesFromGenreRows(rows, [{ client_id: "c1", business_name: "xmpl promotions " }]);
+    assert.deepEqual(unlinked, ["Other BM"]);
+    const { plan } = planPageGroups(sources, []);
+    assert.deepEqual(plan, [{ clientId: "c1", genreFamily: "techno", pageIds: ["1000000001", "1000000002"], igIds: [], action: "insert" }]);
+  });
+
+  it("Similar's audiences are 365 days (Matas, 27 Nov), 5 pages an audience", () => {
+    const similar = funnelSpecs(SOURCES, { twoCampaigns: true, pageGroup: GROUP, genreFamily: "drum_and_bass" }).find((spec) => spec.tier === "similar")!;
+    assert.ok(similar.includes.every((aud) => "retentionDays" in aud && aud.retentionDays === 365));
+    assert.deepEqual(similar.includes.filter((aud) => aud.kind === "page_fb").map((aud) => ("pageIds" in aud ? aud.pageIds.length : 0)), [5, 1]);
   });
 });

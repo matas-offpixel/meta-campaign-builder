@@ -80,3 +80,88 @@ export async function loadPageGroup(db: Pick<SupabaseClient, "from">, clientId: 
   const row = res.data as StoredGroup;
   return { id: row.id, genreFamily: row.genre_family, pageIds: row.page_ids ?? [], igIds: row.ig_ids ?? [], confirmed: Boolean(row.confirmed_at) };
 }
+
+// ─── The genres file (Matas, 27 Nov) ─────────────────────────────────────────
+
+/**
+ * The marker Matas sets on a row he has confirmed in
+ * scratch/retargeting/page-genres-draft-*.csv (columns business, page_id,
+ * page_name, category, followers, genre_draft, status). Every other status
+ * ("draft", "unsure") and a "?" genre are ignored.
+ */
+export const CONFIRMED_STATUS = "confirmed";
+
+/** READING: "no_single_genre" is a genre key, not a genre a Similar group can be built on. */
+const NOT_A_GROUP = new Set(["no_single_genre"]);
+
+export type GenreRow = { business: string; pageId: string; pageName: string; genre: string; status: string };
+
+/** A CSV with quoted fields (page names carry commas and quotes). */
+export function parseCsv(text: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let field = "";
+  let quoted = false;
+  for (let i = 0; i < text.length; i += 1) {
+    const c = text[i]!;
+    if (quoted) {
+      if (c === '"' && text[i + 1] === '"') {
+        field += '"';
+        i += 1;
+      } else if (c === '"') quoted = false;
+      else field += c;
+    } else if (c === '"') quoted = true;
+    else if (c === ",") {
+      row.push(field);
+      field = "";
+    } else if (c === "\n" || c === "\r") {
+      if (c === "\r" && text[i + 1] === "\n") i += 1;
+      row.push(field);
+      if (row.some((value) => value !== "")) rows.push(row);
+      row = [];
+      field = "";
+    } else field += c;
+  }
+  row.push(field);
+  if (row.some((value) => value !== "")) rows.push(row);
+  return rows;
+}
+
+/** The genres file's rows, by its header. */
+export function parseGenreRows(text: string): GenreRow[] {
+  const [header, ...body] = parseCsv(text);
+  const at = (name: string) => header!.indexOf(name);
+  const cols = { business: at("business"), pageId: at("page_id"), pageName: at("page_name"), genre: at("genre_draft"), status: at("status") };
+  if (Object.values(cols).some((index) => index < 0)) throw new Error("genres file: expected columns business, page_id, page_name, genre_draft, status");
+  return body.map((row) => ({ business: (row[cols.business] ?? "").trim(), pageId: (row[cols.pageId] ?? "").trim(), pageName: row[cols.pageName] ?? "", genre: (row[cols.genre] ?? "").trim(), status: (row[cols.status] ?? "").trim().toLowerCase() }));
+}
+
+/** Only the rows Matas confirmed, with a genre that's a known family to group on. */
+export function confirmedGenreRows(rows: readonly GenreRow[]): GenreRow[] {
+  return rows.filter((row) => row.status === CONFIRMED_STATUS && row.genre !== "?" && GENRES.has(row.genre) && !NOT_A_GROUP.has(row.genre) && /^\d{5,32}$/.test(row.pageId));
+}
+
+/**
+ * The confirmed rows as the seed's listing: each Page under every client its
+ * Business Manager is linked to (client_business_managers.business_name, matched
+ * trimmed and case-blind). A business no client links to is returned apart.
+ */
+export function sourcesFromGenreRows(rows: readonly GenreRow[], links: readonly { client_id: string; business_name: string | null }[]): { sources: ClientBuildableSource[]; unlinked: string[] } {
+  const key = (name: string) => name.trim().toLowerCase();
+  const clients = new Map<string, string[]>();
+  for (const link of links) {
+    if (!link.business_name) continue;
+    clients.set(key(link.business_name), [...(clients.get(key(link.business_name)) ?? []), link.client_id]);
+  }
+  const sources: ClientBuildableSource[] = [];
+  const unlinked = new Set<string>();
+  for (const row of confirmedGenreRows(rows)) {
+    const ids = clients.get(key(row.business));
+    if (!ids?.length) {
+      unlinked.add(row.business);
+      continue;
+    }
+    for (const clientId of ids) sources.push({ client_id: clientId, kind: "facebook_page", id: row.pageId, name: row.pageName, genre_family: row.genre, reach: "owned" });
+  }
+  return { sources, unlinked: [...unlinked].sort() };
+}
