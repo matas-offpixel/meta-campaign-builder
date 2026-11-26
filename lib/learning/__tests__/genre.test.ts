@@ -199,11 +199,15 @@ describe("no path writes genre_family without an operator", () => {
       "lib/learning/genre/shadow.ts",
       "lib/learning/runner.ts",
       "lib/learning/__tests__/genre.test.ts",
+      // M3c: the client's buildable Pages read each act's genre_family (events, select only) for Job 4's page-group seed.
+      "lib/mcp/audiences/client-sources.ts",
+      "lib/mcp/__tests__/audience-tools.test.ts",
     ]);
     const named = ["app", "components", "lib", "scripts", "supabase/migrations"].flatMap((dir) => walk(dir)).filter((file) => readFileSync(file, "utf8").includes("genre_family"));
     assert.deepEqual(named.filter((file) => !allowed.has(file)), []);
     const shadow = readFileSync("lib/learning/genre/shadow.ts", "utf8");
     assert.doesNotMatch(shadow, /\.(update|upsert|insert|delete)\(/);
+    assert.doesNotMatch(readFileSync("lib/mcp/audiences/client-sources.ts", "utf8"), /\.(update|upsert|insert|delete|rpc)\(/);
   });
 });
 
