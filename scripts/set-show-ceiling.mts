@@ -10,7 +10,6 @@
  *   npx tsx --env-file=.env.local scripts/set-show-ceiling.mts --group "DHB shared" --total 5000 --events DHB26-A,DHB26-B [--apply]
  *   npx tsx --env-file=.env.local scripts/set-show-ceiling.mts --group "DHB shared" --drop-events DHB26-B [--apply]
  *   npx tsx --env-file=.env.local scripts/set-show-ceiling.mts --group "DHB shared" --remove [--apply]
- *   npx tsx --env-file=.env.local scripts/set-show-ceiling.mts --puzzle --events P26-X,P26-Y [--apply]
  *
  * The ceiling is the most a show may have committed: spent to date
  * (ad_daily_insights) + its live lifetime budgets left + its live daily
@@ -18,21 +17,21 @@
  * starts or raises spend past it is refused (lib/mcp/meta/show-ceiling.ts).
  *
  * In order: a show's own row and its group's (both hold when both exist),
- * else the brand default by code prefix (BRAND_DEFAULTS, in code: NX £3,000,
- * ES £2,500, AS £2,000; EBR £2,500 waits for Matas to confirm; DHB none),
- * else none, so spend-starting changes are refused.
+ * else the show's default by exact code (SHOW_DEFAULTS: P26-BDAY £4,500),
+ * else the brand default by code prefix (BRAND_DEFAULTS: NX £3,000, ES
+ * £2,500, EBR £2,500, AS £2,000; DHB none), both in code, else none, so
+ * spend-starting changes are refused.
  *
- * --puzzle is the P26 group: "P26 shared", £4,500 (PUZZLE_GROUP), for the two
- * shows Matas names. A show is in at most one group; adding one that's in
- * another group is refused (drop it there first). --remove on a show deletes
- * its own row (it falls back to its group or brand default); on a group, the
- * group and its members. Prints codes, ids and £ only.
+ * A show is in at most one group; adding one that's in another group is
+ * refused (drop it there first). --remove on a show deletes its own row (it
+ * falls back to its group or default); on a group, the group and its
+ * members. Prints codes, ids and £ only.
  */
 
 import { createClient } from "@supabase/supabase-js";
 
 import { MATAS_USER_IDS } from "../lib/auth/operator-allowlist.ts";
-import { BRAND_DEFAULTS, PUZZLE_GROUP, brandDefault, resolveShowCeiling } from "../lib/mcp/meta/show-ceiling.ts";
+import { BRAND_DEFAULTS, SHOW_DEFAULTS, codeDefault, resolveShowCeiling } from "../lib/mcp/meta/show-ceiling.ts";
 import { pounds } from "../lib/mcp/meta/ceiling-words.ts";
 
 const argv = process.argv.slice(2);
@@ -41,10 +40,9 @@ const value = (name: string) => (argv.includes(name) ? argv[argv.indexOf(name) +
 const list = flag("--list");
 const apply = flag("--apply");
 const remove = flag("--remove");
-const puzzle = flag("--puzzle");
 const showArg = value("--show")?.trim();
-const groupArg = (puzzle ? PUZZLE_GROUP.name : value("--group"))?.trim();
-const totalArg = value("--total") ?? (puzzle ? String(PUZZLE_GROUP.totalGbp) : undefined);
+const groupArg = value("--group")?.trim();
+const totalArg = value("--total");
 const codes = (name: string) => (value(name) ?? "").split(",").map((s) => s.trim().toUpperCase()).filter(Boolean);
 const addCodes = codes("--events");
 const dropCodes = codes("--drop-events");
@@ -56,14 +54,13 @@ const usage = () => {
       "usage: scripts/set-show-ceiling.mts --list",
       "     | --show CODE [--total <£> | --remove] [--apply]",
       "     | --group NAME [--total <£>] [--events CODE,CODE] [--drop-events CODE] [--remove] [--apply]",
-      "     | --puzzle [--events CODE,CODE] [--apply]",
       "     [--by <matas uuid>]",
     ].join("\n"),
   );
   process.exit(2);
 };
 if ([list, Boolean(showArg), Boolean(groupArg)].filter(Boolean).length !== 1) usage();
-if (remove && totalArg != null && !puzzle) usage();
+if (remove && totalArg != null) usage();
 if (showArg && (addCodes.length || dropCodes.length)) usage();
 const total = totalArg == null ? null : Number(totalArg);
 if (total != null && (!Number.isFinite(total) || total < 0 || Math.round(total * 100) / 100 !== total)) {
@@ -120,13 +117,12 @@ async function codesOf(ids: string[]): Promise<Map<string, string>> {
 
 async function describe(ev: EventRow): Promise<string> {
   if (!ready) {
-    const d = brandDefault(ev.event_code);
+    const d = codeDefault(ev.event_code);
     if (!d || d.totalGbp == null) return "no ceiling (spend-starting changes through Claude refused)";
-    return d.confirmed ? `${gbp(d.totalGbp)} (the ${d.brand} default)` : `no ceiling yet: the ${d.brand} default of ${gbp(d.totalGbp)} waits for Matas to confirm it`;
+    return `${gbp(d.totalGbp)} (the ${d.key} default)`;
   }
   const r = await resolveShowCeiling(db, { id: ev.id, code: ev.event_code ?? ev.id });
   if (r.kind === "none") return "no ceiling (spend-starting changes through Claude refused)";
-  if (r.kind === "pending_default") return `no ceiling yet: the ${r.brand} default of ${gbp(r.totalGbp)} waits for Matas to confirm it`;
   return r.ceilings
     .map((c) => `${gbp(c.totalGbp)} ${c.source.kind === "default" ? `(the ${c.source.brand} default)` : c.source.kind === "own" ? "(set for this show)" : `(shared by ${c.source.codes.join(", ")})`}`)
     .join(" and ");
@@ -135,9 +131,10 @@ async function describe(ev: EventRow): Promise<string> {
 // ── --list ──────────────────────────────────────────────────────────────────
 
 if (list) {
-  console.log("Brand defaults (in code, lib/mcp/meta/show-ceiling.ts):");
-  for (const d of BRAND_DEFAULTS) console.log(`  ${d.brand.padEnd(4)} ${d.totalGbp == null ? "none" : gbp(d.totalGbp)}${d.confirmed ? "" : "  (not confirmed: refused until Matas confirms)"}  ${d.note}`);
-  console.log(`  P26  ${gbp(PUZZLE_GROUP.totalGbp)} shared by two shows, set with --puzzle`);
+  console.log("Defaults (in code, lib/mcp/meta/show-ceiling.ts), by exact code first:");
+  for (const d of SHOW_DEFAULTS) console.log(`  ${d.code.padEnd(9)} ${gbp(d.totalGbp)}  ${d.note}`);
+  console.log("then by brand prefix:");
+  for (const d of BRAND_DEFAULTS) console.log(`  ${d.brand.padEnd(9)} ${d.totalGbp == null ? "none" : gbp(d.totalGbp)}  ${d.note}`);
   if (!ready) process.exit(0);
   const rows = await db.from("show_spend_ceilings").select("id, event_id, group_name, total_gbp, set_at").order("set_at", { ascending: true });
   fail("show_spend_ceilings", rows.error);
@@ -188,11 +185,11 @@ if (showArg) {
   process.exit(0);
 }
 
-// ── --group / --puzzle ──────────────────────────────────────────────────────
+// ── --group ──────────────────────────────────────────────────────
 
 if (!ready) {
   const adds0 = await Promise.all(addCodes.map(eventByCode));
-  console.log(`group "${groupArg}"${puzzle ? " (P26)" : ""}`);
+  console.log(`group "${groupArg}"`);
   console.log(`  after (once migration 274 is applied): ${remove ? "removed" : `${total == null ? "its total" : gbp(total)}, ${adds0.map((e) => e.event_code).sort().join(", ") || "no shows yet"}`}`);
   for (const ev of adds0) console.log(`  ${ev.event_code}: now ${await describe(ev)}`);
   console.log("dry run: nothing written.");
@@ -234,7 +231,7 @@ for (const ev of drops) after.delete(ev.id);
 const allCodes = new Map([...memberCodes, ...adds.map((e) => [e.id, e.event_code ?? e.id] as const), ...drops.map((e) => [e.id, e.event_code ?? e.id] as const)]);
 const show = (ids: Iterable<string>) => [...ids].map((id) => allCodes.get(id) ?? id).sort().join(", ") || "no shows yet";
 
-console.log(`group "${groupArg}"${puzzle ? " (P26)" : ""}`);
+console.log(`group "${groupArg}"`);
 console.log(`  now:   ${group ? `${gbp(group.total_gbp)}, ${show(memberIds)}` : "doesn't exist"}`);
 console.log(`  after: ${remove ? "removed (its shows fall back to their own row or brand default)" : `${gbp(total ?? group!.total_gbp)}, ${show(after)}`}`);
 for (const ev of adds) console.log(`  ${ev.event_code}: now ${await describe(ev)}`);

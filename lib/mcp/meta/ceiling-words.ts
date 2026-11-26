@@ -14,6 +14,9 @@
  * those rows stay in lib/mcp/meta/words.ts and lib/mcp/live/words.ts as the
  * record, unused by the ceiling check.
  *
+ * Retired before design saw it: claude.mcp.ceiling.none.pending_default (an
+ * unconfirmed EBR default; Matas confirmed EBR £2,500 on 26 Nov).
+ *
  * Claude gets names, codes, counts and £ amounts with the source of each
  * part: never a raw error, a token or a hash.
  *
@@ -44,11 +47,6 @@ const T = {
     "claude.mcp.ceiling.none",
     "Told to Claude, a spend-starting or spend-raising change on a show with no ceiling",
     "Refused: {show} has no spend ceiling, so nothing that starts or raises spend can run. Matas sets one for the show. Nothing was sent to Meta.",
-  ),
-  pendingDefault: pending(
-    "claude.mcp.ceiling.none.pending_default",
-    "Told to Claude, a show whose brand default isn't confirmed yet (EBR)",
-    "Refused: {show} has no spend ceiling yet: the {brand} default of £{x} waits for Matas to confirm it. Nothing was sent to Meta.",
   ),
   noShow: pending(
     "claude.mcp.ceiling.no_show",
@@ -104,7 +102,6 @@ export const CEILING_WORDS = {
       delta: pounds(Math.max(0, v.delta)),
     }),
   none: (show: string) => fill(T.none, { show }),
-  pendingDefault: (show: string, brand: string, x: number) => fill(T.pendingDefault, { show, brand, x: pounds(x) }),
   noShow: T.noShow,
   unread: (show: string) => fill(T.unread, { show }),
   unbounded: (name: string, show: string) => fill(T.unbounded, { name, show }),

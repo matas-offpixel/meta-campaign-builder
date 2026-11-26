@@ -25,8 +25,9 @@
  *   1. the show's own row in show_spend_ceilings, and/or its group's (a total
  *      shared by every show in the group: their committed spend is summed);
  *      every one that applies must hold;
- *   2. else the brand default by event-code prefix (BRAND_DEFAULTS, in code:
- *      Matas's ruling, reviewed and tested with what reads it);
+ *   2. else the show's default by its exact code (SHOW_DEFAULTS: P26-BDAY),
+ *      else the brand default by event-code prefix (BRAND_DEFAULTS); both in
+ *      code: Matas's ruling, reviewed and tested with what reads it;
  *   3. else none: refused, as before.
  * A change that starts spend (a live launch, a resume, live ads) is checked
  * whatever its numbers. A budget change is checked only when it raises the
@@ -56,27 +57,33 @@ export interface BrandDefault {
   brand: string;
   /** £ total per show; null = none (set per show). */
   totalGbp: number | null;
-  /** False until Matas confirms it: an unconfirmed default refuses like no ceiling, and says what waits. */
-  confirmed: boolean;
+  note: string;
+}
+
+/** By the code's leading letters, matched whole (ES never matches EBR). Matas, 26 Nov. */
+export const BRAND_DEFAULTS: readonly BrandDefault[] = [
+  { brand: "NX", totalGbp: 3000, note: "NX" },
+  { brand: "ES", totalGbp: 2500, note: "Electric Sheffield" },
+  { brand: "EBR", totalGbp: 2500, note: "Electric Bristol" },
+  { brand: "AS", totalGbp: 2000, note: "unless set per show" },
+  { brand: "DHB", totalGbp: null, note: "none: set per show" },
+];
+
+export interface ShowDefault {
+  /** The whole event code, matched exactly (case-insensitive). */
+  code: string;
+  totalGbp: number;
   note: string;
 }
 
 /**
- * By the code's leading letters, matched whole (ES never matches EBR). P26's
- * £4,500 is a shared group of two shows Matas will name: it's set with
- * scripts/set-show-ceiling.mts (PUZZLE_GROUP), not a per-show default, so a
- * P26 show has no ceiling until it's in the group.
+ * Defaults for one show by its exact code, before the brand's (Matas, 26 Nov).
+ * P26 has no brand default: P26-BDAY (4th Birthday parts 1 and 2 on 27 Dec,
+ * marketed as one event) is £4,500 on its own, and every other P26 code,
+ * the cancelled P26-BDAY-DAY and P26-BDAY-NIGHT included, has no ceiling
+ * until one is set for it.
  */
-export const BRAND_DEFAULTS: readonly BrandDefault[] = [
-  { brand: "NX", totalGbp: 3000, confirmed: true, note: "NX" },
-  { brand: "ES", totalGbp: 2500, confirmed: true, note: "Electric Sheffield" },
-  { brand: "EBR", totalGbp: 2500, confirmed: false, note: "Electric Bristol: Matas to confirm" },
-  { brand: "AS", totalGbp: 2000, confirmed: true, note: "unless set per show" },
-  { brand: "DHB", totalGbp: null, confirmed: true, note: "none: set per show" },
-];
-
-/** P26: £4,500 shared by two shows Matas will name. Empty until then. */
-export const PUZZLE_GROUP = { name: "P26 shared", totalGbp: 4500, eventCodes: [] as string[] } as const;
+export const SHOW_DEFAULTS: readonly ShowDefault[] = [{ code: "P26-BDAY", totalGbp: 4500, note: "4th Birthday parts 1 and 2, 27 Dec, one event" }];
 
 export function brandOf(code: string | null | undefined): string | null {
   const m = /^([A-Za-z]+)/.exec((code ?? "").trim());
@@ -86,6 +93,15 @@ export function brandOf(code: string | null | undefined): string | null {
 export function brandDefault(code: string | null | undefined): BrandDefault | null {
   const brand = brandOf(code);
   return brand ? (BRAND_DEFAULTS.find((d) => d.brand === brand) ?? null) : null;
+}
+
+/** The default that applies to a code with no row: its exact show default, else its brand's. */
+export function codeDefault(code: string | null | undefined): { key: string; totalGbp: number | null } | null {
+  const c = (code ?? "").trim().toUpperCase();
+  const show = SHOW_DEFAULTS.find((d) => d.code === c);
+  if (show) return { key: show.code, totalGbp: show.totalGbp };
+  const brand = brandDefault(code);
+  return brand ? { key: brand.brand, totalGbp: brand.totalGbp } : null;
 }
 
 // ─── Ceilings ────────────────────────────────────────────────────────────
@@ -99,8 +115,7 @@ export interface ResolvedCeiling {
 
 export type CeilingResolution =
   | { kind: "set"; ceilings: ResolvedCeiling[] }
-  | { kind: "none" }
-  | { kind: "pending_default"; brand: string; totalGbp: number };
+  | { kind: "none" };
 
 interface ShowEvent {
   id: string;
@@ -142,10 +157,9 @@ export async function resolveShowCeiling(db: Db, event: { id: string; code: stri
     ceilings.push({ totalGbp: total, source: { kind: "group", codes: ids.map((id) => byId.get(id) ?? id).sort() }, eventIds: ids });
   }
   if (ceilings.length > 0) return { kind: "set", ceilings };
-  const d = brandDefault(event.code);
+  const d = codeDefault(event.code);
   if (!d || d.totalGbp == null) return { kind: "none" };
-  if (!d.confirmed) return { kind: "pending_default", brand: d.brand, totalGbp: d.totalGbp };
-  return { kind: "set", ceilings: [{ totalGbp: d.totalGbp, source: { kind: "default", brand: d.brand }, eventIds: [event.id] }] };
+  return { kind: "set", ceilings: [{ totalGbp: d.totalGbp, source: { kind: "default", brand: d.key }, eventIds: [event.id] }] };
 }
 
 // ─── Days ────────────────────────────────────────────────────────────────
@@ -449,10 +463,7 @@ export async function checkShowCeiling(input: {
   const unread = () => new ToolInputError(CEILING_WORDS.unread(code), { ...base, refused: "ceiling_unreadable" });
 
   const resolution = await resolveShowCeiling(db, { id: input.event.id, code });
-  const refuseNone = (extra: Record<string, unknown> = {}) =>
-    resolution.kind === "pending_default"
-      ? new ToolInputError(CEILING_WORDS.pendingDefault(code, resolution.brand, resolution.totalGbp), { ...base, refused: "no_ceiling", pendingDefault: resolution.brand, ...extra })
-      : new ToolInputError(CEILING_WORDS.none(code), { ...base, refused: "no_ceiling", ...extra });
+  const refuseNone = (extra: Record<string, unknown> = {}) => new ToolInputError(CEILING_WORDS.none(code), { ...base, refused: "no_ceiling", ...extra });
   // A change that starts spend needs a ceiling before anything is read from Meta.
   if (resolution.kind !== "set" && change.starts) throw refuseNone();
 

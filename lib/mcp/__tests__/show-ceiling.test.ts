@@ -11,9 +11,10 @@ import assert from "node:assert/strict";
 import { ToolInputError } from "../tool-types.ts";
 import {
   BRAND_DEFAULTS,
-  PUZZLE_GROUP,
+  SHOW_DEFAULTS,
   addedLine,
   brandDefault,
+  codeDefault,
   checkShowCeiling,
   committedBudgets,
   daysLeft,
@@ -56,41 +57,46 @@ const raiseBroad = (minor: number): ShowChange => ({ starts: false, objects: [{ 
 
 // ── Brand defaults ──────────────────────────────────────────────────────────
 
-test("brand defaults by the code's leading letters: NX £3,000, ES £2,500, AS £2,000; EBR waits for Matas; DHB and P26 none", () => {
+test("defaults (Matas, 26 Nov): NX £3,000, ES £2,500, EBR £2,500, AS £2,000 by prefix; DHB none; P26-BDAY £4,500 by its exact code, no other P26", () => {
   assert.equal(brandDefault("NX26-AZYR")?.totalGbp, 3000);
   assert.equal(brandDefault("nx27-ewanmcvicar")?.totalGbp, 3000);
   assert.equal(brandDefault("ES27-DAVEPEARCE")?.totalGbp, 2500);
   assert.equal(brandDefault("AS26-HOU")?.totalGbp, 2000);
-  // EBR is its own brand (ES never matches it) and isn't confirmed.
-  assert.deepEqual([brandDefault("EBR27-GLITTERBOX")?.brand, brandDefault("EBR27-GLITTERBOX")?.totalGbp, brandDefault("EBR27-GLITTERBOX")?.confirmed], ["EBR", 2500, false]);
+  // EBR is its own brand (ES never matches it).
+  assert.deepEqual([brandDefault("EBR27-GLITTERBOX")?.brand, brandDefault("EBR27-GLITTERBOX")?.totalGbp], ["EBR", 2500]);
   assert.equal(brandDefault("DHB26-DUBAI")?.totalGbp, null);
-  // P26 is a shared group, not a per-show default; the group is empty until Matas names its two shows.
+  // P26: no brand default; P26-BDAY alone, by its whole code.
   assert.equal(brandDefault("P26-BDAY"), null);
-  assert.deepEqual([PUZZLE_GROUP.totalGbp, PUZZLE_GROUP.eventCodes.length], [4500, 0]);
+  assert.deepEqual(SHOW_DEFAULTS.map((d) => [d.code, d.totalGbp]), [["P26-BDAY", 4500]]);
+  assert.deepEqual(codeDefault("P26-BDAY"), { key: "P26-BDAY", totalGbp: 4500 });
+  assert.deepEqual(codeDefault("p26-bday"), { key: "P26-BDAY", totalGbp: 4500 });
+  for (const code of ["P26-BDAY-DAY", "P26-BDAY-NIGHT", "P26-CIRCUIT", "P26-OPENAIR"]) assert.equal(codeDefault(code), null, code);
+  assert.deepEqual(codeDefault("EBR26-KREAM"), { key: "EBR", totalGbp: 2500 });
   assert.equal(brandDefault("WC26-ABERDEEN"), null);
   assert.equal(brandDefault(null), null);
-  assert.deepEqual(BRAND_DEFAULTS.filter((d) => !d.confirmed).map((d) => d.brand), ["EBR"]);
+  assert.deepEqual(BRAND_DEFAULTS.map((d) => d.brand), ["NX", "ES", "EBR", "AS", "DHB"]);
 });
 
-test("each default holds a show with no row of its own: NX, ES and AS check against their total", async () => {
-  for (const [code, total] of [["NX27-LIVE", 3000], ["ES27-LIVE", 2500], ["AS27-LIVE", 2000]] as const) {
+test("each default holds a show with no row of its own: NX, ES, EBR, AS and P26-BDAY check against their total", async () => {
+  for (const [code, total, key] of [["NX27-LIVE", 3000, "NX"], ["ES27-LIVE", 2500, "ES"], ["EBR27-LIVE", 2500, "EBR"], ["AS27-LIVE", 2000, "AS"], ["P26-BDAY", 4500, "P26-BDAY"]] as const) {
     const { check } = setup({ code });
     const out = await check({ starts: true });
-    assert.deepEqual([out.checked, out.ceilingGbp, out.source, out.after], [true, total, { kind: "default", brand: code.slice(0, 2) }, BASE_COMMITTED], code);
-    // Broad £30 → £80 takes the show to £2,875.00, over AS's £2,000; Broad → £50 (£2,125.00) fits NX and ES.
-    if (total === 2000) await refused(check(raiseBroad(8000)), /to £2,875\.00 committed, over its £2,000\.00 ceiling \(the AS default\)/);
-    else await check(raiseBroad(5000));
+    assert.deepEqual([out.checked, out.ceilingGbp, out.source, out.after], [true, total, { kind: "default", brand: key }, BASE_COMMITTED], code);
+    // Broad £30 → £80 takes the show to £2,875.00, over AS's £2,000, ES's and EBR's £2,500; it fits NX and P26-BDAY.
+    if (total < 2875) await refused(check(raiseBroad(8000)), new RegExp(`to £2,875\\.00 committed, over its £${total.toLocaleString("en-GB")}\\.00 ceiling \\(the ${key} default\\)`));
+    else await check(raiseBroad(8000));
+  }
+  {
+    // P26-BDAY over its £4,500: £1,625.00 committed + £3,000 spent.
+    const { check } = setup({ code: "P26-BDAY", spent: 3000 });
+    await refused(check({ starts: true }), /^Refused: this would take P26-BDAY to £4,625\.00 committed, over its £4,500\.00 ceiling \(the P26-BDAY default\)\./);
   }
 });
 
-test("no ceiling: DHB (set per show), P26 outside its group, and EBR until Matas confirms; refused before Meta is read", async () => {
-  for (const [code, re] of [
-    ["DHB27-LIVE", /^Refused: DHB27-LIVE has no spend ceiling, so nothing that starts or raises spend can run\. Matas sets one for the show\./],
-    ["P26-LIVE", /^Refused: P26-LIVE has no spend ceiling/],
-    ["EBR27-LIVE", /^Refused: EBR27-LIVE has no spend ceiling yet: the EBR default of £2,500\.00 waits for Matas to confirm it\./],
-  ] as const) {
+test("no ceiling: DHB (set per show) and every P26 code but P26-BDAY, the cancelled day and night shows included; refused before Meta is read", async () => {
+  for (const code of ["DHB27-LIVE", "P26-BDAY-DAY", "P26-BDAY-NIGHT", "P26-CIRCUIT"]) {
     const { check, spy } = setup({ code });
-    const e = await refused(check({ starts: true }), re);
+    const e = await refused(check({ starts: true }), new RegExp(`^Refused: ${code} has no spend ceiling, so nothing that starts or raises spend can run\\. Matas sets one for the show\\.`));
     assert.equal(e.summary?.refused, "no_ceiling");
     assert.deepEqual(spy.calls, [], `${code}: nothing read from Meta for a change that starts spend`);
   }

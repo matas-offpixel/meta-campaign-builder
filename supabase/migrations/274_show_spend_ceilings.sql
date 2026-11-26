@@ -12,12 +12,13 @@
 -- show_spend_ceiling_events  a group's shows; a show is in at most one group.
 --                            Only group rows have members (the script checks).
 --
--- Brand defaults by event-code prefix (NX, ES, AS, …) live in code
--- (lib/mcp/meta/show-ceiling.ts BRAND_DEFAULTS), not here: they are Matas's
--- ruling, reviewed and tested with the code that reads them. A row here is an
+-- Defaults live in code (lib/mcp/meta/show-ceiling.ts), not here: one show's
+-- by its exact code (SHOW_DEFAULTS: P26-BDAY), then a brand's by event-code
+-- prefix (BRAND_DEFAULTS: NX, ES, EBR, AS, …). They are Matas's ruling,
+-- reviewed and tested with the code that reads them. A row here is an
 -- override for one show or a shared group, set by Matas with
 -- scripts/set-show-ceiling.mts (dry run unless --apply). A show with a row
--- (its own or its group's) never falls back to a brand default.
+-- (its own or its group's) never falls back to a default.
 --
 -- client_spend_ceilings (268) stays in place; nothing reads it after this.
 --
@@ -51,7 +52,7 @@ revoke all on public.show_spend_ceilings       from anon, authenticated;
 revoke all on public.show_spend_ceiling_events from anon, authenticated;
 
 comment on table public.show_spend_ceilings is
-  'Per-show spend ceilings (274): a total in GBP for one show (event_id) or a group of shows (group_name, members in show_spend_ceiling_events). Brand defaults by event-code prefix are in code (lib/mcp/meta/show-ceiling.ts). Set by MATAS_USER_IDS only via scripts/set-show-ceiling.mts. Service role only.';
+  'Per-show spend ceilings (274): a total in GBP for one show (event_id) or a group of shows (group_name, members in show_spend_ceiling_events). Defaults (by exact code, then by event-code prefix) are in code (lib/mcp/meta/show-ceiling.ts). Set by MATAS_USER_IDS only via scripts/set-show-ceiling.mts. Service role only.';
 comment on table public.show_spend_ceiling_events is
   'The shows in a shared ceiling group (274). One group per show. Service role only.';
 comment on column public.show_spend_ceilings.total_gbp is
