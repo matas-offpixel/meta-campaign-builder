@@ -99,6 +99,13 @@ const nextConfig: NextConfig = {
     // M4a: the package step's imports pull docs/ (frames, design records) and
     // scratch/ into this route's trace; nothing in the route reads either.
     "/api/cron/creative-lab-render-tick/route": ["./docs/**", "./scratch/**"],
+    // The connector's routes import the same modules (route-deps reaches the
+    // render package and the frames' fixtures), which pull docs/ and scratch/
+    // into their traces; nothing in them reads either. With the retargeting
+    // frames committed, /api/mcp passed the 230 MB check (#1399).
+    "/api/mcp": ["./docs/**", "./scratch/**"],
+    "/api/oauth/*": ["./docs/**", "./scratch/**"],
+    "/oauth/authorize": ["./docs/**", "./scratch/**"],
   },
   experimental: {
     // Raise the default 1 MB body cap for Server Actions and the shared
