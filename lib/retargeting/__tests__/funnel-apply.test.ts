@@ -13,6 +13,7 @@ import { memoryDb } from "../../onsale-refresh/__tests__/memory-db.ts";
 import { applyFunnel, funnelAudienceDraft, stepChanges, type FunnelBuild, type FunnelDeps, type FunnelMeta } from "../funnel-apply.ts";
 import { planFunnelShow } from "../funnel-plan.ts";
 import type { FunnelSources, ProspectingBudget } from "../funnel.ts";
+import { planWider, widerSpecs } from "../show-campaigns.ts";
 
 const EVENT = "11111111-1111-4111-8111-111111111111";
 const OWNER = "22222222-2222-4222-8222-222222222222";
@@ -235,5 +236,79 @@ describe("Matas, 26 Nov item 2: the settings read-back", () => {
       ["NX26-RUDIMENTAL · Retargeting · Warm", false, false],
       ["NX26-RUDIMENTAL · Retargeting · Hot", false, false],
     ]);
+  });
+});
+
+
+/** A two-campaign build (staged): Wider folds the show's £60.00 a day; Retargeting takes 35 % of it from Wider. */
+function twoCampaignBuild(): FunnelBuild {
+  const base = buildFor();
+  const plan = planFunnelShow({ code: "NX26-RUDIMENTAL", runDay: "2026-11-26", showDay: "2026-12-12", announceDay: "2026-09-29", prospecting: PROSPECTING, sources: SOURCES, spec: { twoCampaigns: true, pageGroup: null } });
+  const sets = widerSpecs({ sources: SOURCES, pageGroup: null, lineupInterests: [{ id: "6003", name: "Rudimental" }], genreInterests: [] });
+  const wider = planWider({ showDailyMinor: plan.showDailyMinor, retargetingMinor: plan.totalMinor, runDay: "2026-11-26", showDay: "2026-12-12", adSets: sets.length, steps: plan.steps });
+  return {
+    ...base,
+    plan: { stretch: plan.stretch, share: plan.share, showDailyMinor: plan.showDailyMinor, targetMinor: plan.targetMinor, totalMinor: plan.totalMinor, tiers: plan.tiers, take: plan.take.from, steps: plan.steps },
+    wider: {
+      campaignName: "NX26-RUDIMENTAL · Wider",
+      dailyMinor: wider.dailyMinor,
+      lifetimeMinor: wider.lifetimeMinor,
+      daysLeft: wider.daysLeft,
+      adSets: sets.map((set) => ({ key: set.key, interests: set.interests, suggestionKeys: set.suggestions.map((aud) => aud.key), lookalikes: set.lookalikes, excludeKeys: set.excludes.map((aud) => aud.key) })),
+      steps: wider.steps,
+    },
+  };
+}
+
+describe("two campaigns (staged): Wider folds prospecting, one CBO lifetime budget", () => {
+  it("the plan: Retargeting takes its share from Wider; no prospecting ad set is lowered", () => {
+    const build = twoCampaignBuild();
+    assert.deepEqual(build.plan.take, []);
+    assert.equal(build.plan.totalMinor, 2100);
+    assert.equal(build.wider!.dailyMinor, 3900);
+    assert.equal(build.wider!.lifetimeMinor, 3900 * 17);
+    // Each step lowers Wider's lifetime by the step × the days left from that day.
+    const [first] = build.wider!.steps;
+    assert.equal(first!.day, "2026-11-28");
+    assert.equal(first!.beforeMinor - first!.afterMinor, 300 * 15);
+  });
+
+  it("paused: Retargeting and Wider both made paused; Wider's budget is the campaign's lifetime; its ad sets keep Advantage+ on", async () => {
+    const { calls, deps, ctx } = setup();
+    const out = await applyFunnel(deps, twoCampaignBuild(), ctx("paused"));
+    assert.equal(out.state, "applied", out.reason ?? "");
+    assert.deepEqual(names(calls, "createCampaign").map((call) => [call[1], call[2]]), [["NX26-RUDIMENTAL · Retargeting", "PAUSED"], ["NX26-RUDIMENTAL · Wider", "PAUSED"]]);
+    const widerSets = names(calls, "createAdSet").filter((call) => String(call[1]).includes("· Wider ·"));
+    assert.deepEqual(widerSets.map((call) => call[1]), ["NX26-RUDIMENTAL · Wider · Broad", "NX26-RUDIMENTAL · Wider · Lookalikes"]);
+    for (const call of widerSets) {
+      assert.equal(call[3], undefined, "no ad-set budget under CBO");
+      assert.equal(((call[4] as Record<string, unknown>).targeting_automation as { advantage_audience: number }).advantage_audience, 1);
+    }
+    for (const call of names(calls, "createAdSet").filter((c) => String(c[1]).includes("· Retargeting ·"))) {
+      assert.equal(((call[4] as Record<string, unknown>).targeting_automation as { advantage_audience: number }).advantage_audience, 0);
+    }
+    assert.ok(out.progress.wider?.campaignId);
+    for (const kind of ["setDailyBudget", "setAdSetActive", "scheduleChange", "checkCeiling"]) assert.deepEqual(names(calls, kind), [], kind);
+  });
+
+  it("live: the ceiling sees the show's total unchanged; nothing lowers prospecting; Wider is switched on and its lifetime steps are scheduled", async () => {
+    const { calls, deps, ctx } = setup();
+    const out = await applyFunnel(deps, twoCampaignBuild(), ctx("live"));
+    assert.equal(out.state, "applied", out.reason ?? "");
+    assert.deepEqual(names(calls, "checkCeiling"), [["checkCeiling", 6000, 6000]]);
+    assert.deepEqual(names(calls, "setDailyBudget"), []);
+    assert.equal(names(calls, "setAdSetActive").length, 3 + 2);
+    assert.equal(names(calls, "updateCampaign").length, 2);
+    const widerSteps = names(calls, "scheduleChange").filter((call) => call[2] === out.progress.wider!.campaignId);
+    assert.equal(widerSteps.length, 2);
+    assert.equal(widerSteps[0]![4], "2026-11-28T00:00:00.000Z");
+  });
+
+  it("READING (the coordinator's): Wider's remaining lifetime never goes below £1.00 × its ad sets × the days left", () => {
+    const wider = planWider({ showDailyMinor: 1000, retargetingMinor: 300, runDay: "2026-12-01", showDay: "2026-12-12", adSets: 4, steps: [{ day: "2026-12-05", totalMinor: 900 }] });
+    const step = wider.steps[0]!;
+    const spent = 700 * 4;
+    assert.equal(step.afterMinor - spent, 100 * 4 * 8);
+    assert.equal(step.atFloor, true);
   });
 });

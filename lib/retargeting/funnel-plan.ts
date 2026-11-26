@@ -145,9 +145,14 @@ export function planFunnelShow(input: FunnelShowInput): FunnelShowPlan {
   const buildable = specs.map((spec) => spec.tier).filter((tier) => splitOf(stretch, twoCampaigns)[tier] > 0);
   const floors = floor * Math.max(1, buildable.length);
   const targetMinor = Math.floor((showDailyMinor * rule.share) / 100 + 1e-9);
+  // Two campaigns (staged; Matas, 26 Nov: "folds prospecting"): Wider replaces the show's prospecting and gives Retargeting its share,
+  // so no prospecting ad set is lowered; the show's whole daily spend is there to give.
+  const fromWider = twoCampaigns && !existing;
   const take: Take = existing
     ? { neededMinor: existing.totalMinor, takenMinor: existing.totalMinor, from: existing.took.map((row) => ({ ...row })), short: false }
-    : takeFromProspecting(input.prospecting, Math.max(targetMinor, floors), floor);
+    : fromWider
+      ? { neededMinor: Math.max(targetMinor, floors), takenMinor: Math.min(showDailyMinor, Math.max(targetMinor, floors)), from: [], short: showDailyMinor < Math.max(targetMinor, floors) }
+      : takeFromProspecting(input.prospecting, Math.max(targetMinor, floors), floor);
   const made = input.made ?? new Set<string>();
   const toMake = audiencesToMake(specs);
   const audiences = { made: toMake.filter((aud) => made.has(aud.key)).length, toMake: toMake.filter((aud) => !made.has(aud.key)).length, missingAccess: missingAccess(input.sources.accounts).length };
@@ -166,7 +171,10 @@ export function planFunnelShow(input: FunnelShowInput): FunnelShowPlan {
     const stepTarget = Math.max(floors, Math.floor((showDailyMinor * next.share) / 100 + 1e-9));
     let lines: TakeLine[] = [];
     let delta = 0;
-    if (stepTarget > total) {
+    if (fromWider || twoCampaigns) {
+      // Wider gives and takes back (its lifetime budget moves, show-campaigns.ts planWider); no prospecting line.
+      delta = Math.min(stepTarget, showDailyMinor) - total;
+    } else if (stepTarget > total) {
       const more = takeFromProspecting(budgets, stepTarget - total, floor);
       lines = more.from;
       delta = more.takenMinor;

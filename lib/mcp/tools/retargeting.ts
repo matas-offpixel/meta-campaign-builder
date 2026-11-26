@@ -28,7 +28,7 @@ import { z } from "zod";
 import type { FunnelBuild, FunnelProgress } from "../../retargeting/funnel-apply.ts";
 import { claudePlanLines, doneLine, planHead, skipLine, skipReason, type SkipReason } from "../../retargeting/funnel-plan.ts";
 import { funnelSourcesOf } from "../../retargeting/funnel-view.ts";
-import { adviceLine, adviseExisting, SHOW_CAMPAIGNS_RULED, untickLine } from "../../retargeting/show-campaigns.ts";
+import { adviceLine, adviseExisting, foldFirstLine, SHOW_CAMPAIGNS_RULED, untickLine, widerPlanLine } from "../../retargeting/show-campaigns.ts";
 import type { RetargetingRecord } from "../../retargeting/runner.ts";
 import { approvalInput, requireMetaApproval } from "../meta/approval.ts";
 import { EVENT_WORDS } from "../meta/words.ts";
@@ -101,8 +101,13 @@ function linesFor(record: RetargetingRecord): ShowLines {
 /** Staged: once the two-campaign record is ruled, each show's current campaigns, keep / pause / fold into Wider (advice only). */
 function withAdvice(row: ShowLines, record: RetargetingRecord, ruled: boolean): ShowLines {
   if (!ruled || row.skipped === "archived" || row.skipped === "not_on_sale") return row;
-  const line = adviceLine(adviseExisting(record.input?.campaigns ?? []));
-  return line ? { ...row, lines: [...row.lines, line] } : row;
+  const build = record.plan.build;
+  const wider = build && build.kind === "retargeting_funnel_create" && build.wider ? build.wider : null;
+  const extra = [
+    ...(wider ? [widerPlanLine(row.code, wider, wider.adSets.map((set) => set.key))] : []),
+    ...[adviceLine(adviseExisting(record.input?.campaigns ?? []))].filter((line): line is string => Boolean(line)),
+  ];
+  return extra.length ? { ...row, lines: [...row.lines, ...extra] } : row;
 }
 
 /** PENDING DESIGN: "Use as a suggestion" still on after create. */
@@ -221,6 +226,18 @@ export const createShowCampaignsTool: McpTool = {
       if (record.plan.held) throw new ToolInputError(RT_CLAUDE_WORDS.held(record.plan.held), { ...base, refused: "held" });
       if (!record.plan.build || record.plan.build.kind !== "retargeting_funnel_create") throw new ToolInputError(RT_CLAUDE_WORDS.refusedSkip(skipLine(code!, "no_money")), { ...base, refused: "no_build" });
       build = record.plan.build;
+    }
+    // Two campaigns (staged): Wider folds the show's prospecting, so it goes live only once that's folded or paused (Matas's yes, through pause).
+    if (live && build.wider && !row?.progress?.active) {
+      const advice = adviseExisting(record.input.campaigns ?? []).filter((one) => one.advice !== "keep");
+      let statuses: Record<string, string | null> = {};
+      try {
+        statuses = advice.length ? await deps.campaignStatuses({ userId: ctx.userId, ids: advice.map((one) => one.id) }) : {};
+      } catch {
+        throw new ToolInputError(RT_CLAUDE_WORDS.readFailed, { ...base, refused: "statuses_unread" });
+      }
+      const running = advice.filter((one) => statuses[one.id] === "ACTIVE" || statuses[one.id] == null);
+      if (running.length) throw new ToolInputError(foldFirstLine(code!, running.map((one) => one.name)), { ...base, refused: "fold_first", running: running.map((one) => one.id) });
     }
     if (!build.draftId || !build.adAccountId) throw new ToolInputError(RT_CLAUDE_WORDS.held(record.plan.held ?? "Not one of this event's drafts on this account, so nothing is written to this campaign."), { ...base, refused: "no_draft" });
 

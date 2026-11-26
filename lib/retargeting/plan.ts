@@ -32,6 +32,8 @@ import { planFunnelShow, type FunnelShowPlan } from "./funnel-plan.ts";
 import { funnelCampaignName, type FunnelAccount, type FunnelTier, type ProspectingBudget, type TakeLine, type TierMinor, type TierWeek } from "./funnel.ts";
 import { funnelSourcesOf, proposedPanel, runningPanel, type FunnelPanel } from "./funnel-view.ts";
 import type { FunnelBuild } from "./funnel-apply.ts";
+import type { PageGroup } from "./funnel.ts";
+import { planWider, widerCampaignName, widerSpecs, type Interest } from "./show-campaigns.ts";
 import { currentDailyMinor, daysToShow, isShare, type Funding, type Share } from "./budget.ts";
 import {
   audiencesNarrow,
@@ -254,6 +256,13 @@ export type RetargetingInput = {
   funnelBuilt?: { state: string; mode: "paused" | "live" | null; campaignId: string | null; tiers: TierMinor; took: TakeLine[] } | null;
   /** RF5: each tier's 7-day frequency and spend, once it runs. */
   funnelWeek?: Partial<Record<FunnelTier, TierWeek>>;
+  /** Staged two-campaign record: Wider and the Similar tier are planned (SHOW_CAMPAIGNS_RULED). */
+  twoCampaigns?: boolean;
+  /** The show's genre page group (page_groups); null = none or unconfirmed. */
+  pageGroup?: PageGroup | null;
+  /** The lineup artists that are Meta interests, and the genre's interests (Wider's suggestions). */
+  lineupInterests?: Interest[];
+  genreInterests?: Interest[];
   /** Staged two-campaign record: the show's on-sale campaigns and their delivering ad sets, for keep / pause / fold. */
   campaigns?: { id: string; name: string; adSetNames: string[]; delivering: boolean }[];
 };
@@ -496,6 +505,7 @@ function funnelPlanOf(input: RetargetingInput): FunnelShowPlan | null {
     minDailyMinor: input.minDailyMinor,
     sources,
     made: new Set(input.madeAudiences ?? []),
+    spec: input.twoCampaigns ? { twoCampaigns: true, pageGroup: input.pageGroup ?? null } : undefined,
     existing: input.funnelBuilt ? { totalMinor: input.funnelBuilt.tiers.similar + input.funnelBuilt.tiers.cold + input.funnelBuilt.tiers.warm + input.funnelBuilt.tiers.hot, took: input.funnelBuilt.took } : null,
   });
 }
@@ -577,8 +587,23 @@ export function planRetargeting(input: RetargetingInput): RetargetingPlan {
     draftId: input.where.draftId,
     adAccountId: input.where.adAccountId,
     campaignIds: input.where.campaignIds,
+    wider: input.twoCampaigns ? widerBuild(input, plan, sources) : null,
   };
   return { state: "proposed", takes: true, view: { ...base, state: "proposed", notProposed: null, create, signal, funnel }, build, held, funnel: plan };
+}
+
+/** STAGED: Wider for this show (folding its prospecting, one CBO lifetime budget). */
+function widerBuild(input: RetargetingInput, plan: FunnelShowPlan, sources: ReturnType<typeof funnelSourcesOf>): FunnelBuild["wider"] {
+  const sets = widerSpecs({ sources, pageGroup: input.pageGroup ?? null, lineupInterests: input.lineupInterests ?? [], genreInterests: input.genreInterests ?? [] });
+  const wider = planWider({ showDailyMinor: plan.showDailyMinor, retargetingMinor: plan.totalMinor, runDay: input.runDay, showDay: input.eventDate!, adSets: sets.length, steps: plan.steps });
+  return {
+    campaignName: widerCampaignName(input.eventCode),
+    dailyMinor: wider.dailyMinor,
+    lifetimeMinor: wider.lifetimeMinor,
+    daysLeft: wider.daysLeft,
+    adSets: sets.map((set) => ({ key: set.key, interests: set.interests, suggestionKeys: set.suggestions.map((aud) => aud.key), lookalikes: set.lookalikes, excludeKeys: set.excludes.map((aud) => aud.key) })),
+    steps: wider.steps,
+  };
 }
 
 /** RT8's first not-proposed state, for a show whose on-sale date hasn't come (no read runs for it yet). */

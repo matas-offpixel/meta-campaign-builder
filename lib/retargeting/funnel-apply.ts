@@ -44,10 +44,10 @@ import { withMetaWriteIdempotency, type MetaWriteContext } from "../meta/write-i
 import { applyEnabled, audienceWritesEnabledFrom, retargetingGates, applyGates } from "../onsale-refresh/apply-gates.ts";
 import { campaignCreateEnabled, customConversionCreateEnabled, reuseAd, type ReusedCreative } from "../onsale-refresh/apply-purchase.ts";
 import { isOptimisationWritesEnabledFromEnv } from "../optimisation/gates.ts";
-import { locationOf, RT_AUDIENCE_BUILDING, RT_AUDIENCE_SMALL, RT_AUDIENCES_OFF, RT_CONVERSION_OFF, RT_CREATE_OFF, tierAdSetPayload, type RetargetingMeta } from "./apply.ts";
+import { widerAdSetPayload, widerCampaignFields, locationOf, RT_AUDIENCE_BUILDING, RT_AUDIENCE_SMALL, RT_AUDIENCES_OFF, RT_CONVERSION_OFF, RT_CREATE_OFF, tierAdSetPayload, type RetargetingMeta } from "./apply.ts";
 import { audiencesToMake, funnelAdSetName, funnelSpecs, FUNNEL_TIERS, FUNNEL_TIER_LABEL, type FunnelAudience, type FunnelSources, type FunnelStretch, type FunnelTier, type TakeLine, type TierMinor } from "./funnel.ts";
 import type { FunnelStepPlan } from "./funnel-plan.ts";
-import { advantageOff, geoExpansionOff } from "./show-campaigns.ts";
+import { advantageOff, geoExpansionOff, widerAdSetName, type Interest, type LookalikeAudience, type WiderAdSetKey, type WiderStep } from "./show-campaigns.ts";
 
 type Db = Pick<SupabaseClient, "from">;
 
@@ -79,7 +79,23 @@ export type FunnelBuild = {
   draftId: string | null;
   adAccountId: string | null;
   campaignIds: string[];
+  /**
+   * STAGED (two-campaign record): "{code} · Wider", folding the show's
+   * prospecting (Matas, 26 Nov), one CBO lifetime budget. Absent = Retargeting
+   * alone (#1396).
+   */
+  wider?: {
+    campaignName: string;
+    dailyMinor: number;
+    lifetimeMinor: number;
+    daysLeft: number;
+    adSets: { key: WiderAdSetKey; interests: Interest[]; suggestionKeys: string[]; lookalikes: LookalikeAudience[]; excludeKeys: string[] }[];
+    steps: WiderStep[];
+  } | null;
 };
+
+/** What the audience seam makes: a funnel audience, or (Wider) a 1 % lookalike of an audience already made. */
+export type MakeAudience = Exclude<FunnelAudience, { kind: "list" }> | (LookalikeAudience & { originId: string });
 
 export type FunnelMeta = Pick<RetargetingMeta, "readAd" | "createCreativeFromPost" | "createCampaign" | "createAdSet" | "createAd" | "updateCampaign" | "setAdSetActive" | "findCustomConversion" | "createCustomConversion" | "readAdSetTargeting" | "audienceState" | "listShowVideos"> & {
   /** GET /{id}?fields=daily_budget: an ad set's or a campaign's daily budget now, minor units; null when it has none. */
@@ -89,11 +105,11 @@ export type FunnelMeta = Pick<RetargetingMeta, "readAd" | "createCreativeFromPos
 };
 
 /** One budget change at a later time (M3b's scheduled changes, migration 271). */
-export type ScheduledStep = { objectKind: "adset" | "campaign"; objectId: string; objectName: string; amountMinor: number; expectedMinor: number; runAt: string; raisesSpend: boolean; key: string };
+export type ScheduledStep = { objectKind: "adset" | "campaign"; objectId: string; objectName: string; field: "daily_budget" | "lifetime_budget"; amountMinor: number; expectedMinor: number; runAt: string; raisesSpend: boolean; key: string };
 
 export type FunnelSeams = {
   /** Job 2's audience create: make (or reuse) one audience. Null = the builder can't make this kind yet. */
-  createAudience(aud: Exclude<FunnelAudience, { kind: "list" }>, name: string, adAccountId: string): Promise<{ metaAudienceId: string } | null>;
+  createAudience(aud: MakeAudience, name: string, adAccountId: string): Promise<{ metaAudienceId: string } | null>;
   /** M3b's scheduled change (Job 1 switches it on). Returns the row's id. */
   scheduleChange(step: ScheduledStep): Promise<{ id: string }>;
   /** Job 3's show ceiling on the change in the show's total. Throws a plain refusal. */
@@ -122,6 +138,8 @@ export type FunnelProgress = {
   scheduled?: string[];
   /** Each tier ad set's settings as Meta holds them after create (Matas's 26 Nov item 2): location expansion off, Advantage+ off. */
   readBack?: { adsetId: string; name: string; geoOff: boolean; advantageOff: boolean }[];
+  /** STAGED: the Wider campaign's ids. */
+  wider?: { campaignId?: string; adSets?: Partial<Record<WiderAdSetKey, { id: string }>>; ads?: string[] };
 };
 
 export type FunnelOutcome = {
@@ -221,17 +239,24 @@ export function londonAt(day: string, minutes = 0): string {
 }
 
 /** The changes each stretch step makes: prospecting first (00:00), then the tiers (00:05). */
-export function stepChanges(build: FunnelBuild, adSets: Partial<Record<FunnelTier, { id: string; dailyMinor: number }>>): ScheduledStep[] {
+export function stepChanges(build: FunnelBuild, adSets: Partial<Record<FunnelTier, { id: string; dailyMinor: number }>>, widerCampaignId?: string | null): ScheduledStep[] {
   const out: ScheduledStep[] = [];
+  // Wider's lifetime budget moves first (00:00), the giving side when retargeting's share rises.
+  if (build.wider && widerCampaignId) {
+    for (const step of build.wider.steps) {
+      if (step.afterMinor === step.beforeMinor) continue;
+      out.push({ objectKind: "campaign", objectId: widerCampaignId, objectName: build.wider.campaignName, field: "lifetime_budget", amountMinor: step.afterMinor, expectedMinor: step.beforeMinor, runAt: londonAt(step.day, 0), raisesSpend: step.afterMinor > step.beforeMinor, key: `rf:${build.eventId}:${step.day}:wider` });
+    }
+  }
   const tierNow: TierMinor = { similar: adSets.similar?.dailyMinor ?? 0, cold: adSets.cold?.dailyMinor ?? 0, warm: adSets.warm?.dailyMinor ?? 0, hot: adSets.hot?.dailyMinor ?? 0 };
   for (const step of build.plan.steps) {
     for (const line of step.prospecting) {
-      out.push({ objectKind: line.kind, objectId: line.id, objectName: line.name, amountMinor: line.afterMinor, expectedMinor: line.beforeMinor, runAt: londonAt(step.day, 0), raisesSpend: line.afterMinor > line.beforeMinor, key: `rf:${build.eventId}:${step.day}:${line.id}` });
+      out.push({ objectKind: line.kind, objectId: line.id, objectName: line.name, field: "daily_budget", amountMinor: line.afterMinor, expectedMinor: line.beforeMinor, runAt: londonAt(step.day, 0), raisesSpend: line.afterMinor > line.beforeMinor, key: `rf:${build.eventId}:${step.day}:${line.id}` });
     }
     for (const tier of FUNNEL_TIERS) {
       const set = adSets[tier];
       if (!set || step.tiers[tier] === tierNow[tier]) continue;
-      out.push({ objectKind: "adset", objectId: set.id, objectName: funnelAdSetName(build.eventCode, tier), amountMinor: step.tiers[tier], expectedMinor: tierNow[tier], runAt: londonAt(step.day, 5), raisesSpend: step.tiers[tier] > tierNow[tier], key: `rf:${build.eventId}:${step.day}:${tier}` });
+      out.push({ objectKind: "adset", objectId: set.id, objectName: funnelAdSetName(build.eventCode, tier), field: "daily_budget", amountMinor: step.tiers[tier], expectedMinor: tierNow[tier], runAt: londonAt(step.day, 5), raisesSpend: step.tiers[tier] > tierNow[tier], key: `rf:${build.eventId}:${step.day}:${tier}` });
       tierNow[tier] = step.tiers[tier];
     }
   }
@@ -264,7 +289,9 @@ export async function applyFunnel(deps: FunnelDeps, build: FunnelBuild, ctx: { m
   if (live && !progress.active) {
     const taken = build.plan.take.reduce((sum, line) => sum + (line.beforeMinor - line.afterMinor), 0);
     try {
-      await deps.checkCeiling({ eventId: build.eventId, beforeMinor: build.plan.showDailyMinor, afterMinor: build.plan.showDailyMinor - taken + totalAfter });
+      // With Wider, the show's spend is Retargeting's plus Wider's (the prospecting it folds is paused on Matas's yes first).
+      const afterMinor = build.wider ? totalAfter + build.wider.dailyMinor : build.plan.showDailyMinor - taken + totalAfter;
+      await deps.checkCeiling({ eventId: build.eventId, beforeMinor: build.plan.showDailyMinor, afterMinor });
     } catch (err) {
       return fail(err instanceof Error ? err.message : String(err), { step: "ceiling" });
     }
@@ -370,6 +397,7 @@ export async function applyFunnel(deps: FunnelDeps, build: FunnelBuild, ctx: { m
       for (const creative of creatives) adIds.add((await reuseAd(deps.meta, ctx.ledger, { lineId: `rf:${build.eventId}`, adAccountId, adsetId: set!.id, creative })).adId);
     }
     progress.ads = [...adIds];
+    if (build.wider) await buildWider(deps, build, progress, { ctx, adAccountId, location, creatives, keyBase });
     await saveProgress(deps, build, progress, { state: live ? "building" : "paused", ...(live ? {} : { mode: "paused" as const }) });
   } catch (err) {
     await saveProgress(deps, build, progress, { state: "failed" }).catch(() => undefined);
@@ -407,6 +435,19 @@ export async function applyFunnel(deps: FunnelDeps, build: FunnelBuild, ctx: { m
       await deps.meta.updateCampaign(progress.campaignId!, { status: "ACTIVE" });
       return progress.campaignId!;
     }, { required: true });
+    // Wider's ad sets, then its campaign.
+    for (const set of Object.values(progress.wider?.adSets ?? {})) {
+      await withMetaWriteIdempotency(ctx.ledger, "adset_status_update", { ...keyBase, adset_id: set!.id, status: "ACTIVE" }, async () => {
+        await deps.meta.setAdSetActive(set!.id);
+        return set!.id;
+      }, { required: true });
+    }
+    if (progress.wider?.campaignId) {
+      await withMetaWriteIdempotency(ctx.ledger, "refresh_campaign_status_update", { ...keyBase, campaign_id: progress.wider.campaignId, status: "ACTIVE" }, async () => {
+        await deps.meta.updateCampaign(progress.wider!.campaignId!, { status: "ACTIVE" });
+        return progress.wider!.campaignId!;
+      }, { required: true });
+    }
     progress.active = true;
   } catch (err) {
     await saveProgress(deps, build, progress, { state: "failed" }).catch(() => undefined);
@@ -415,7 +456,7 @@ export async function applyFunnel(deps: FunnelDeps, build: FunnelBuild, ctx: { m
   // 9. Each stretch step, a scheduled change (the same key is the same row on a re-run).
   const scheduled = new Set(progress.scheduled ?? []);
   try {
-    for (const change of stepChanges(build, progress.adSets ?? {})) scheduled.add((await deps.scheduleChange(change)).id);
+    for (const change of stepChanges(build, progress.adSets ?? {}, progress.wider?.campaignId ?? null)) scheduled.add((await deps.scheduleChange(change)).id);
   } catch (err) {
     progress.scheduled = [...scheduled];
     await saveProgress(deps, build, progress, { state: "live", mode: "live" }).catch(() => undefined);
@@ -424,6 +465,64 @@ export async function applyFunnel(deps: FunnelDeps, build: FunnelBuild, ctx: { m
   progress.scheduled = [...scheduled];
   await saveProgress(deps, build, progress, { state: "live", mode: "live" });
   return { state: "applied", reason: null, progress };
+}
+
+/**
+ * STAGED: "{code} · Wider" — the campaign, paused, with its lifetime budget
+ * (CBO); each Wider ad set's lookalikes through the audience seam (one a
+ * source; a source the seam can't make yet is left out and its ad set built
+ * without it, or not at all when it has nothing); its ad sets, paused,
+ * Advantage+ on, suggestions and leave-outs; the same ads; the settings
+ * read-back (location expansion). Every write on the ledger, keyed on the event.
+ */
+async function buildWider(deps: FunnelDeps, build: FunnelBuild, progress: FunnelProgress, args: { ctx: { ledger: MetaWriteContext }; adAccountId: string; location: Record<string, unknown>; creatives: ReusedCreative[]; keyBase: Record<string, unknown> }): Promise<void> {
+  const wider = build.wider!;
+  const { ctx, adAccountId, keyBase } = args;
+  progress.wider ??= {};
+  if (!progress.wider.campaignId) {
+    const payload = { ...(buildCampaignPayload({ name: wider.campaignName, objective: "purchase", status: "PAUSED" }) as unknown as Record<string, unknown>), ...widerCampaignFields({ lifetimeMinor: wider.lifetimeMinor }) };
+    progress.wider.campaignId = await withMetaWriteIdempotency(ctx.ledger, "refresh_campaign_create", { ...keyBase, campaign: "wider" }, () => deps.meta.createCampaign(adAccountId, payload), { required: true });
+    await saveProgress(deps, build, progress, { state: "building" });
+  }
+  const idOf = (key: string) => progress.audiences?.[key] ?? (key.startsWith("list:") ? key.slice(5) : null);
+  progress.wider.adSets ??= {};
+  for (const set of wider.adSets) {
+    if (progress.wider.adSets[set.key]) continue;
+    const lookalikeIds: string[] = [];
+    for (const lal of set.lookalikes) {
+      const have = progress.audiences?.[lal.key];
+      if (have) {
+        lookalikeIds.push(have);
+        continue;
+      }
+      const originId = idOf(lal.originKey);
+      if (!originId) continue;
+      // PENDING DESIGN: a lookalike's name in Ads Manager.
+      const name = `${build.eventCode} · Lookalike 1 % GB · ${lal.originKey}`;
+      const made = await deps.createAudience({ ...lal, originId }, name, adAccountId);
+      if (!made) continue;
+      await storeAudience(deps.db, { event_id: build.eventId, user_id: deps.owner.userId, part: lal.key, meta_audience_id: made.metaAudienceId, name });
+      progress.audiences = { ...(progress.audiences ?? {}), [lal.key]: made.metaAudienceId };
+      lookalikeIds.push(made.metaAudienceId);
+    }
+    const suggestionIds = [...set.suggestionKeys.map(idOf).filter((id): id is string => Boolean(id)), ...lookalikeIds];
+    if (set.key !== "broad" && !suggestionIds.length && !set.interests.length) continue;
+    const excludeIds = set.excludeKeys.map(idOf).filter((id): id is string => Boolean(id));
+    const payload = widerAdSetPayload({ name: widerAdSetName(build.eventCode, set.key), campaignId: progress.wider.campaignId!, pixelId: build.pixelId, customConversionId: progress.customConversionId ?? null, endDay: build.endDay, location: args.location, interests: set.interests, suggestionIds, excludeIds });
+    const id = await withMetaWriteIdempotency(ctx.ledger, "refresh_adset_create", { ...keyBase, wider: set.key }, () => deps.meta.createAdSet(adAccountId, payload), { required: true });
+    progress.wider.adSets[set.key] = { id };
+    await saveProgress(deps, build, progress, { state: "building" });
+  }
+  const adIds = new Set(progress.wider.ads ?? []);
+  for (const set of Object.values(progress.wider.adSets)) {
+    for (const creative of args.creatives) adIds.add((await reuseAd(deps.meta, ctx.ledger, { lineId: `rf:${build.eventId}:wider`, adAccountId, adsetId: set!.id, creative })).adId);
+  }
+  progress.wider.ads = [...adIds];
+  for (const [key, set] of Object.entries(progress.wider.adSets)) {
+    const targeting = await deps.meta.readAdSetTargeting(set!.id).catch(() => null);
+    // Wider keeps Advantage+ on; only location expansion is read back.
+    progress.readBack = [...(progress.readBack ?? []).filter((row) => row.adsetId !== set!.id), { adsetId: set!.id, name: widerAdSetName(build.eventCode, key as WiderAdSetKey), geoOff: geoExpansionOff(targeting), advantageOff: true }];
+  }
 }
 
 /** HR3: each tier ad set recorded like a launch (launched_ad_sets). Never throws. */

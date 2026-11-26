@@ -122,6 +122,15 @@ export function realRetargetingDeps(db: SupabaseClient): McpRetargetingDeps {
       if (!("records" in result)) return { records: [], metaGets: 0, skipped: [] };
       return { records: result.records, metaGets: result.metaCalls, skipped: result.skipped };
     },
+    async campaignStatuses({ userId, ids }) {
+      const token = await tokenFor(userId);
+      const out: Record<string, string | null> = {};
+      for (let i = 0; i < ids.length; i += 50) {
+        const rows = await graphGetWithToken<Record<string, { effective_status?: string }>>("/", { ids: ids.slice(i, i + 50).join(","), fields: "effective_status" }, token, { maxAttempts: 1 });
+        for (const id of ids.slice(i, i + 50)) out[id] = rows?.[id]?.effective_status ?? null;
+      }
+      return out;
+    },
     async create({ userId, eventId, clientId, clientName, approval, build, mode, today }) {
       const token = await tokenFor(userId);
       if (!token) throw new Error("no Facebook token");
@@ -131,7 +140,8 @@ export function realRetargetingDeps(db: SupabaseClient): McpRetargetingDeps {
           env: process.env,
           meta: funnelMetaFor(token),
           async createAudience(aud, name, adAccountId) {
-            if (!clientId) return null;
+            // SWITCH(Job 2): lookalikes come with its LOOKALIKE create; until then Wider's Lookalikes ad set is built without them.
+            if (aud.kind === "lookalike" || !clientId) return null;
             const spec = funnelAudienceDraft(aud);
             const draft = await createAudienceDraftWith(db, { userId, clientId, eventId, name, funnelStage: "retargeting", audienceSubtype: spec.subtype, retentionDays: spec.retentionDays, sourceId: spec.sourceId, sourceMeta: spec.sourceMeta as never, metaAdAccountId: adAccountId });
             const made = await createMetaCustomAudience(draft.id, { userId, supabase: db as never });
@@ -146,7 +156,7 @@ export function realRetargetingDeps(db: SupabaseClient): McpRetargetingDeps {
               object_kind: step.objectKind,
               object_id: step.objectId,
               object_name: step.objectName,
-              field: "daily_budget",
+              field: step.field,
               amount_minor: step.amountMinor,
               expected_minor: step.expectedMinor,
               currency: "GBP",

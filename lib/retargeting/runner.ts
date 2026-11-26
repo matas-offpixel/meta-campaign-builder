@@ -41,6 +41,8 @@ import { isRetargetingCampaignName, isTestsCampaignName, retargetingCampaignName
 import { FUNNEL_TIERS, type FunnelTier, type ProspectingBudget, type TierWeek } from "./funnel.ts";
 import { BUILDS_TABLE, type FunnelProgress } from "./funnel-apply.ts";
 import type { CampaignInput } from "../onsale-refresh/rules.ts";
+import { loadPageGroup } from "./page-groups.ts";
+import { SHOW_CAMPAIGNS_RULED } from "./show-campaigns.ts";
 
 type Db = Pick<SupabaseClient, "from">;
 
@@ -85,7 +87,7 @@ export async function pagesWithRole(graph: RefreshGraph | null): Promise<{ roles
 
 type SourceRows = {
   clients: { id: string; name: string | null; default_page_ids: string[] | null; default_instagram_actor_id: string | null }[];
-  events: { id: string; venue_id: string | null; mailchimp_tag?: string | null; announcement_at?: string | null }[];
+  events: { id: string; venue_id: string | null; mailchimp_tag?: string | null; announcement_at?: string | null; genre_family?: string | null }[];
   venues: { id: string; name: string | null; meta_page_id: string | null; meta_page_name: string | null }[];
   lineup: { event_id: string; artist_id: string; billing_order: number | null }[];
   artists: { id: string; name: string | null; meta_page_id: string | null; meta_page_name: string | null }[];
@@ -97,7 +99,7 @@ export async function loadSourceRows(db: Db, eventIds: readonly string[], client
   if (!eventIds.length) return { clients: [], events: [], venues: [], lineup: [], artists: [], lists: [] };
   const [clients, events, lineup, lists] = await Promise.all([
     loadAll<SourceRows["clients"][number]>(db, "clients", "id, name, default_page_ids, default_instagram_actor_id", ["id"], (q) => q.in("id", clientIds)),
-    loadAll<SourceRows["events"][number]>(db, "events", "id, venue_id, mailchimp_tag, announcement_at", ["id"], (q) => q.in("id", eventIds)),
+    loadAll<SourceRows["events"][number]>(db, "events", "id, venue_id, mailchimp_tag, announcement_at, genre_family", ["id"], (q) => q.in("id", eventIds)),
     loadAll<SourceRows["lineup"][number] & { id: string }>(db, "event_artists", "id, event_id, artist_id, billing_order", ["id"], (q) => q.in("event_id", eventIds)).catch(() => []),
     loadAll<SourceRows["lists"][number] & { id: string }>(db, "meta_custom_audiences", "id, event_id, name, list_role, meta_audience_id, status, source_meta, updated_at", ["id"], (q) => q.in("event_id", eventIds).eq("audience_subtype", "customer_list")).catch(() => []),
   ]);
@@ -239,6 +241,9 @@ export function retargetingInput(args: {
   accountTimeZone?: string | null;
   /** RF3: events.announcement_at. */
   announcementAt?: string | null;
+  /** Staged two-campaign record: on, and the show's genre page group. */
+  twoCampaigns?: boolean;
+  pageGroup?: RetargetingInput["pageGroup"];
   /** The show's funnel build and its 7-day figures; its stored audience keys. */
   funnelBuilt?: RetargetingInput["funnelBuilt"];
   funnelWeek?: RetargetingInput["funnelWeek"];
@@ -312,6 +317,11 @@ export function retargetingInput(args: {
     signups: args.signups ?? null,
     accountTimeZone: args.accountTimeZone ?? null,
     announceDay: args.announcementAt ? args.announcementAt.slice(0, 10) : null,
+    twoCampaigns: args.twoCampaigns ?? false,
+    pageGroup: args.pageGroup ?? null,
+    // Wider's suggestions: the lineup's and the genre's interests aren't read yet (staged); Broad then runs with none.
+    lineupInterests: [],
+    genreInterests: [],
     prospecting: prospectingOf(campaigns, args.budgets, code),
     madeAudiences: args.madeAudiences ?? [],
     funnelBuilt: args.funnelBuilt ?? null,
@@ -576,7 +586,9 @@ export async function runRetargetingRead(input: {
       }
       const announcementAt = sourceRows.events.find((row) => row.id === event.id)?.announcement_at ?? null;
       const madeAudiences = madeRows.filter((row) => row.event_id === event.id && row.meta_audience_id).map((row) => row.part);
-      const planInput = retargetingInput({ announcementAt, funnelBuilt, funnelWeek, madeAudiences, event, day, rows, campaigns: inputs.campaigns, read, budgets: purchases.budgets, sources, appliedLine, minDailyMinor: account ? (minDaily.get(account) ?? null) : null, linksRead: links.linksRead, pixelHosts: pixelId ? (hostsByPixel.get(pixelId) ?? null) : null, campaignStatus, otherLandingHosts: [...otherLandingHosts(landingByShow, event.id)], linkSizes, testWinner, pooledRead, signups: signupsSyncOf(syncRows.filter((row) => row.event_id === event.id), event), accountTimeZone: account ? (timeZones.get(account) ?? null) : null });
+      const genre = sourceRows.events.find((row) => row.id === event.id)?.genre_family ?? null;
+      const pageGroup = SHOW_CAMPAIGNS_RULED ? await loadPageGroup(input.db, event.client_id, genre) : null;
+      const planInput = retargetingInput({ twoCampaigns: SHOW_CAMPAIGNS_RULED, pageGroup, announcementAt, funnelBuilt, funnelWeek, madeAudiences, event, day, rows, campaigns: inputs.campaigns, read, budgets: purchases.budgets, sources, appliedLine, minDailyMinor: account ? (minDaily.get(account) ?? null) : null, linksRead: links.linksRead, pixelHosts: pixelId ? (hostsByPixel.get(pixelId) ?? null) : null, campaignStatus, otherLandingHosts: [...otherLandingHosts(landingByShow, event.id)], linkSizes, testWinner, pooledRead, signups: signupsSyncOf(syncRows.filter((row) => row.event_id === event.id), event), accountTimeZone: account ? (timeZones.get(account) ?? null) : null });
       const plan = planRetargeting(planInput);
       const record: RetargetingRecord = { eventId: event.id, eventCode: event.event_code, plan, input: planInput, proposalId: null };
       // RT13: a running campaign's rules against today's links. A failed read keeps the last rules, so nothing is compared.

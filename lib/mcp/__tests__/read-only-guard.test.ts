@@ -346,7 +346,7 @@ const EXTERNAL_READERS: Record<string, readonly string[]> = {
   "lib/retargeting/funnel-plan.ts": ["claudePlanLines", "doneLine", "planHead", "skipLine", "skipReason"],
   "lib/retargeting/funnel-view.ts": ["funnelSourcesOf"],
   // Staged two-campaign record: the keep / pause / fold advice, the settings read-back's words and the flag (pure).
-  "lib/retargeting/show-campaigns.ts": ["adviceLine", "adviseExisting", "SHOW_CAMPAIGNS_RULED", "untickLine"],
+  "lib/retargeting/show-campaigns.ts": ["adviceLine", "adviseExisting", "foldFirstLine", "SHOW_CAMPAIGNS_RULED", "untickLine", "widerPlanLine"],
 };
 
 /**

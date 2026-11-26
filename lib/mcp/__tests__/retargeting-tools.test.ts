@@ -59,9 +59,12 @@ function record(over: Partial<RetargetingInput> = {}): RetargetingRecord {
   return { eventId: i.eventId, eventCode: i.eventCode, plan: planRetargeting(i), input: i, proposalId: null };
 }
 
-function ctxWith(records: RetargetingRecord[], opts: { scope?: string; isMatas?: boolean; build?: Record<string, unknown> | null; owner?: string; archived?: string[]; outcome?: Partial<FunnelOutcome> } = {}) {
+function ctxWith(records: RetargetingRecord[], opts: { scope?: string; isMatas?: boolean; build?: Record<string, unknown> | null; owner?: string; archived?: string[]; outcome?: Partial<FunnelOutcome>; statuses?: Record<string, string> } = {}) {
   const calls: { read: unknown[]; create: { build: FunnelBuild; mode: string; approval: unknown }[] } = { read: [], create: [] };
   const deps: McpRetargetingDeps = {
+    async campaignStatuses({ ids }) {
+      return Object.fromEntries(ids.map((id) => [id, opts.statuses?.[id] ?? null]));
+    },
     async read(args) {
       calls.read.push(args);
       return { records: args.codes ? records.filter((r) => args.codes!.some((c) => c.toUpperCase() === (r.eventCode ?? "").toUpperCase())) : records, metaGets: 3, skipped: [] };
@@ -223,4 +226,32 @@ test("plan_retargeting: the keep / pause / fold advice only once the two-campaig
   (on.ctx as { showCampaignsRuled?: boolean }).showCampaignsRuled = true;
   const message = String(((await run(planRetargetingTool, on.ctx, { events: "NX26-RUDIMENTAL" })).data as { message: string }).message);
   assert.match(message, /\nPause: NX26-RUDIMENTAL · Lineup\. Fold into Wider: NX26-RUDIMENTAL · Prospecting\. Nothing is paused without Matas's yes\.$/);
+});
+
+const FOLD = [
+  { id: "4101", name: "NX26-RUDIMENTAL · Prospecting", adSetNames: ["Broad · Advantage+", "Interests"], delivering: true },
+  { id: "4102", name: "NX26-RUDIMENTAL · Tests", adSetNames: ["NX26-RUDIMENTAL · Tests · A"], delivering: true },
+];
+
+test("two campaigns (staged): the plan adds Wider's line; a live create waits until the prospecting it folds is paused", async () => {
+  const twoInput = { twoCampaigns: true, campaigns: FOLD } as Partial<RetargetingInput>;
+  const plan = ctxWith([record(twoInput)]);
+  (plan.ctx as { showCampaignsRuled?: boolean }).showCampaignsRuled = true;
+  const message = String(((await run(planRetargetingTool, plan.ctx, { events: "NX26-RUDIMENTAL" })).data as { message: string }).message);
+  assert.match(message, /\nNX26-RUDIMENTAL · Wider · £\d+\.\d{2} a day · £[\d.]+ over 17 days \(lifetime\) · Broad · Lookalikes\n/);
+  assert.match(message, /Fold into Wider: NX26-RUDIMENTAL · Prospecting/);
+
+  const running = ctxWith([record(twoInput)], { statuses: { 4101: "ACTIVE" } });
+  await refused(run(createShowCampaignsTool, running.ctx, { event: "NX26-RUDIMENTAL", mode: "live", approval: YES }), /^Refused: NX26-RUDIMENTAL's prospecting still runs \(NX26-RUDIMENTAL · Prospecting\)\. Fold or pause it first, on Matas's yes, then make it live\. Nothing was changed\.$/);
+  assert.equal(running.calls.create.length, 0);
+
+  const folded = ctxWith([record(twoInput)], { statuses: { 4101: "PAUSED" } });
+  await run(createShowCampaignsTool, folded.ctx, { event: "NX26-RUDIMENTAL", mode: "live", approval: YES });
+  assert.equal(folded.calls.create.length, 1);
+  assert.ok(folded.calls.create[0]!.build.wider);
+
+  // Paused builds Wider whatever runs: it spends nothing.
+  const paused = ctxWith([record(twoInput)], { statuses: { 4101: "ACTIVE" } });
+  await run(createShowCampaignsTool, paused.ctx, { event: "NX26-RUDIMENTAL", mode: "paused", approval: YES });
+  assert.equal(paused.calls.create.length, 1);
 });

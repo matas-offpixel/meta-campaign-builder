@@ -32,6 +32,8 @@ export interface RetargetingReadResult {
 export interface McpRetargetingDeps {
   /** codes null = every on-sale show of a non-archived client. */
   read(input: { userId: string; codes: readonly string[] | null; now: Date }): Promise<RetargetingReadResult>;
+  /** Staged (two campaigns): each campaign's effective_status now (GET /?ids=…), so a live Wider waits for the prospecting it folds. */
+  campaignStatuses(input: { userId: string; ids: readonly string[] }): Promise<Record<string, string | null>>;
   /**
    * The funnel's create path for one show, as this operator
    * (lib/retargeting/funnel-apply.ts applyFunnel with the real Meta calls

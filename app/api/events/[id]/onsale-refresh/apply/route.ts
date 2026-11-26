@@ -293,6 +293,8 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       },
     },
     async createAudience(aud, name, adAccountId) {
+      // SWITCH(Job 2): lookalikes come with its LOOKALIKE create; until then Wider's Lookalikes ad set is built without them.
+      if (aud.kind === "lookalike") return null;
       if (!who.event.client_id) throw new Error("This event has no client, so the audience builder can't file the audience.");
       const spec = funnelAudienceDraft(aud);
       const draft = await createAudienceDraft({

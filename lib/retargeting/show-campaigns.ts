@@ -161,3 +161,74 @@ export function advantageOff(targeting: Record<string, unknown> | null): boolean
   const automation = (targeting?.targeting_automation ?? null) as { advantage_audience?: unknown } | null;
   return automation?.advantage_audience === 0;
 }
+
+/** Days from `from` to the show day, both counted (0 after the show). */
+export function daysLeft(from: string, showDay: string): number {
+  return Math.max(0, Math.round((Date.parse(`${showDay}T12:00:00Z`) - Date.parse(`${from}T12:00:00Z`)) / 86_400_000) + 1);
+}
+
+export type WiderStep = { day: string; beforeMinor: number; afterMinor: number; deltaDailyMinor: number; atFloor: boolean };
+
+export type WiderPlan = {
+  /** Wider's money a day today: the show's daily spend less Retargeting's. */
+  dailyMinor: number;
+  /** Its campaign (CBO) lifetime budget: that × the days left. */
+  lifetimeMinor: number;
+  daysLeft: number;
+  adSets: number;
+  /** Each stretch step: the campaign's lifetime budget before → after (a scheduled change, lifetime_budget). */
+  steps: WiderStep[];
+  /** Wider can't keep £1.00 a day per ad set today. */
+  tooSmall: boolean;
+};
+
+/**
+ * Wider's money (Matas, 26 Nov: "folds prospecting" and "Campaign (CBO)"):
+ * one lifetime budget on the campaign, (the show's daily spend −
+ * Retargeting's) × the days left. Each stretch step changes it by the step's
+ * money a day × the days left from that day; spend to that day is taken as
+ * the plan's money a day, so the remaining budget is the lifetime less it.
+ * READING (the coordinator's, 26 Nov): under CBO, "never below £1 a day per
+ * ad set" is the campaign's remaining lifetime never going below £1.00 × the
+ * Wider ad sets × the days left.
+ */
+export function planWider(args: { showDailyMinor: number; retargetingMinor: number; runDay: string; showDay: string; adSets: number; steps: readonly { day: string; totalMinor: number }[] }): WiderPlan {
+  const adSets = Math.max(1, args.adSets);
+  const left = daysLeft(args.runDay, args.showDay);
+  const dailyMinor = Math.max(0, args.showDailyMinor - args.retargetingMinor);
+  const lifetimeMinor = dailyMinor * left;
+  const steps: WiderStep[] = [];
+  let lifetime = lifetimeMinor;
+  let daily = dailyMinor;
+  let spent = 0;
+  let from = args.runDay;
+  let retargeting = args.retargetingMinor;
+  for (const step of args.steps) {
+    spent += daily * (daysLeft(from, step.day) - 1);
+    const remaining = lifetime - spent;
+    const rest = daysLeft(step.day, args.showDay);
+    const deltaDaily = step.totalMinor - retargeting;
+    const floor = FLOOR_MINOR * adSets * rest;
+    const wantRemaining = remaining - deltaDaily * rest;
+    const afterRemaining = deltaDaily > 0 ? Math.max(floor, Math.min(remaining, wantRemaining)) : wantRemaining;
+    const after = spent + afterRemaining;
+    steps.push({ day: step.day, beforeMinor: lifetime, afterMinor: after, deltaDailyMinor: deltaDaily, atFloor: deltaDaily > 0 && wantRemaining < floor });
+    lifetime = after;
+    daily = rest > 0 ? Math.floor(afterRemaining / rest) : 0;
+    retargeting = step.totalMinor;
+    from = step.day;
+  }
+  return { dailyMinor, lifetimeMinor, daysLeft: left, adSets, steps, tooSmall: dailyMinor < FLOOR_MINOR * adSets };
+}
+
+/** PENDING DESIGN: Claude's line for Wider in the plan. */
+export function widerPlanLine(code: string, wider: Pick<WiderPlan, "dailyMinor" | "lifetimeMinor" | "daysLeft">, adSets: readonly WiderAdSetKey[]): string {
+  const adSetNames = adSets.map((key) => WIDER_AD_SET_LABEL[key]);
+  const pounds = (minor: number) => `£${(minor / 100).toFixed(2)}`;
+  return `${widerCampaignName(code)} · ${pounds(wider.dailyMinor)} a day · ${pounds(wider.lifetimeMinor)} over ${wider.daysLeft} days (lifetime) · ${adSetNames.join(" · ")}`;
+}
+
+/** PENDING DESIGN: a live create refused while the prospecting Wider replaces still runs. */
+export function foldFirstLine(code: string, names: readonly string[]): string {
+  return `Refused: ${code}'s prospecting still runs (${names.join(" · ")}). Fold or pause it first, on Matas's yes, then make it live. Nothing was changed.`;
+}
