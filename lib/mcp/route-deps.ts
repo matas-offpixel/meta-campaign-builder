@@ -16,6 +16,7 @@ import { createActionLogger } from "./action-log";
 import { realDraftDeps } from "./draft-deps";
 import { realLabDeps } from "./lab-deps";
 import { realMetaDeps } from "./meta-deps";
+import { realShowsDeps } from "./shows-deps";
 import { startDeps } from "@/lib/render-templates/server-deps";
 import { realReaders } from "./readers";
 import { createSupabaseStore, devMemoryStore, type McpStore } from "./oauth/store";
@@ -48,6 +49,8 @@ export function mcpHandlerDeps(): McpHandlerDeps {
     render: startDeps(db),
     // M3d-b: the Lab tools' paths (the Snippet tab's scan and drop, the Clips card's owner).
     lab: realLabDeps(db),
+    // M3d-a: the shows tools' paths (the event and clients forms' create, the Lab lineup, the Releases card).
+    shows: realShowsDeps(db),
   };
 }
 

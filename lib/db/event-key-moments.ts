@@ -1,3 +1,4 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -139,9 +140,11 @@ export async function regenerateAutoMoments(args: {
    * is cleared.
    */
   eventDate: string | null;
+  /** The client to write with; the browser client when omitted (the forms). */
+  supabase?: Pick<SupabaseClient, "from">;
 }): Promise<EventKeyMoment[]> {
   const { eventId, userId, eventDate } = args;
-  const supabase = createClient();
+  const supabase = args.supabase ?? createClient();
 
   // Wipe first so a half-seeded run leaves a clean (empty) state.
   const { error: delErr } = await supabase

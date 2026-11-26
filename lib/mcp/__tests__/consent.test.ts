@@ -334,3 +334,25 @@ test("an upgrade whose revoke of the read grant fails is undone: 500, the new gr
   assert.ok(newGrant.revoked_at, "the new grant is revoked");
   assert.ok((await checkBearer(`Bearer ${old.access_token}`, urls, deps)).ok, "the read token still reads");
 });
+
+test("design's re-ruled consent rows (26 Nov verdict): the drafts permission now covers setting up shows, word for word", () => {
+  assert.equal(
+    CONSENT_WORDS.drafts,
+    "It can read every client's events, spend, signup and ticket counts, drafts and learnings. It can also make events and clients, set a show's lineup and ticket releases, mark drops and whose footage clips are in the Lab, put files in a show's own Drive folders, and make, change and archive campaign drafts that aren't published, including adding creatives from Google Drive. It can't publish, launch or send anything.",
+  );
+  assert.equal(
+    CONSENT_WORDS.meta,
+    "It can read every client's events, spend, signup and ticket counts, drafts and learnings, make events and clients, set lineups, ticket releases and the Lab's drops and clip owners, put files in a show's own Drive folders, and make, change and archive campaign drafts. It can also send files to Meta, launch drafts paused or live, change live campaigns, and change an event's dates and links, each only after you say yes in Claude. It can't start or raise spend past a client's daily ceiling, and every change is listed on Today.",
+  );
+  assert.equal(CONSENT_WORDS.titleUpgrade, "Let Claude change drafts and set up shows in Off/Pixel");
+  assert.equal(CONSENT_WORDS.titleUpgradeLoopback, "Let an app on this computer change drafts and set up shows in Off/Pixel");
+  // The consent lines keep straight apostrophes.
+  for (const w of [CONSENT_WORDS.drafts, CONSENT_WORDS.meta]) assert.ok(!w.includes("’"), w);
+  // settings.claude.scope.drafts (no screen renders it yet): both copies of TD's list carry the ruled row, with typographic apostrophes.
+  const SCOPE_DRAFTS = "Drafts · make, change and archive drafts that aren’t published, and set up shows: events, clients, lineups, releases, Lab drops and clip owners, files in a show’s folders";
+  const here = dirname(fileURLToPath(import.meta.url));
+  for (const f of [join(here, "fixtures/words-mcp-today-2026-11-25.tsv"), join(here, "../../render-templates/__tests__/fixtures/words-mcp-today-2026-11-25.tsv")]) {
+    const row = readFileSync(f, "utf8").split("\n").find((l) => l.startsWith("settings.claude.scope.drafts\t"));
+    assert.equal(row?.split("\t")[2], SCOPE_DRAFTS, f);
+  }
+});

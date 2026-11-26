@@ -17,6 +17,7 @@ import type { LocationSearchHit } from "../meta/location-search.ts";
 import type { AccountPage, InterestHit } from "./graph-reads.ts";
 import type { CampaignDraft } from "../types.ts";
 import type { StoredSendOutcome } from "../plan/stored-assets-meta.ts";
+import type { ReleasesData } from "./shows/claims.ts";
 
 export type Db = Pick<SupabaseClient, "from">;
 
@@ -157,6 +158,27 @@ export interface McpLabDeps {
   firstNames(userIds: readonly string[]): Promise<Map<string, string>>;
 }
 
+/**
+ * M3d-a (scope mcp:draft): the app's own create and save paths the shows
+ * tools call, for one operator. The route passes the real ones
+ * (lib/mcp/shows-deps.ts, a pinned seam); tests pass spies. App database
+ * only: nothing here reaches Meta, Drive or any other platform.
+ */
+export interface McpShowsDeps {
+  /** The event form's create (insertEventRow: the insert and its key-moments seed), as this operator. */
+  createEvent(input: { userId: string; row: Record<string, unknown> }): Promise<{ id: string; slug: string }>;
+  /** The clients form's create (insertClientRow), as this operator. */
+  createClient(input: { userId: string; row: Record<string, unknown> }): Promise<{ id: string; slug: string }>;
+  /** The Lab's "add from Spotify" (addSpotifyToLineup): a library artist from a Spotify id, then a lineup row. */
+  addSpotifyArtist(input: { userId: string; eventId: string; name: string; spotifyId: string }): Promise<{ artistId: string }>;
+  /** The Lab's lineup save (saveLabLineup): replaces the event's lab rows, in this order. */
+  saveLineup(input: { userId: string; eventId: string; slots: readonly { artistId: string; isHeadliner: boolean }[] }): Promise<{ lineup: string[]; headliners: string[] }>;
+  /** The Releases card's reads (loadEventReleases, loadClientLadder, loadSalesHistory, loadEventArtists). Null: no releases table. */
+  loadReleases(input: { eventId: string; clientId: string | null }): Promise<ReleasesData | null>;
+  /** The Releases card's save (POST /api/events/[id]/releases through postReleaseAs). */
+  postRelease(input: { userId: string; eventId: string; body: Record<string, unknown> }): Promise<{ status: number; body: Record<string, unknown> }>;
+}
+
 export interface ToolContext {
   db: Db;
   readers: McpReaders;
@@ -171,6 +193,8 @@ export interface ToolContext {
   render?: McpRenderDeps;
   /** M3d-b's Lab paths (the Snippet tab's scan and drop, the Clips card's owner); absent unless the route wires it. */
   lab?: McpLabDeps;
+  /** M3d-a's create and save paths (events, clients, the Lab lineup, releases); absent unless the route wires it. */
+  shows?: McpShowsDeps;
   /** The caller is in MATAS_USER_IDS (mcp:meta tools check it again). */
   isMatas?: boolean;
   /** Today's Undo exists; omitted means TODAY_UNDO_SHIPPED (meta/today-undo.ts). Injected so tests cover both. */

@@ -70,14 +70,17 @@ async function refused(p: Promise<unknown>, re: RegExp): Promise<ToolInputError>
 
 const draftWrites = (db: { writes: Array<{ table: string; op: string }> }) => db.writes.filter((w) => w.table === "campaign_drafts");
 
-test("thirty-six tools: ten read (M4a's get_render_package), twenty-two draft (M2 + M2b + set_draft_name + M3d-b's four Lab tools), three meta (M3a), one render (M4a); each says what it changes, one example each", async () => {
-  assert.equal(MCP_TOOLS.length, 36);
+test("forty-one tools: ten read (M4a's get_render_package), twenty-seven draft (M2 + M2b + set_draft_name + M3d-a's five shows tools + M3d-b's four Lab tools), three meta (M3a), one render (M4a); each says what it changes, one example each", async () => {
+  assert.equal(MCP_TOOLS.length, 41);
   assert.deepEqual(DRAFT_TOOLS.map((t) => t.name).sort(), [
     "apply_audience_template",
     "archive_draft",
     "attach_drive_creatives",
+    "create_client",
+    "create_event",
     "duplicate_draft",
     "list_clips",
+    "get_releases",
     "list_drive_creatives",
     "list_tracks",
     "remove_draft_creatives",
@@ -95,11 +98,13 @@ test("thirty-six tools: ten read (M4a's get_render_package), twenty-two draft (M
     "set_draft_schedule",
     "set_clip_owner",
     "set_track_drop",
+    "set_lineup",
+    "set_release",
   ].sort());
   for (const t of READ_TOOLS) assert.equal(t.kind, "read", t.name);
   for (const t of DRAFT_TOOLS) {
     assert.equal(t.kind, "draft", t.name);
-    assert.equal(t.readOnly, t.name === "list_drive_creatives" || t.name === "list_clips", `${t.name} readOnly`);
+    assert.equal(t.readOnly, t.name === "list_drive_creatives" || t.name === "get_releases" || t.name === "list_clips", `${t.name} readOnly`);
     assert.equal(typeof t.idempotent, "boolean", `${t.name} idempotent`);
     assert.equal((t.description.match(/Example: /g) ?? []).length, 1, t.name);
   }

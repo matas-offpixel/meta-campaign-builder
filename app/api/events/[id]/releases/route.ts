@@ -22,7 +22,30 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   const { data: auth } = await db.auth.getUser();
   const user = auth.user;
   if (!user) return NextResponse.json({ error: "Sign in again." }, { status: 401 });
+  return postRelease(request, id, { db, user: { id: user.id } });
+}
 
+/**
+ * The same save for an operator without a browser session: the Off/Pixel
+ * connector's set_release (its shows seam, M3d-a). `db` is the
+ * service-role client and `user` the connector's operator; the caller has
+ * already checked the event is that operator's (the session route relies
+ * on RLS for it). The body is the card's (`releaseId`, `state`,
+ * `confirmed`, `sold`, `source`).
+ */
+export async function postReleaseAs(
+  request: Request,
+  eventId: string,
+  auth: { db: Awaited<ReturnType<typeof createClient>>; user: { id: string } },
+): Promise<NextResponse> {
+  return postRelease(request, eventId, auth);
+}
+
+async function postRelease(
+  request: Request,
+  id: string,
+  { db, user }: { db: Awaited<ReturnType<typeof createClient>>; user: { id: string } },
+): Promise<NextResponse> {
   const body = (await request.json()) as {
     releaseId?: string;
     state?: string;

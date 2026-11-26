@@ -30,6 +30,6 @@ test("RY4's retired rows are gone, RY's changed rows read as re-ruled", () => {
 
 test("TODAY_WORDS are TD's rows exactly (FC1's log row)", () => {
   const td = new Map(rows(TD).map((x) => [x[0], x[2]]));
-  assert.equal(createHash("sha256").update(readFileSync(TD)).digest("hex"), "5aeca085a051cc358091bf0861ebe908e08174030241792f865325fb3f6d1980");
+  assert.equal(createHash("sha256").update(readFileSync(TD)).digest("hex"), "432fdd5ff4b148bd6ab3c8882692c72852af7687913d683e733f1ff0588faf59");
   for (const [k, v] of Object.entries(TODAY_WORDS)) assert.equal(v, td.get(k), k);
 });
