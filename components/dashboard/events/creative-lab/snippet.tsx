@@ -455,9 +455,9 @@ export function TrackEditor({ title, file, preview, onEdit, pair = null }: { tit
         <div className="sm:hidden">
           <PreviewPane preview={preview} lengthS={lengthS} startS={shown.startS ?? 0} precise={Boolean(pair)} />
         </div>
-        {boxes.some((b) => b.dropS != null) ? (
-          // Design, 17 Nov: the drop label sits above the marker line, not loose under the waveform.
-          <div className="relative h-4">
+        {/* Design, 17 Nov: the drop label sits above the marker line, not loose under the waveform.
+            Design, 26 Nov: the row keeps its height with no drop set, so the waveform doesn't jump when a press places one. */}
+        <div className="relative h-4" aria-hidden={boxes.every((b) => b.dropS == null) || undefined}>
             {boxes.map((b, i) =>
               b.dropS != null ? (
                 <span
@@ -469,8 +469,7 @@ export function TrackEditor({ title, file, preview, onEdit, pair = null }: { tit
                 </span>
               ) : null,
             )}
-          </div>
-        ) : null}
+        </div>
         <svg
           ref={svg}
           viewBox="0 0 1000 120"
