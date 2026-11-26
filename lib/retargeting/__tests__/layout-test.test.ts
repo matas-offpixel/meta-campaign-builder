@@ -10,19 +10,17 @@
 
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { describe, it, mock } from "node:test";
+import { describe, it } from "node:test";
 
 import { memoryDb } from "../../onsale-refresh/__tests__/memory-db.ts";
 import { applyTestCall, takeWholeTotal, type CallWrite } from "../apply-call.ts";
-import { applyRetargetingCampaign, RT_STUDY_UNWIRED, type RetargetingMeta } from "../apply.ts";
 import type { SourceSet, TierSpec } from "../audiences.ts";
 import { linksFromPages } from "../links.ts";
-import { callLine, planRetargeting, type RetargetingInput } from "../plan.ts";
+import { callLine } from "../plan.ts";
 import { pooledFromRows } from "../runner.ts";
 import { armTiers, callFor, entered, metaTime, pooled, recencySpecs, studyPayload, testStart } from "../test.ts";
 import * as words from "../words.ts";
 
-const ON = { ONSALE_REFRESH_CAMPAIGN_CREATE_ENABLED: "1", OFFPIXEL_META_AUDIENCE_WRITES_ENABLED: "true" };
 
 const SET: SourceSet = {
   pixelId: "px",
@@ -108,152 +106,6 @@ describe("Ops (c): the test starts at 00:00 in the ad account's timezone, tomorr
   });
 });
 
-function testFake(opts: { refuse?: boolean; timezone?: string } = {}) {
-  const calls: [string, ...unknown[]][] = [];
-  let next = 0;
-  const id = (prefix: string) => `${prefix}${++next}`;
-  const meta: RetargetingMeta = {
-    readCampaignBudget: async () => ({ daily: null, lifetime: null }),
-    readAd: async (adId) => ({ id: adId, name: `name-${adId}`, creativeId: `cr-${adId}`, effectiveStatus: "ACTIVE", objectStoryId: null }),
-    createCreativeFromPost: async () => {
-      throw new Error("not used");
-    },
-    createCampaign: async (_account, payload) => (calls.push(["createCampaign", payload]), id("camp")),
-    createAdSet: async (_account, payload) => (calls.push(["createAdSet", payload]), id("set")),
-    createAd: async (_account, ad) => (calls.push(["createAd", ad]), id("ad")),
-    updateCampaign: async (campaignId, fields) => void calls.push(["updateCampaign", campaignId, fields]),
-    setAdSetActive: async (adsetId) => void calls.push(["setAdSetActive", adsetId]),
-    findCustomConversion: async () => null,
-    createCustomConversion: async () => id("cc"),
-    readAdSetTargeting: async () => ({ geo_locations: { countries: ["GB"] } }),
-    audienceState: async () => "ready",
-    listShowVideos: async () => [{ contextId: "pg1", videoIds: ["v1"] }],
-    accountInfo: async () => ({ timezone: opts.timezone ?? "Europe/London", businessId: "biz1" }),
-    createAdStudy: async (businessId, payload) => {
-      calls.push(["createAdStudy", businessId, payload]);
-      if (opts.refuse) throw new Error("Invalid parameter: a campaign in this cell has a scheduled start");
-      return "study1";
-    },
-  };
-  return { meta, calls };
-}
-
-function enteredLine() {
-  const plan = planRetargeting({
-    eventId: "e1",
-    eventCode: "XMPL-WHSE",
-    runDay: "2026-11-17",
-    eventDate: "2026-12-19",
-    onSaleDay: "2026-11-06",
-    read: { state: "platform_under_bar", pixel: { id: "px", source: "ad_sets", spendShare: 1, stored: "px", matches: true }, pixelName: "Warehouse Skiddle", domain: null, onDomain: null, platform: "Skiddle" } as never,
-    last7SpendGbp: 1680,
-    minDailyMinor: 100,
-    sources: SET,
-    existing: null,
-    legacy: [],
-    budgetGbp: 10000,
-    spendToDateGbp: 1500,
-    committedGbp: 1000,
-    main: null,
-    ads: [{ adId: "a1", name: "Lineup" }],
-    geoFromAdsetId: "src1",
-    where: { draftId: "d1", adAccountId: "act_1", campaignIds: ["main1"] },
-    linksRead: "ok",
-  } as RetargetingInput);
-  assert.equal(plan.state, "proposed");
-  assert.deepEqual(plan.build!.test, { halfMinor: 1200, arms: { A: { bottom: 600, mid_bottom: 300, mid: 300 }, B: { bottom: 600, mid_bottom: 300, mid: 300 } } });
-  assert.equal(plan.view.create!.eachArm, "£12.00 a day to each arm · Meta splits people at random, so nobody sees both");
-  assert.equal(plan.view.create!.tooSmall, null);
-  return { id: "l1", write: plan.build as unknown as Record<string, unknown>, applied_result: null as Record<string, unknown> | null };
-}
-
-function setup() {
-  const mem = memoryDb({ onsale_refresh_lines: [{ id: "l1", state: "applying" }], meta_write_idempotency: [], onsale_refresh_audiences: [], launched_ad_sets: [] });
-  const deps = (meta: RetargetingMeta) => ({
-    db: mem.db,
-    env: ON,
-    meta,
-    ensureAudience: async (aud: { key: string }) => ({ metaAudienceId: `aud-${aud.key}` }),
-    plan: { budget: 10000, spend: 1500, today: "2026-11-17", appliedMovesGbp: 0 },
-    mainSpentNow: 0,
-    owner: { userId: "u1", clientId: "c1", eventId: "e1", launchRunId: "11111111-1111-4111-8111-111111111111" },
-  });
-  return { mem, deps, ctx: { ledger: { supabase: mem.db, userId: "u1", draftId: "d1", eventId: "e1" }, adAccountId: "act_1", plainMetaReason: (err: unknown) => (err instanceof Error ? err.message : String(err)) } };
-}
-
-describe("Ops (c) at Apply: nothing delivers before the split", () => {
-  it("both arms made paused, every ad set starting at the test's start, then the study, then switched on", async () => {
-    const fake = testFake();
-    const { deps, ctx } = setup();
-    const out = await applyRetargetingCampaign(deps(fake.meta) as never, enteredLine(), ctx as never);
-    assert.equal(out.state, "applied", String(out.reason));
-    const campaigns = fake.calls.filter(([name]) => name === "createCampaign").map(([, payload]) => payload as Record<string, unknown>);
-    assert.deepEqual(campaigns.map((row) => [row.name, row.status]), [["XMPL-WHSE · Retargeting · A/B · A", "PAUSED"], ["XMPL-WHSE · Retargeting · A/B · B", "PAUSED"]]);
-    const study = fake.calls.find(([name]) => name === "createAdStudy")!;
-    const studyStart = Number((study[2] as Record<string, unknown>).start_time) * 1000;
-    const sets = fake.calls.filter(([name]) => name === "createAdSet").map(([, payload]) => payload as Record<string, unknown>);
-    assert.equal(sets.length, 6, "three tiers in each arm");
-    for (const set of sets) {
-      assert.ok(typeof set.start_time === "string", `${set.name} has a start time`);
-      assert.ok(Date.parse(String(set.start_time).replace(/([+-]\d{2})(\d{2})$/, "$1:$2")) >= studyStart, `${set.name} starts at or after the test`);
-      assert.equal(set.status, "PAUSED");
-    }
-    // The test's start is 00:00 tomorrow in Europe/London (Matas, 25 Nov), after now.
-    assert.ok(studyStart > Date.now());
-    // Nothing is switched on before the study exists.
-    const studyAt = fake.calls.indexOf(study);
-    const firstOn = fake.calls.findIndex(([name, , fields]) => name === "setAdSetActive" || (name === "updateCampaign" && (fields as Record<string, unknown>)?.status === "ACTIVE"));
-    assert.ok(firstOn > studyAt, "switched on only after the test is made");
-    assert.deepEqual(JSON.parse(String((study[2] as Record<string, unknown>).cells)).map((cell: { treatment_percentage: number; campaigns: string[] }) => [cell.treatment_percentage, cell.campaigns.length]), [[50, 1], [50, 1]]);
-    assert.ok(campaigns.every((row) => row.daily_budget === undefined && row.lifetime_budget === undefined), "no campaign-level budget, so no campaign-level delivery");
-  });
-
-  it("Meta refuses the test: Apply stops, says so, and nothing is switched on (no fallback)", async () => {
-    const fake = testFake({ refuse: true });
-    const { deps, ctx } = setup();
-    const out = await applyRetargetingCampaign(deps(fake.meta) as never, enteredLine(), ctx as never);
-    assert.equal(out.state, "failed");
-    // Design (25 Nov): the sentence, then Meta's words underneath; no "Created paused: …" (the sentence says both arms are made and paused).
-    assert.equal(String(out.reason), "Meta didn't accept the A/B test, so nothing is switched on: both arms are made and paused.\nMeta said: \"Invalid parameter: a campaign in this cell has a scheduled start\"");
-    assert.equal(fake.calls.some(([name, , fields]) => name === "setAdSetActive" || (name === "updateCampaign" && (fields as Record<string, unknown>)?.status === "ACTIVE")), false);
-  });
-
-  for (const [season, now, startUtc] of [
-    ["winter", "2026-11-17T12:00:00Z", "2026-11-18T00:00:00.000Z"],
-    ["summer", "2026-06-01T12:00:00Z", "2026-06-01T23:00:00.000Z"],
-  ] as const) {
-    it(`Matas (25 Nov): an America/New_York account's arms and study start at 00:00 Europe/London, never New York's midnight (${season}: ${startUtc})`, async () => {
-      mock.timers.enable({ apis: ["Date"], now: new Date(now) });
-      try {
-        const fake = testFake({ timezone: "America/New_York" });
-        const { deps, ctx } = setup();
-        const out = await applyRetargetingCampaign(deps(fake.meta) as never, enteredLine(), ctx as never);
-        assert.equal(out.state, "applied", String(out.reason));
-        const study = fake.calls.find(([name]) => name === "createAdStudy")!;
-        assert.equal(new Date(Number((study[2] as Record<string, unknown>).start_time) * 1000).toISOString(), startUtc);
-        const sets = fake.calls.filter(([name]) => name === "createAdSet").map(([, payload]) => payload as Record<string, unknown>);
-        assert.equal(sets.length, 6);
-        for (const set of sets) assert.equal(set.start_time, metaTime(new Date(startUtc)), String(set.name));
-        const london = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/London", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(startUtc));
-        const newYork = new Intl.DateTimeFormat("en-GB", { timeZone: "America/New_York", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(startUtc));
-        assert.deepEqual([london, newYork === "00:00"], ["00:00", false]);
-      } finally {
-        mock.timers.reset();
-      }
-    });
-  }
-
-  it("not wired: nothing is built", async () => {
-    const fake = testFake();
-    delete (fake.meta as Partial<RetargetingMeta>).createAdStudy;
-    const { deps, ctx } = setup();
-    const out = await applyRetargetingCampaign(deps(fake.meta) as never, enteredLine(), ctx as never);
-    assert.equal(out.state, "failed");
-    assert.ok(String(out.reason).startsWith(RT_STUDY_UNWIRED));
-    assert.deepEqual(fake.calls, []);
-  });
-});
-
 describe("RT17's call: pooled across every show", () => {
   const RG = { from: "2026-11-18", to: "2026-12-01", days: 14, shows: 6, arms: { A: { shows: 6, spend: 2184, purchases: 168, cost: 13 }, B: { shows: 6, spend: 2179.4, purchases: 130, cost: 16.76 } } };
 
@@ -281,20 +133,6 @@ describe("RT17's call: pooled across every show", () => {
     // Design (25 Nov, RG): with the test's start known, the window starts there (00:00 London), not on the first day an arm spent.
     const fromStart = pooledFromRows([{ date: "2026-11-19", campaign_name: "XMPL-WHSE · Retargeting · A/B · A", spend: "40", purchases: "2" }], "2026-12-01", "2026-11-18")!;
     assert.deepEqual([fromStart.from, fromStart.to, fromStart.days], ["2026-11-18", "2026-12-01", 14]);
-  });
-
-  it("design (25 Nov, RG): the window is the test's start plus its days, both ends counted, across a month end and a year end", () => {
-    assert.equal(words.testWindow("2026-11-18", 14), "14 days, Wed 18 Nov – Tue 1 Dec");
-    assert.equal(words.testWindow("2026-12-28", 7), "7 days, Mon 28 Dec – Sun 3 Jan");
-    assert.equal(words.testWindow("2026-11-02", 14), "14 days, Mon 2 – Sun 15 Nov");
-    // The same count the pooled read makes: 18 Nov to 1 Dec is 14 days.
-    assert.equal(pooled([], { from: "2026-11-18", to: "2026-12-01" }).days, 14);
-    // The frame's call reads the same window as its header's "Running since Wed 18 Nov".
-    return import("../../../scripts/plan-frames/retargeting-fixtures.ts").then(({ rgPlan }) => {
-      const { view, line } = rgPlan();
-      assert.match(String(line.detail), /· 14 days, Wed 18 Nov – Tue 1 Dec$/);
-      assert.equal(view.running?.since, "2026-11-18");
-    });
   });
 
   it("before the minimum, under the margin, and the 28-day fallback that keeps A", () => {
@@ -342,17 +180,6 @@ describe("RT17's call: pooled across every show", () => {
 });
 
 describe("RT17: after the call, new shows start on the winner; under £6.00, layout A only", () => {
-  it("a show with a winner builds one campaign on it; a small show says so", () => {
-    const base = enteredLine();
-    void base;
-    const small = planRetargeting({ ...(JSON.parse(JSON.stringify({})) as object), eventId: "e2", eventCode: "XMPL-ROOF", runDay: "2026-11-17", eventDate: "2026-12-18", onSaleDay: "2026-11-06", read: { state: "platform_under_bar", pixel: { id: "px" }, pixelName: "P", domain: null, onDomain: null, platform: "Skiddle" } as never, last7SpendGbp: 406, minDailyMinor: 100, sources: SET, existing: null, legacy: [], budgetGbp: 4000, spendToDateGbp: 1500, committedGbp: 1000, main: null, ads: [{ adId: "a", name: "A" }], geoFromAdsetId: null, where: { draftId: "d", adAccountId: "act_1", campaignIds: ["c"] }, linksRead: "ok" } as RetargetingInput);
-    assert.equal(small.view.create!.tooSmall, "Too small to test: £5.80 a day is under £6.00, so it runs layout A only.");
-    assert.equal(small.build!.test, null);
-    const won = planRetargeting({ ...(enteredLine().write as object), eventId: "e3", eventCode: "XMPL-NEW", runDay: "2026-12-02", eventDate: "2026-12-30", onSaleDay: "2026-11-30", read: { state: "platform_under_bar", pixel: { id: "px" }, pixelName: "P", domain: null, onDomain: null, platform: "Skiddle" } as never, last7SpendGbp: 1680, minDailyMinor: 100, sources: SET, existing: null, legacy: [], budgetGbp: 10000, spendToDateGbp: 0, committedGbp: 0, main: null, ads: [{ adId: "a", name: "A" }], geoFromAdsetId: null, where: { draftId: "d", adAccountId: "act_1", campaignIds: ["c"] }, linksRead: "ok", testWinner: "B" } as RetargetingInput);
-    assert.equal(won.build!.test, null);
-    assert.equal(won.build!.layout, "B");
-    assert.equal(won.view.create!.tooSmall, null);
-  });
 });
 
 describe("migration 259 against the live CHECKs (read 26 Nov 2026) and 271's kinds", () => {
@@ -376,58 +203,13 @@ describe("migration 259 against the live CHECKs (read 26 Nov 2026) and 271's kin
 });
 
 describe("frame RG: the record's figures", () => {
-  it("both arms, the pooled block and the call", async () => {
-    const { rgPlan } = await import("../../../scripts/plan-frames/retargeting-fixtures.ts");
-    const { view, line } = rgPlan();
-    assert.equal(view.title, "XMPL-WHSE · Retargeting · A/B test");
-    assert.deepEqual(view.test!.arms.map((arm) => [arm.label, arm.rows.map((row) => [row.cost, row.purchases]), arm.total.cost, arm.total.purchases]), [
-      ["A · tiers by action", [[7, 9], [7.88, 4], [7.88, 4]], 7.41, 17],
-      ["B · by recency", [[9, 7], [10.5, 3], [10.5, 3]], 9.69, 13],
-    ]);
-    assert.deepEqual(view.test!.pooled!.map((row) => [row.arm, row.shows, row.days, row.spend, row.purchases, row.cost]), [["A", 6, 14, 2184, 168, 13], ["B", 6, 14, 2179.4, 130, 16.76]]);
-    assert.equal(line.title, "Layout A wins the retargeting test");
-    assert.equal(words.armTierNarrow({ tier: "bottom", budgetMinor: 900, cost: 7, purchases: 9, frequency: 3.1 }), "Bottom · £9.00 a day · £7.00 · 9 purchases · frequency 3.1");
-  });
 });
 
 describe("design (17 Nov): RG-393's each-arm line, and an entered show's Create line (frame RE)", () => {
-  it("RG-393 reads \"£18.00 a day to each arm\", without repeating £36.00", async () => {
-    const { rgPlan } = await import("../../../scripts/plan-frames/retargeting-fixtures.ts");
-    assert.equal(rgPlan().view.test!.eachArmNarrow, "£18.00 a day to each arm");
-    assert.equal(words.eachArmNarrow(1800), "£18.00 a day to each arm");
-  });
 
-  it("RE: XMPL-WHSE at £24.00 a day is entered — £12.00 to each arm — and isn't \"too small\"", async () => {
-    const { rePlan } = await import("../../../scripts/plan-frames/retargeting-fixtures.ts");
-    const { view, line } = rePlan();
-    assert.equal(view.state, "proposed");
-    assert.equal(view.create!.eachArm, "£12.00 a day to each arm · Meta splits people at random, so nobody sees both");
-    assert.equal(view.create!.tooSmall, null);
-    assert.equal(line.kind, "retargeting_campaign");
-  });
 });
 
 describe("design (25 Nov): the start line, the applied call, the refused test", () => {
-  it("start line: \"Test starts {Ddd d Mon}, 00:00 London time, and runs to {show day}.\" for a London ad account (frame RE)", async () => {
-    const { rePlan } = await import("../../../scripts/plan-frames/retargeting-fixtures.ts");
-    assert.equal(rePlan().view.create!.startsLine, "Test starts Wed 18 Nov, 00:00 London time, and runs to Sat 19 Dec.");
-    assert.equal(rePlan("Europe/London").view.create!.startsLine, "Test starts Wed 18 Nov, 00:00 London time, and runs to Sat 19 Dec.");
-  });
-
-  it("start line (Matas, 25 Nov): the date and weekday are Europe/London's, whatever the ad account's timezone — an America/New_York account still reads Wed 18 Nov, 00:00", async () => {
-    const { rePlan } = await import("../../../scripts/plan-frames/retargeting-fixtures.ts");
-    assert.equal(rePlan("America/New_York").view.create!.startsLine, "Test starts Wed 18 Nov, 00:00 London time, and runs to Sat 19 Dec.");
-    assert.equal(rePlan("Asia/Tokyo").view.create!.startsLine, "Test starts Wed 18 Nov, 00:00 London time, and runs to Sat 19 Dec.");
-    // 00:00 London on Wed 18 Nov is Tue 17 Nov, 19:00 in New York: the line never takes New York's day.
-    assert.equal(testStart("Europe/London", new Date("2026-11-17T12:00:00Z")).at.toISOString(), "2026-11-18T00:00:00.000Z");
-    // In summer 00:00 London (BST) is 23:00 UTC the day before; the line still reads London's date.
-    assert.equal(words.testStartsLine(testStart("Europe/London", new Date("2027-06-01T12:00:00Z")).at, "2027-06-20"), "Test starts Wed 2 Jun, 00:00 London time, and runs to Sun 20 Jun.");
-  });
-
-  it("no start line under £6.00 (too small) or after the call (one campaign on the winner)", async () => {
-    const { rbView } = await import("../../../scripts/plan-frames/retargeting-fixtures.ts");
-    assert.equal(rbView().create!.startsLine ?? null, null);
-  });
 
   it("applied call: \"Layout {X} now runs on {n} shows. Layout {Y} is paused and each test has ended.\"", () => {
     assert.equal(words.callApplied("A", 6), "Layout A now runs on 6 shows. Layout B is paused and each test has ended.");

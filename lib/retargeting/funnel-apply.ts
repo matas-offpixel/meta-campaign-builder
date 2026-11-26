@@ -1,7 +1,7 @@
 /**
  * The funnel's create path (docs/design-record/2026-11-26-retargeting-funnel.html,
  * RF1–RF5, RF8), shared by the panel's Accept (lib/onsale-refresh/apply.ts)
- * and the connector's create_retargeting (lib/mcp/tools/retargeting.ts).
+ * and the connector's create_retargeting tool.
  * It is RT1's Purchase create path with budgets on the ad sets
  * (lib/retargeting/apply.ts's helpers), re-ruled:
  *
