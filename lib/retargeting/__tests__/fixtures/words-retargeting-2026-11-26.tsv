@@ -1,0 +1,66 @@
+key	where	words
+rt.tier.cold	Retargeting panel, tier name; Meta ad set name suffix	Cold
+rt.tier.warm	Retargeting panel, tier name; Meta ad set name suffix	Warm
+rt.tier.hot	Retargeting panel, tier name; Meta ad set name suffix	Hot
+rt.name.campaign	Meta campaign name	{code} · Retargeting
+rt.name.adset	Meta ad set name; {tier} is rt.tier.*	{code} · Retargeting · {tier}
+rt.src.video75	Tier row, audiences (Cold)	Video viewers 75 % · 180 days
+rt.src.engaged	Tier row, audiences; {n} is 180 (Cold), 60 (Warm) or 30 (Hot)	Page and Instagram engagers · {n} days
+rt.src.followers	Tier row, audiences (Cold)	Followers · all time
+rt.src.visitors60	Tier row, audiences (Warm)	Show page and ticket-link visitors · 60 days
+rt.src.video95	Tier row, audiences (Warm)	Video viewers 95 % · 60 days
+rt.src.ticket30	Tier row, audiences (Hot)	Ticket-link visitors · 30 days
+rt.src.checkout	Tier row, audiences (Hot)	Checkout starters
+rt.src.signups	Tier row, audiences (Hot)	Registrations · signup list
+rt.src.similar	Tier row, audiences (Hot); {n} with a one-form	{n} similar lists
+rt.src.similar.one	Tier row, audiences (Hot), one	1 similar list
+rt.src.accounts	Tier row, after an account-based source; {n} with a one-form	{n} accounts
+rt.src.accounts.one	Tier row, one account	1 account
+rt.m.freq	Tier card at 393, under the tier name	Frequency {f}
+rt.m.leaves	Tier card at 393, after the frequency; {x} is rt.leaves.*	leaves out {x}
+rt.leaves.cold	Tier row, Leaves out (Cold)	Warm · Hot · buyers
+rt.leaves.warm	Tier row, Leaves out (Warm)	Hot · buyers
+rt.leaves.hot	Tier row, Leaves out (Hot)	Buyers
+rt.stretch.announce	Panel, stretch name (lower case mid-line)	announce
+rt.stretch.normally	Panel, stretch name	normally
+rt.stretch.payday	Panel, stretch name	payday week
+rt.stretch.final_month	Panel, stretch name	final month
+rt.stretch.final_2w	Panel, stretch name	final 2 weeks
+rt.stretch.final_week	Panel, stretch name	final week
+rt.share.line	Panel, under the title, and the Create line’s first line	£{x} a day · {p} % of the show’s daily spend · {stretch}
+rt.share.split	Create line, after the share line	Cold £{c} · Warm £{w} · Hot £{h}
+rt.next	Panel footer: the next stretch, its share and what it moves	Next: {stretch} from {date} · {p} % · moves £{x} a day from {from} to retargeting
+rt.next.none	Panel footer, the final week	Last stretch: the show is {date}.
+rt.take	Create line: where the money comes from; {from} is rt.take.from joined with “ · ”	Takes £{x} a day from prospecting, largest first: {from}. The show stays at £{s} a day.
+rt.take.from	{from}, one ad set or campaign budget	{name} £{a} → £{b}
+rt.take.short	Create line, when prospecting can’t give the whole share (Matas, 26 Nov: take what’s there)	Prospecting can give £{y} of the £{x} without going under £1.00 an ad set, so retargeting starts at £{y} a day.
+rt.take.none	Create line, prospecting has nothing to give	Prospecting has nothing above £1.00 an ad set to give, so there’s no money for retargeting. Raise the show’s budget first.
+rt.cap	Tier row, under Budget (ochre): the tier is capped	Capped at £{c} a day: frequency {f} over 7 days. £{x} a day went to {to}.
+rt.cap.back	Tier row, the extra went back to prospecting	Capped at £{c} a day: frequency {f} over 7 days. £{x} a day went back to {to}.
+rt.cap.plus	Tier row, under Budget (muted): a warmer tier’s capped extra came here	Plus £{x} a day from {from}.
+rt.cap.lift	Tier row, after a cap line (muted)	It gets its share back once frequency is 3 or under.
+rt.access.missing	Panel, under the share line (brick): accounts without advertiser access; {names} is rt.access.name joined with “ · ”	No advertiser access to {n} accounts, so their followers, engagers and video viewers aren’t in any tier: {names}. Ask each artist’s team for advertiser access.
+rt.access.missing.one	The same, one account	No advertiser access to {name}, so its followers, engagers and video viewers aren’t in any tier. Ask the artist’s team for advertiser access.
+rt.access.name	{names}, one account	{account} ({platform})
+cc.lineup.gone	Campaign creator, Audiences, where the lineup ad set was (muted)	No lineup ad set: Cold retargeting reaches the lineup’s fans, and Broad takes the artists as suggestions.
+cc.lineup.suggestions	Campaign creator, Broad · Advantage+ row	Suggestions: {names} (lineup)
+cc.lineup.interests	Campaign creator, under the suggestions, when some artists aren’t Meta interests	{n} of {m} artists are Meta interests. The rest are reached through Cold retargeting.
+cc.lineup.existing	Campaign creator, an existing draft’s lineup ad set (ochre)	Cold retargeting replaces this ad set. Move its artists to Broad’s suggestions and remove it?
+cc.lineup.move	Button	Move to Broad
+cc.lineup.keep	Button	Keep
+rt.floor	Tier row, under Budget (muted): the tier sits at Meta’s minimum	At the £1.00 floor, so it takes a little more than its share.
+claude.rt.plan.line	Told to Claude, plan_retargeting, one line per show	{code} · {stretch} · {p} % · £{x} a day: Cold £{c} · Warm £{w} · Hot £{h} · from {from} · audiences {made} made, {make} to make, {missing} missing access
+claude.rt.plan.short	Told to Claude, plan_retargeting, after the line when prospecting is short	Prospecting can give £{y} of the £{x}.
+claude.rt.plan.access	Told to Claude, plan_retargeting, after the line when accounts lack access	Needs advertiser access: {names}.
+claude.rt.plan.next	Told to Claude, plan_retargeting, after the line	Then {stretch} from {date} at {p} %, as a scheduled change.
+claude.rt.plan.head	Told to Claude, plan_retargeting("live"), first line	{n} shows on sale: {a} to build, {c} skipped.
+claude.rt.skip	Told to Claude, a skipped show; {reason} is claude.rt.skip.*	{code} · skipped: {reason}.
+claude.rt.skip.no_pixel	{reason}	its ads optimise on no pixel
+claude.rt.skip.no_link	{reason}	it has no ticket link
+claude.rt.skip.soon	{reason}	the show is within 3 days
+claude.rt.skip.archived	{reason}	its client is archived
+claude.rt.skip.built	{reason}	it already has a Retargeting campaign
+claude.rt.skip.no_money	{reason}	prospecting has nothing above £1.00 an ad set to give
+claude.rt.done	Told to Claude, create_retargeting done; {state} is paused or live	Done: {code} · Retargeting created {state} · 3 ad sets · {made} audiences made. Takes £{x} a day from prospecting{when}.
+claude.rt.done.when.paused	{when}, paused	 once it’s live
+claude.rt.done.when.live	{when}, live	
