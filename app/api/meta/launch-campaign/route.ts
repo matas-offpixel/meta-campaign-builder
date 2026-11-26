@@ -55,8 +55,10 @@ import {
   getLastKnownMetaBucUsage,
   getMetaCallCounts,
   resetMetaCallCounts,
+  getAdSetTargetingByIds,
 } from "@/lib/meta/client";
 import type { AudienceReadinessWaitResult } from "@/lib/meta/client";
+import { checkLocationExpansion } from "@/lib/meta/geo-expansion";
 import {
   resolvePageIdentity,
   resolvePageIgActor,
@@ -5088,6 +5090,26 @@ async function launchCampaign(
   // BUILD SUMMARY
   // ═══════════════════════════════════════════════════════════════════════════
 
+  // Location expansion read-back: one GET of `targeting` per ≤ 50 ad sets
+  // created this run (counted with the launch's other Graph calls). An ad set
+  // Meta didn't keep at geo 0, or couldn't be read, gets a line. Read-only.
+  const createdThisRun = [
+    ...adSetsCreated,
+    ...campaignAttachResults.flatMap((r) => r.adSetsCreated),
+  ].map((c) => ({ name: c.name, metaAdSetId: c.metaAdSetId }));
+  const geoStart = Date.now();
+  const { notes: locationExpansion, gets: locationExpansionGets } = await checkLocationExpansion(
+    createdThisRun,
+    getAdSetTargetingByIds(launchToken),
+  );
+  if (locationExpansionGets > 0) {
+    phaseDurations["geo_read_back"] = elapsed(geoStart);
+    console.log(
+      `[launch-campaign] Location expansion read-back — ${createdThisRun.length} ad set(s), ${locationExpansionGets} GET(s),` +
+        ` ${locationExpansion.length} not off: ${locationExpansion.map((n) => `${n.metaAdSetId}=${n.state}`).join(", ") || "none"}`,
+    );
+  }
+
   const totalDurationMs = elapsed(launchStart);
 
   const summary: LaunchSummary = {
@@ -5133,6 +5155,7 @@ async function launchCampaign(
     skippedOrphanAdSets: skippedOrphanAdSets.length > 0 ? skippedOrphanAdSets : undefined,
     adSetsCreated,
     adSetsFailed,
+    locationExpansion: locationExpansion.length > 0 ? locationExpansion : undefined,
     creativesCreated,
     creativesFailed,
     adsCreated: adsCreatedTotal,

@@ -298,6 +298,8 @@ export const launchDraftTool: McpTool = {
     const logged = { draftId, status: res.status, source: body.source ?? null, error: typeof body.error === "string" ? body.error.slice(0, 200) : null, files: filesSummary(sent.out) };
     if (!campaignId) throw new ToolInputError(LAUNCH_WORDS.failed, { ...logged, refused: "launch_failed" });
     const ids = launchedIds(body);
+    // The launch's location expansion read-back (lib/meta/geo-expansion.ts): each line names an ad set to untick, PENDING DESIGN.
+    const geo = (Array.isArray(body.locationExpansion) ? body.locationExpansion : []).filter((n) => n && typeof n.message === "string");
     const link = adsManagerLink(adAccountId, campaignId);
     const partway = res.status >= 400 || ids.failed.adSets > 0 || ids.failed.creatives > 0 || ids.failed.ads > 0;
     if (partway) {
@@ -309,7 +311,7 @@ export const launchDraftTool: McpTool = {
       throw new ToolInputError(
         message,
         { ...logged, refused: "launch_partial", metaCampaignId: campaignId, adSetIds: ids.adSets.map((a) => a.id), adIds: ids.ads.map((a) => a.id), failed: ids.failed },
-        { campaign: { id: campaignId }, adSets: ids.adSets, ads: ids.ads, creatives: ids.creatives, adsManager: link },
+        { campaign: { id: campaignId }, adSets: ids.adSets, ads: ids.ads, creatives: ids.creatives, adsManager: link, ...(geo.length ? { locationExpansion: geo } : {}) },
       );
     }
     // MW2: Done; paused or live; the Ads Manager link; the undo note only for a paused launch (FC1: no Undo on a live one),
@@ -320,6 +322,7 @@ export const launchDraftTool: McpTool = {
       mode === "paused" ? LAUNCH_WORDS.paused : LAUNCH_WORDS.live(money.gbp),
       LAUNCH_WORDS.link(link),
       ...(mode === "paused" && undoExists ? [MCP_WORDS.undoNote] : []),
+      ...geo.map((n) => n.message),
     ].join("\n");
     return {
       data: {
@@ -334,6 +337,7 @@ export const launchDraftTool: McpTool = {
         moneyADay: money.gbp,
         ...(ceiling ? { ceiling: ceiling.ceilingGbp } : {}),
         files: { sent: sent.out.calls, alreadyOnMeta: sent.out.uploaded - sent.out.calls, metaIds: uploadedIds(sent.out) },
+        ...(geo.length ? { locationExpansion: geo } : {}),
         message,
       },
       eventId,
@@ -348,6 +352,7 @@ export const launchDraftTool: McpTool = {
         moneyGbp: money.gbp,
         ...(ceiling ? { ceilingGbp: ceiling.ceilingGbp } : {}),
         files: filesSummary(sent.out),
+        ...(geo.length ? { locationExpansion: geo.map((n) => ({ id: n.metaAdSetId, state: n.state })) } : {}),
         ...checksSummary(after),
       },
     };

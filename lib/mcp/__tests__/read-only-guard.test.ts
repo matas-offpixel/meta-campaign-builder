@@ -243,6 +243,8 @@ const EXTERNAL_READERS: Record<string, readonly string[]> = {
   "lib/meta/location-search.ts": ["selectionFromGeoResult", "locationSearchQuery", "parseLocationSearchHits"],
   "lib/meta/location-radius.ts": ["clampCityRadius"],
   "lib/meta/location-targeting.ts": ["groupTier", "withGroupTier"],
+  // strict_audit's location expansion read and line (pure; cc/meta-geo-expansion-off).
+  "lib/meta/geo-expansion.ts": ["geoExpansionOf", "GEO_WORDS"],
   "lib/wizard/adset-suggestions.ts": [
     "addLocationToEveryAdSet",
     "adSetsTargetingLocation",
@@ -339,7 +341,7 @@ const EXTERNAL_WRITERS: Record<string, Record<string, RegExp>> = {
  * lib/meta modules the MCP may import: pure helpers and the token read. No
  * Meta write path (lib/meta/client.ts, the Graph client, is never imported).
  */
-const META_IMPORTS_ALLOWED = /\/meta\/(ad-account|location-pins|location-search|location-radius|location-targeting|server-token|advantage-plus-compat|adset)(\.ts)?["']/;
+const META_IMPORTS_ALLOWED = /\/meta\/(ad-account|location-pins|location-search|location-radius|location-targeting|server-token|advantage-plus-compat|adset|geo-expansion)(\.ts)?["']/;
 
 const isOwn = (f: string) => f.startsWith("lib/mcp/") || f.startsWith("app/") || f.startsWith("components/mcp/");
 

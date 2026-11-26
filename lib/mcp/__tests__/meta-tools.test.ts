@@ -24,7 +24,8 @@ import { TODAY_UNDO_SHIPPED } from "../meta/today-undo.ts";
 import { ToolInputError, type McpTool, type ToolContext } from "../tool-types.ts";
 import { CLIENT_EL, D_DRAFT, EV_EL, EV_SRC, EV_TGT, UPDATED, draftCtx, newSpies, readRow } from "./draft-fixtures.ts";
 
-import { ACCOUNT, YES, driveCtx, metaCtx, widerDrive } from "./meta-fixtures.ts";
+import { ACCOUNT, LAUNCHED, YES, driveCtx, metaCtx, widerDrive } from "./meta-fixtures.ts";
+import { GEO_WORDS } from "../../meta/geo-expansion.ts";
 import { CLIENT_NX } from "./fixtures.ts";
 
 async function run(tool: McpTool, ctx: ToolContext, args: Record<string, unknown>) {
@@ -178,6 +179,20 @@ test("launch_draft paused with Today's Undo on: the undo note follows the Ads Ma
     ].join("\n"),
   );
   assert.equal(MCP_WORDS.undoNote, "Matas can undo this on Today.");
+});
+
+test("launch_draft passes the launch's location expansion lines through: the ad set to untick follows the link", async () => {
+  const { ctx } = await metaCtx({ ceiling: null });
+  const note = { name: "Fans", metaAdSetId: "120200000000000012", state: "on", message: GEO_WORDS.untick("Fans") };
+  (ctx as ToolContext).meta = { ...(ctx as ToolContext).meta!, launch: async () => ({ status: 201, body: { ...LAUNCHED, locationExpansion: [note] } }) };
+  const out = await run(launchDraftTool, ctx, { draft_id: D_DRAFT, mode: "paused", approval: YES });
+  assert.deepEqual(out.data.locationExpansion, [note]);
+  assert.ok(String(out.data.message).endsWith("\nUntick 'Reach more people likely to respond to your ads' in Ads Manager for Fans."));
+  assert.deepEqual(out.summary.locationExpansion, [{ id: "120200000000000012", state: "on" }]);
+  // Without lines the answer is as before.
+  const { ctx: quiet } = await metaCtx({ ceiling: null });
+  const plain = await run(launchDraftTool, quiet, { draft_id: D_DRAFT, mode: "paused", approval: YES });
+  assert.equal(plain.data.locationExpansion, undefined);
 });
 
 test("the draft's money a day: daily ad sets summed, a campaign budget, a lifetime budget over its days", () => {

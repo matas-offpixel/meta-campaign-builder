@@ -41,6 +41,7 @@ import {
 } from "./app-usage.ts";
 import { effectiveStatusAllowListFor } from "./adset-effective-status-filter.ts";
 import { countMetaCall, noteMetaUsage } from "./call-meter.ts";
+import { withGeoExpansionOff } from "./geo-expansion.ts";
 import {
   AD_ACCOUNT_BASE_FIELDS,
   AD_ACCOUNT_ENRICH_FIELDS,
@@ -2136,6 +2137,20 @@ export function parseLookalikeRange(range: string): { startingRatio: number; end
 }
 
 /**
+ * Every ad set the app creates goes out with location expansion off
+ * (`targeting.targeting_automation.individual_setting.geo = 0`), merged into
+ * whatever `targeting_automation` the caller built (#1387's age suggestion
+ * stays). The one place a create payload is sent, so the wizard, the MML
+ * canvas, bulk-attach, the on-sale refresh, retargeting and the creative
+ * tests all get it. See lib/meta/geo-expansion.ts.
+ */
+function withLocationExpansionOff(payload: MetaAdSetPayload): Record<string, unknown> {
+  const p = payload as unknown as Record<string, unknown>;
+  const targeting = p.targeting && typeof p.targeting === "object" ? (p.targeting as Record<string, unknown>) : {};
+  return { ...p, targeting: withGeoExpansionOff(targeting) };
+}
+
+/**
  * Create a single ad set under the given ad account.
  * Requires: ads_management permission.
  *
@@ -2149,9 +2164,21 @@ export async function createMetaAdSet(
   const accountPath = withActPrefix(adAccountId);
   return graphPost<{ id: string }>(
     `/${accountPath}/adsets`,
-    payload as unknown as Record<string, unknown>,
+    withLocationExpansionOff(payload),
     token,
   );
+}
+
+/**
+ * The location-expansion read-back after a create: one
+ * `GET /?ids=…&fields=targeting` for up to 50 ad sets (lib/meta/geo-expansion.ts
+ * batches). Read-only; counted like every Graph call here.
+ */
+export function getAdSetTargetingByIds(token?: string): (ids: string[]) => Promise<Record<string, unknown>> {
+  return (ids) => {
+    const params = { ids: ids.join(","), fields: "targeting" };
+    return token ? graphGetWithToken<Record<string, unknown>>("/", params, token) : graphGet<Record<string, unknown>>("/", params);
+  };
 }
 
 /**
@@ -2174,7 +2201,7 @@ export async function createMetaAdSets(
     try {
       const { id } = await graphPost<{ id: string }>(
         `/${accountPath}/adsets`,
-        payload as unknown as Record<string, unknown>,
+        withLocationExpansionOff(payload),
         token,
       );
       created.push({ name: payload.name, metaAdSetId: id });

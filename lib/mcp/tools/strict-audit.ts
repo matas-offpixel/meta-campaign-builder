@@ -11,6 +11,13 @@
  * refused, the ad set retried strict): the audiences and ages the draft
  * meant as suggestions became hard limits.
  *
+ * It also lists every live launched ad set in scope with location expansion
+ * on (`targeting_automation.individual_setting.geo` 1, "Reach more people
+ * likely to respond to your ads"; lib/meta/geo-expansion.ts), whatever its
+ * draft asked for. An ad set with no geo key is counted as "not set", never
+ * as on. Both come from the same Graph read, so every launched Meta ad set
+ * in scope is read, not only the ones that asked for Advantage+.
+ *
  * Reads: launched_ad_sets (channel meta) for the scope, their drafts'
  * adSetSuggestions and audience groups, the events (archived clients out,
  * CLAUDE.md "Archived clients"), every read paged past PostgREST's 1,000
@@ -23,6 +30,7 @@ import { z } from "zod";
 import { loadAllPaged, type PagedQuery } from "../../db/paged-read.ts";
 import { loadArchivedClientIds } from "../../db/client-status.ts";
 import { STRICT_WORDS } from "../audit/words.ts";
+import { GEO_WORDS } from "../../meta/geo-expansion.ts";
 import { ToolInputError, type Db, type McpTool } from "../tool-types.ts";
 import { loadEventByCode, loadEvents, normaliseCode, type EventRow } from "./shared.ts";
 
@@ -172,13 +180,15 @@ async function findClient(db: Db, given: string): Promise<{ id: string; name: st
 
 export const strictAuditTool: McpTool = {
   name: "strict_audit",
-  title: "Find ad sets running strict that asked for Advantage+",
+  // PENDING DESIGN: the title is Claude-facing words (location expansion added).
+  title: "Find ad sets running strict that asked for Advantage+, or with location expansion on",
   kind: "read",
   // PENDING DESIGN claude.mcp.strict.failed
   failedText: STRICT_WORDS.failed,
   // PENDING DESIGN: the tool's description is Claude-facing words.
   description: [
     "Lists live ad sets (Meta shows them active or in process) that run strict, Advantage+ audience off, while the draft that launched them asked for Advantage+ suggestions: their audiences and ages are hard limits on Meta instead of suggestions.",
+    "Also lists live ad sets with location expansion on (Ads Manager's \"Reach more people likely to respond to your ads\"), which lets Meta deliver outside the places an ad set targets; ad sets where Meta doesn't show the setting are counted as not set, not as on.",
     "For one client (name or id), one event code, or every live client when neither is given. Each hit has its event code, campaign, ad set name and id, the Ads Manager link and what the draft asked for. It only reads: nothing changes on Meta or in the app.",
     'Example: strict_audit({ event_code: "P26-BDAY" }).',
   ].join(" "),
@@ -225,18 +235,20 @@ export const strictAuditTool: McpTool = {
       .filter((c) => askedAdvantage(c.row, c.sug));
 
     const summaryBase = { ...scope, launched: rows.length, askedAdvantage: candidates.length };
-    if (candidates.length === 0) {
+    if (kept.length === 0) {
+      const message = [STRICT_WORDS.none, STRICT_WORDS.geoNone].join(" ");
       return {
-        data: { count: 0, metaGets: 0, message: STRICT_WORDS.none, adSets: [] },
+        data: { count: 0, checked: 0, metaGets: 0, notRead: 0, message, adSets: [], locationExpansion: { count: 0, notSet: 0, adSets: [] } },
         eventId: eventIds?.length === 1 ? eventIds[0] : null,
         clientId,
-        summary: { ...summaryBase, metaGets: 0, hits: 0, notRead: 0 },
+        summary: { ...summaryBase, metaGets: 0, hits: 0, geoHits: 0, geoNotSet: 0, notRead: 0 },
       };
     }
     if (!ctx.reads) throw new ToolInputError(STRICT_WORDS.noMeta, { ...summaryBase, refused: "no_meta_reads" });
     let read: Awaited<ReturnType<NonNullable<typeof ctx.reads>["adSets"]>>;
     try {
-      read = await ctx.reads.adSets({ userId: ctx.userId, ids: candidates.map((c) => c.row.meta_adset_id) });
+      // One read for both lists: every launched Meta ad set in scope (≤ 50 a GET).
+      read = await ctx.reads.adSets({ userId: ctx.userId, ids: kept.map((r) => r.meta_adset_id) });
     } catch {
       throw new ToolInputError(STRICT_WORDS.noMeta, { ...summaryBase, refused: "meta_unreadable" });
     }
@@ -262,13 +274,60 @@ export const strictAuditTool: McpTool = {
       })
       .sort((a, b) => `${a.event ?? ""} ${a.campaign.id ?? ""} ${a.adSet.name ?? ""}`.localeCompare(`${b.event ?? ""} ${b.campaign.id ?? ""} ${b.adSet.name ?? ""}`));
 
-    const lines = [hits.length ? STRICT_WORDS.found(hits.length) : STRICT_WORDS.none, STRICT_WORDS.checked(candidates.length, read.metaGets)];
+    // Location expansion: live ad sets Meta holds at geo 1. No geo key is "not set", a separate count.
+    const live = kept
+      .map((row) => ({ row, meta: byId.get(row.meta_adset_id) }))
+      .filter((c) => c.meta && LIVE.has(c.meta.effectiveStatus ?? ""));
+    const geoNotSet = live.filter((c) => c.meta!.geoExpansion === "not_set").length;
+    const geoHits = live
+      .filter((c) => c.meta!.geoExpansion === "on")
+      .map(({ row, meta }) => {
+        const draft = row.draft_id ? drafts.get(row.draft_id) : undefined;
+        const event = row.event_id ? events.get(row.event_id) : undefined;
+        const name = meta!.name ?? row.source_name ?? row.meta_adset_id;
+        return {
+          event: event?.event_code ?? null,
+          campaign: { id: meta!.campaignId ?? row.meta_campaign_id, name: meta!.campaignName },
+          adSet: { id: row.meta_adset_id, name },
+          status: meta!.effectiveStatus,
+          link: adSetLink(row.ad_account_id, row.meta_adset_id),
+          draftId: row.draft_id,
+          draftName: draft?.name ?? null,
+          // PENDING DESIGN launch.adset.geo_expansion_untick (the launch result's line, reused)
+          line: GEO_WORDS.untick(name),
+        };
+      })
+      .sort((a, b) => `${a.event ?? ""} ${a.campaign.id ?? ""} ${a.adSet.name ?? ""}`.localeCompare(`${b.event ?? ""} ${b.campaign.id ?? ""} ${b.adSet.name ?? ""}`));
+
+    const lines = [
+      hits.length ? STRICT_WORDS.found(hits.length) : STRICT_WORDS.none,
+      geoHits.length ? STRICT_WORDS.geoFound(geoHits.length) : STRICT_WORDS.geoNone,
+    ];
+    if (geoNotSet) lines.push(STRICT_WORDS.geoNotSet(geoNotSet));
+    lines.push(STRICT_WORDS.checked(kept.length, read.metaGets));
     if (read.notRead.length) lines.push(STRICT_WORDS.notRead(read.notRead.length));
     return {
-      data: { count: hits.length, checked: candidates.length, metaGets: read.metaGets, notRead: read.notRead.length, message: lines.join(" "), adSets: hits },
+      data: {
+        count: hits.length,
+        checked: kept.length,
+        metaGets: read.metaGets,
+        notRead: read.notRead.length,
+        message: lines.join(" "),
+        adSets: hits,
+        locationExpansion: { count: geoHits.length, notSet: geoNotSet, adSets: geoHits },
+      },
       eventId: eventIds?.length === 1 ? eventIds[0] : null,
       clientId,
-      summary: { ...summaryBase, metaGets: read.metaGets, hits: hits.length, notRead: read.notRead.length, adSetIds: hits.map((h) => h.adSet.id) },
+      summary: {
+        ...summaryBase,
+        metaGets: read.metaGets,
+        hits: hits.length,
+        geoHits: geoHits.length,
+        geoNotSet,
+        notRead: read.notRead.length,
+        adSetIds: hits.map((h) => h.adSet.id),
+        geoAdSetIds: geoHits.map((h) => h.adSet.id),
+      },
     };
   },
 };

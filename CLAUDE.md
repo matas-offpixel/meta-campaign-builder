@@ -128,7 +128,7 @@ archived client must never make a cron look broken.
 - `app/api/meta/*` — route handlers for ad accounts, pages, audiences, pixels, campaign creation, ad sets, creatives, asset upload, launch
 - `lib/hooks/` — `useMeta`, `useCreateCampaign`, `useCreateAdSets`, `useCreateCreativesAndAds`, `useUploadAsset`, `useLaunchCampaign`
 
-Step 6 Daily / Lifetime and Ad set level / Campaign level (CBO) are live-wired. A launch sends `lifetime_budget` plus ad set `end_time`, or a campaign `daily_budget` / `lifetime_budget` with `LOWEST_COST_WITHOUT_CAP`, when those toggles are set. They used to be stored on the draft and ignored. Campaign `stop_time` is read-only on Marketing API v21.0; the end date Meta keeps is the ad set `end_time`.
+Step 6 Daily / Lifetime and Ad set level / Campaign level (CBO) are live-wired. A launch sends `lifetime_budget` plus ad set `end_time`, or a campaign `daily_budget` / `lifetime_budget` with `LOWEST_COST_WITHOUT_CAP`, when those toggles are set. They used to be stored on the draft and ignored. Campaign `stop_time` is read-only on Marketing API v21.0; the end date Meta keeps is the ad set `end_time`. Every ad set the app creates goes through `createMetaAdSet` / `createMetaAdSets` (`lib/meta/client.ts`), which send `targeting.targeting_automation.individual_setting.geo = 0` (location expansion, "Reach more people likely to respond to your ads", off; merged beside the age suggestion's `age: 1`, `lib/meta/geo-expansion.ts`), and the launch, create-adsets, on-sale refresh apply and creative-test approve results read `targeting` back once per ≤ 50 created ad sets and list in `locationExpansion` any Meta didn't keep at 0 or that couldn't be read (read-only, never a retry write).
 
 ### Auth
 
