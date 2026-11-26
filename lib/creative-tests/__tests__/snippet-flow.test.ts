@@ -151,7 +151,7 @@ describe("CT1 / CT10: the render", () => {
   it("renders with a confirmed match, a file that passes AU1 and a placed drop marker, and no rights flag (AU4)", () => {
     assert.equal(renderRefusal(row()), null);
     assert.equal(renderRefusal(row({ match_state: "suggested" })), "Match this file to a track first.");
-    assert.equal(renderRefusal(row({ drop_s: null })), "No clear drop found. Pick where it lands on the waveform.");
+    assert.equal(renderRefusal(row({ drop_s: null })), "No clear drop found. Pick where it lands.");
     assert.equal(renderRefusal(row({ rights_flag: "Meta muted the audio (rights)" })), "Meta muted the audio (rights)");
     assert.equal(renderRefusal(row({ unusable_reason: "MP3 under 128 kbps" })), "Can't use this file: MP3 under 128 kbps");
     assert.equal(renderRefusal(row({ storage_path: null })), "Can't use this file: it can't be read");
