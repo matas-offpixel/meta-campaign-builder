@@ -1,8 +1,8 @@
 /**
  * lib/mcp/graph-reads.ts
  *
- * The only requests the MCP sends out of the process: three Graph GETs,
- * each the app's own read for that picker. Nothing here POSTs, and nothing
+ * The only requests the MCP sends out of the process: four Graph GETs,
+ * the first three the app's own read for that picker. Nothing here POSTs, and nothing
  * else in lib/mcp calls fetch (the guard test checks both).
  *
  *   - searchLocations: GET /search?type=adgeolocation, as
@@ -12,6 +12,8 @@
  *   - listPromotePages: GET /{act}/promote_pages, the source of the page
  *     picker's list that Meta checks an ad's page against at launch
  *     (GET /api/meta/pages, fetchPromotePages), cursors followed to 10 pages.
+ *   - readAdSetsById: GET /?ids=… (≤ 50 a call), strict_audit's read of each
+ *     launched ad set's status and Advantage+ audience flag (M3d-d).
  *
  * The token is the operator's (resolveServerMetaToken in draft-deps.ts) and
  * is never logged or returned. `fetchImpl` is passed so the network test can
@@ -91,4 +93,60 @@ export async function listPromotePages(fetchImpl: FetchLike, version: string, to
     if (!after) return { pages, metaGets, truncated: false };
     if (metaGets >= MAX_PAGES) return { pages, metaGets, truncated: true };
   }
+}
+
+/** strict_audit's batch: at most 50 ad set ids a GET (Graph's `ids` limit the app keeps everywhere). */
+export const AD_SET_BATCH = 50;
+
+export interface AdSetTargetingRead {
+  id: string;
+  name: string | null;
+  campaignId: string | null;
+  campaignName: string | null;
+  effectiveStatus: string | null;
+  /** targeting.targeting_automation.advantage_audience as Meta stores it; null when Meta gave no targeting. */
+  advantageAudience: number | null;
+}
+
+/**
+ * strict_audit (M3d-d): each ad set's status and Advantage+ audience flag,
+ * `GET /?ids=…&fields=effective_status,targeting,name,campaign_id,campaign{name}`,
+ * at most 50 ids a GET. A batch Meta refuses is reported in `notRead`, never
+ * guessed; the reason stays out (Meta's message can echo the request).
+ */
+export async function readAdSetsById(fetchImpl: FetchLike, version: string, token: string, ids: readonly string[]): Promise<{ adSets: AdSetTargetingRead[]; notRead: string[]; metaGets: number }> {
+  const unique = [...new Set(ids.filter((id) => /^\d+$/.test(id)))];
+  const adSets: AdSetTargetingRead[] = [];
+  const notRead: string[] = [];
+  let metaGets = 0;
+  for (let i = 0; i < unique.length; i += AD_SET_BATCH) {
+    const batch = unique.slice(i, i + AD_SET_BATCH);
+    metaGets += 1;
+    let json: Record<string, unknown>;
+    try {
+      json = await graphGet(fetchImpl, version, "/", { ids: batch.join(","), fields: "effective_status,targeting,name,campaign_id,campaign{name}" }, token);
+    } catch {
+      notRead.push(...batch);
+      continue;
+    }
+    for (const id of batch) {
+      const r = json[id] as Record<string, unknown> | undefined;
+      if (!r || typeof r !== "object") {
+        notRead.push(id);
+        continue;
+      }
+      const targeting = r.targeting as { targeting_automation?: { advantage_audience?: unknown } } | undefined;
+      const flag = targeting && typeof targeting === "object" ? Number(targeting.targeting_automation?.advantage_audience ?? 0) : null;
+      const campaign = r.campaign as { name?: unknown } | undefined;
+      adSets.push({
+        id,
+        name: typeof r.name === "string" ? r.name : null,
+        campaignId: typeof r.campaign_id === "string" ? r.campaign_id : null,
+        campaignName: typeof campaign?.name === "string" ? campaign.name : null,
+        effectiveStatus: typeof r.effective_status === "string" ? r.effective_status : null,
+        advantageAudience: flag != null && Number.isFinite(flag) ? flag : null,
+      });
+    }
+  }
+  return { adSets, notRead, metaGets };
 }

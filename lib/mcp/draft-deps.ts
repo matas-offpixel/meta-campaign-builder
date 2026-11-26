@@ -12,6 +12,9 @@
  *     downloads only.
  *   - uploadFile / copyObject: the Drive picker copy route's Storage writes
  *     (campaign-assets bucket).
+ *
+ * realGraphReads (M3d-d): strict_audit's ad set read, a GET through
+ * lib/mcp/graph-reads.ts with the same token and pass-through.
  */
 import "server-only";
 import { randomUUID } from "node:crypto";
@@ -20,8 +23,8 @@ import { uploadFileToStorageBucket } from "@/lib/clients/asset-queue/storage-upl
 import { driveFromEnv } from "@/lib/drive/client";
 import { PICKER_BUCKET } from "@/lib/drive/picker";
 import { resolveServerMetaToken } from "@/lib/meta/server-token";
-import { listPromotePages, searchInterests, searchLocations, type FetchLike } from "./graph-reads";
-import type { McpDraftDeps } from "./tool-types";
+import { listPromotePages, readAdSetsById, searchInterests, searchLocations, type FetchLike } from "./graph-reads";
+import type { McpDraftDeps, McpGraphReads } from "./tool-types";
 
 const API_VERSION = process.env.META_API_VERSION ?? "v21.0";
 const getOnly: FetchLike = (url, init) => globalThis.fetch(url, init);
@@ -50,5 +53,14 @@ export function realDraftDeps(db: SupabaseClient): McpDraftDeps {
       if (copied.error) throw new Error(copied.error.message);
     },
     newId: () => randomUUID(),
+  };
+}
+
+export function realGraphReads(db: SupabaseClient): McpGraphReads {
+  return {
+    async adSets({ userId, ids }) {
+      const { token } = await resolveServerMetaToken(db, userId);
+      return readAdSetsById(getOnly, API_VERSION, token, ids);
+    },
   };
 }

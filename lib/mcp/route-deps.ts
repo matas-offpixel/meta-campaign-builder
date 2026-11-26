@@ -13,7 +13,7 @@ import "server-only";
 import { createServiceRoleClient } from "@/lib/supabase/server";
 import { isOperator, MATAS_USER_IDS } from "@/lib/auth/operator-allowlist";
 import { createActionLogger } from "./action-log";
-import { realDraftDeps } from "./draft-deps";
+import { realDraftDeps, realGraphReads } from "./draft-deps";
 import { realMetaDeps } from "./meta-deps";
 import { startDeps } from "@/lib/render-templates/server-deps";
 import { realReaders } from "./readers";
@@ -42,6 +42,8 @@ export function mcpHandlerDeps(): McpHandlerDeps {
     logger: createActionLogger(devStore ? null : db),
     readers: realReaders,
     draft: realDraftDeps(db),
+    // M3d-d: strict_audit's ad set GETs.
+    reads: realGraphReads(db),
     meta: realMetaDeps(db),
     // M4a: render_package starts packages; the render tick renders them.
     render: startDeps(db),

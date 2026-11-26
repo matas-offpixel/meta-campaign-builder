@@ -14,7 +14,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { ZodRawShape } from "zod";
 import type { DriveApi } from "../drive/client.ts";
 import type { LocationSearchHit } from "../meta/location-search.ts";
-import type { AccountPage, InterestHit } from "./graph-reads.ts";
+import type { AccountPage, AdSetTargetingRead, InterestHit } from "./graph-reads.ts";
 import type { CampaignDraft } from "../types.ts";
 import type { StoredSendOutcome } from "../plan/stored-assets-meta.ts";
 
@@ -134,6 +134,16 @@ export interface McpRenderDeps {
   readLowPcm(storagePath: string): Promise<Uint8Array>;
 }
 
+/**
+ * M3d-d's Meta reads for the read tools (strict_audit): GETs only, through
+ * lib/mcp/graph-reads.ts with the operator's token. The route passes the
+ * real ones (lib/mcp/draft-deps.ts realGraphReads); tests pass fakes.
+ */
+export interface McpGraphReads {
+  /** Each ad set's status and Advantage+ flag, ≤ 50 ids a GET; `notRead` lists ids Meta didn't answer for. */
+  adSets(input: { userId: string; ids: readonly string[] }): Promise<{ adSets: AdSetTargetingRead[]; notRead: string[]; metaGets: number }>;
+}
+
 export interface ToolContext {
   db: Db;
   readers: McpReaders;
@@ -142,6 +152,8 @@ export interface ToolContext {
   scope?: string;
   /** M2's outside reach; absent on read-only setups. */
   draft?: McpDraftDeps;
+  /** M3d-d's Meta reads (strict_audit); absent unless the route wires it. */
+  reads?: McpGraphReads;
   /** M3a's Meta reach (launch, uploads); absent unless the route wires it. */
   meta?: McpMetaDeps;
   /** M4a's render reach (the track's low end, the kit); absent unless the route wires it. */

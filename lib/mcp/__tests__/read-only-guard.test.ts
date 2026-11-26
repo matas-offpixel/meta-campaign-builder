@@ -300,7 +300,7 @@ test("the outside writers M2 calls write only what the Drive picker's copy write
   }
 });
 
-test("the tools and the server make no network calls and import no write paths; the only requests are graph-reads' three GETs", () => {
+test("the tools and the server make no network calls and import no write paths; the only requests are graph-reads' four GETs", () => {
   const files = walk();
   const hits: string[] = [];
   const SENDERS = new Set(["lib/mcp/graph-reads.ts", "lib/mcp/draft-deps.ts"]);
@@ -318,13 +318,13 @@ test("the tools and the server make no network calls and import no write paths; 
   }
   assert.deepEqual(hits, []);
   assert.ok(!files.has("lib/meta/client.ts"), "the Graph client is never imported");
-  // graph-reads: one request site, GET only, to /search and /{act}/promote_pages.
+  // graph-reads: one request site, GET only, to /search, /{act}/promote_pages and (M3d-d strict_audit) /?ids=….
   const reads = strip(readFileSync(join(ROOT, "lib/mcp/graph-reads.ts"), "utf8"));
   assert.equal([...reads.matchAll(/\bfetchImpl\s*\(/g)].length, 1, "one request site");
   assert.match(reads, /fetchImpl\(url\.toString\(\), \{ method: "GET", cache: "no-store" \}\)/);
   assert.doesNotMatch(reads, /\bfetch\s*\(|graphPost|method:\s*"(POST|DELETE|PUT|PATCH)"/);
   const paths = [...reads.matchAll(/graphGet\(fetchImpl, version, (["`])([^"`]+)\1/g)].map((m) => m[2]);
-  assert.deepEqual(paths.sort(), ["/act_${digits}/promote_pages", "/search", "/search"]);
+  assert.deepEqual(paths.sort(), ["/", "/act_${digits}/promote_pages", "/search", "/search"]);
   // draft-deps passes the global fetch through, and sends nothing itself.
   const deps = strip(readFileSync(join(ROOT, "lib/mcp/draft-deps.ts"), "utf8"));
   assert.equal([...deps.matchAll(/\bfetch\s*\(/g)].length, 1, "one fetch: the GET-only pass-through");
