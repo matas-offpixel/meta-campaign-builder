@@ -92,10 +92,9 @@ export const RF3: Record<FunnelStretch, StretchRule> = {
 };
 
 /**
- * The two-campaign split with Similar — CLAUDE'S PROPOSAL, NOT RULED
- * (scratch/retargeting-two-campaigns-2026-11-26.md item 4: "Matas to confirm
- * or change; his word overrides"). The shares are RF3's. Kept in this one
- * object so the ruled numbers drop in; the tests read it, never copies of it.
+ * The two-campaign split with Similar, ruled by Matas on 26 Nov ("Yes, use
+ * that split"; scratch/retargeting-two-campaigns-2026-11-26.md item 4). The
+ * shares are RF3's. One object: the tests read it, never copies of it.
  */
 export const SPLIT_WITH_SIMILAR: Record<FunnelStretch, Record<FunnelTier, number>> = {
   announce: { similar: 25, cold: 45, warm: 20, hot: 10 },
