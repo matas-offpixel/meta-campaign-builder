@@ -17,7 +17,7 @@ import { APPROVAL_WORDS } from "../meta/approval.ts";
 import { CEILING_WORDS } from "../meta/ceiling.ts";
 
 const FIXTURE = new URL("./fixtures/words-mcp-today-2026-11-25.tsv", import.meta.url);
-const SHA256 = "aab1926244c071e8842570e35d053b2351737b2e848fa80dedf1e302bbf7f101";
+const SHA256 = "19f64e2efc00bdaa573302750680889416b3921a0dc0bfd93710f8ca2880dd24";
 
 const raw = readFileSync(FIXTURE);
 const rows = new Map(
@@ -39,7 +39,7 @@ function row(key: string, vars: Record<string, string | number> = {}): string {
   return words!.replace(/\{([a-z_, ]+)\}/g, (m, name: string) => (name in vars ? String(vars[name]) : m));
 }
 
-test("the fixture is design's list: header + 217 rows, sha256 aab19262…", () => {
+test("the fixture is design's list: header + 217 rows (consent.line2.meta and settings.claude.scope.drafts re-ruled 26 Nov), sha256 19f64e2e…", () => {
   assert.equal(createHash("sha256").update(raw).digest("hex"), SHA256);
   assert.equal(rows.size, 217);
 });

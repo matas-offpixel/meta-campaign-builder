@@ -39,7 +39,7 @@ settings.claude.copy	Settings, Claude, button	Copy
 settings.claude.copied	Settings, Claude, after Copy	Copied
 settings.claude.connected	Settings, Claude, connected	Connected since {date} · last used {date, time}
 settings.claude.scope.read	Settings, Claude, scope row	Read · events, spend, signup and ticket counts, drafts and learnings
-settings.claude.scope.drafts	Settings, Claude, scope row	Drafts · make, change and archive drafts that aren’t published
+settings.claude.scope.drafts	Settings, Claude, scope row	Drafts · make, change and archive drafts that aren’t published, and set up shows: events, clients, lineups, releases, Lab drops and clip owners, files in a show’s folders
 settings.claude.scope.meta	Settings › Claude, scope row	Meta · launch and change live campaigns, each after your yes in Claude
 settings.claude.scope.allowed	Settings, Claude, scope status	Allowed
 settings.claude.scope.not_allowed	Settings, Claude, scope status	Not allowed
@@ -142,7 +142,7 @@ launch.upload.video	Launch progress, second step, when videos are sent	Waiting f
 launch.upload.video.one	Launch progress, second step (1)	Waiting for Meta to finish 1 video…
 launch.upload.stopped	Launch panel (brick), an upload failed	Launch stopped: {n} files didn’t reach Meta, so nothing was created.
 launch.upload.stopped.one	Launch panel (brick) (1)	Launch stopped: 1 file didn’t reach Meta, so nothing was created.
-consent.line2.meta	Consent page, line 2, when the scope includes mcp:meta (straight apostrophes, as the page’s other lines)	It can read every client's events, spend, signup and ticket counts, drafts and learnings, and make, change and archive campaign drafts. It can also send files to Meta, launch drafts paused or live, change live campaigns, and change an event's dates and links, each only after you say yes in Claude. It can't start or raise spend past a client's daily ceiling, and every change is listed on Today.
+consent.line2.meta	Consent page, line 2, when the scope includes mcp:meta (straight apostrophes, as the page’s other lines)	It can read every client's events, spend, signup and ticket counts, drafts and learnings, make events and clients, set lineups, ticket releases and the Lab's drops and clip owners, put files in a show's own Drive folders, and make, change and archive campaign drafts. It can also send files to Meta, launch drafts paused or live, change live campaigns, and change an event's dates and links, each only after you say yes in Claude. It can't start or raise spend past a client's daily ceiling, and every change is listed on Today.
 consent.title.upgrade.meta	Consent page, title, when a drafts grant is adding mcp:meta	Let Claude make Meta changes in Off/Pixel
 consent.title.upgrade.meta.loopback	Consent page, title, the same for an app on this computer	Let an app on this computer make Meta changes in Off/Pixel
 consent.upgrade.cancel_note.meta	Consent page, above the buttons, when a drafts grant is adding mcp:meta	If you cancel, it keeps the drafts access it has now.

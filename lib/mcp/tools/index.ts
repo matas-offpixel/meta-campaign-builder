@@ -7,7 +7,9 @@
  * campaign as a draft, M3a's set_draft_name, and M3d-c's
  * upload_to_event_folder (one file into a show's own Drive folder). Then the meta tools
  * (scope mcp:meta, Matas only, each on his chat yes): launch_draft,
- * upload_draft_assets and update_event.
+ * upload_draft_assets and update_event. M3d-a adds the shows tools (scope
+ * mcp:draft): create_event, create_client, set_lineup, get_releases,
+ * set_release.
  */
 import type { McpTool } from "../tool-types.ts";
 import { getArtistTool } from "./artist.ts";
@@ -17,6 +19,7 @@ import { launchDraftTool, uploadDraftAssetsTool } from "./meta-launch.ts";
 import { updateEventTool } from "./meta-event.ts";
 import { getRenderPackageTool, renderPackageTool } from "./render.ts";
 import { uploadToEventFolderTool } from "./folder-in.ts";
+import { createClientTool, createEventTool, getReleasesTool, setLineupTool, setReleaseTool } from "./shows.ts";
 import { replicateToEventTool } from "./draft-replicate.ts";
 import { setDraftAudiencesTool } from "./draft-audiences.ts";
 import { duplicateDraftTool, removeDraftCreativesTool, setDraftAdNamesTool, setDraftAdSetsTool, setDraftCopyTool, setDraftIdentityTool, setDraftObjectiveTool, setDraftScheduleTool } from "./draft-build.ts";
@@ -63,6 +66,12 @@ export const DRAFT_TOOLS: readonly McpTool[] = [
   setDraftNameTool,
   // M3d-c
   uploadToEventFolderTool,
+  // M3d-a: shows and setup
+  createClientTool,
+  createEventTool,
+  setLineupTool,
+  getReleasesTool,
+  setReleaseTool,
 ];
 
 /** Scope mcp:meta (MATAS_USER_IDS only): each takes Matas's chat yes. */
