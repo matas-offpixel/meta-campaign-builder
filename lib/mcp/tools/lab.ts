@@ -142,7 +142,8 @@ export const listTracksTool: McpTool = {
           }
           added += scan.added;
           failed += scan.failed;
-          if (scan.added) notes.push(LAB_WORDS.scanned(a.name, scan.added));
+          // "no new files" only when nothing failed either; a failure has its own line.
+          if (scan.added || !scan.failed) notes.push(LAB_WORDS.scanned(a.name, scan.added));
           if (scan.failed) notes.push(LAB_WORDS.scanFailed(a.name, scan.failed));
         } catch {
           // The folder couldn't be read this time: the files already in are still listed.
@@ -199,7 +200,7 @@ export const setTrackDropTool: McpTool = {
   idempotent: true,
   failedText: LAB_WORDS.dropFailed,
   description: [
-    "Places a track's drop marker, as dragging the marker on the Lab's Snippet tab does: the drop is set by hand and the 16 s window moves with it (4 s before the drop).",
+    "Places a track's drop marker, as dragging the marker on the Lab's Snippet tab does: the drop is set by hand and the snippet window (16 s by default) moves with it, starting 4 s before the drop.",
     "App only: nothing goes to Meta. A track that can't be used or is rights-flagged is refused.",
     'Example: set_track_drop({ event: "P26-BDAY", track_id: "<id from list_tracks>", seconds: 58.2 }).',
   ].join(" "),

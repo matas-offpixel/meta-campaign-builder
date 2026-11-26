@@ -8,6 +8,8 @@
  *     already live: the Lab's own Snippet words (lib/creative-tests/snippet.ts:
  *     DROP_FOUND, dropSetBy, NO_CLEAR_DROP, cantUseText), the MCP's
  *     (claude.mcp.event.refused.unknown / .other_account / .code, claude.mcp.done);
+ *   - design's corrected rows (verdict of 26 Nov on #1390), word for word, in
+ *     LAB_RULED;
  *   - PENDING DESIGN: every string with no row yet. Each is in
  *     LAB_FOR_DESIGN with its key, where it shows and the builder's
  *     candidate; the PR body's "For design" table is that list. When design
@@ -57,6 +59,22 @@ export const LAB_ROWS = {
   cantUse: cantUseText,
 } as const;
 
+// ── Design's corrected rows (26 Nov verdict on #1390, word for word) ─────────
+
+export const LAB_RULED = {
+  /** claude.mcp.lab.scanned; {new} is newFiles(n). */
+  scanned: "Read {artist}’s Audio folder: {new}.",
+  /** claude.mcp.lab.owner.unknown_clip, one id. */
+  ownerUnknownClip: "Refused: {id} isn’t one of {code}’s clips. Get the ids from list_clips. Nothing was changed.",
+  /** claude.mcp.lab.owner.unknown_clip, more than one; {ids} joined with “, ”. */
+  ownerUnknownClips: "Refused: {ids} aren’t {code}’s clips. Get the ids from list_clips. Nothing was changed.",
+  /** claude.mcp.lab.owner.bad_name; {names} joined with “, ”. */
+  ownerBadName: "Refused: the owner must be promoter or one of {code}’s lineup: {names}. Nothing was changed.",
+} as const;
+
+/** lab.scanned's {new}: never "1 new files". */
+export const newFiles = (n: number) => (n === 0 ? "no new files" : n === 1 ? "1 new file" : `${n} new files`);
+
 // ── PENDING DESIGN ───────────────────────────────────────────────────────────
 
 const T = {
@@ -80,11 +98,6 @@ const T = {
     "Told to Claude, list_tracks on another account’s show",
     "This show belongs to another account, so its Audio folder wasn’t read: these are the files already in the Lab.",
   ),
-  scanned: pending(
-    "claude.mcp.lab.scanned",
-    "Told to Claude, list_tracks after reading the act’s Audio folder ({n} new files)",
-    "Read {artist}’s Audio folder: {files} new.",
-  ),
   scanFailed: pending(
     "claude.mcp.lab.scan_failed",
     "Told to Claude, list_tracks, new files that couldn’t be read in (count only)",
@@ -102,7 +115,6 @@ const T = {
   clipsNone: pending("claude.mcp.lab.clips.none", "Told to Claude, list_clips with no clips", "No Lab clips for {code}’s lineup yet."),
   clipOtherClient: pending("claude.mcp.lab.clip.why.other_client", "list_clips, why a clip can’t be used here", "another client’s promoter footage"),
   clipShort: pending("claude.mcp.lab.clip.why.short", "list_clips, why a clip can’t be used here", "shorter than a cut"),
-  ownerUnknownClip: pending("claude.mcp.lab.owner.unknown_clip", "Told to Claude, set_clip_owner with a clip id not on the show’s card; {ids} joined with “, ”", "Refused: {ids} isn’t one of {code}’s clips. Get the ids from list_clips. Nothing was changed."),
   ownerOtherClient: pending(
     "claude.mcp.lab.owner.other_client",
     "Told to Claude, set_clip_owner on another client’s footage",
@@ -112,11 +124,6 @@ const T = {
     "claude.mcp.lab.owner.other_client.unnamed",
     "Told to Claude, the same when that client has no name",
     "Refused: {clip} is another client’s footage, and only this show’s client’s own clips can be given an owner here. Nothing was changed.",
-  ),
-  ownerBadName: pending(
-    "claude.mcp.lab.owner.bad_name",
-    "Told to Claude, set_clip_owner with an owner that is neither promoter nor a lineup act; {names} joined with “, ”",
-    "Refused: the owner is promoter or one of {code}’s lineup: {names}. Nothing was changed.",
   ),
   ownerNoLabArtist: pending(
     "claude.mcp.lab.owner.no_lab_artist",
@@ -137,7 +144,7 @@ export const LAB_WORDS = {
   unknownArtist: (artist: string, code: string, names: readonly string[]) => fill(T.unknownArtist, { artist, code, names: names.join(", ") }),
   driveOff: T.driveOff,
   notOwnerNoScan: T.notOwnerNoScan,
-  scanned: (artist: string, n: number) => fill(T.scanned, { artist, files: tracks(n) }),
+  scanned: (artist: string, n: number) => fill(LAB_RULED.scanned, { artist, new: newFiles(n) }),
   scanFailed: (artist: string, n: number) => fill(T.scanFailed, { artist, files: tracks(n) }),
   noTracks: (code: string, artist: string) => fill(T.noTracks, { code, artist }),
   flagged: (flag: string) => fill(T.flagged, { flag }),
@@ -152,9 +159,10 @@ export const LAB_WORDS = {
   clipsNone: (code: string) => fill(T.clipsNone, { code }),
   clipOtherClient: T.clipOtherClient,
   clipShort: T.clipShort,
-  ownerUnknownClip: (ids: readonly string[], code: string) => fill(T.ownerUnknownClip, { ids: ids.join(", "), code }),
+  ownerUnknownClip: (ids: readonly string[], code: string) =>
+    ids.length === 1 ? fill(LAB_RULED.ownerUnknownClip, { id: ids[0]!, code }) : fill(LAB_RULED.ownerUnknownClips, { ids: ids.join(", "), code }),
   ownerOtherClient: (clip: string, client: string | null) => (client ? fill(T.ownerOtherClient, { clip, client }) : fill(T.ownerOtherClientUnnamed, { clip })),
-  ownerBadName: (code: string, names: readonly string[]) => fill(T.ownerBadName, { code, names: names.join(", ") }),
+  ownerBadName: (code: string, names: readonly string[]) => fill(LAB_RULED.ownerBadName, { code, names: names.join(", ") }),
   ownerNoLabArtist: (artist: string, client: string) => fill(T.ownerNoLabArtist, { artist, client }),
   ownerEmpty: T.ownerEmpty,
   ownerDone: (n: number, owner: string) => fill(T.ownerDone, { clips: clips(n), owner }),

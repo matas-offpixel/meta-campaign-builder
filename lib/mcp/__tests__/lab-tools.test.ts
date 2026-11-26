@@ -12,7 +12,7 @@ import { fakeReaders } from "./fixtures.ts";
 import { MCP_TOOLS } from "../tools/index.ts";
 import { listClipsTool, listTracksTool, renderableTrack, setClipOwnerTool, setTrackDropTool } from "../tools/lab.ts";
 import { renderPackageTool } from "../tools/render.ts";
-import { LAB_FOR_DESIGN } from "../lab/words.ts";
+import { LAB_FOR_DESIGN, LAB_RULED, LAB_WORDS, newFiles } from "../lab/words.ts";
 import { ToolInputError, type McpLabDeps, type ToolContext } from "../tool-types.ts";
 import { ELECTRIC, ENZO, EVENT, MATAS, NOW, PUZZLE, TODAY, TRACK, fakeStartDeps, fixtureTables } from "../../render-templates/__tests__/fixtures.ts";
 import { runnerTrack } from "../../render-templates/runner.ts";
@@ -126,7 +126,7 @@ test("list_tracks: reads the act's Audio folder first (the Snippet tab's scan), 
   assert.equal(low!.why, cantUseText("MP3 under 128 kbps"));
   assert.match(String(flagged!.flagged), /Meta muted the audio \(rights\)/);
   assert.deepEqual(data.tracks.map((t) => t.renderable), [true, true, false, false, false]);
-  assert.ok(data.notes.some((n) => /2 files new/.test(n)));
+  assert.ok(data.notes.includes("Read Enzo Siragusa’s Audio folder: 2 new files."));
 });
 
 test("list_tracks with no act scans the whole lineup; another account's show is listed without a scan", async () => {
@@ -140,6 +140,47 @@ test("list_tracks with no act scans the whole lineup; another account's show is 
   const unknown = await refused(listTracksTool.run(all.ctx, { event: "P26-BDAY", artist: "Nobody" }));
   assert.match(unknown.message, /Nobody isn’t in P26-BDAY’s lineup\. The lineup is Enzo Siragusa, Luke Dean/);
   assert.match(unknown.message, /Nothing was changed\.$/);
+});
+
+test("design's corrected rows (26 Nov), word for word, with the typographic ’; they've left the For design list", () => {
+  assert.equal(LAB_RULED.scanned, "Read {artist}’s Audio folder: {new}.");
+  assert.equal(LAB_RULED.ownerUnknownClip, "Refused: {id} isn’t one of {code}’s clips. Get the ids from list_clips. Nothing was changed.");
+  assert.equal(LAB_RULED.ownerUnknownClips, "Refused: {ids} aren’t {code}’s clips. Get the ids from list_clips. Nothing was changed.");
+  assert.equal(LAB_RULED.ownerBadName, "Refused: the owner must be promoter or one of {code}’s lineup: {names}. Nothing was changed.");
+  // lab.scanned's {new}: 0, 1 and n.
+  assert.equal(newFiles(0), "no new files");
+  assert.equal(newFiles(1), "1 new file");
+  assert.equal(newFiles(3), "3 new files");
+  assert.equal(LAB_WORDS.scanned("Enzo Siragusa", 0), "Read Enzo Siragusa’s Audio folder: no new files.");
+  assert.equal(LAB_WORDS.scanned("Enzo Siragusa", 1), "Read Enzo Siragusa’s Audio folder: 1 new file.");
+  assert.equal(LAB_WORDS.scanned("Enzo Siragusa", 3), "Read Enzo Siragusa’s Audio folder: 3 new files.");
+  // owner.unknown_clip: one id, then more than one.
+  assert.equal(LAB_WORDS.ownerUnknownClip(["nope-1"], "P26-BDAY"), "Refused: nope-1 isn’t one of P26-BDAY’s clips. Get the ids from list_clips. Nothing was changed.");
+  assert.equal(LAB_WORDS.ownerUnknownClip(["nope-1", "nope-2"], "P26-BDAY"), "Refused: nope-1, nope-2 aren’t P26-BDAY’s clips. Get the ids from list_clips. Nothing was changed.");
+  assert.equal(
+    LAB_WORDS.ownerBadName("P26-BDAY", ["Enzo Siragusa", "Luke Dean"]),
+    "Refused: the owner must be promoter or one of P26-BDAY’s lineup: Enzo Siragusa, Luke Dean. Nothing was changed.",
+  );
+  // set_track_drop's description: the snippet window is 16 s by default, not always.
+  assert.match(setTrackDropTool.description, /the drop is set by hand and the snippet window \(16 s by default\) moves with it, starting 4 s before the drop\. /);
+  const pendingKeys = new Set(LAB_FOR_DESIGN.map((w) => w.key));
+  for (const k of ["claude.mcp.lab.scanned", "claude.mcp.lab.owner.unknown_clip", "claude.mcp.lab.owner.bad_name"]) assert.ok(!pendingKeys.has(k), k);
+});
+
+test("list_tracks says how many new files each read found: none, 1, or n; a failed read in has its own line instead", async () => {
+  for (const [added, failed, line] of [
+    [0, 0, "Read Enzo Siragusa’s Audio folder: no new files."],
+    [1, 0, "Read Enzo Siragusa’s Audio folder: 1 new file."],
+    [4, 0, "Read Enzo Siragusa’s Audio folder: 4 new files."],
+  ] as const) {
+    const { lab } = labSpy({ added, failed });
+    const out = await listTracksTool.run(ctxFor({ lab }).ctx, { event: "P26-BDAY", artist: "Enzo Siragusa" });
+    assert.ok((out.data as { notes: string[] }).notes.includes(line), line);
+  }
+  const { lab } = labSpy({ added: 0, failed: 2 });
+  const notes = ((await listTracksTool.run(ctxFor({ lab }).ctx, { event: "P26-BDAY", artist: "Enzo Siragusa" })).data as { notes: string[] }).notes;
+  assert.ok(!notes.some((n) => /no new files/.test(n)), "no 'no new files' beside a failure");
+  assert.ok(notes.some((n) => /couldn’t be read in/.test(n)));
 });
 
 test("list_tracks with Drive off lists what's in and says so", async () => {
@@ -230,11 +271,14 @@ test("set_clip_owner refuses another client's footage, a clip not on the show, a
   assert.equal((other.summary as Row).refused, "other_client");
   const unknown = await refused(setClipOwnerTool.run(ctx, { event: "P26-BDAY", clip_ids: ["nope-1"], owner: "promoter" }));
   assert.equal((unknown.summary as Row).refused, "clip_not_on_show");
+  assert.equal(unknown.message, "Refused: nope-1 isn’t one of P26-BDAY’s clips. Get the ids from list_clips. Nothing was changed.");
+  const unknowns = await refused(setClipOwnerTool.run(ctx, { event: "P26-BDAY", clip_ids: ["nope-1", "puzzle-1", "nope-2"], owner: "promoter" }));
+  assert.equal(unknowns.message, "Refused: nope-1, nope-2 aren’t P26-BDAY’s clips. Get the ids from list_clips. Nothing was changed.");
   const bad = await refused(setClipOwnerTool.run(ctx, { event: "P26-BDAY", clip_ids: ["puzzle-1"], owner: "Somebody Else" }));
-  assert.match(bad.message, /promoter or one of P26-BDAY’s lineup: Enzo Siragusa, Luke Dean/);
+  assert.equal(bad.message, "Refused: the owner must be promoter or one of P26-BDAY’s lineup: Enzo Siragusa, Luke Dean, Rossi., Seb Zito, Archie Hamilton, Josh Baker. Nothing was changed.");
   const noLab = await refused(setClipOwnerTool.run(ctx, { event: "P26-BDAY", clip_ids: ["puzzle-1"], owner: "Luke Dean" }));
   assert.match(noLab.message, /Luke Dean has no Lab artist on Puzzle yet/);
-  for (const e of [other, unknown, bad, noLab]) assert.match(e.message, /Nothing was changed\.$/);
+  for (const e of [other, unknown, unknowns, bad, noLab]) assert.match(e.message, /Nothing was changed\.$/);
   assert.deepEqual(calls, [], "nothing saved before a refusal");
 });
 
