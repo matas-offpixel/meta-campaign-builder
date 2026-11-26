@@ -35,7 +35,6 @@ import {
   stretchName,
   stretchOn,
   takeFromProspecting,
-  takeFromText,
   splitOf,
   similarSkipOf,
   type SimilarSkip,
@@ -71,6 +70,8 @@ export type FunnelShowInput = {
    * taken today, and the steps go on from it.
    */
   existing?: { totalMinor: number; took: readonly TakeLine[] } | null;
+  /** TC6: a two-campaign build's show daily spend as made (Wider + Retargeting; money moves inside it), in place of prospecting + existing. */
+  showDailyMinor?: number | null;
   /** Staged two-campaign record: the Similar tier and its split, Similar lists in Warm, presale. */
   spec?: SpecOptions;
 };
@@ -144,7 +145,7 @@ export function planFunnelShow(input: FunnelShowInput): FunnelShowPlan {
   const stretch = stretchOn(input.runDay, dates);
   const rule = RF3[stretch];
   const existing = input.existing ?? null;
-  const showDailyMinor = showDailyOf(input.prospecting) + (existing?.totalMinor ?? 0);
+  const showDailyMinor = input.showDailyMinor ?? showDailyOf(input.prospecting) + (existing?.totalMinor ?? 0);
   const twoCampaigns = input.spec?.twoCampaigns === true;
   // Rechecked on every read: a group confirmed later, or an audience grown past Meta's minimum, brings Similar back from the next step.
   const similarSkip = similarSkipOf(input.spec ?? {});
@@ -220,6 +221,17 @@ export function shareLine(plan: Pick<FunnelShowPlan, "targetMinor" | "share" | "
   return fill("rt.share.line", { x: money(plan.targetMinor), p: plan.share, stretch: stretchName(plan.stretch) });
 }
 
+/**
+ * TC3: the split as the words give it. With Similar skipped, Cold's budget
+ * already holds Similar's share; the words name Similar's £ a day and Cold's
+ * own (TW-B, TW-D), and the skip line says where Similar's went.
+ */
+export function wordsSplit(plan: Pick<FunnelShowPlan, "tiers" | "similarSkip" | "totalMinor" | "stretch">): TierMinor {
+  if (!plan.similarSkip) return plan.tiers;
+  const similar = splitTotal(plan.totalMinor, SPLIT_WITH_SIMILAR[plan.stretch])?.tiers.similar ?? 0;
+  return { ...plan.tiers, similar, cold: plan.tiers.cold - similar };
+}
+
 /** TC5: "Similar £3.15 · Cold £5.25 · Warm £7.35 · Hot £5.25" */
 export function splitLine(tiers: TierMinor): string {
   return fill("rt.share.split", { s: money(tiers.similar), c: money(tiers.cold), w: money(tiers.warm), h: money(tiers.hot) });
@@ -233,7 +245,7 @@ export function createLines(plan: FunnelShowPlan, wider: WiderWords, presale: bo
   const lines = [
     fill("tc.create.wider", { l: money(wider.lifetimeMinor), date: rfDay(wider.endDay), n: wider.daysLeft, d: money(wider.dailyMinor) }),
     fill("tc.create.retargeting", { x: money(plan.totalMinor), p: plan.share, stretch: stretchName(plan.stretch) }),
-    splitLine(plan.tiers),
+    splitLine(wordsSplit(plan)),
     fill("tc.create.total", { s: money(plan.showDailyMinor), d: money(wider.dailyMinor), x: money(plan.totalMinor) }),
     ...(presale ? [fill("rt.presale.note")] : []),
   ];
@@ -321,8 +333,8 @@ export function claudePlanLines(
       l: money(extra.wider.lifetimeMinor),
       d: money(extra.wider.dailyMinor),
       x: money(plan.totalMinor),
-      s: money(plan.tiers.similar),
-      c: money(plan.tiers.cold),
+      s: money(wordsSplit(plan).similar),
+      c: money(wordsSplit(plan).cold),
       w: money(plan.tiers.warm),
       h: money(plan.tiers.hot),
       made: plan.audiences.made,

@@ -401,7 +401,7 @@ export async function applyFunnel(deps: FunnelDeps, build: FunnelBuild, ctx: { m
       const includeIds = spec.includes.map(idOf).filter((id): id is string => Boolean(id));
       if (!includeIds.length) continue;
       const excludeIds = spec.excludes.map(idOf).filter((id): id is string => Boolean(id));
-      const payload = tierAdSetPayload({ code: build.eventCode, tier: spec.tier as never, campaignId: progress.campaignId!, dailyMinor, pixelId: build.pixelId, customConversionId: progress.customConversionId ?? null, endDay: build.endDay, location, includeIds, excludeIds, name: funnelAdSetName(build.eventCode, spec.tier) });
+      const payload = tierAdSetPayload({ presale: build.presale === true, code: build.eventCode, tier: spec.tier as never, campaignId: progress.campaignId!, dailyMinor, pixelId: build.pixelId, customConversionId: progress.customConversionId ?? null, endDay: build.endDay, location, includeIds, excludeIds, name: funnelAdSetName(build.eventCode, spec.tier) });
       const id = await withMetaWriteIdempotency(ctx.ledger, "refresh_adset_create", { ...keyBase, tier: spec.tier }, () => deps.meta.createAdSet(adAccountId, payload), { required: true });
       progress.adSets[spec.tier] = { id, dailyMinor };
       await saveProgress(deps, build, progress, { state: "building" });
@@ -538,7 +538,7 @@ async function buildWider(deps: FunnelDeps, build: FunnelBuild, progress: Funnel
     const suggestionIds = [...set.suggestionKeys.map(idOf).filter((id): id is string => Boolean(id)), ...lookalikeIds];
     if (set.key !== "broad" && !suggestionIds.length && !set.interests.length) continue;
     const excludeIds = set.excludeKeys.map(idOf).filter((id): id is string => Boolean(id));
-    const payload = widerAdSetPayload({ name: widerAdSetName(build.eventCode, set.key), campaignId: progress.wider.campaignId!, pixelId: build.pixelId, customConversionId: progress.customConversionId ?? null, endDay: build.endDay, location: args.location, interests: set.interests, suggestionIds, excludeIds });
+    const payload = widerAdSetPayload({ presale: build.presale === true, name: widerAdSetName(build.eventCode, set.key), campaignId: progress.wider.campaignId!, pixelId: build.pixelId, customConversionId: progress.customConversionId ?? null, endDay: build.wider?.endDay ?? build.endDay, location: args.location, interests: set.interests, suggestionIds, excludeIds });
     const id = await withMetaWriteIdempotency(ctx.ledger, "refresh_adset_create", { ...keyBase, wider: set.key }, () => deps.meta.createAdSet(adAccountId, payload), { required: true });
     progress.wider.adSets[set.key] = { id };
     await saveProgress(deps, build, progress, { state: "building" });

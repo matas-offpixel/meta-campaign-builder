@@ -36,10 +36,12 @@ import { localDay, pooled, type PooledRead } from "./test.ts";
 import type { CallShow, CallWrite } from "./apply-call.ts";
 import { callLine, type RunningTest } from "./plan.ts";
 import type { Arm } from "./words.ts";
-import { planRetargeting, retargetingOnSaleDay, type RetargetingInput, type RetargetingPlan } from "./plan.ts";
+import { isPresale, planRetargeting, retargetingOnSaleDay, type RetargetingInput, type RetargetingPlan } from "./plan.ts";
+import { loadArchivedClientIds } from "../db/client-status.ts";
 import { isRetargetingCampaignName, isTestsCampaignName, retargetingCampaignName, TIERS, type Tier } from "./words.ts";
 import { FUNNEL_TIERS, type FunnelTier, type ProspectingBudget, type TierWeek } from "./funnel.ts";
-import { BUILDS_TABLE, type FunnelProgress } from "./funnel-apply.ts";
+import { BUILDS_TABLE, type FunnelBuild, type FunnelProgress } from "./funnel-apply.ts";
+import type { MatchedPages } from "./funnel-plan.ts";
 import type { CampaignInput } from "../onsale-refresh/rules.ts";
 import { loadPageGroup } from "./page-groups.ts";
 import { SHOW_CAMPAIGNS_RULED } from "./show-campaigns.ts";
@@ -66,23 +68,27 @@ const num = (value: unknown): number => {
 };
 
 /** The pages the operator's Facebook user holds a role on (at least ADVERTISE), with their Instagram accounts. Null when not read. */
-export async function pagesWithRole(graph: RefreshGraph | null): Promise<{ roles: Map<string, string | null>; calls: number } | null> {
+export async function pagesWithRole(graph: RefreshGraph | null): Promise<{ roles: Map<string, string | null>; names: Map<string, string>; calls: number } | null> {
   if (!graph) return null;
   const roles = new Map<string, string | null>();
+  const names = new Map<string, string>();
   let calls = 0;
   let after: string | null = null;
   try {
     for (let page = 0; page < 10; page += 1) {
       calls += 1;
-      const body = (await graph.graphGet("/me/accounts", { fields: "id,tasks,instagram_business_account{id}", limit: "100", ...(after ? { after } : {}) })) as { data?: { id: string; tasks?: string[]; instagram_business_account?: { id?: string } }[]; paging?: { cursors?: { after?: string }; next?: string } };
-      for (const row of body.data ?? []) if ((row.tasks ?? []).some((task) => PAGE_TASKS.has(task))) roles.set(row.id, row.instagram_business_account?.id ?? null);
+      const body = (await graph.graphGet("/me/accounts", { fields: "id,name,tasks,instagram_business_account{id}", limit: "100", ...(after ? { after } : {}) })) as { data?: { id: string; name?: string; tasks?: string[]; instagram_business_account?: { id?: string } }[]; paging?: { cursors?: { after?: string }; next?: string } };
+      for (const row of body.data ?? []) {
+        if (row.name) names.set(row.id, row.name);
+        if ((row.tasks ?? []).some((task) => PAGE_TASKS.has(task))) roles.set(row.id, row.instagram_business_account?.id ?? null);
+      }
       after = body.paging?.next ? (body.paging.cursors?.after ?? null) : null;
       if (!after) break;
     }
   } catch {
     return null;
   }
-  return { roles, calls };
+  return { roles, names, calls };
 }
 
 type SourceRows = {
@@ -173,15 +179,57 @@ export function prospectingOf(campaigns: readonly CampaignInput[], budgets: PcBu
   return out;
 }
 
-export type FunnelBuildRow = { event_id: string; state: string; mode: "paused" | "live" | null; meta_campaign_id: string | null; progress: FunnelProgress | null };
+/**
+ * TC7: the shows announced and not on sale yet (presale), the show still
+ * ahead, not cancelled, their client not archived — the same row as
+ * loadOnSaleEvents reads.
+ */
+export async function loadPresaleEvents(db: Db, today: string): Promise<EventRow[]> {
+  const archived = await loadArchivedClientIds(db as SupabaseClient);
+  const rows = await loadAll<EventRow & { announcement_at: string | null }>(db, "events", "id, name, event_code, event_date, general_sale_at, presale_at, status, client_id, budget_marketing, drive_folder_id, signup_url, ticket_url, venue_country, announcement_at", ["id"], (q) =>
+    q.gte("event_date", today).neq("status", "cancelled").not("announcement_at", "is", null),
+  );
+  return rows.filter((event) => event.client_id && !archived.has(event.client_id) && isPresale({ onSaleDay: retargetingOnSaleDay(event), runDay: today, announceDay: event.announcement_at?.slice(0, 10) ?? null, eventDate: event.event_date }));
+}
 
-/** A build record's tiers and what it took, for the running view. */
-export function funnelBuiltOf(row: FunnelBuildRow | undefined): RetargetingInput["funnelBuilt"] {
+export type FunnelBuildRow = { event_id: string; state: string; mode: "paused" | "live" | null; meta_campaign_id: string | null; progress: FunnelProgress | null; build?: Partial<FunnelBuild> | null };
+
+/**
+ * A build record's tiers and what it took, for the running view; with two
+ * campaigns, Wider as it was made (its lifetime, steps and the show's daily
+ * spend) with Meta's budget_remaining and the steps whose scheduled change ran.
+ */
+export function funnelBuiltOf(row: FunnelBuildRow | undefined, wider: { remainingMinor: number | null; doneDays: readonly string[] } | null = null): RetargetingInput["funnelBuilt"] {
   if (!row) return null;
   const sets = row.progress?.adSets ?? {};
   const tiers = { similar: sets.similar?.dailyMinor ?? 0, cold: sets.cold?.dailyMinor ?? 0, warm: sets.warm?.dailyMinor ?? 0, hot: sets.hot?.dailyMinor ?? 0 };
   const took = (row.progress?.moved ?? []).map((line) => ({ id: line.id, kind: line.kind, name: line.name ?? line.id, beforeMinor: line.beforeMinor, afterMinor: line.afterMinor }));
-  return { state: row.state, mode: row.mode, campaignId: row.meta_campaign_id ?? row.progress?.campaignId ?? null, tiers, took };
+  const made = row.build?.wider ?? null;
+  const runningWider = made && row.progress?.wider?.campaignId
+    ? { lifetimeMinor: made.lifetimeMinor, dailyMinor: made.dailyMinor, daysLeft: made.daysLeft, endDay: made.endDay, steps: made.steps, adSets: made.adSets.length, remainingMinor: wider?.remainingMinor ?? null, doneDays: wider?.doneDays ?? [], showDailyMinor: row.build?.plan?.showDailyMinor }
+    : null;
+  return { state: row.state, mode: row.mode, campaignId: row.meta_campaign_id ?? row.progress?.campaignId ?? null, tiers, took, wider: runningWider };
+}
+
+/** The Wider steps whose scheduled change ran (funnel-apply's stepChanges key: rf:{event}:{day}:wider). */
+export function widerDoneDays(rows: readonly { call_key: string; status: string }[], eventId: string): string[] {
+  const prefix = `rf:${eventId}:`;
+  return rows.flatMap((row) => (row.status === "applied" && row.call_key.startsWith(prefix) && row.call_key.endsWith(":wider") ? [row.call_key.slice(prefix.length, -":wider".length)] : [])).sort();
+}
+
+/**
+ * TC9: the Pages a show matched, for plan_retargeting — its venue's Page, the
+ * promoter's brand Pages (the client's default Pages, by their Meta names when
+ * read) and the lineup's. An empty slot reads "not matched".
+ */
+export function matchedPagesOf(pages: readonly SourcePage[], names: ReadonlyMap<string, string> = new Map()): MatchedPages {
+  const named = (page: SourcePage) => names.get(page.id) ?? page.name;
+  const unique = (list: string[]) => [...new Set(list)];
+  return {
+    venue: pages.find((page) => page.kind === "venue") ? named(pages.find((page) => page.kind === "venue")!) : null,
+    brands: unique(pages.filter((page) => page.kind === "promoter").map(named)),
+    artists: unique(pages.filter((page) => page.kind === "lineup").map(named)),
+  };
 }
 
 /** Meta's minimum, as the audience tools read it (#1400): an audience it sizes under 100. */
@@ -264,6 +312,8 @@ export function retargetingInput(args: {
   funnelBuilt?: RetargetingInput["funnelBuilt"];
   funnelWeek?: RetargetingInput["funnelWeek"];
   madeAudiences?: string[];
+  /** TC9: the Pages the show matched (plan_retargeting's line). */
+  matchedPages?: MatchedPages | null;
 }): RetargetingInput {
   const { event, day } = args;
   const code = event.event_code ?? event.id;
@@ -337,6 +387,7 @@ export function retargetingInput(args: {
     pageGroup: args.pageGroup ?? null,
     genreFamily: args.genreFamily ?? null,
     similarTooSmall: args.similarTooSmall ?? false,
+    matchedPages: args.matchedPages ?? null,
     // Wider's suggestions: the lineup's and the genre's interests aren't read yet (staged); Broad then runs with none.
     lineupInterests: [],
     genreInterests: [],
@@ -493,6 +544,8 @@ export async function runRetargetingRead(input: {
   const errors: string[] = [];
   const skipped: { eventCode: string | null; reason: string }[] = [];
   let events = await loadOnSaleEvents(input.db, day);
+  // TC7: presale shows (announced, not on sale yet) take the two campaigns too.
+  if (SHOW_CAMPAIGNS_RULED) events = [...events, ...(await loadPresaleEvents(input.db, day).catch(() => [] as EventRow[])).filter((row) => !events.some((have) => have.id === row.id))];
   if (input.eventCodes?.length) {
     const wanted = new Set(input.eventCodes.map((code) => code.trim().toLowerCase()));
     events = events.filter((event) => wanted.has((event.event_code ?? "").toLowerCase()));
@@ -543,7 +596,11 @@ export async function runRetargetingRead(input: {
   const pooledRead = testShows.length ? pooledFromRows(raw.rows, addDaysIso(day, -1), testFrom) : null;
   const call = !testWinner && pooledRead ? callLine(pooledRead) : null;
   // RF: each show's funnel build and the audiences already made for it.
-  const builds = await loadAll<FunnelBuildRow & { id: string }>(input.db, BUILDS_TABLE, "id, event_id, state, mode, meta_campaign_id, progress", ["id"], (q) => q.in("event_id", events.map((event) => event.id))).catch(() => [] as (FunnelBuildRow & { id: string })[]);
+  const builds = await loadAll<FunnelBuildRow & { id: string }>(input.db, BUILDS_TABLE, "id, event_id, state, mode, meta_campaign_id, progress, build", ["id"], (q) => q.in("event_id", events.map((event) => event.id))).catch(() => [] as (FunnelBuildRow & { id: string })[]);
+  // TC6: the Wider steps that ran (scheduled_meta_changes, migration 271).
+  const stepRows = SHOW_CAMPAIGNS_RULED && builds.some((row) => row.progress?.wider?.campaignId)
+    ? await loadAll<{ id: string; call_key: string; status: string }>(input.db, "scheduled_meta_changes", "id, call_key, status", ["id"], (q) => q.in("event_id", events.map((event) => event.id)).like("call_key", "rf:%:wider")).catch(() => [])
+    : [];
   const madeRows = await loadAll<{ id: string; event_id: string; part: string; meta_audience_id: string | null }>(input.db, "onsale_refresh_audiences", "id, event_id, part, meta_audience_id", ["id"], (q) => q.in("event_id", events.map((event) => event.id)).eq("kind", "retargeting_campaign")).catch(() => []);
   const hostsByPixel = new Map<string, PixelHosts>();
   const readLinks = input.pageLinks ?? ((tag: string) => fetchCirqlinPageLinks(tag));
@@ -596,7 +653,14 @@ export async function runRetargetingRead(input: {
         linkSizes = sized.sizes;
       }
       const buildRow = builds.find((row) => row.event_id === event.id);
-      const funnelBuilt = funnelBuiltOf(buildRow);
+      const widerId = buildRow?.progress?.wider?.campaignId ?? null;
+      let remainingMinor: number | null = null;
+      if (SHOW_CAMPAIGNS_RULED && widerId && input.graph) {
+        metaCalls += 1;
+        const body = (await input.graph.graphGet(`/${widerId}`, { fields: "budget_remaining" }).catch(() => null)) as { budget_remaining?: unknown } | null;
+        remainingMinor = body && body.budget_remaining != null && Number.isFinite(Number(body.budget_remaining)) ? Number(body.budget_remaining) : null;
+      }
+      const funnelBuilt = funnelBuiltOf(buildRow, widerId ? { remainingMinor, doneDays: widerDoneDays(stepRows, event.id) } : null);
       let funnelWeek: RetargetingInput["funnelWeek"];
       if (funnelBuilt?.campaignId && buildRow?.progress?.active && input.graph) {
         metaCalls += 1;
@@ -614,7 +678,7 @@ export async function runRetargetingRead(input: {
         metaCalls += sized.calls;
         similarTooSmall = sized.allUnderMinimum;
       }
-      const planInput = retargetingInput({ twoCampaigns: SHOW_CAMPAIGNS_RULED, pageGroup, genreFamily: genre, similarTooSmall, announcementAt, funnelBuilt, funnelWeek, madeAudiences, event, day, rows, campaigns: inputs.campaigns, read, budgets: purchases.budgets, sources, appliedLine, minDailyMinor: account ? (minDaily.get(account) ?? null) : null, linksRead: links.linksRead, pixelHosts: pixelId ? (hostsByPixel.get(pixelId) ?? null) : null, campaignStatus, otherLandingHosts: [...otherLandingHosts(landingByShow, event.id)], linkSizes, testWinner, pooledRead, signups: signupsSyncOf(syncRows.filter((row) => row.event_id === event.id), event), accountTimeZone: account ? (timeZones.get(account) ?? null) : null });
+      const planInput = retargetingInput({ matchedPages: SHOW_CAMPAIGNS_RULED ? matchedPagesOf(sources.pages, roles?.names) : null, twoCampaigns: SHOW_CAMPAIGNS_RULED, pageGroup, genreFamily: genre, similarTooSmall, announcementAt, funnelBuilt, funnelWeek, madeAudiences, event, day, rows, campaigns: inputs.campaigns, read, budgets: purchases.budgets, sources, appliedLine, minDailyMinor: account ? (minDaily.get(account) ?? null) : null, linksRead: links.linksRead, pixelHosts: pixelId ? (hostsByPixel.get(pixelId) ?? null) : null, campaignStatus, otherLandingHosts: [...otherLandingHosts(landingByShow, event.id)], linkSizes, testWinner, pooledRead, signups: signupsSyncOf(syncRows.filter((row) => row.event_id === event.id), event), accountTimeZone: account ? (timeZones.get(account) ?? null) : null });
       const plan = planRetargeting(planInput);
       const record: RetargetingRecord = { eventId: event.id, eventCode: event.event_code, plan, input: planInput, proposalId: null };
       // RT13: a running campaign's rules against today's links. A failed read keeps the last rules, so nothing is compared.

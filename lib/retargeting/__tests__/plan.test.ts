@@ -202,7 +202,7 @@ describe("RT2 / RT13 / RT14: the tiers and their audiences", () => {
 
 describe("RT1 / RT8: the states and the Create line", () => {
 
-  it("RD 393: the not-proposed states, each replacing the Create line, in the record's words (RF4's nothing-to-give in place of no spend)", () => {
+  it("RD 393: the not-proposed states, each replacing the Create line, in the record's words (no budget to fold in place of no spend)", () => {
     assert.deepEqual(
       rdStates().map((view) => [view.state, view.notProposed, view.create]),
       [
@@ -210,8 +210,8 @@ describe("RT1 / RT8: the states and the Create line", () => {
         ["no_pixel", "No Retargeting campaign: these ads have no pixel to optimise on.", null],
         ["sells_elsewhere", "No Retargeting campaign: this pixel mostly sells on universe.com (74 % of 512 purchases in 28 days), not on Skiddle.", null],
         ["not_read", "Retargeting not proposed: purchases couldn't be read this run. The next run tries again.", null],
-        // RF4 re-rules RT4's "no spend": nothing to take from prospecting is the funnel's own line, under the share line (no Create).
-        ["no_money", null, null],
+        // Two campaigns: no prospecting budget to fold into Wider (PENDING DESIGN; RF4's take words are withdrawn).
+        ["no_money", "No Retargeting campaign: this show has no prospecting budget to fold into Wider.", null],
         ["nothing_reaches", "No Retargeting campaign: no purchase has reached xmpl-roof.com in 28 days, and the ticket link isn't on a ticket platform.", null],
         ["no_purchases", "No Retargeting campaign: this pixel has had no purchases in 28 days.", null],
         ["no_url", "No Retargeting campaign: this show has no page or ticket link to read purchases from.", null],
@@ -220,8 +220,7 @@ describe("RT1 / RT8: the states and the Create line", () => {
         ["links_failed", "Retargeting not proposed: the show's links couldn't be read from CIRQLIN this run. The next run tries again.", null],
       ],
     );
-    const noMoney = rdStates().find((view) => view.state === "no_money")!;
-    assert.deepEqual(noMoney.funnel?.create?.take, ["Prospecting has nothing above £1.00 an ad set to give, so there’s no money for retargeting. Raise the show’s budget first."]);
+    assert.equal(rdStates().find((view) => view.state === "no_money")!.funnel, null);
   });
 
   it("RT1's signal: own domain with a purchase in 28 days, else the platform path past T2's guard", () => {

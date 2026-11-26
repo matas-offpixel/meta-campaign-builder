@@ -37,6 +37,7 @@ import {
   type TierMinor,
   type TierWeek,
 } from "./funnel.ts";
+import { widerGive } from "./show-campaigns.ts";
 import { createLines, FLOOR_LINE, nextLine, shareLine, similarSkipRow, type FunnelShowPlan, type WiderWords } from "./funnel-plan.ts";
 import { fill, freq, JOIN, money, rfDay } from "./funnel-words.ts";
 import type { SourcePage, SourceSet } from "./audiences.ts";
@@ -182,6 +183,52 @@ export function proposedPanel(plan: FunnelShowPlan, sources: FunnelSources, args
   };
 }
 
+/** A running Wider: its words, Meta's budget_remaining, its ad sets, and the steps whose scheduled change has run. */
+export type RunningWider = WiderWords & {
+  remainingMinor: number | null;
+  adSets?: number;
+  /** The steps whose scheduled change has run (scheduled_meta_changes applied); absent = every step to today. */
+  doneDays?: readonly string[];
+  /** The show's daily spend as the build made it (Wider + Retargeting). */
+  showDailyMinor?: number;
+};
+
+/**
+ * TC6's Wider row: what's left of the lifetime it was made with, its money a
+ * day to its end, and one line after it — the floor (ochre) when the next
+ * step can't be given in full, else the last step (muted). The next step is
+ * re-sized against what's left (Meta's budget_remaining), so the footer
+ * gives what Wider can give. Pure.
+ */
+export function widerRow(w: RunningWider, args: { today: string; stretchOf: (day: string) => FunnelShowPlan["stretch"] }): { row: string; line: FunnelLine | null; steps: WiderWords["steps"] } {
+  const days = (from: string, to: string) => Math.max(0, Math.round((Date.parse(`${to}T12:00:00Z`) - Date.parse(`${from}T12:00:00Z`)) / 86_400_000) + 1);
+  const isDone = (day: string) => (w.doneDays ? w.doneDays.includes(day) : day <= args.today);
+  const left = w.remainingMinor ?? w.lifetimeMinor;
+  const rest = Math.max(1, days(args.today, w.endDay));
+  const daily = Math.floor(left / rest);
+  const row = fill("wd.row", { left: money(left), l: money(w.lifetimeMinor), d: money(daily), date: rfDay(w.endDay) });
+  const done = w.steps.filter((step) => isDone(step.day)).at(-1) ?? null;
+  const upcoming = w.steps.find((step) => !isDone(step.day) && step.day >= args.today) ?? null;
+  const steps = w.steps.map((step) => {
+    if (step !== upcoming || w.remainingMinor == null) return step;
+    const atStep = left - daily * Math.max(0, days(args.today, step.day) - 1);
+    const given = widerGive({ remainingMinor: atStep, wantDailyMinor: step.wantDailyMinor, daysLeft: days(step.day, w.endDay), adSets: w.adSets ?? WIDER_AD_SETS });
+    return { ...step, givenDailyMinor: given, atFloor: step.wantDailyMinor > 0 && given < step.wantDailyMinor };
+  });
+  const next = upcoming ? steps.find((step) => step.day === upcoming.day)! : null;
+  let line: FunnelLine | null = null;
+  if (next?.atFloor) line = { text: fill("wd.step.floor", { y: money(next.givenDailyMinor), x: money(next.wantDailyMinor) }), tone: "ochre" };
+  else if (done?.atFloor) line = { text: fill("wd.step.floor", { y: money(done.givenDailyMinor), x: money(done.wantDailyMinor) }), tone: "ochre" };
+  else if (done && done.givenDailyMinor > 0) {
+    const n = days(done.day, w.endDay);
+    line = { text: fill("wd.step", { y: money(done.givenDailyMinor * n), date: rfDay(done.day), x: money(done.givenDailyMinor), n, stretch: stretchName(args.stretchOf(done.day)) }), tone: "muted" };
+  }
+  return { row, line, steps };
+}
+
+/** Wider's four ad sets (TC1), when a build doesn't say. */
+const WIDER_AD_SETS = 4;
+
 /**
  * A running (or paused) build: Retargeting's share line, Wider's row (what's
  * left of its lifetime, its money a day, the last step or the floor), the
@@ -190,36 +237,33 @@ export function proposedPanel(plan: FunnelShowPlan, sources: FunnelSources, args
 export function runningPanel(
   plan: FunnelShowPlan,
   sources: FunnelSources,
-  args: { showDay: string; today: string; built: { tiers: TierMinor; took: readonly TakeLine[]; week?: Partial<Record<FunnelTier, TierWeek>> }; wider?: (WiderWords & { remainingMinor: number | null }) | null; spec?: SpecOptions; onSaleDay?: string | null },
+  args: { showDay: string; today: string; built: { tiers: TierMinor; took: readonly TakeLine[]; week?: Partial<Record<FunnelTier, TierWeek>> }; wider?: RunningWider | null; spec?: SpecOptions; onSaleDay?: string | null },
 ): FunnelPanel {
   const total = FUNNEL_TIERS.reduce((sum, tier) => sum + args.built.tiers[tier], 0);
   const presale = args.spec?.presale === true;
-  let wider: FunnelPanel["wider"] = null;
-  if (args.wider) {
-    const w = args.wider;
-    const done = w.steps.filter((step) => step.day <= args.today).at(-1) ?? null;
-    const left = w.remainingMinor ?? w.lifetimeMinor;
-    const rest = Math.max(1, Math.round((Date.parse(`${w.endDay}T12:00:00Z`) - Date.parse(`${args.today}T12:00:00Z`)) / 86_400_000) + 1);
-    const daily = Math.floor(left / rest);
-    const row = fill("wd.row", { left: money(left), l: money(w.lifetimeMinor), d: money(daily), date: rfDay(w.endDay) });
-    let line: FunnelLine | null = null;
-    if (done && done.atFloor) line = { text: fill("wd.step.floor", { y: money(done.givenDailyMinor), x: money(done.wantDailyMinor) }), tone: "ochre" };
-    else if (done && done.givenDailyMinor > 0) {
-      const n = Math.max(0, Math.round((Date.parse(`${w.endDay}T12:00:00Z`) - Date.parse(`${done.day}T12:00:00Z`)) / 86_400_000) + 1);
-      const stepStretch = plan.steps.find((step) => step.day === done.day)?.stretch ?? plan.stretch;
-      line = { text: fill("wd.step", { y: money(done.givenDailyMinor * n), date: rfDay(done.day), x: money(done.givenDailyMinor), n, stretch: stretchName(stepStretch) }), tone: "muted" };
-    }
-    wider = { row, line };
-  }
+  const stretchOf = (day: string) => plan.steps.find((step) => step.day === day)?.stretch ?? plan.stretch;
+  const w = args.wider ? widerRow(args.wider, { today: args.today, stretchOf }) : null;
+  const isDone = (day: string) => (args.wider?.doneDays ? args.wider.doneDays.includes(day) : day <= args.today);
   return {
     shareLine: shareLine({ targetMinor: total, share: plan.share, stretch: plan.stretch }),
     access: accessLine(sources.accounts),
     notes: presale ? [fill("rt.presale.note")] : [],
     create: null,
-    wider,
+    wider: w ? { row: w.row, line: w.line } : null,
     tiers: funnelTierRows(sources, args.built.tiers, { week: args.built.week, took: args.built.took, spec: args.spec, similar: args.built.tiers.similar === 0 ? similarShareOf(plan) : null }),
-    next: nextLine({ ...plan, steps: plan.steps.filter((step) => step.day > args.today) }, args.showDay, args.wider ?? null, presale && args.onSaleDay ? { onSaleDay: args.onSaleDay } : null),
+    next: nextLine({ ...plan, steps: footerSteps(plan, args.wider ?? null, args.today, isDone) }, args.showDay, args.wider && w ? { ...args.wider, steps: w.steps } : null, presale && args.onSaleDay ? { onSaleDay: args.onSaleDay } : null),
   };
+}
+
+/**
+ * The footer's steps: a step due today whose scheduled change hasn't run is
+ * still next (today's stretch and share), then the plan's later steps.
+ */
+function footerSteps(plan: FunnelShowPlan, wider: RunningWider | null, today: string, isDone: (day: string) => boolean): FunnelShowPlan["steps"] {
+  const later = plan.steps.filter((step) => !isDone(step.day) && step.day > today);
+  const due = wider?.steps.find((step) => !isDone(step.day) && step.day === today);
+  if (!due) return later;
+  return [{ day: due.day, stretch: plan.stretch, share: plan.share, targetMinor: plan.targetMinor, totalMinor: plan.totalMinor, tiers: plan.tiers, deltaMinor: due.givenDailyMinor, prospecting: [] }, ...later];
 }
 
 /** "£4.80 a day" (the 17 Nov record's budget words). */

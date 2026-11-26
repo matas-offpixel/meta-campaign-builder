@@ -18,7 +18,8 @@
  * Each stretch step lowers Wider's remaining lifetime budget by the step ×
  * the days left, never below £1.00 a day per ad set.
  *
- * Every Claude- or screen-facing word here is PENDING DESIGN.
+ * Words are the two-campaign record's rows (wd.*, GEO_WORDS); the fold
+ * refusal is PENDING DESIGN.
  * Pure. Relative imports only (node:test).
  */
 
@@ -26,8 +27,8 @@ import { GEO_WORDS, geoExpansionOf } from "../meta/geo-expansion.ts";
 import { fill } from "./funnel-words.ts";
 import { FLOOR_MINOR, funnelSpecs, similarAudiences, type FunnelAudience, type FunnelSources, type PageGroup } from "./funnel.ts";
 
-/** Off until the two-campaign record merges and Matas rules the split. */
-export const SHOW_CAMPAIGNS_RULED = false;
+/** On: the two-campaign record merged (#1402, TC1–TC9) and Matas ruled the split (26 Nov). Set false to go back to one Retargeting campaign. */
+export const SHOW_CAMPAIGNS_RULED = true;
 
 /** TC1: "{code} · Wider". */
 export function widerCampaignName(code: string): string {
@@ -188,9 +189,7 @@ export function planWider(args: { showDailyMinor: number; retargetingMinor: numb
     const remaining = lifetime - spent;
     const rest = daysLeft(step.day, endDay);
     const want = step.totalMinor - retargeting;
-    const floor = FLOOR_MINOR * adSets * rest;
-    let given = want;
-    if (want > 0) given = Math.max(0, Math.min(want, Math.floor((remaining - floor) / Math.max(1, rest))));
+    const given = widerGive({ remainingMinor: remaining, wantDailyMinor: want, daysLeft: rest, adSets });
     const afterRemaining = remaining - given * rest;
     const after = spent + afterRemaining;
     steps.push({ day: step.day, beforeMinor: lifetime, afterMinor: after, deltaDailyMinor: given, wantDailyMinor: want, givenDailyMinor: given, atFloor: want > 0 && given < want, retargetingMinor: retargeting + given });
@@ -200,6 +199,18 @@ export function planWider(args: { showDailyMinor: number; retargetingMinor: numb
     from = step.day;
   }
   return { dailyMinor, lifetimeMinor, daysLeft: left, endDay, adSets, steps, tooSmall: dailyMinor < FLOOR_MINOR * adSets };
+}
+
+/**
+ * TC6: what Wider can give a step a day — the whole step, or what keeps its
+ * remaining budget at £1.00 a day per Wider ad set to its end (to the penny).
+ * A step that lowers Retargeting gives its money back in full.
+ */
+export function widerGive(args: { remainingMinor: number; wantDailyMinor: number; daysLeft: number; adSets: number }): number {
+  if (args.wantDailyMinor <= 0) return args.wantDailyMinor;
+  const rest = Math.max(1, args.daysLeft);
+  const floor = FLOOR_MINOR * Math.max(1, args.adSets) * rest;
+  return Math.max(0, Math.min(args.wantDailyMinor, Math.floor((args.remainingMinor - floor) / rest)));
 }
 
 /** PENDING DESIGN: a live create refused while the prospecting Wider replaces still runs. */

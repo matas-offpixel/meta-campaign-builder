@@ -254,6 +254,7 @@ function twoCampaignBuild(): FunnelBuild {
       dailyMinor: wider.dailyMinor,
       lifetimeMinor: wider.lifetimeMinor,
       daysLeft: wider.daysLeft,
+      endDay: wider.endDay,
       adSets: sets.map((set) => ({ key: set.key, interests: set.interests, suggestionKeys: set.suggestions.map((aud) => aud.key), lookalikes: set.lookalikes, excludeKeys: set.excludes.map((aud) => aud.key) })),
       steps: wider.steps,
     },

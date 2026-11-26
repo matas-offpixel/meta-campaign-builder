@@ -1,5 +1,5 @@
 /**
- * The two-campaign record, staged (scratch/retargeting-two-campaigns-2026-11-26.md):
+ * The two-campaign record (docs/design-record/2026-11-26-retargeting-two-campaigns.html, TC1–TC9):
  * the Similar tier with and without a group, its proposed split (read from
  * the one config object), Similar lists in Warm, presale mode, Wider's ad
  * sets and settings, the Lookalikes ad set, Wider's lifetime step, the keep /
@@ -8,11 +8,12 @@
 import { strict as assert } from "node:assert";
 import { describe, it } from "node:test";
 
-import { tierAdSetPayload, widerAdSetPayload, widerCampaignFields } from "../apply.ts";
+import { promotedObject, tierAdSetPayload, widerAdSetPayload, widerCampaignFields } from "../apply.ts";
 import { capTiers, funnelSpecs, funnelTiersMatching, RF3, SPLIT_WITH_SIMILAR, splitOf, splitTotal, stepsAfter, type FunnelSources, type PageGroup } from "../funnel.ts";
-import { claudePlanLines, planFunnelShow } from "../funnel-plan.ts";
+import { planFunnelShow, similarSkipLine } from "../funnel-plan.ts";
+import { widerRow } from "../funnel-view.ts";
 import { CONFIRMED_STATUS, confirmedGenreRows, noGenreLine, parseGenreRows, planPageGroups, sourcesFromGenreRows } from "../page-groups.ts";
-import { adviseExisting, advantageOff, geoExpansionOff, geoNotReadLine, lookalikeOrigins, SHOW_CAMPAIGNS_RULED, untickLine, widerAfterStep, widerSpecs } from "../show-campaigns.ts";
+import { adviseExisting, advantageOff, geoExpansionOff, geoNotReadLine, lookalikeOrigins, planWider, SHOW_CAMPAIGNS_RULED, untickLine, widerCampaignName, widerAdSetName, widerGive, widerSpecs } from "../show-campaigns.ts";
 
 const SOURCES: FunnelSources = {
   pixelId: "px1",
@@ -31,14 +32,19 @@ const SOURCES: FunnelSources = {
     { metaAudienceId: "buy1", name: "Buyers", role: "buyers", uploadedAt: "2026-11-01" },
   ],
 };
-const GROUP: PageGroup = { id: "g1", genreFamily: "drum_and_bass", pageIds: ["2001", "2002", "2003", "2004", "2005", "2006"], igIds: ["ig1"], confirmed: true };
+const GROUP: PageGroup = { id: "g1", genreFamily: "dnb", pageIds: ["2001", "2002", "2003", "2004", "2005", "2006"], igIds: ["ig1"], confirmed: true };
 const PROSPECTING = [{ id: "5001", kind: "adset" as const, name: "Broad · Advantage+", dailyMinor: 6000, adSets: 1 }];
 
-describe("the staged record is off", () => {
-  it("SHOW_CAMPAIGNS_RULED is false, and RF3's split gives Similar nothing", () => {
-    assert.equal(SHOW_CAMPAIGNS_RULED, false);
+describe("the record is on", () => {
+  it("SHOW_CAMPAIGNS_RULED is true; one campaign (the fallback) keeps RF3's split, with nothing for Similar", () => {
+    assert.equal(SHOW_CAMPAIGNS_RULED, true);
     for (const stretch of Object.keys(RF3) as (keyof typeof RF3)[]) assert.equal(splitOf(stretch).similar, 0);
     assert.deepEqual(funnelSpecs(SOURCES, { pageGroup: GROUP }).map((spec) => spec.tier), ["cold", "warm", "hot"]);
+  });
+
+  it("TC1: the names exactly", () => {
+    assert.equal(widerCampaignName("NX26-RUDIMENTAL"), "NX26-RUDIMENTAL · Wider");
+    assert.deepEqual((["broad", "similar_pages", "interests", "lookalikes"] as const).map((key) => widerAdSetName("NX26-RUDIMENTAL", key)), ["NX26-RUDIMENTAL · Wider · Broad", "NX26-RUDIMENTAL · Wider · Similar pages", "NX26-RUDIMENTAL · Wider · Interests", "NX26-RUDIMENTAL · Wider · Lookalikes"]);
   });
 });
 
@@ -73,7 +79,7 @@ describe("Similar: the genre group's engagers, minus Cold", () => {
   });
 });
 
-describe("the proposed split (one config object, not ruled)", () => {
+describe("the split (one config object, confirmed 26 Nov)", () => {
   it("each stretch's split adds to 100, and a plan splits by it", () => {
     for (const [stretch, split] of Object.entries(SPLIT_WITH_SIMILAR)) assert.equal(split.similar + split.cold + split.warm + split.hot, 100, stretch);
     const plan = planFunnelShow({ code: "X", runDay: "2026-10-20", showDay: "2026-12-12", announceDay: "2026-09-29", prospecting: PROSPECTING, sources: SOURCES, spec: { twoCampaigns: true, pageGroup: GROUP } });
@@ -94,7 +100,7 @@ describe("the proposed split (one config object, not ruled)", () => {
 
 describe("presale mode", () => {
   it("Hot is the sign-up page's visitors; registrants are left out of every tier; no ticket audiences", () => {
-    const specs = funnelSpecs(SOURCES, { presale: true });
+    const specs = funnelSpecs(SOURCES, { twoCampaigns: true, presale: true });
     const hot = specs.find((spec) => spec.tier === "hot")!;
     assert.ok(hot.includes.some((aud) => aud.key === "rf:signup_visitors:30"));
     assert.ok(!specs.flatMap((spec) => spec.includes).some((aud) => aud.source === "ticket" || aud.source === "checkout"));
@@ -132,6 +138,16 @@ describe("Wider", () => {
     assert.ok(lal.lookalikes.every((row) => row.country === "GB" && row.ratio === 0.01));
   });
 
+  it("TC7: a presale show's ad sets, in both campaigns, optimise on CompleteRegistration; on sale, the show's purchase", () => {
+    assert.deepEqual(promotedObject({ pixelId: "px1", customConversionId: null, presale: true }), { pixel_id: "px1", custom_event_type: "COMPLETE_REGISTRATION" });
+    assert.deepEqual(promotedObject({ pixelId: "px1", customConversionId: "cc1", presale: true }), { pixel_id: "px1", custom_event_type: "COMPLETE_REGISTRATION" });
+    assert.deepEqual(promotedObject({ pixelId: "px1", customConversionId: "cc1" }), { pixel_id: "px1", custom_conversion_id: "cc1" });
+    assert.deepEqual(promotedObject({ pixelId: "px1", customConversionId: null }), { pixel_id: "px1", custom_event_type: "PURCHASE" });
+    const loc = { geo_locations: { cities: [{ key: "1" }] } };
+    assert.deepEqual(widerAdSetPayload({ presale: true, name: "X · Wider · Broad", campaignId: "1", pixelId: "px1", customConversionId: null, endDay: "2026-12-04", location: loc, interests: [], suggestionIds: [], excludeIds: [] }).promoted_object, { pixel_id: "px1", custom_event_type: "COMPLETE_REGISTRATION" });
+    assert.deepEqual(tierAdSetPayload({ presale: true, code: "X", tier: "hot", campaignId: "2", dailyMinor: 100, pixelId: "px1", customConversionId: null, endDay: "2027-02-13", location: loc, includeIds: ["7"], excludeIds: [] }).promoted_object, { pixel_id: "px1", custom_event_type: "COMPLETE_REGISTRATION" });
+  });
+
   it("settings: Advantage+ on for Wider (with #1387's age), off for Retargeting; the budget is the campaign's lifetime", () => {
     const wider = widerAdSetPayload({ name: "X · Wider · Broad", campaignId: "1", pixelId: "px1", customConversionId: null, endDay: "2026-12-12", location: { geo_locations: { cities: [{ key: "1" }] } }, interests: input.lineupInterests, suggestionIds: [], excludeIds: ["9"] });
     const targeting = wider.targeting as Record<string, unknown>;
@@ -144,10 +160,27 @@ describe("Wider", () => {
     assert.equal(((retargeting.targeting as Record<string, unknown>).targeting_automation as { advantage_audience: number }).advantage_audience, 0);
   });
 
-  it("each step lowers Wider's remaining lifetime budget by the step × days left, never below £1.00 a day per ad set", () => {
-    assert.deepEqual(widerAfterStep({ remainingMinor: 100000, stepMinor: 300, daysLeft: 14, adSets: 4 }), { afterMinor: 95800, floorMinor: 5600, lowered: 4200, atFloor: false });
-    const floored = widerAfterStep({ remainingMinor: 6000, stepMinor: 600, daysLeft: 7, adSets: 4 });
-    assert.deepEqual([floored.afterMinor, floored.atFloor], [2800, true]);
+  it("TC6: each step lowers Wider's remaining lifetime budget by the step × days left, never below £1.00 a day per ad set", () => {
+    assert.equal(widerGive({ remainingMinor: 100000, wantDailyMinor: 300, daysLeft: 14, adSets: 4 }), 300);
+    // £60.00 left over 7 days with four ad sets keeps £28.00: a £6.00 step gives £4.57.
+    assert.equal(widerGive({ remainingMinor: 6000, wantDailyMinor: 600, daysLeft: 7, adSets: 4 }), 457);
+    assert.equal(widerGive({ remainingMinor: 2000, wantDailyMinor: 600, daysLeft: 7, adSets: 4 }), 0);
+    // A step down gives Retargeting's money back to Wider in full.
+    assert.equal(widerGive({ remainingMinor: 100, wantDailyMinor: -300, daysLeft: 7, adSets: 4 }), -300);
+    const w = planWider({ showDailyMinor: 6000, retargetingMinor: 2100, runDay: "2026-11-26", showDay: "2026-12-12", adSets: 4, steps: [{ day: "2026-11-28", totalMinor: 2400 }, { day: "2026-12-05", totalMinor: 3000 }] });
+    assert.deepEqual([w.lifetimeMinor, w.dailyMinor, w.daysLeft], [66300, 3900, 17]);
+    assert.deepEqual(w.steps.map((step) => step.givenDailyMinor), [300, 600]);
+    // TW-C's Wider row: what's left of the lifetime it was made with, and the last step (muted) or the floor (ochre).
+    const made = { lifetimeMinor: w.lifetimeMinor, dailyMinor: w.dailyMinor, daysLeft: w.daysLeft, endDay: "2026-12-12", steps: w.steps, adSets: 4 };
+    const before = widerRow({ ...made, remainingMinor: 58500, doneDays: [] }, { today: "2026-11-28", stretchOf: () => "final_2w" });
+    assert.equal(before.row, "Wider · £585.00 of £663.00 lifetime left · £39.00 a day to Sat 12 Dec");
+    assert.equal(before.line, null);
+    const after = widerRow({ ...made, remainingMinor: 54000, doneDays: ["2026-11-28"] }, { today: "2026-11-28", stretchOf: () => "final_2w" });
+    assert.equal(after.row, "Wider · £540.00 of £663.00 lifetime left · £36.00 a day to Sat 12 Dec");
+    assert.deepEqual(after.line, { text: "Lowered by £45.00 on Sat 28 Nov: £3.00 a day × 15 days moved to Retargeting for final 2 weeks.", tone: "muted" });
+    const floor = widerRow({ lifetimeMinor: 30000, dailyMinor: 1100, daysLeft: 4, endDay: "2026-11-30", remainingMinor: 4400, adSets: 4, doneDays: [], steps: [{ day: "2026-11-27", beforeMinor: 30000, afterMinor: 30000, wantDailyMinor: 900, givenDailyMinor: 900, atFloor: false }] }, { today: "2026-11-27", stretchOf: () => "final_week" });
+    assert.equal(floor.row, "Wider · £44.00 of £300.00 lifetime left · £11.00 a day to Mon 30 Nov");
+    assert.deepEqual(floor.line, { text: "Wider can give £7.00 a day of the £9.00 without going under £1.00 a day an ad set, so Retargeting rises by £7.00 a day.", tone: "ochre" });
     // The steps it takes are RF3's, on the same days.
     assert.deepEqual(stepsAfter("2026-11-26", { showDay: "2026-12-12", announceDay: "2026-09-29" }).map((step) => step.day), ["2026-11-28", "2026-12-05"]);
   });
@@ -203,10 +236,11 @@ describe("Matas, 26 Nov: no Similar this stretch, its share goes to Cold, and th
   const plan = (spec: Parameters<typeof planFunnelShow>[0]["spec"], over: Partial<Parameters<typeof planFunnelShow>[0]> = {}) =>
     planFunnelShow({ code: "X", runDay: "2026-10-20", showDay: "2026-12-12", announceDay: "2026-09-29", prospecting: PROSPECTING, sources: SOURCES, spec, ...over });
 
-  for (const [label, spec, reason, why] of [
-    ["no genre", { twoCampaigns: true, pageGroup: null, genreFamily: null }, "no_genre", "the show has no genre set"],
-    ["no confirmed group", { twoCampaigns: true, pageGroup: { ...GROUP, confirmed: false }, genreFamily: "drum_and_bass" }, "no_group", "there's no confirmed page group for its genre"],
-    ["a group under Meta's minimum", { twoCampaigns: true, pageGroup: GROUP, genreFamily: "drum_and_bass", similarTooSmall: true }, "too_small", "the page group's audience is under Meta's minimum"],
+  for (const [label, spec, reason, line] of [
+    ["no genre", { twoCampaigns: true, pageGroup: null, genreFamily: null }, "no_genre", "Similar skipped: X has no genre, so its share goes to Cold."],
+    ["no confirmed group", { twoCampaigns: true, pageGroup: { ...GROUP, confirmed: false }, genreFamily: "dnb" }, "no_group", "Similar skipped: no drum & bass page group yet, so its share goes to Cold."],
+    // PENDING DESIGN: no row covers a group under Meta's minimum yet.
+    ["a group under Meta's minimum", { twoCampaigns: true, pageGroup: GROUP, genreFamily: "dnb", similarTooSmall: true }, "too_small", "Similar skipped: its page group’s audience is under Meta’s minimum, so its share goes to Cold."],
   ] as const) {
     it(`${label}: normally, Cold is 30 + 20 = 50 %; Warm and Hot keep theirs; the line says so`, () => {
       const out = plan(spec);
@@ -214,15 +248,15 @@ describe("Matas, 26 Nov: no Similar this stretch, its share goes to Cold, and th
       assert.equal(out.tiers.similar, 0);
       assert.deepEqual(splitOf("normally", true, true), { similar: 0, cold: SPLIT_WITH_SIMILAR.normally.cold + SPLIT_WITH_SIMILAR.normally.similar, warm: SPLIT_WITH_SIMILAR.normally.warm, hot: SPLIT_WITH_SIMILAR.normally.hot });
       assert.deepEqual(out.tiers, splitTotal(out.totalMinor, splitOf("normally", true, true))!.tiers);
-      assert.ok(claudePlanLines(out, SOURCES).includes(`Similar is skipped: ${why}, so its 20 % goes to Cold this stretch.`));
+      assert.equal(similarSkipLine(reason, { code: "X", genre: spec.genreFamily ? "drum & bass" : null }), line);
     });
   }
 
   it("rechecked each read: a group confirmed later brings Similar back from the next step", () => {
     const built = { totalMinor: 1800, took: [] };
-    const before = plan({ twoCampaigns: true, pageGroup: { ...GROUP, confirmed: false }, genreFamily: "drum_and_bass" }, { existing: built });
+    const before = plan({ twoCampaigns: true, pageGroup: { ...GROUP, confirmed: false }, genreFamily: "dnb" }, { existing: built });
     assert.ok(before.steps.length > 0 && before.steps.every((step) => step.tiers.similar === 0));
-    const after = plan({ twoCampaigns: true, pageGroup: GROUP, genreFamily: "drum_and_bass" }, { existing: built });
+    const after = plan({ twoCampaigns: true, pageGroup: GROUP, genreFamily: "dnb" }, { existing: built });
     assert.equal(after.similarSkip, null);
     assert.ok(after.steps[0]!.tiers.similar > 0);
   });
@@ -251,8 +285,23 @@ describe("the page genres file (Matas, 27 Nov): only rows he confirmed", () => {
     assert.deepEqual(plan, [{ clientId: "c1", genreFamily: "techno", pageIds: ["1000000001", "1000000002"], igIds: [], action: "insert" }]);
   });
 
+  it("TC9: a venue's or promoter's Page never joins a group, whatever its row says", () => {
+    const rows = parseGenreRows(CSV);
+    const venueOrPromoter = new Set(["1000000002"]);
+    const { sources, leftOut } = sourcesFromGenreRows(rows, [{ client_id: "c1", business_name: "XMPL Promotions" }], { venueOrPromoter });
+    assert.equal(leftOut, 1);
+    assert.deepEqual(planPageGroups(sources, [], { venueOrPromoter }).plan[0]!.pageIds, ["1000000001"]);
+    // And from the Meta listing too.
+    const listing = [
+      { client_id: "c1", kind: "facebook_page" as const, id: "1000000001", name: "A", genre_family: "techno", reach: "owned" as const },
+      { client_id: "c1", kind: "facebook_page" as const, id: "1000000002", name: "Venue", genre_family: "techno", reach: "owned" as const },
+      { client_id: "c1", kind: "facebook_page" as const, id: "1000000009", name: "Mixed", genre_family: "no_single_genre", reach: "owned" as const },
+    ];
+    assert.deepEqual(planPageGroups(listing, [], { venueOrPromoter }).plan.map((row) => row.pageIds), [["1000000001"]]);
+  });
+
   it("Similar's audiences are 365 days (Matas, 27 Nov), 5 pages an audience", () => {
-    const similar = funnelSpecs(SOURCES, { twoCampaigns: true, pageGroup: GROUP, genreFamily: "drum_and_bass" }).find((spec) => spec.tier === "similar")!;
+    const similar = funnelSpecs(SOURCES, { twoCampaigns: true, pageGroup: GROUP, genreFamily: "dnb" }).find((spec) => spec.tier === "similar")!;
     assert.ok(similar.includes.every((aud) => "retentionDays" in aud && aud.retentionDays === 365));
     assert.deepEqual(similar.includes.filter((aud) => aud.kind === "page_fb").map((aud) => ("pageIds" in aud ? aud.pageIds.length : 0)), [5, 1]);
   });

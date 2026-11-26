@@ -44,7 +44,17 @@ export function locationOf(targeting: Record<string, unknown> | null): Record<st
 }
 
 /** RT1: one tier's ad set. */
-export function tierAdSetPayload(args: { code: string; tier: Tier | string; campaignId: string; dailyMinor: number; pixelId: string; customConversionId: string | null; endDay: string; location: Record<string, unknown>; includeIds: string[]; excludeIds: string[]; name?: string; startTime?: string }): Record<string, unknown> {
+/**
+ * What the ad set optimises on: the show's purchase (its custom conversion
+ * on an own domain), or for a presale show (TC7: "signing up is the goal")
+ * the pixel's CompleteRegistration.
+ */
+export function promotedObject(args: { pixelId: string; customConversionId: string | null; presale?: boolean }): Record<string, string> {
+  if (args.presale) return { pixel_id: args.pixelId, custom_event_type: "COMPLETE_REGISTRATION" };
+  return args.customConversionId ? { pixel_id: args.pixelId, custom_conversion_id: args.customConversionId } : { pixel_id: args.pixelId, custom_event_type: "PURCHASE" };
+}
+
+export function tierAdSetPayload(args: { presale?: boolean; code: string; tier: Tier | string; campaignId: string; dailyMinor: number; pixelId: string; customConversionId: string | null; endDay: string; location: Record<string, unknown>; includeIds: string[]; excludeIds: string[]; name?: string; startTime?: string }): Record<string, unknown> {
   return {
     name: args.name ?? tierAdSetName(args.code, args.tier as Tier),
     // RT17 (ops' option (c)): an arm's ad sets start with the Meta A/B test, so nothing delivers before the split.
@@ -55,7 +65,7 @@ export function tierAdSetPayload(args: { code: string; tier: Tier | string; camp
     bid_strategy: "LOWEST_COST_WITHOUT_CAP",
     optimization_goal: "OFFSITE_CONVERSIONS",
     billing_event: "IMPRESSIONS",
-    promoted_object: args.customConversionId ? { pixel_id: args.pixelId, custom_conversion_id: args.customConversionId } : { pixel_id: args.pixelId, custom_event_type: "PURCHASE" },
+    promoted_object: promotedObject(args),
     attribution_spec: TIER_ATTRIBUTION,
     end_time: showEndTime(args.endDay),
     targeting: {
@@ -89,14 +99,14 @@ export function tierAdSetPayload(args: { code: string; tier: Tier | string; camp
  * lifetime budget, so the ad set carries none. Location expansion off is the
  * shared create's (createMetaAdSet → withGeoExpansionOff, #1401); it isn't set here.
  */
-export function widerAdSetPayload(args: { name: string; campaignId: string; pixelId: string; customConversionId: string | null; endDay: string; location: Record<string, unknown>; interests: { id: string; name: string }[]; suggestionIds: string[]; excludeIds: string[] }): Record<string, unknown> {
+export function widerAdSetPayload(args: { presale?: boolean; name: string; campaignId: string; pixelId: string; customConversionId: string | null; endDay: string; location: Record<string, unknown>; interests: { id: string; name: string }[]; suggestionIds: string[]; excludeIds: string[] }): Record<string, unknown> {
   return {
     name: args.name,
     campaign_id: args.campaignId,
     status: "PAUSED",
     optimization_goal: "OFFSITE_CONVERSIONS",
     billing_event: "IMPRESSIONS",
-    promoted_object: args.customConversionId ? { pixel_id: args.pixelId, custom_conversion_id: args.customConversionId } : { pixel_id: args.pixelId, custom_event_type: "PURCHASE" },
+    promoted_object: promotedObject(args),
     attribution_spec: TIER_ATTRIBUTION,
     end_time: showEndTime(args.endDay),
     targeting: {

@@ -58,8 +58,7 @@ export type FunnelTier = "similar" | "cold" | "warm" | "hot";
 /** Left to right, coldest first, as the panel shows them: each tier leaves out every tier to its right. */
 export const FUNNEL_TIERS: readonly FunnelTier[] = ["similar", "cold", "warm", "hot"];
 
-// PENDING DESIGN: "Similar" (the two-campaign record's tier name).
-export const FUNNEL_TIER_LABEL: Record<FunnelTier, string> = { similar: "Similar", cold: fill("rt.tier.cold"), warm: fill("rt.tier.warm"), hot: fill("rt.tier.hot") };
+export const FUNNEL_TIER_LABEL: Record<FunnelTier, string> = { similar: fill("rt.tier.similar"), cold: fill("rt.tier.cold"), warm: fill("rt.tier.warm"), hot: fill("rt.tier.hot") };
 
 /** No money in any tier. */
 export const NO_TIERS = (): TierMinor => ({ similar: 0, cold: 0, warm: 0, hot: 0 });
@@ -648,11 +647,6 @@ export function accessLine(accounts: readonly FunnelAccount[]): string | null {
 /** RF9's names for Claude ("MC Fenn (Instagram) · Dawn Ray (Facebook)"). */
 export function accessNames(accounts: readonly FunnelAccount[]): string {
   return missingAccess(accounts).map((row) => fill("rt.access.name", { account: row.name, platform: PLATFORM_LABEL[row.platform] })).join(JOIN);
-}
-
-/** "{name} £{a} → £{b}", joined. */
-export function takeFromText(from: readonly TakeLine[]): string {
-  return from.map((row) => fill("rt.take.from", { name: row.name, a: money(row.beforeMinor), b: money(row.afterMinor) })).join(JOIN);
 }
 
 export { money, rfDay, freqText };

@@ -36,15 +36,41 @@ export type SeedCounts = { clientId: string; sources: number; noGenre: number; g
 
 const GENRES = new Set<string>(GENRE_FAMILIES.map((row) => row.key));
 
-/** The groups the listing gives, against what's stored: new, changed, the same, or confirmed (never touched). Owned and client-shared both count. */
-export function planPageGroups(listing: readonly ClientBuildableSource[], stored: readonly StoredGroup[]): { plan: GroupPlan[]; counts: SeedCounts[] } {
+/** READING: "no_single_genre" is a genre key, not a genre a Similar group can be built on (TC9: venue and promoter Pages read it). */
+const NOT_A_GROUP = new Set(["no_single_genre"]);
+
+/** TC9: every venue's Page and every client's brand Pages (venues.meta_page_id, clients.default_page_ids). */
+export async function loadVenueAndPromoterPageIds(db: Pick<SupabaseClient, "from">): Promise<Set<string>> {
+  const ids = new Set<string>();
+  for (const [table, column] of [["venues", "meta_page_id"], ["clients", "default_page_ids"]] as const) {
+    for (let from = 0; ; from += 1000) {
+      const res = await db.from(table).select(`id, ${column}`).order("id").range(from, from + 999);
+      if (res.error) throw new Error(`${table}: ${res.error.message}`);
+      const rows = (res.data ?? []) as Record<string, unknown>[];
+      for (const row of rows) {
+        const value = row[column];
+        for (const id of Array.isArray(value) ? value : [value]) if (typeof id === "string" && id) ids.add(id);
+      }
+      if (rows.length < 1000) break;
+    }
+  }
+  return ids;
+}
+
+/**
+ * The groups the listing gives, against what's stored: new, changed, the
+ * same, or confirmed (never touched). Owned and client-shared both count; a
+ * venue's or promoter's Page (TC9) never joins a group.
+ */
+export function planPageGroups(listing: readonly ClientBuildableSource[], stored: readonly StoredGroup[], opts: { venueOrPromoter?: ReadonlySet<string> } = {}): { plan: GroupPlan[]; counts: SeedCounts[] } {
   const groups = new Map<string, { clientId: string; genreFamily: string; pages: Set<string>; igs: Set<string> }>();
   const counts = new Map<string, SeedCounts>();
   for (const row of listing) {
     const count = counts.get(row.client_id) ?? { clientId: row.client_id, sources: 0, noGenre: 0, groups: 0 };
     count.sources += 1;
     counts.set(row.client_id, count);
-    if (!row.genre_family || !GENRES.has(row.genre_family)) {
+    if (row.kind === "facebook_page" && opts.venueOrPromoter?.has(row.id)) continue;
+    if (!row.genre_family || !GENRES.has(row.genre_family) || NOT_A_GROUP.has(row.genre_family)) {
       count.noGenre += 1;
       continue;
     }
@@ -91,8 +117,6 @@ export async function loadPageGroup(db: Pick<SupabaseClient, "from">, clientId: 
  */
 export const CONFIRMED_STATUS = "confirmed";
 
-/** READING: "no_single_genre" is a genre key, not a genre a Similar group can be built on. */
-const NOT_A_GROUP = new Set(["no_single_genre"]);
 
 export type GenreRow = { business: string; pageId: string; pageName: string; genre: string; status: string };
 
@@ -146,7 +170,7 @@ export function confirmedGenreRows(rows: readonly GenreRow[]): GenreRow[] {
  * Business Manager is linked to (client_business_managers.business_name, matched
  * trimmed and case-blind). A business no client links to is returned apart.
  */
-export function sourcesFromGenreRows(rows: readonly GenreRow[], links: readonly { client_id: string; business_name: string | null }[]): { sources: ClientBuildableSource[]; unlinked: string[] } {
+export function sourcesFromGenreRows(rows: readonly GenreRow[], links: readonly { client_id: string; business_name: string | null }[], opts: { venueOrPromoter?: ReadonlySet<string> } = {}): { sources: ClientBuildableSource[]; unlinked: string[]; leftOut: number } {
   const key = (name: string) => name.trim().toLowerCase();
   const clients = new Map<string, string[]>();
   for (const link of links) {
@@ -155,7 +179,13 @@ export function sourcesFromGenreRows(rows: readonly GenreRow[], links: readonly 
   }
   const sources: ClientBuildableSource[] = [];
   const unlinked = new Set<string>();
+  let leftOut = 0;
   for (const row of confirmedGenreRows(rows)) {
+    // TC9: a venue's or promoter's Page never joins a genre group, whatever its row says.
+    if (opts.venueOrPromoter?.has(row.pageId)) {
+      leftOut += 1;
+      continue;
+    }
     const ids = clients.get(key(row.business));
     if (!ids?.length) {
       unlinked.add(row.business);
@@ -163,5 +193,5 @@ export function sourcesFromGenreRows(rows: readonly GenreRow[], links: readonly 
     }
     for (const clientId of ids) sources.push({ client_id: clientId, kind: "facebook_page", id: row.pageId, name: row.pageName, genre_family: row.genre, reach: "owned" });
   }
-  return { sources, unlinked: [...unlinked].sort() };
+  return { sources, unlinked: [...unlinked].sort(), leftOut };
 }

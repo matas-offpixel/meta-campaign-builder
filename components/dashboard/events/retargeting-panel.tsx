@@ -631,6 +631,25 @@ export type RetargetingPanelViewProps = {
   actions?: RetargetingActions;
 };
 
+/** TC6: a running build's Wider row — what's left, its money a day — and the line after it (muted, or ochre at the floor); TW-C adds the footer under it. */
+export function FunnelWiderRow({ wider, next = null }: { wider: NonNullable<FunnelPanel["wider"]>; next?: string | null }) {
+  return (
+    <div className="mt-2 text-xs" data-wider>
+      <p>{k(wider.row)}</p>
+      {wider.line ? (
+        <p className={`mt-0.5 ${toneClass(wider.line.tone)}`} data-tone={wider.line.tone}>
+          {k(wider.line.text)}
+        </p>
+      ) : null}
+      {next ? (
+        <p className="mt-3 text-muted-foreground" data-next>
+          {k(next)}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 export function RetargetingPanelView({ view, line = null, callLine = null, clientId = null, eventId = null, apply, mode, actions = {} }: RetargetingPanelViewProps) {
   // RT3: before Apply the tiers' audiences don't exist, so the pool is "Known after create".
   const created = view.state === "running";
@@ -680,16 +699,7 @@ export function RetargetingPanelView({ view, line = null, callLine = null, clien
             </p>
           ))}
           {view.funnel.access ? <p className="mt-1 text-xs text-destructive" data-access>{k(view.funnel.access)}</p> : null}
-          {view.funnel.wider ? (
-            <div className="mt-2 text-xs" data-wider>
-              <p>{k(view.funnel.wider.row)}</p>
-              {view.funnel.wider.line ? (
-                <p className={`mt-0.5 ${toneClass(view.funnel.wider.line.tone)}`} data-tone={view.funnel.wider.line.tone}>
-                  {k(view.funnel.wider.line.text)}
-                </p>
-              ) : null}
-            </div>
-          ) : null}
+          {view.funnel.wider ? <FunnelWiderRow wider={view.funnel.wider} /> : null}
         </>
       ) : null}
       {view.funnel?.create ? <FunnelCreate title={view.title} funnel={view.funnel} line={line} shadow={shadow} apply={apply} actions={actions} share={share} /> : create ? <CreateCard view={view} line={line} shadow={shadow} apply={apply} actions={actions} share={share} /> : null}

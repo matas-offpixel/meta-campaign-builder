@@ -29,6 +29,9 @@
  *   npx tsx --env-file=.env.local scripts/page-groups-seed.mts --genres FILE           # dry run
  *   npx tsx --env-file=.env.local scripts/page-groups-seed.mts --genres FILE --apply
  *
+ * Venue and promoter Pages (venues.meta_page_id, clients.default_page_ids)
+ * never join a group (TC9), whatever their row says.
+ *
  * --apply never confirms a group and never touches a confirmed one: Matas
  * confirms each before the build uses it. Prints ids and counts only.
  */
@@ -36,7 +39,7 @@ import { readFileSync } from "node:fs";
 import { createClient } from "@supabase/supabase-js";
 
 import { MATAS_USER_IDS } from "../lib/auth/operator-allowlist.ts";
-import { confirmedGenreRows, noGenreLine, parseGenreRows, planPageGroups, sourcesFromGenreRows, type ClientBuildableSource, type StoredGroup } from "../lib/retargeting/page-groups.ts";
+import { confirmedGenreRows, loadVenueAndPromoterPageIds, noGenreLine, parseGenreRows, planPageGroups, sourcesFromGenreRows, type ClientBuildableSource, type StoredGroup } from "../lib/retargeting/page-groups.ts";
 
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(name);
@@ -55,6 +58,8 @@ const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
 if (!url || !key) throw new Error("NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required (--env-file=.env.local)");
 const db = createClient(url, key, { auth: { persistSession: false } });
+// TC9: venue and promoter Pages never join a group.
+const venueOrPromoter = await loadVenueAndPromoterPageIds(db);
 
 /** #1400's listing for every client with a linked Business Manager (Meta GETs as Matas). */
 async function fromMeta(): Promise<ClientBuildableSource[]> {
@@ -82,8 +87,8 @@ async function fromGenres(): Promise<ClientBuildableSource[]> {
   const confirmed = confirmedGenreRows(rows);
   const { data, error } = await db.from("client_business_managers").select("client_id, business_name").not("client_id", "is", null);
   if (error) throw new Error(`client_business_managers: ${error.message}`);
-  const { sources, unlinked } = sourcesFromGenreRows(rows, (data ?? []) as { client_id: string; business_name: string | null }[]);
-  console.log(`genres file: rows=${rows.length} confirmed=${confirmed.length} ignored=${rows.length - confirmed.length} (draft, unsure, "?" or not a genre to group on)`);
+  const { sources, unlinked, leftOut } = sourcesFromGenreRows(rows, (data ?? []) as { client_id: string; business_name: string | null }[], { venueOrPromoter });
+  console.log(`genres file: rows=${rows.length} confirmed=${confirmed.length} ignored=${rows.length - confirmed.length} (draft, unsure, "?" or not a genre to group on) venue_or_promoter_left_out=${leftOut}`);
   for (const name of unlinked) console.log(`no client links business "${name}": its confirmed pages are left out`);
   return sources;
 }
@@ -97,7 +102,7 @@ for (let i = 0; i < clientIds.length; i += 100) {
   stored.push(...((data ?? []) as StoredGroup[]));
 }
 
-const { plan, counts } = planPageGroups(listing, stored);
+const { plan, counts } = planPageGroups(listing, stored, { venueOrPromoter });
 for (const count of counts) if (count.noGenre) console.log(noGenreLine(count));
 for (const row of plan) console.log(`${row.action.padEnd(15)} client=${row.clientId} genre=${row.genreFamily} pages=${row.pageIds.length} instagram=${row.igIds.length}`);
 const actions = plan.reduce<Record<string, number>>((acc, row) => ({ ...acc, [row.action]: (acc[row.action] ?? 0) + 1 }), {});

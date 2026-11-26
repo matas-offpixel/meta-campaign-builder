@@ -28,10 +28,10 @@ import { shortCampaign } from "../onsale-refresh/purchase-campaign.ts";
 import { midBuildable, pagesWithoutRole, perLinkAudiences, tierSpecs, usablePages, type SourceSet } from "./audiences.ts";
 import { firedOn, landingLinks, landingShared, pixelOnOwnDomains, pixelOnPlatforms, ticketLinks, type PixelHosts } from "./links.ts";
 import { callFor, type PooledRead } from "./test.ts";
-import { isPresale, planFunnelShow, splitLine, type FunnelShowPlan, type MatchedPages, type WiderWords } from "./funnel-plan.ts";
+import { isPresale, planFunnelShow, splitLine, wordsSplit, type FunnelShowPlan, type MatchedPages, type WiderWords } from "./funnel-plan.ts";
 export { isPresale };
 import { funnelCampaignName, FUNNEL_TIERS, splitOf, splitTotal, type SpecOptions, type FunnelAccount, type FunnelTier, type ProspectingBudget, type TakeLine, type TierMinor, type TierWeek } from "./funnel.ts";
-import { funnelSourcesOf, proposedPanel, runningPanel, type FunnelPanel } from "./funnel-view.ts";
+import { funnelSourcesOf, proposedPanel, runningPanel, type FunnelPanel, type RunningWider } from "./funnel-view.ts";
 import type { FunnelBuild } from "./funnel-apply.ts";
 import type { PageGroup } from "./funnel.ts";
 import { planWider, widerCampaignName, widerSpecs, type Interest } from "./show-campaigns.ts";
@@ -254,7 +254,7 @@ export type RetargetingInput = {
   /** Audience keys already made for the show (onsale_refresh_audiences). */
   madeAudiences?: string[];
   /** The show's funnel build (retargeting_builds), when it has one. */
-  funnelBuilt?: { state: string; mode: "paused" | "live" | null; campaignId: string | null; tiers: TierMinor; took: TakeLine[]; wider?: (WiderWords & { remainingMinor: number | null }) | null } | null;
+  funnelBuilt?: { state: string; mode: "paused" | "live" | null; campaignId: string | null; tiers: TierMinor; took: TakeLine[]; wider?: RunningWider | null } | null;
   /** RF5: each tier's 7-day frequency and spend, once it runs. */
   funnelWeek?: Partial<Record<FunnelTier, TierWeek>>;
   /** Staged two-campaign record: Wider and the Similar tier are planned (SHOW_CAMPAIGNS_RULED). */
@@ -520,6 +520,7 @@ function funnelPlanOf(input: RetargetingInput, presale: boolean): FunnelShowPlan
     sources,
     made: new Set(input.madeAudiences ?? []),
     spec: specOf(input, presale),
+    showDailyMinor: input.funnelBuilt?.wider?.showDailyMinor ?? null,
     existing: input.funnelBuilt ? { totalMinor: input.funnelBuilt.tiers.similar + input.funnelBuilt.tiers.cold + input.funnelBuilt.tiers.warm + input.funnelBuilt.tiers.hot, took: input.funnelBuilt.took } : null,
   });
 }
@@ -556,6 +557,9 @@ function widerFor(input: RetargetingInput, plan: FunnelShowPlan, sources: Return
     },
   };
 }
+
+/** PENDING DESIGN: the not-proposed sentence for a show with no prospecting budget to fold into Wider (RF4's take words are withdrawn). */
+export const NO_BUDGET = "No Retargeting campaign: this show has no prospecting budget to fold into Wider.";
 
 export function planRetargeting(input: RetargetingInput): RetargetingPlan {
   const code = input.eventCode;
@@ -607,11 +611,11 @@ export function planRetargeting(input: RetargetingInput): RetargetingPlan {
   const { plan, build: wider, words } = widerFor(input, first, sources, spec, endDay);
   const funnel = proposedPanel(plan, sources, { showDay: input.eventDate, wider: words, spec, onSaleDay: presale ? input.onSaleDay : null });
   const signal = presale ? null : { wide: signalLine(path, { pixelName: read.pixelName, domain: read.domain }), narrow: signalNarrow(path, { pixelName: read.pixelName, domain: read.domain }) };
-  // Nothing to split (no prospecting budget to fold): no Create.
-  if (plan.noMoney) return { state: "no_money", takes: true, view: { ...base, state: "no_money", notProposed: null, signal, funnel }, build: null, held: null, funnel: plan, wider };
+  // Nothing to split (no prospecting budget to fold): no Create, one sentence in its place.
+  if (plan.noMoney) return { state: "no_money", takes: true, view: { ...base, state: "no_money", notProposed: NO_BUDGET, signal, funnel: null }, build: null, held: null, funnel: plan, wider };
   const legacy = input.legacy.filter((row) => row.adSets > 0).map((row) => legacyAdSets(row.adSets, shortCampaign(row.campaign)));
   const card = funnel.create!;
-  const option: ShareOption = { share: plan.share, totalMinor: plan.totalMinor, tiers: plan.tiers, atFloor: plan.atFloor.length > 0, holdMinor: 0, line: card.lines.join(" "), split: splitLine(plan.tiers), hold: card.muted.join(" "), blocked: null, stretch: null };
+  const option: ShareOption = { share: plan.share, totalMinor: plan.totalMinor, tiers: plan.tiers, atFloor: plan.atFloor.length > 0, holdMinor: 0, line: card.lines.join(" "), split: splitLine(wordsSplit(plan)), hold: card.muted.join(" "), blocked: null, stretch: null };
   const days = Math.max(0, daysToShow(input.runDay, input.eventDate));
   const create: CreateCard = { title: card.title, defaultShare: plan.share, options: [option], legacy, writeText: CREATE_WRITE, days };
   const held = !input.where.draftId || !input.where.adAccountId ? NOT_OURS : input.ads.length ? null : NO_ADS;
