@@ -132,18 +132,20 @@ export function suggestionOnLine(adSetName: string): string {
   return fill("claude.rt.untick", { adset: adSetName });
 }
 
+/** Design's tool descriptions for #1399 (27 Nov), word for word; straight apostrophes and quotes, as tool descriptions keep them. */
+export const PLAN_DESCRIPTION =
+  "Read only. For one event code, a list of codes, or \"live\" (every show on sale or in presale, of a non-archived client): what each show's two campaigns, \"{code} · Wider\" and \"{code} · Retargeting\", would be today. Per show: the stretch and share; Wider's lifetime, end date and £ a day; Retargeting's £ a day and its split (Similar, Cold, Warm, Hot); audiences made, to make and missing advertiser access; the venue, promoter and lineup Pages it matched. Then, when they apply: Similar skipped and why, presale sign-ups left out, each existing prospecting campaign as keep, pause or fold into Wider, and the next stretch as a scheduled change. A show that can't be built is one skipped line with the reason. Nothing is sent to Meta or saved.";
+export const CREATE_DESCRIPTION =
+  "Makes one show's two campaigns as plan_retargeting plans them: \"{code} · Wider\" (Advantage+ audience, lifetime budget) and \"{code} · Retargeting\" (Similar, Cold, Warm and Hot, daily budgets), the missing audiences, and the show's live ads with its current copy. mode paused makes both paused and moves nothing. mode live checks the show's ceiling, switches both on and schedules each later stretch step (Retargeting up, Wider's remaining lifetime down). It's refused while the show's existing prospecting still runs; pausing or folding that is Matas's yes, and this tool never does it. Asked again, it carries on from what's made; a paused build asked as live goes live. Needs Matas's yes in this chat: ask him the show, paused or live, Wider's lifetime and Retargeting's £ a day, then pass approval with your question (asked) and his reply word for word (answer).";
+
 export const planRetargetingTool: McpTool = {
   name: "plan_retargeting",
   title: "Plan each show’s two campaigns",
   kind: "meta",
   readOnly: true,
   idempotent: true,
-  // PENDING DESIGN: the description.
-  description: [
-    'Read only. For one event code, a list of codes, or "live" (every on-sale show of a non-archived client): what each show\'s "{code} · Retargeting" campaign would be today, as the funnel rules it.',
-    "Per show: the stretch, its share of the show's daily spend and £ a day per tier (Cold, Warm, Hot), which prospecting budgets it takes from, and audiences made, to make and missing advertiser access; then, when they apply, prospecting short, the accounts that need access, and the next stretch as a scheduled change.",
-    "A show that can't be built is one skipped line with the reason. Nothing is sent to Meta or saved.",
-  ].join(" "),
+  // Design's words (27 Nov), word for word.
+  description: PLAN_DESCRIPTION,
   inputSchema: {
     events: z.union([z.literal("live"), z.string().min(2).max(40), z.array(z.string().min(2).max(40)).max(MAX_CODES)]).describe('An event code, a list of codes, or "live".'),
   },
@@ -191,12 +193,8 @@ export const createShowCampaignsTool: McpTool = {
   readOnly: false,
   idempotent: true,
   failedText: RT_CLAUDE_WORDS.readFailed,
-  // PENDING DESIGN: the description.
-  description: [
-    'Makes one show\'s "{code} · Retargeting" campaign as plan_retargeting plans it: the missing audiences, then Cold, Warm and Hot with their budgets and the show\'s live ads (with the show\'s current copy).',
-    "mode paused makes it all paused and moves nothing. mode live takes the money from prospecting (largest first, never under £1.00 an ad set), checks the show's ceiling, switches it on and schedules each later stretch as a budget change. Asked again, it carries on from what's made; a paused one asked as live goes live.",
-    "Needs Matas's yes in this chat: ask him the show, paused or live, £ a day and where it comes from, then pass approval with your question (asked) and his reply word for word (answer).",
-  ].join(" "),
+  // Design's words (27 Nov), word for word.
+  description: CREATE_DESCRIPTION,
   inputSchema: {
     event: z.string().min(2).max(40).describe("The event code."),
     mode: z.enum(["paused", "live"]).describe("paused or live."),
