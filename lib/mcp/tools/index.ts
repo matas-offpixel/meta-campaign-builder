@@ -10,7 +10,8 @@
  * upload_draft_assets and update_event, then M3b's live changes (get_live
  * and list_scheduled read; the rest change live Meta objects). M3d-a adds
  * the shows tools (scope mcp:draft): create_event, create_client,
- * set_lineup, get_releases, set_release.
+ * set_lineup, get_releases, set_release. M3d-b adds the Lab tools (scope
+ * mcp:draft): list_tracks, set_track_drop, list_clips, set_clip_owner.
  */
 import type { McpTool } from "../tool-types.ts";
 import { getArtistTool } from "./artist.ts";
@@ -26,6 +27,7 @@ import { addAudienceToStageTool, addCreativesToStageTool } from "./live-stage.ts
 import { createSplitTestTool } from "./live-test.ts";
 import { switchedOffUntilShipped } from "../live/shipped.ts";
 import { getRenderPackageTool, renderPackageTool } from "./render.ts";
+import { listClipsTool, listTracksTool, setClipOwnerTool, setTrackDropTool } from "./lab.ts";
 import { uploadToEventFolderTool } from "./folder-in.ts";
 import { createClientTool, createEventTool, getReleasesTool, setLineupTool, setReleaseTool } from "./shows.ts";
 import { replicateToEventTool } from "./draft-replicate.ts";
@@ -75,6 +77,11 @@ export const DRAFT_TOOLS: readonly McpTool[] = [
   setDraftAdNamesTool,
   // M3a
   setDraftNameTool,
+  // M3d-b: the show's Lab material
+  listTracksTool,
+  setTrackDropTool,
+  listClipsTool,
+  setClipOwnerTool,
   // M3d-c
   uploadToEventFolderTool,
   // M3d-a: shows and setup

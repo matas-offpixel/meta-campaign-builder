@@ -138,6 +138,29 @@ export interface McpRenderDeps {
 }
 
 /**
+ * M3d-b (scope mcp:draft): the Lab paths the Lab tools call, each the app's
+ * own. The route passes the real ones (lib/mcp/lab-deps.ts, a pinned seam);
+ * tests pass spies. App database, Storage and the show's Drive Audio folder
+ * only: nothing here reaches Meta.
+ */
+export interface McpLabDeps {
+  /**
+   * Opening the Snippet tab on one act (GET /api/creative-lab/events/[id]/snippet):
+   * scanArtistAudio with the route's intakeDeps. The act's 02 Source / Audio /
+   * {artist} folder is made on first need and every new audio file is read in
+   * (checked, copied to Storage, drop and waveform). `scanned` is false when
+   * Drive isn't configured. Counts only come back.
+   */
+  scanAudio(input: { userId: string; eventId: string; artist: { libraryArtistId: string; name: string } }): Promise<{ scanned: boolean; added: number; failed: number }>;
+  /** The Snippet tab's edit (saveAudioEdit, lib/creative-tests/audio-edits.ts): here only { kind: "drop" }. */
+  saveAudioEdit(input: { userId: string; fileId: string; edit: { kind: "drop"; dropS: number } }): Promise<{ ok: true; dropS: number | null } | { ok: false; status: number }>;
+  /** The Clips card's "Whose footage is this" (saveClipOwner, lib/creative-lab/card-write.ts). */
+  saveClipOwner(input: { userId: string; clipId: string; owner: "promoter" | "artist"; artistId: string | null; who: string; when: string }): Promise<void>;
+  /** "Drop set by {first name}": the Lab's first names for drop_set_by ids (displayName), never an email. */
+  firstNames(userIds: readonly string[]): Promise<Map<string, string>>;
+}
+
+/**
  * M3d-d's Meta reads for the read tools (strict_audit): GETs only, through
  * lib/mcp/graph-reads.ts with the operator's token. The route passes the
  * real ones (lib/mcp/draft-deps.ts realGraphReads); tests pass fakes.
@@ -182,6 +205,8 @@ export interface ToolContext {
   meta?: McpMetaDeps;
   /** M4a's render reach (the track's low end, the kit); absent unless the route wires it. */
   render?: McpRenderDeps;
+  /** M3d-b's Lab paths (the Snippet tab's scan and drop, the Clips card's owner); absent unless the route wires it. */
+  lab?: McpLabDeps;
   /** M3b's live reach (reads and the live writes, lib/mcp/live/types.ts); absent unless the route wires it. */
   live?: McpLiveDeps;
   /** M3d-c's Drive writes into a show's own folders (lib/mcp/folder-in-deps.ts); absent unless the route wires it. */

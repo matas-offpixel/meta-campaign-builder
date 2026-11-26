@@ -46,7 +46,8 @@ function recipesOf(args: Record<string, unknown>): Recipe[] {
 const picksInput = z
   .object({
     clips: z.array(z.string().min(1).max(300)).max(40).optional().describe("Clip ids, Drive file ids or Drive links (from get_artist), in the order to cut them. Leave out to take the first 16 this show can use."),
-    track: z.string().max(64).optional().describe("The track's audio file id. Leave out for the headliner's track with a drop."),
+    trackId: z.string().max(64).optional().describe("The track's id from list_tracks (one with a drop, not flagged). Leave out for the first renderable track list_tracks gives (billing order, a drop set by hand first)."),
+    track: z.string().max(64).optional().describe("The same as trackId (kept for older calls)."),
     copy: z
       .object({
         hook: z.string().max(80).optional().describe("The hook from frame 0. Leave out for the event's name."),
@@ -97,7 +98,11 @@ export const renderPackageTool: McpTool = {
     const found = await loadEventByCode(ctx.db, code);
     if (!found) throw new ToolInputError(m4("m4.mcp.refused.unknown_event", { code }), { ...base, refused: "no_event" });
     if (!deps) throw new Error("render deps are not wired");
-    const picks = args.picks && typeof args.picks === "object" ? (args.picks as { clips?: string[]; track?: string; copy?: { hook?: string; voice?: "promoter" | "artist" } }) : undefined;
+    const given = args.picks && typeof args.picks === "object" ? (args.picks as { clips?: string[]; track?: string; trackId?: string; copy?: { hook?: string; voice?: "promoter" | "artist" } }) : undefined;
+    // M3d-b: picks.trackId (track is the older name). A track this show can't use (another show's, no drop, flagged, unusable)
+    // is refused on the ruled needs row by requestPackage, as #1388's runner test pins; list_tracks says which are renderable.
+    const trackId = (given?.trackId ?? given?.track ?? "").trim() || undefined;
+    const picks = given ? { clips: given.clips, copy: given.copy, ...(trackId ? { track: trackId } : {}) } : undefined;
     const result = await requestPackage(ctx.db as never, deps, {
       userId: ctx.userId,
       eventId: found.primary.id,

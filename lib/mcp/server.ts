@@ -33,7 +33,7 @@ import { checkRateLimit } from "./rate-limit.ts";
 import { MCP_TOOLS } from "./tools/index.ts";
 import type { McpLiveDeps } from "./live/types.ts";
 import type { McpFolderDeps } from "./folder-in/place.ts";
-import { ToolInputError, type Db, type McpDraftDeps, type McpGraphReads, type McpMetaDeps, type McpReaders, type McpRenderDeps, type McpShowsDeps, type McpTool, type ToolContext } from "./tool-types.ts";
+import { ToolInputError, type Db, type McpDraftDeps, type McpGraphReads, type McpLabDeps, type McpMetaDeps, type McpReaders, type McpRenderDeps, type McpShowsDeps, type McpTool, type ToolContext } from "./tool-types.ts";
 
 /** Claude's result limit is about 150,000 characters; stay under it. */
 export const MAX_RESULT_CHARS = 140_000;
@@ -56,6 +56,8 @@ export interface McpHandlerDeps extends FlowDeps {
   meta?: McpMetaDeps;
   /** M4a's render reach (lib/mcp/render-deps.ts). */
   render?: McpRenderDeps;
+  /** M3d-b's Lab paths (lib/mcp/lab-deps.ts). */
+  lab?: McpLabDeps;
   /** M3b's live reach: reads and live writes on Meta (lib/mcp/meta-deps.ts realLiveDeps). */
   live?: McpLiveDeps;
   /** M3d-c's Drive writes into a show's own folders (lib/mcp/folder-in-deps.ts). */
@@ -80,6 +82,7 @@ const INSTRUCTIONS = [
   "The read tools only read. The draft tools change campaign drafts in the app (status draft only) and never Meta: nothing launches or spends.",
   "The Meta tools (launch_draft, upload_draft_assets, update_event, and the live changes pause, resume, set_budget, move_budget, rename, add_creatives_to_stage, add_audience_to_stage, create_split_test, cancel_scheduled) run only after Matas says yes in this chat: ask him exactly what will change, where, the money a day and paused or live, then pass approval with your question and his reply word for word. Never fill in approval yourself. Anything that starts or raises spend (a live launch, resume, a budget up, a move into an ad set, live ads) is refused over the client's daily ceiling. get_live reads an event's live campaigns and gives the ids the live changes take; list_scheduled lists budget changes set for later.",
   "render_package renders a package (the 15 s montage, 9 files) and files it in the event's Drive folder, only after Matas says yes in this chat: ask him the recipe and file count, whose clips they are, the claim and any text in the artist's voice, then pass approval with your question and his reply word for word. get_render_package reads where it is.",
+  "The Lab tools change the show's Lab material in the app only, never Meta: list_tracks (reads the act's Audio folder first, as the Snippet tab does) and set_track_drop place a track's drop; list_clips and set_clip_owner say whose footage a clip is. render_package's picks.trackId takes a track id from list_tracks.",
   "upload_to_event_folder puts one file into a show's own Drive folder (01 Open files, 3 On sale, 02 Source / Artist clips or Audio / {artist}, w/c {d Mon} / {owner} / Videos or Statics): a shared-drive file is copied, or a Storage file on one of the show's drafts uploaded. It never shares, moves or deletes, and only takes the show's client's own files or the artist library.",
   "strict_audit lists live ad sets that run strict (Advantage+ audience off) while their drafts asked for Advantage+ suggestions, for a client, an event or all; it only reads.",
   "The shows tools change the app only, never Meta: create_client (a sub-brand is its own client under parent_client) and create_event make a client and a show; set_lineup sets the show's Lab lineup in billing order; get_releases reads the Releases card and the claims its ladder gives now (use a claim only when it is met); set_release sets a release's state or count as the card does.",
@@ -250,6 +253,7 @@ export async function handleMcpRequest(req: Request, deps: McpHandlerDeps): Prom
     reads: deps.reads,
     meta: deps.meta,
     render: deps.render,
+    lab: deps.lab,
     live: deps.live,
     folderIn: deps.folderIn,
     shows: deps.shows,

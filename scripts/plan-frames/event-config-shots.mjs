@@ -13,6 +13,7 @@ import { LOCATION_PIN_SHOTS } from "./location-pins-shots.mjs";
 import { RETARGETING_SHOTS } from "./retargeting-shots.mjs";
 import { TEST_PLAN_SHOTS } from "./test-plan-shots.mjs";
 import { VARIANT_PAIR_SHOTS } from "./variant-pair-shots.mjs";
+import { SNIPPET_PRESS_SHOTS } from "./snippet-press-shots.mjs";
 
 import { MCP_CONSENT_SHOTS } from "./mcp-consent-shots.mjs";
 import { CAMPAIGN_TREE_SHOTS } from "./campaign-tree-shots.mjs";
@@ -43,6 +44,8 @@ export const EVENT_CONFIG_SHOTS = [
   ...RETARGETING_SHOTS,
   // Creative test variant pairs (VP-A, VP-B, VP-C at 1280 and 393).
   ...VARIANT_PAIR_SHOTS,
+  // M3d-b: the Snippet tab's one window, a press on a no-drop file (SNP-A before, SNP-B after, at 1280 and 393).
+  ...SNIPPET_PRESS_SHOTS,
   // Launch checks on Review & launch (RC-C, RC-C-clean, RC-C-venue at 1280 and 393).
   ...LAUNCH_CHECKS_SHOTS,
   // The location pin (LP-A, LP-B, LP-C and their states, at 1280 and 393).
