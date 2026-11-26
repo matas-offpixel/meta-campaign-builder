@@ -563,10 +563,10 @@ test("audience_sources: each outside read that never answers gives up at its lim
   const took = Date.now() - t0;
   assert.ok(took < FAST.budgetMs + 1500, `answered in ${took} ms`);
   const d = out.data as Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
-  assert.equal(d.pixelLine, "The pixel and its events couldn’t be read in time, so it isn’t shown. Try again for it.");
+  assert.equal(d.pixelLine, "Not read in time, so not shown: the pixel and its events. Try again.");
   for (const line of [
-    "Page access couldn’t be read in time, so it isn’t shown. Try again for it.",
-    "The ad account’s audiences couldn’t be read in time, so it isn’t shown. Try again for it.",
+    "Not read in time, so not shown: Page access. Try again.",
+    "Not read in time, so not shown: the ad account’s audiences. Try again.",
     "XMPL BM’s Pages and Instagram accounts couldn’t be read, so they aren’t listed. Try again.",
   ]) assert.ok(d.notes.includes(line), line);
   // CIRQLIN timed out: the event's own links, said as such.
@@ -585,7 +585,7 @@ test("audience_sources: one slow read never holds up the others (they run side b
   const took = Date.now() - t0;
   assert.ok(took < 900, `answered in ${took} ms, not one limit after another`);
   const d = out.data as Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
-  assert.ok(d.notes.includes("The ad account’s Pages couldn’t be read in time, so it isn’t shown. Try again for it."));
+  assert.ok(d.notes.includes("Not read in time, so not shown: the ad account’s Pages. Try again."));
   assert.match(d.pixelLine, /^Pixel XMPL Pixel/);
   assert.ok(sent(calls, "listAudiences").length === 1 && sent(calls, "adSetPixels").length === 1);
 });
@@ -605,14 +605,14 @@ test("audience_sources doesn't walk the show's ad videos; create_audiences does 
   const a = spyDeps();
   const out = await run(audienceSourcesTool, ctxOf(a.deps).ctx, { event: CODE });
   assert.deepEqual(sent(a.calls, "showVideos"), []);
-  assert.ok((out.data as { notes: string[] }).notes.includes("Video viewers: this doesn’t read the show’s ad videos (it’s the slow read). create_audiences reads them for a video spec, or give video_ids."));
+  assert.ok((out.data as { notes: string[] }).notes.includes("Video viewers: the show’s ad videos aren’t read here, because that read is slow. create_audiences reads them for a video spec, or give video_ids."));
   const b = spyDeps();
   await run(createAudiencesTool, ctxOf(b.deps).ctx, { event: CODE, approval: YES, specs: [{ kind: "page_engagers", page_id: PROMO_PAGE, retention_days: 30 }, { kind: "video_viewers", page_id: PROMO_PAGE, threshold: 75, retention_days: 90, video_ids: ["600000009"] }] });
   assert.deepEqual(sent(b.calls, "showVideos"), [], "given video_ids: no walk");
   const c = spyDeps({ limits: FAST, showVideos: () => never() });
   await refused(
     run(createAudiencesTool, ctxOf(c.deps).ctx, { event: CODE, approval: YES, specs: [{ kind: "video_viewers", page_id: PROMO_PAGE, threshold: 95, retention_days: 90 }] }),
-    "Refused: 1 spec can’t be built, so none were made. Nothing was sent to Meta.\nSpec 1: the show’s ad videos couldn’t be read in time; give video_ids.",
+    "Refused: 1 spec can’t be built, so none were made. Nothing was sent to Meta.\nSpec 1: the show’s ad videos couldn’t be read in time: give video_ids, or try again.",
   );
   noWrites(c.calls);
 });
@@ -621,7 +621,7 @@ test("create_audiences: a source whose access couldn't be checked in time is ref
   const { deps, calls } = spyDeps({ limits: FAST, pageAccess: () => never() });
   await refused(
     run(createAudiencesTool, ctxOf(deps).ctx, { event: CODE, approval: YES, specs: [{ kind: "page_engagers", page_id: PROMO_PAGE, retention_days: 30 }] }),
-    "Refused: 1 spec can’t be built, so none were made. Nothing was sent to Meta.\nSpec 1: XMPL Promoter’s access couldn’t be checked in time; try again.",
+    "Refused: 1 spec can’t be built, so none were made. Nothing was sent to Meta.\nSpec 1: XMPL Promoter’s access couldn’t be checked in time. Try again.",
   );
   noWrites(calls);
 });
@@ -639,4 +639,16 @@ test("the seam: every Graph read carries a 10 s per-request signal; the Graph cl
   assert.match(client, /return executeGetWithRetry<T>\(url, path, options\?\.maxAttempts \?\? MAX_GET_ATTEMPTS, options\?\.signal\);/);
   assert.match(client, /if \(signal\?\.aborted\) throw aborted\(\);/);
   assert.match(client, /if \(!response && signal\?\.aborted\) throw aborted\(\);/);
+});
+
+test("design's 27 Nov rows for #1405, character for character", () => {
+  assert.equal(AUD_WORDS.notRead("pixel"), "Not read in time, so not shown: the pixel and its events. Try again.");
+  assert.equal(AUD_WORDS.notRead("pages"), "Not read in time, so not shown: the ad account’s Pages. Try again.");
+  assert.equal(AUD_WORDS.notRead("access"), "Not read in time, so not shown: Page access. Try again.");
+  assert.equal(AUD_WORDS.notRead("audiences"), "Not read in time, so not shown: the ad account’s audiences. Try again.");
+  assert.equal(AUD_WORDS.notRead("videos"), "Not read in time, so not shown: the show’s ad videos. Try again.");
+  assert.equal(AUD_WORDS.videosNote, "Video viewers: the show’s ad videos aren’t read here, because that read is slow. create_audiences reads them for a video spec, or give video_ids.");
+  assert.equal(AUD_WORDS.whyUnchecked("N"), "N’s access couldn’t be checked in time. Try again.");
+  assert.equal(AUD_WORDS.whyVideosUnread, "the show’s ad videos couldn’t be read in time: give video_ids, or try again.");
+  assert.equal(AUD_WORDS.notChecked, "not checked: Page access couldn’t be read in time");
 });
