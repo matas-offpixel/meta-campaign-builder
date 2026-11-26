@@ -1838,6 +1838,20 @@ export interface LaunchSummary {
    */
   campaignAttachResults?: CampaignAttachResult[];
   /**
+   * Ad sets created this run whose location expansion ("Reach more people
+   * likely to respond to your ads", `targeting_automation.individual_setting.geo`)
+   * isn't known to be off: Meta's read-back after the create didn't return
+   * geo 0 ("on" / "not_set"), or the read-back failed ("not_read"). The app
+   * sends geo 0 on every create (lib/meta/geo-expansion.ts); `message` says
+   * which ad set to untick in Ads Manager. Absent when every one reads off.
+   */
+  locationExpansion?: {
+    name: string;
+    metaAdSetId: string;
+    state: "on" | "not_set" | "not_read";
+    message: string;
+  }[];
+  /**
    * Ad sets whose internalAdSetId appeared in `creativeAssignments` but was not
    * in the Phase-2 `adSetMetaIds` map (i.e. the operator deselected them in
    * Step 1 after the assignment matrix was saved). These are silently skipped in

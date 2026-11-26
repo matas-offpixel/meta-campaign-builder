@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { NO_META_TOKEN_MESSAGE, mayUseAgencyMetaToken } from "@/lib/meta/agency-token";
-import { createMetaAdSets, MetaApiError } from "@/lib/meta/client";
+import { createMetaAdSets, getAdSetTargetingByIds, MetaApiError } from "@/lib/meta/client";
+import { checkLocationExpansion } from "@/lib/meta/geo-expansion";
 import {
   buildAdSetPayload,
   validateAdSetPayloads,
@@ -105,8 +106,11 @@ export async function POST(request: Request) {
       });
     }
 
+    // Location expansion read-back (lib/meta/geo-expansion.ts): read-only, one GET per ≤ 50 ad sets.
+    const { notes: locationExpansion } = await checkLocationExpansion(result.created, getAdSetTargetingByIds());
+
     const status = result.created.length > 0 ? 201 : 502;
-    return Response.json(result, { status });
+    return Response.json(locationExpansion.length > 0 ? { ...result, locationExpansion } : result, { status });
   } catch (err) {
     if (err instanceof MetaApiError) {
       return Response.json(err.toJSON(), { status: 502 });

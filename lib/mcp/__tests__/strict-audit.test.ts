@@ -15,6 +15,7 @@ import { strictAuditTool } from "../tools/strict-audit.ts";
 import { READ_TOOLS } from "../tools/index.ts";
 import { ToolInputError, type McpGraphReads } from "../tool-types.ts";
 import { STRICT_WORDS } from "../audit/words.ts";
+import { GEO_WORDS } from "../../meta/geo-expansion.ts";
 import { CLIENT_NX, CLIENT_OLD, EV_ARCH, EV_DOD, ctx, tables } from "./fixtures.ts";
 import { fakeDb } from "./fake-db.ts";
 
@@ -33,6 +34,9 @@ const FIXTURE: Fix[] = readFileSync(join(HERE, "fixtures/advantage-fallback-ids-
   });
 const ADSETS = [...new Set(FIXTURE.map((f) => f.adsetId))];
 
+/** Location expansion by the ad set's place in the list: geo 1, geo 0, no geo key. */
+const geoOf = (i: number) => (i % 3 === 0 ? { individual_setting: { geo: 1 } } : i % 3 === 1 ? { individual_setting: { age: 1, geo: 0 } } : {});
+
 /** What Meta says now, by the ad set's place in the list: 0 live strict, 1 paused strict, 2 live on Advantage+, 3 in process strict. */
 function metaNow(adsetId: string) {
   const i = ADSETS.indexOf(adsetId);
@@ -43,7 +47,7 @@ function metaNow(adsetId: string) {
     campaign_id: FIXTURE.find((f) => f.adsetId === adsetId)!.campaignId,
     campaign: { name: `Campaign ${i}` },
     effective_status: kind === 1 ? "PAUSED" : kind === 3 ? "IN_PROCESS" : "ACTIVE",
-    targeting: { age_min: 18, age_max: 45, targeting_automation: { advantage_audience: kind === 2 ? 1 : 0 } },
+    targeting: { age_min: 18, age_max: 45, targeting_automation: { advantage_audience: kind === 2 ? 1 : 0, ...geoOf(i) } },
   };
 }
 const expectedHits = ADSETS.filter((_, i) => i % 4 === 0 || i % 4 === 3);
@@ -107,7 +111,7 @@ const extraNow = (id: string) =>
   id === BLANK
     ? { id, name: "Broad", campaign_id: FIXTURE[0]!.campaignId, effective_status: "ACTIVE", targeting: { targeting_automation: { advantage_audience: 0 } } }
     : id === STRICT_ASKED
-      ? { id, name: "Strict", campaign_id: FIXTURE[0]!.campaignId, effective_status: "ACTIVE", targeting: { targeting_automation: { advantage_audience: 0 } } }
+      ? { id, name: "Strict", campaign_id: FIXTURE[0]!.campaignId, effective_status: "ACTIVE", targeting: { targeting_automation: { advantage_audience: 0, individual_setting: { geo: 1 } } } }
       : null;
 
 /** The real graph read behind a GET-only spy; records each batch. */
@@ -130,12 +134,16 @@ function spyReads(batches: string[][], opts: { failBatch?: number } = {}): McpGr
 }
 
 type Hit = { event: string | null; adSet: { id: string; name: string }; campaign: { id: string; name: string | null }; link: string; status: string; asked: Record<string, unknown>; line: string };
-type Out = { count: number; checked: number; metaGets: number; notRead: number; message: string; adSets: Hit[] };
+type GeoHit = { event: string | null; adSet: { id: string; name: string }; campaign: { id: string; name: string | null }; link: string; status: string; line: string };
+type Out = { count: number; checked: number; metaGets: number; notRead: number; message: string; adSets: Hit[]; locationExpansion: { count: number; notSet: number; adSets: GeoHit[] } };
 
 test("strict_audit is a read tool, listed with one example", () => {
   assert.equal(strictAuditTool.kind, "read");
   assert.ok(READ_TOOLS.includes(strictAuditTool));
   assert.equal((strictAuditTool.description.match(/Example: /g) ?? []).length, 1);
+  // Design's 27 Nov verdict on #1401: curly quotes around the Ads Manager label.
+  assert.ok(strictAuditTool.description.includes("\u201cReach more people likely to respond to your ads\u201d"));
+  assert.ok(!strictAuditTool.description.includes('"Reach more people'));
 });
 
 test("finds exactly the live strict ad sets whose drafts asked for Advantage+; skips paused, on-Advantage+, strict-asked, archived and TikTok rows", async () => {
@@ -148,12 +156,15 @@ test("finds exactly the live strict ad sets whose drafts asked for Advantage+; s
   assert.deepEqual(data.adSets.map((h) => h.adSet.id).sort(), want);
   assert.equal(data.count, want.length);
   assert.ok(!data.adSets.some((h) => h.adSet.id === STRICT_ASKED), "a draft that asked strict is not a finding");
-  // Asked = the fixture's ad sets (archived out) plus the blank one.
+  // Read = every launched Meta ad set in scope (archived and TikTok out): the fixture's, the blank one and the strict-asked one,
+  // because location expansion is listed whatever the draft asked for. One read serves both lists.
   const asked = ADSETS.filter((id) => !archivedSets.has(id)).length + 1;
-  assert.equal(data.checked, asked);
+  const read = asked + 1;
+  assert.equal(data.checked, read);
+  assert.equal(out.summary.askedAdvantage, asked);
   // ≤ 50 ids a GET, counted.
   assert.ok(batches.every((b) => b.length <= AD_SET_BATCH));
-  assert.equal(batches.length, Math.ceil(asked / AD_SET_BATCH));
+  assert.equal(batches.length, Math.ceil(read / AD_SET_BATCH));
   assert.equal(data.metaGets, batches.length);
   assert.equal(out.summary.metaGets, batches.length);
   // No writes at all.
@@ -193,19 +204,78 @@ test("scoped to an event code or a client; unknown ones and both at once are ref
   await refusal({ client: "NX Live", event_code: "NX26-DOD" }, /^Give a client or an event, not both\.$/);
 });
 
-test("nothing asked for Advantage+ → no Meta read; asked but no Meta reads wired → refused in plain words", async () => {
+test("nothing launched → no Meta read; nothing asked for Advantage+ still reads for location expansion; no Meta reads wired → refused in plain words", async () => {
+  const empty = world();
+  empty.launched_ad_sets = [];
+  let called = 0;
+  const reads = { adSets: async () => ((called += 1), { adSets: [], notRead: [], metaGets: 1 }) };
+  const none = await strictAuditTool.run(ctx({ db: fakeDb(empty), reads }), {});
+  assert.equal((none.data as Out).count, 0);
+  assert.equal((none.data as Out).message, `${STRICT_WORDS.none} ${STRICT_WORDS.geoNone}`);
+  assert.equal(called, 0);
   const t = world();
   t.launched_ad_sets = t.launched_ad_sets!.map((r) => ({ ...r, advantage_plus: false, source_type: "custom_group", suggestion_id: null }));
-  let called = 0;
-  const none = await strictAuditTool.run(ctx({ db: fakeDb(t), reads: { adSets: async () => ((called += 1), { adSets: [], notRead: [], metaGets: 0 }) } }), {});
-  assert.equal((none.data as Out).count, 0);
-  assert.equal((none.data as Out).message, STRICT_WORDS.none);
-  assert.equal(called, 0);
+  const strictOnly = await strictAuditTool.run(ctx({ db: fakeDb(t), reads }), {});
+  assert.equal((strictOnly.data as Out).count, 0);
+  assert.ok((strictOnly.data as Out).message.startsWith(STRICT_WORDS.none));
+  assert.equal(called, 1, "one read, for location expansion");
   await assert.rejects(strictAuditTool.run(ctx({ db: fakeDb(world()) }), {}), (e: unknown) => e instanceof ToolInputError && e.message === STRICT_WORDS.noMeta);
   await assert.rejects(
     strictAuditTool.run(ctx({ db: fakeDb(world()), reads: { adSets: async () => { throw new Error(`token ${TOKEN}`); } } }), {}),
     (e: unknown) => e instanceof ToolInputError && e.message === STRICT_WORDS.noMeta,
   );
+});
+
+test("location expansion: live ad sets with geo 1 are listed whatever the draft asked; no geo key is a separate not-set count; paused ones are left out", async () => {
+  const batches: string[][] = [];
+  const out = await strictAuditTool.run(ctx({ db: fakeDb(world()), reads: spyReads(batches) }), {});
+  const data = out.data as Out;
+  const archivedSets = new Set(FIXTURE.filter((f) => f.draftId === ARCHIVED_DRAFT).map((f) => f.adsetId));
+  const liveIdx = ADSETS.map((id, i) => ({ id, i })).filter(({ id, i }) => !archivedSets.has(id) && i % 4 !== 1);
+  const want = [...liveIdx.filter(({ i }) => i % 3 === 0).map(({ id }) => id), STRICT_ASKED].sort();
+  assert.deepEqual(data.locationExpansion.adSets.map((h) => h.adSet.id).sort(), want);
+  assert.equal(data.locationExpansion.count, want.length);
+  // No geo key: the fixture's i % 3 === 2 live ones, plus the blank one (its targeting has no individual_setting). Never counted as on.
+  assert.equal(data.locationExpansion.notSet, liveIdx.filter(({ i }) => i % 3 === 2).length + 1);
+  assert.ok(!data.locationExpansion.adSets.some((h) => h.adSet.id === BLANK));
+  // A strict-asked draft isn't a strict finding but is a location expansion one.
+  assert.ok(!data.adSets.some((h) => h.adSet.id === STRICT_ASKED));
+  const strict = data.locationExpansion.adSets.find((h) => h.adSet.id === STRICT_ASKED)!;
+  assert.equal(strict.line, GEO_WORDS.untick("Strict"));
+  assert.match(strict.link, /selected_adset_ids=120299999999000001$/);
+  assert.ok(["ACTIVE", "IN_PROCESS"].includes(strict.status));
+  // Same batches as the strict list: nothing extra sent.
+  assert.equal(data.metaGets, batches.length);
+  assert.ok(data.message.includes(STRICT_WORDS.geoFound(want.length)));
+  assert.ok(data.message.includes(STRICT_WORDS.geoNotSet(data.locationExpansion.notSet)));
+  assert.deepEqual(out.summary.geoAdSetIds, data.locationExpansion.adSets.map((h) => h.adSet.id));
+  assert.ok(!JSON.stringify(out).includes(TOKEN));
+});
+
+test("readAdSetsById reads geo as on / off / not set, from the same fields", async () => {
+  const fetchImpl: FetchLike = async (raw) => {
+    const url = new URL(raw);
+    assert.equal(url.searchParams.get("fields"), "effective_status,targeting,name,campaign_id,campaign{name}");
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        "1": { targeting: { targeting_automation: { advantage_audience: 1, individual_setting: { age: 1, geo: 1 } } } },
+        "2": { targeting: { targeting_automation: { advantage_audience: 0, individual_setting: { geo: 0 } } } },
+        "3": { targeting: { targeting_automation: { advantage_audience: 0 } } },
+        "4": { name: "no targeting" },
+      }),
+    };
+  };
+  const { adSets } = await readAdSetsById(fetchImpl, V, TOKEN, ["1", "2", "3", "4"]);
+  assert.deepEqual(adSets.map((a) => [a.id, a.geoExpansion]), [["1", "on"], ["2", "off"], ["3", "not_set"], ["4", null]]);
+});
+
+test("location expansion words (PENDING DESIGN): singular for 1", () => {
+  assert.equal(STRICT_WORDS.geoFound(1), "1 live ad set has location expansion on, so Meta can deliver it outside the places it targets.");
+  assert.match(STRICT_WORDS.geoFound(3), /^3 live ad sets have location expansion on/);
+  assert.match(STRICT_WORDS.geoNotSet(1), /^1 live ad set doesn’t show/);
+  assert.match(STRICT_WORDS.geoNotSet(2), /^2 live ad sets don’t show/);
 });
 
 test("design's corrected rows (26 Nov verdict), word for word", () => {
