@@ -11,10 +11,10 @@
  *     that isn't the caller's, an archived client, and bad dates, links,
  *     timezones and ids.
  *   - create_client is the clients form's create (insertClientRow). A
- *     sub-brand (Ahmed Spins under Deep House Bible) is its own client with
+ *     sub-brand (XMPL Sub-brand under XMPL Promoter) is its own client with
  *     parent_client_id set to the client it sits under (migration 272: the
- *     app had no client-to-client link before; Electric's brands are event
- *     codes under one client). page_id and ig_id are the client's channel
+ *     app had no client-to-client link before; a promoter's brands were
+ *     event codes under one client). page_id and ig_id are the client's channel
  *     defaults (default_page_ids, default_instagram_actor_id), as the
  *     Channel defaults card stores them.
  *   - set_lineup is the Lab's lineup save (saveLabLineup): it replaces the
@@ -213,12 +213,12 @@ export const createEventTool: McpTool = {
   failedText: SHOWS_ROWS.eventFailed,
   description: [
     "Makes a new event (a show) under one of your clients, as the event form's Create does: code, name, show date, venue, city, country and timezone, with the ticket and signup links and the event's own Meta ad account and pixel if it has them.",
-    "Refuses a code that's already an event's (change that one with update_event). The event's Drive folders are made a few minutes later, as for an event made in the app. App only: nothing goes to Meta or any other platform.",
-    'Example: create_event({ client: "Deep House Bible", code: "AS27-TORONTO", name: "Ahmed Spins Toronto", date: "2027-03-14", venue: "Rebel", city: "Toronto", country: "Canada", timezone: "America/Toronto", ticket_url: "https://example.com/tickets" }).',
+    "Refuses a code that's already an event's (change that one with update_event). The event's Drive folders are made a few minutes later, as for an event made in the app. Nothing goes to Meta.",
+    'Example: create_event({ client: "XMPL Promoter", code: "XMPL27-LDN", name: "XMPL Artist London", date: "2027-03-14", venue: "XMPL Venue", city: "London", country: "United Kingdom", timezone: "Europe/London", ticket_url: "https://example.com/tickets" }).',
   ].join(" "),
   inputSchema: {
     client: z.string().min(1).max(120).describe("The client's name or id (one of yours)."),
-    code: z.string().min(2).max(41).describe('The new event code, e.g. "AS27-TORONTO".'),
+    code: z.string().min(2).max(41).describe('The new event code, e.g. "XMPL27-LDN".'),
     name: z.string().min(1).max(EVENT_NAME_MAX).describe("The event's name."),
     date: z.string().max(20).describe("The show day, YYYY-MM-DD."),
     venue: z.string().min(1).max(PLACE_MAX),
@@ -312,9 +312,9 @@ export const createClientTool: McpTool = {
   failedText: SHOWS_WORDS.clientFailed,
   description: [
     "Makes a new client, as the clients form's Create does, with its Meta ad account, pixel, Facebook page and Instagram account if you have them.",
-    "A sub-brand is its own client: pass parent_client with the client it sits under (Ahmed Spins under Deep House Bible). Refuses a name you already have.",
-    "App only: nothing goes to Meta or any other platform.",
-    'Example: create_client({ name: "Ahmed Spins", parent_client: "Deep House Bible", meta_ad_account_id: "act_1234567890" }).',
+    "A sub-brand is its own client: pass parent_client with the client it sits under (XMPL Sub-brand under XMPL Promoter). Refuses a name you already have.",
+    "Nothing goes to Meta.",
+    'Example: create_client({ name: "XMPL Sub-brand", parent_client: "XMPL Promoter", meta_ad_account_id: "act_1234567890" }).',
   ].join(" "),
   inputSchema: {
     name: z.string().min(1).max(NAME_MAX).describe("The client's name."),
@@ -403,10 +403,10 @@ export const setLineupTool: McpTool = {
   description: [
     "Sets a show's lineup in the Lab, in billing order, as the Lab's lineup save does: it replaces the acts the Lab holds for the show (acts read in from ad copy or campaign names stay).",
     "Each act is a name from the artist library, headliner or support. An act that isn't in the library needs its spotify_id, and is added as the Lab's add-from-Spotify adds it. Every name is checked before anything is saved.",
-    'Example: set_lineup({ event: "AS27-TORONTO", acts: [{ name: "Ahmed Spins", role: "headliner" }, { name: "Enzo Siragusa", role: "support", spotify_id: "0123456789abcdefABCDEF" }] }).',
+    'Example: set_lineup({ event: "XMPL27-LDN", acts: [{ name: "XMPL Artist", role: "headliner" }, { name: "XMPL Support", role: "support", spotify_id: "0123456789abcdefABCDEF" }] }).',
   ].join(" "),
   inputSchema: {
-    event: z.string().min(2).max(41).describe('The event code, e.g. "P26-BDAY".'),
+    event: z.string().min(2).max(41).describe('The event code, e.g. "XMPL27-LDN".'),
     acts: z
       .array(
         z.object({
@@ -498,10 +498,10 @@ export const getReleasesTool: McpTool = {
   description: [
     "Reads a show's ticket releases from its Releases card (each release's state, when it was set, the count), and the claims its ladder gives now, with when they were read.",
     "A claim marked met can go in copy; one marked not yet says what it waits for and must not be used until it's met.",
-    'Example: get_releases({ event: "P26-BDAY" }).',
+    'Example: get_releases({ event: "XMPL27-LDN" }).',
   ].join(" "),
   inputSchema: {
-    event: z.string().min(2).max(41).describe('The event code, e.g. "P26-BDAY".'),
+    event: z.string().min(2).max(41).describe('The event code, e.g. "XMPL27-LDN".'),
   },
   async run(ctx, args) {
     const shows = requireShows(ctx);
@@ -559,10 +559,10 @@ export const setReleaseTool: McpTool = {
   description: [
     "Sets one ticket release's state (not_yet, on_sale, selling_fast, final_x, sold_out), its sold count, or both, as a tap on the Releases card does. A change that would move the event's presale or general sale time is refused: those move only through update_event, with Matas's yes.",
     "A step back (sold_out to on_sale) asks once, as the card does: ask Matas, then send it again with confirmed: true. Returns the claims the ladder gives after the change, with when they were read.",
-    'Example: set_release({ event: "P26-BDAY", release: "Tier 2", state: "selling_fast" }).',
+    'Example: set_release({ event: "XMPL27-LDN", release: "Tier 2", state: "selling_fast" }).',
   ].join(" "),
   inputSchema: {
-    event: z.string().min(2).max(41).describe('The event code, e.g. "P26-BDAY".'),
+    event: z.string().min(2).max(41).describe('The event code, e.g. "XMPL27-LDN".'),
     release: z.string().min(1).max(120).describe("The release's name as get_releases gives it, or its id."),
     state: z.enum(RELEASE_STATES).optional(),
     count: z.number().int().min(0).max(1_000_000).optional().describe("Tickets sold on this release."),

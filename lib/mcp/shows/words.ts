@@ -7,6 +7,7 @@
  *     already live (claude.mcp.event.* for an event's code, links, other
  *     account and a failed save; claude.mcp.done; today.mcp.result.created /
  *     .created.one and today.mcp.result / .one);
+ *   - rows design ruled for this PR (SHOWS_RULED, verdict of 26 Nov);
  *   - PENDING DESIGN: every string with no row yet. Each is in
  *     SHOWS_FOR_DESIGN with its key, where it shows and the builder's
  *     candidate; the PR body's "For design" table is that list. When design
@@ -69,6 +70,20 @@ export const SHOW_THINGS = {
   release: ["release", "releases"] as [string, string],
 };
 
+// ── Rows design ruled (verdict on #1391, 26 Nov; word for word) ──────────────
+
+/** The ruled templates, by key; SHOWS_WORDS fills them. */
+export const SHOWS_RULED = {
+  /** claude.mcp.shows.event.refused.date */
+  date: "Refused: give date as the show day, like 2027-03-14. Nothing was changed.",
+  /** claude.mcp.shows.lineup.refused.unknown */
+  lineupUnknown: "Refused: {name} isn’t in the artist library. Pass their spotify_id to add them, or add them in the Lab. Nothing was changed.",
+  /** claude.mcp.shows.lineup.refused.ambiguous */
+  lineupAmbiguous: "Refused: {n} artists in the library are called {name}. Pass the spotify_id of the one you mean. Nothing was changed.",
+  /** claude.mcp.shows.release.done (matches claude.mcp.event.done) */
+  releaseDone: "Done: {release} · {change}. Its claims now follow the ladder.",
+} as const;
+
 // ── PENDING DESIGN ───────────────────────────────────────────────────────────
 
 const T = {
@@ -96,11 +111,6 @@ const T = {
     "claude.mcp.shows.refused.name",
     "Told to Claude, create_event and create_client: a name missing or too long",
     "Refused: give a name of at most {max} characters. Nothing was changed.",
-  ),
-  date: pending(
-    "claude.mcp.shows.event.refused.date",
-    "Told to Claude, create_event: the show date isn't a real date",
-    "Refused: date is the show day, like 2027-03-14. Nothing was changed.",
   ),
   timezone: pending(
     "claude.mcp.shows.event.refused.timezone",
@@ -162,16 +172,6 @@ const T = {
     "Told to Claude, set_lineup: one act listed twice",
     "Refused: {name} is in the lineup twice. Nothing was changed.",
   ),
-  lineupUnknown: pending(
-    "claude.mcp.shows.lineup.refused.unknown",
-    "Told to Claude, set_lineup: a name not in the artist library and no spotify_id",
-    "Refused: {name} isn’t in the artist library. Pass its spotify_id to add it, or add it in the Lab. Nothing was changed.",
-  ),
-  lineupAmbiguous: pending(
-    "claude.mcp.shows.lineup.refused.ambiguous",
-    "Told to Claude, set_lineup: two library artists share the name",
-    "Refused: {n} artists in the library are called {name}. Pass its spotify_id to pick one. Nothing was changed.",
-  ),
   lineupSpotify: pending(
     "claude.mcp.shows.lineup.refused.spotify_id",
     "Told to Claude, set_lineup: a spotify_id that isn't one",
@@ -230,11 +230,6 @@ const T = {
     "Told to Claude, set_release: neither a state nor a count",
     "Refused: give a state, a count, or both. Nothing was changed.",
   ),
-  releaseDone: pending(
-    "claude.mcp.shows.release.done",
-    "Told to Claude, after set_release",
-    "Done: {release}: {change}. The claims are as the ladder gives them now.",
-  ),
   releaseCount: pending(
     "claude.mcp.shows.release.count",
     "Told to Claude, after set_release with a count, inside {change}",
@@ -268,7 +263,7 @@ export const SHOWS_WORDS = {
   clientOther: (client: string) => fill(T.clientOther, { client }),
   clientArchived: (client: string) => fill(T.clientArchived, { client }),
   name: (max: number) => fill(T.name, { max }),
-  date: T.date,
+  date: SHOWS_RULED.date,
   timezone: (timezone: string) => fill(T.timezone, { timezone }),
   textTooLong: (field: string, max: number) => fill(T.textTooLong, { field, max }),
   adAccount: (value: string) => fill(T.adAccount, { value }),
@@ -281,8 +276,8 @@ export const SHOWS_WORDS = {
   subBrand: (name: string, parent: string) => fill(T.subBrand, { name, parent }),
   lineupEmpty: T.lineupEmpty,
   lineupTwice: (name: string) => fill(T.lineupTwice, { name }),
-  lineupUnknown: (name: string) => fill(T.lineupUnknown, { name }),
-  lineupAmbiguous: (name: string, n: number) => fill(T.lineupAmbiguous, { name, n }),
+  lineupUnknown: (name: string) => fill(SHOWS_RULED.lineupUnknown, { name }),
+  lineupAmbiguous: (name: string, n: number) => fill(SHOWS_RULED.lineupAmbiguous, { name, n }),
   lineupSpotify: (value: string) => fill(T.lineupSpotify, { value }),
   lineupDone: (code: string, lineup: readonly string[], headliners: readonly string[]) =>
     fill(T.lineupDone, { code, lineup: lineup.join(", "), headliners: headliners.length ? headliners.join(", ") : T.lineupNoHeadliner }),
@@ -295,7 +290,7 @@ export const SHOWS_WORDS = {
   releaseEmpty: T.releaseEmpty,
   releaseMovesTimes: (code: string, presale: boolean, general: boolean) =>
     fill(T.releaseMovesTimes, { code, times: presale && general ? T.releaseTimesBoth : presale ? T.releaseTimesPresale : T.releaseTimesGeneral }),
-  releaseDone: (release: string, change: string) => fill(T.releaseDone, { release, change }),
+  releaseDone: (release: string, change: string) => fill(SHOWS_RULED.releaseDone, { release, change }),
   releaseCount: (n: number) => fill(T.releaseCount, { n }),
   releaseFailed: T.releaseFailed,
   claimLater: (because: string) => fill(T.claimLater, { because }),

@@ -15,7 +15,7 @@ import { fakeReaders } from "./fixtures.ts";
 import { MCP_TOOLS } from "../tools/index.ts";
 import { createClientTool, createEventTool, getReleasesTool, setLineupTool, setReleaseTool } from "../tools/shows.ts";
 import { claimsView, type ReleasesData } from "../shows/claims.ts";
-import { SHOWS_FOR_DESIGN, SHOWS_WORDS } from "../shows/words.ts";
+import { SHOWS_FOR_DESIGN, SHOWS_RULED, SHOWS_WORDS } from "../shows/words.ts";
 import { EVENT_WORDS } from "../meta/words.ts";
 import { ToolInputError, type McpShowsDeps, type ToolContext } from "../tool-types.ts";
 import { addSpotifyToLineup, saveLabLineup } from "../../creative-lab/lineup.ts";
@@ -28,7 +28,7 @@ type Call = { fn: string; input: Record<string, unknown> };
 
 const MATAS = "b3ee4e5c-0000-4000-8000-000000000001";
 const OTHER = "b3ee4e5c-0000-4000-8000-000000000002";
-const DHB = "c1000000-0000-4000-8000-000000000001";
+const PROMOTER = "c1000000-0000-4000-8000-000000000001";
 const THEIRS = "c1000000-0000-4000-8000-000000000002";
 const ARCHIVED = "c1000000-0000-4000-8000-000000000003";
 const EV = "e1000000-0000-4000-8000-000000000001";
@@ -53,17 +53,17 @@ const ev = (r: Row): Row => ({
 function tables(): Record<string, Row[]> {
   return {
     clients: [
-      { id: DHB, user_id: MATAS, name: "Deep House Bible", slug: "deep-house-bible", status: "active", primary_type: "promoter" },
+      { id: PROMOTER, user_id: MATAS, name: "XMPL Promoter", slug: "xmpl-promoter", status: "active", primary_type: "promoter" },
       { id: THEIRS, user_id: OTHER, name: "Their Promoter", slug: "their-promoter", status: "active", primary_type: "promoter" },
       { id: ARCHIVED, user_id: MATAS, name: "Old Client", slug: "old-client", status: "archived", primary_type: "venue" },
     ],
     events: [
-      ev({ id: EV, user_id: MATAS, client_id: DHB, client: { name: "Deep House Bible" }, event_code: "AS27-LDN", name: "Ahmed Spins London", slug: "ahmed-spins-london", event_date: "2027-02-01" }),
+      ev({ id: EV, user_id: MATAS, client_id: PROMOTER, client: { name: "XMPL Promoter" }, event_code: "XMPL27-LDN", name: "XMPL Artist London", slug: "xmpl-artist-london", event_date: "2027-02-01" }),
       ev({ id: EV_THEIRS, user_id: OTHER, client_id: THEIRS, client: { name: "Their Promoter" }, event_code: "OT27-X", name: "Theirs", slug: "theirs", event_date: "2027-03-01" }),
     ],
     artists: [
-      { id: "a-ahmed", user_id: MATAS, name: "Ahmed Spins", spotify_id: "AAAAAAAAAAAAAAAAAAAAAA" },
-      { id: "a-enzo", user_id: MATAS, name: "Enzo Siragusa", spotify_id: null },
+      { id: "a-xmpl-artist", user_id: MATAS, name: "XMPL Artist", spotify_id: "AAAAAAAAAAAAAAAAAAAAAA" },
+      { id: "a-xmpl-support", user_id: MATAS, name: "XMPL Support", spotify_id: null },
       { id: "a-twin-1", user_id: MATAS, name: "Twin", spotify_id: "TTTTTTTTTTTTTTTTTTTTT1" },
       { id: "a-twin-2", user_id: MATAS, name: "Twin", spotify_id: "TTTTTTTTTTTTTTTTTTTTT2" },
       { id: "a-theirs", user_id: OTHER, name: "Someone", spotify_id: null },
@@ -157,11 +157,11 @@ async function refused(p: Promise<unknown>): Promise<ToolInputError> {
 }
 
 const EVENT_ARGS = {
-  client: "Deep House Bible",
-  code: "AS27-TORONTO",
-  name: "Ahmed Spins Toronto",
+  client: "XMPL Promoter",
+  code: "XMPL27-TORONTO",
+  name: "XMPL Artist Toronto",
   date: "2027-03-14",
-  venue: "Rebel",
+  venue: "XMPL Venue",
   city: "Toronto",
   country: "Canada",
   timezone: "America/Toronto",
@@ -202,20 +202,20 @@ test("create_event: the form's create with the caller's user_id and client, and 
   assert.deepEqual(calls.map((c) => c.fn), ["createEvent"]);
   const row = (calls[0]!.input as { row: Row }).row;
   assert.equal(row.user_id, MATAS);
-  assert.equal(row.client_id, DHB);
-  assert.equal(row.event_code, "AS27-TORONTO");
-  assert.equal(row.slug, "ahmed-spins-toronto");
+  assert.equal(row.client_id, PROMOTER);
+  assert.equal(row.event_code, "XMPL27-TORONTO");
+  assert.equal(row.slug, "xmpl-artist-toronto");
   assert.equal(row.event_timezone, "America/Toronto");
   assert.equal(row.status, "upcoming");
   assert.equal(row.meta_ad_account_id, "1234567890", "stored as digits, as the app's rows are");
   assert.equal(row.meta_pixel_id, "998877665544");
   assert.deepEqual(db.writes, []);
   const data = out.data as Row;
-  assert.match(String(data.message), /^Done: 1 event created · AS27-TORONTO\. Its Drive folders/);
+  assert.match(String(data.message), /^Done: 1 event created · XMPL27-TORONTO\. Its Drive folders/);
 });
 
 test("create_event refuses an existing code (as written or upper-cased) before anything runs", async () => {
-  for (const code of ["AS27-LDN", "as27-ldn"]) {
+  for (const code of ["XMPL27-LDN", "xmpl27-ldn"]) {
     const { ctx, calls } = ctxFor();
     const e = await refused(createEventTool.run(ctx, { ...EVENT_ARGS, code }));
     assert.equal(e.message, SHOWS_WORDS.codeExists(code));
@@ -265,8 +265,8 @@ test("create_event refuses bad dates, timezones, links and ids, each ending Noth
 
 test("create_event: a name the caller already has gets the code on its slug; a failed save is plain", async () => {
   const { ctx, calls } = ctxFor();
-  await createEventTool.run(ctx, { ...EVENT_ARGS, name: "Ahmed Spins London" });
-  assert.equal((calls[0]!.input as { row: Row }).row.slug, "ahmed-spins-london-as27-toronto");
+  await createEventTool.run(ctx, { ...EVENT_ARGS, name: "XMPL Artist London" });
+  assert.equal((calls[0]!.input as { row: Row }).row.slug, "xmpl-artist-london-xmpl27-toronto");
   const failing = showsSpy({ createThrows: 'duplicate key value violates unique constraint "events_slug_unique_per_user"' });
   const e = await refused(createEventTool.run(ctxFor({ shows: failing.shows }).ctx, EVENT_ARGS));
   assert.equal(e.message, EVENT_WORDS.failed);
@@ -277,20 +277,20 @@ test("create_event: a name the caller already has gets the code on its slug; a f
 
 test("create_client: a sub-brand is its own client linked to its parent, with its channel defaults", async () => {
   const { ctx, db, calls } = ctxFor();
-  const out = await createClientTool.run(ctx, { name: "Ahmed Spins", parent_client: "Deep House Bible", meta_ad_account_id: "1234567890", page_id: "111222333", ig_id: "17841400000000" });
+  const out = await createClientTool.run(ctx, { name: "XMPL Sub-brand", parent_client: "XMPL Promoter", meta_ad_account_id: "1234567890", page_id: "111222333", ig_id: "17841400000000" });
   assert.deepEqual(calls.map((c) => c.fn), ["createClient"]);
   const row = (calls[0]!.input as { row: Row }).row;
   assert.equal(row.user_id, MATAS);
-  assert.equal(row.name, "Ahmed Spins");
-  assert.equal(row.slug, "ahmed-spins");
-  assert.equal(row.parent_client_id, DHB, "linked to the client it sits under");
+  assert.equal(row.name, "XMPL Sub-brand");
+  assert.equal(row.slug, "xmpl-sub-brand");
+  assert.equal(row.parent_client_id, PROMOTER, "linked to the client it sits under");
   assert.equal(row.primary_type, "promoter");
   assert.deepEqual(row.types, ["promoter"]);
   assert.equal(row.status, "active");
   assert.deepEqual(row.default_page_ids, ["111222333"]);
   assert.equal(row.default_instagram_actor_id, "17841400000000");
   assert.deepEqual(db.writes, []);
-  assert.equal((out.data as Row).message, "Done: 1 client created · Ahmed Spins. Ahmed Spins sits under Deep House Bible.");
+  assert.equal((out.data as Row).message, "Done: 1 client created · XMPL Sub-brand. XMPL Sub-brand sits under XMPL Promoter.");
   // A top-level client has no parent link at all.
   const top = ctxFor();
   await createClientTool.run(top.ctx, { name: "New Promoter" });
@@ -299,11 +299,11 @@ test("create_client: a sub-brand is its own client linked to its parent, with it
 
 test("create_client refuses a name the caller already has, an unknown parent and another account's parent", async () => {
   const cases: Array<[Row, string]> = [
-    [{ name: "deep house bible" }, SHOWS_WORDS.clientExists("Deep House Bible")],
-    [{ name: "Deep-House Bible" }, SHOWS_WORDS.clientExists("Deep House Bible")],
-    [{ name: "Ahmed Spins", parent_client: "Nobody" }, SHOWS_WORDS.parentUnknown("Nobody", "Ahmed Spins")],
-    [{ name: "Ahmed Spins", parent_client: "Their Promoter" }, SHOWS_WORDS.clientOther("Their Promoter")],
-    [{ name: "Ahmed Spins", page_id: "abc" }, SHOWS_WORDS.digits("page_id", "abc")],
+    [{ name: "xmpl promoter" }, SHOWS_WORDS.clientExists("XMPL Promoter")],
+    [{ name: "XMPL-Promoter" }, SHOWS_WORDS.clientExists("XMPL Promoter")],
+    [{ name: "XMPL Sub-brand", parent_client: "Nobody" }, SHOWS_WORDS.parentUnknown("Nobody", "XMPL Sub-brand")],
+    [{ name: "XMPL Sub-brand", parent_client: "Their Promoter" }, SHOWS_WORDS.clientOther("Their Promoter")],
+    [{ name: "XMPL Sub-brand", page_id: "abc" }, SHOWS_WORDS.digits("page_id", "abc")],
   ];
   for (const [args, words] of cases) {
     const { ctx, calls } = ctxFor();
@@ -315,7 +315,7 @@ test("create_client refuses a name the caller already has, an unknown parent and
 
 test("create_client with a parent before migration 272 says so, and never shows the database error", async () => {
   const failing = showsSpy({ createThrows: "Could not find the 'parent_client_id' column of 'clients' in the schema cache" });
-  const e = await refused(createClientTool.run(ctxFor({ shows: failing.shows }).ctx, { name: "Ahmed Spins", parent_client: "Deep House Bible" }));
+  const e = await refused(createClientTool.run(ctxFor({ shows: failing.shows }).ctx, { name: "XMPL Sub-brand", parent_client: "XMPL Promoter" }));
   assert.equal(e.message, SHOWS_WORDS.parentNotReady);
   assert.doesNotMatch(e.message, /schema cache/);
 });
@@ -325,38 +325,38 @@ test("create_client with a parent before migration 272 says so, and never shows 
 test("set_lineup: library names by name, a new act by its spotify_id, saved in billing order through the Lab's paths", async () => {
   const { ctx, db, calls } = ctxFor();
   const out = await setLineupTool.run(ctx, {
-    event: "AS27-LDN",
+    event: "XMPL27-LDN",
     acts: [
-      { name: "Ahmed Spins", role: "headliner" },
-      { name: "Enzo Siragusa", role: "support" },
-      { name: "Brand New", role: "support", spotify_id: SPOTIFY_NEW },
+      { name: "XMPL Artist", role: "headliner" },
+      { name: "XMPL Support", role: "support" },
+      { name: "XMPL New Act", role: "support", spotify_id: SPOTIFY_NEW },
     ],
   });
   assert.deepEqual(calls.map((c) => c.fn), ["addSpotifyArtist", "saveLineup"]);
-  assert.deepEqual(calls[0]!.input, { userId: MATAS, eventId: EV, name: "Brand New", spotifyId: SPOTIFY_NEW });
+  assert.deepEqual(calls[0]!.input, { userId: MATAS, eventId: EV, name: "XMPL New Act", spotifyId: SPOTIFY_NEW });
   assert.deepEqual((calls[1]!.input as { slots: unknown }).slots, [
-    { artistId: "a-ahmed", isHeadliner: true },
-    { artistId: "a-enzo", isHeadliner: false },
+    { artistId: "a-xmpl-artist", isHeadliner: true },
+    { artistId: "a-xmpl-support", isHeadliner: false },
     { artistId: `a-new-${SPOTIFY_NEW}`, isHeadliner: false },
   ]);
   assert.deepEqual(db.writes, []);
-  assert.deepEqual((out.data as Row).addedToLibrary, ["Brand New"]);
+  assert.deepEqual((out.data as Row).addedToLibrary, ["XMPL New Act"]);
 });
 
 test("set_lineup: a library act passed with its spotify_id is matched by the id, never added again", async () => {
   const { ctx, calls } = ctxFor();
-  await setLineupTool.run(ctx, { event: "AS27-LDN", acts: [{ name: "Twin", role: "headliner", spotify_id: "TTTTTTTTTTTTTTTTTTTTT2" }] });
+  await setLineupTool.run(ctx, { event: "XMPL27-LDN", acts: [{ name: "Twin", role: "headliner", spotify_id: "TTTTTTTTTTTTTTTTTTTTT2" }] });
   assert.deepEqual(calls.map((c) => c.fn), ["saveLineup"]);
   assert.deepEqual((calls[0]!.input as { slots: unknown }).slots, [{ artistId: "a-twin-2", isHeadliner: true }]);
 });
 
 test("set_lineup refuses before anything is written: unknown, ambiguous, twice, empty, a bad spotify id, another account's show", async () => {
   const cases: Array<[Row, string]> = [
-    [{ event: "AS27-LDN", acts: [{ name: "Ahmed Spins", role: "headliner" }, { name: "Nobody Known", role: "support" }] }, SHOWS_WORDS.lineupUnknown("Nobody Known")],
-    [{ event: "AS27-LDN", acts: [{ name: "Twin", role: "headliner" }] }, SHOWS_WORDS.lineupAmbiguous("Twin", 2)],
-    [{ event: "AS27-LDN", acts: [{ name: "Enzo Siragusa", role: "headliner" }, { name: "enzo siragusa", role: "support" }] }, SHOWS_WORDS.lineupTwice("enzo siragusa")],
-    [{ event: "AS27-LDN", acts: [] }, SHOWS_WORDS.lineupEmpty],
-    [{ event: "AS27-LDN", acts: [{ name: "X", role: "support", spotify_id: "short" }] }, SHOWS_WORDS.lineupSpotify("short")],
+    [{ event: "XMPL27-LDN", acts: [{ name: "XMPL Artist", role: "headliner" }, { name: "Nobody Known", role: "support" }] }, SHOWS_WORDS.lineupUnknown("Nobody Known")],
+    [{ event: "XMPL27-LDN", acts: [{ name: "Twin", role: "headliner" }] }, SHOWS_WORDS.lineupAmbiguous("Twin", 2)],
+    [{ event: "XMPL27-LDN", acts: [{ name: "XMPL Support", role: "headliner" }, { name: "xmpl support", role: "support" }] }, SHOWS_WORDS.lineupTwice("xmpl support")],
+    [{ event: "XMPL27-LDN", acts: [] }, SHOWS_WORDS.lineupEmpty],
+    [{ event: "XMPL27-LDN", acts: [{ name: "X", role: "support", spotify_id: "short" }] }, SHOWS_WORDS.lineupSpotify("short")],
     [{ event: "OT27-X", acts: [{ name: "Someone", role: "headliner" }] }, EVENT_WORDS.refusedOtherAccount],
     [{ event: "ZZ27-NONE", acts: [{ name: "Someone", role: "headliner" }] }, EVENT_WORDS.refusedUnknown("ZZ27-NONE")],
   ];
@@ -368,24 +368,24 @@ test("set_lineup refuses before anything is written: unknown, ambiguous, twice, 
   }
   // Someone else's library artist isn't the caller's.
   const { ctx, calls } = ctxFor();
-  await refused(setLineupTool.run(ctx, { event: "AS27-LDN", acts: [{ name: "Someone", role: "headliner" }] }));
+  await refused(setLineupTool.run(ctx, { event: "XMPL27-LDN", acts: [{ name: "Someone", role: "headliner" }] }));
   assert.equal(calls.length, 0);
 });
 
 test("set_lineup through the Lab's own saveLabLineup: it replaces the show's lab rows, keeps read-in rows, and writes the facts", async () => {
   const lab = labFakeDb({
     artists: [
-      { id: "a-ahmed", user_id: MATAS, name: "Ahmed Spins", spotify_id: "AAAAAAAAAAAAAAAAAAAAAA" },
-      { id: "a-enzo", user_id: MATAS, name: "Enzo Siragusa", spotify_id: null },
+      { id: "a-xmpl-artist", user_id: MATAS, name: "XMPL Artist", spotify_id: "AAAAAAAAAAAAAAAAAAAAAA" },
+      { id: "a-xmpl-support", user_id: MATAS, name: "XMPL Support", spotify_id: null },
       { id: "a-gone", user_id: MATAS, name: "Dropped Act", spotify_id: null },
       { id: "a-copy", user_id: MATAS, name: "From Ad Copy", spotify_id: null },
     ],
     event_artists: [
       { id: "ea-1", event_id: EV, artist_id: "a-gone", source: "lab", billing_order: 1, is_headliner: true, created_at: "2026-11-01T10:00:00Z" },
       { id: "ea-2", event_id: EV, artist_id: "a-copy", source: "ad_copy", billing_order: 2, is_headliner: false, created_at: "2026-11-02T10:00:00Z" },
-      { id: "ea-3", event_id: EV, artist_id: "a-enzo", source: "lab", billing_order: 3, is_headliner: false, created_at: "2026-11-03T10:00:00Z" },
+      { id: "ea-3", event_id: EV, artist_id: "a-xmpl-support", source: "lab", billing_order: 3, is_headliner: false, created_at: "2026-11-03T10:00:00Z" },
     ],
-    creative_lab_event_facts: [{ event_id: EV, user_id: MATAS, lineup: ["Dropped Act", "Enzo Siragusa"], headliners: ["Dropped Act"], allowed_dates: ["2027-02-01"] }],
+    creative_lab_event_facts: [{ event_id: EV, user_id: MATAS, lineup: ["Dropped Act", "XMPL Support"], headliners: ["Dropped Act"], allowed_dates: ["2027-02-01"] }],
   });
   const db = lab as unknown as ServiceRoleDb;
   const shows: McpShowsDeps = {
@@ -396,33 +396,33 @@ test("set_lineup through the Lab's own saveLabLineup: it replaces the show's lab
   };
   const { ctx } = ctxFor({ shows });
   const out = await setLineupTool.run(ctx, {
-    event: "AS27-LDN",
+    event: "XMPL27-LDN",
     acts: [
-      { name: "Ahmed Spins", role: "headliner" },
-      { name: "Brand New", role: "support", spotify_id: SPOTIFY_NEW },
-      { name: "Enzo Siragusa", role: "support" },
+      { name: "XMPL Artist", role: "headliner" },
+      { name: "XMPL New Act", role: "support", spotify_id: SPOTIFY_NEW },
+      { name: "XMPL Support", role: "support" },
     ],
   });
   const rows = lab.tables.event_artists!.filter((r) => r.event_id === EV);
   const labRows = rows.filter((r) => r.source === "lab").sort((a, b) => Number(a.billing_order) - Number(b.billing_order));
   const newId = String(lab.tables.artists!.find((a) => a.spotify_id === SPOTIFY_NEW)!.id);
   assert.deepEqual(labRows.map((r) => [r.artist_id, r.billing_order, r.is_headliner]), [
-    ["a-ahmed", 1, true],
+    ["a-xmpl-artist", 1, true],
     [newId, 2, false],
-    ["a-enzo", 3, false],
+    ["a-xmpl-support", 3, false],
   ]);
   assert.ok(!rows.some((r) => r.artist_id === "a-gone"), "the dropped lab act is gone, as in the Lab");
   assert.ok(rows.some((r) => r.artist_id === "a-copy" && r.source === "ad_copy"), "an act read in from ad copy stays");
   const facts = lab.tables.creative_lab_event_facts!.find((f) => f.event_id === EV)!;
-  assert.deepEqual(facts.lineup, ["Ahmed Spins", "Brand New", "Enzo Siragusa"]);
-  assert.deepEqual(facts.headliners, ["Ahmed Spins"]);
+  assert.deepEqual(facts.lineup, ["XMPL Artist", "XMPL New Act", "XMPL Support"]);
+  assert.deepEqual(facts.headliners, ["XMPL Artist"]);
   assert.deepEqual(facts.allowed_dates, ["2027-02-01"], "the facts row's dates are kept");
-  assert.equal((out.data as Row).message, "Done: AS27-LDN’s lineup is Ahmed Spins, Brand New, Enzo Siragusa. Headlining: Ahmed Spins. Added to the artist library: Brand New.");
+  assert.equal((out.data as Row).message, "Done: XMPL27-LDN’s lineup is XMPL Artist, XMPL New Act, XMPL Support. Headlining: XMPL Artist. Added to the artist library: XMPL New Act.");
 });
 
 test("set_lineup: a failed save is plain and says how to recover", async () => {
   const failing = showsSpy({ lineupThrows: true });
-  const e = await refused(setLineupTool.run(ctxFor({ shows: failing.shows }).ctx, { event: "AS27-LDN", acts: [{ name: "Ahmed Spins", role: "headliner" }] }));
+  const e = await refused(setLineupTool.run(ctxFor({ shows: failing.shows }).ctx, { event: "XMPL27-LDN", acts: [{ name: "XMPL Artist", role: "headliner" }] }));
   assert.equal(e.message, SHOWS_WORDS.lineupFailed);
   assert.doesNotMatch(e.message, /db down/);
 });
@@ -472,24 +472,24 @@ test("claims: a backfilled release (never confirmed) gives no claim, as on the c
 
 test("get_releases reads the card and the claims, with when they were read; no releases says so", async () => {
   const { ctx, db, calls } = ctxFor();
-  const out = (await getReleasesTool.run(ctx, { event: "AS27-LDN" })).data as Row;
+  const out = (await getReleasesTool.run(ctx, { event: "XMPL27-LDN" })).data as Row;
   assert.deepEqual(calls.map((c) => c.fn), ["loadReleases"]);
-  assert.deepEqual(calls[0]!.input, { eventId: EV, clientId: DHB });
+  assert.deepEqual(calls[0]!.input, { eventId: EV, clientId: PROMOTER });
   assert.equal(out.readAt, NOW.toISOString());
   assert.equal((out.releases as Row[])[0]!.stateLabel, "on sale");
   assert.deepEqual(db.writes, []);
   const none = showsSpy({ releases: [] });
-  const empty = (await getReleasesTool.run(ctxFor({ shows: none.shows }).ctx, { event: "AS27-LDN" })).data as Row;
-  assert.equal(empty.message, SHOWS_WORDS.releasesNone("AS27-LDN"));
+  const empty = (await getReleasesTool.run(ctxFor({ shows: none.shows }).ctx, { event: "XMPL27-LDN" })).data as Row;
+  assert.equal(empty.message, SHOWS_WORDS.releasesNone("XMPL27-LDN"));
 });
 
 test("set_release: the card's save, then the claims the ladder gives after it", async () => {
   const spy = showsSpy({ releases: [release({ id: "r1", name: "Tier 1", sold: 20 })] });
   const { ctx, db } = ctxFor({ shows: spy.shows });
-  const out = (await setReleaseTool.run(ctx, { event: "AS27-LDN", release: "tier 1", count: 62 })).data as Row;
+  const out = (await setReleaseTool.run(ctx, { event: "XMPL27-LDN", release: "tier 1", count: 62 })).data as Row;
   assert.deepEqual(spy.calls.map((c) => c.fn), ["loadReleases", "postRelease", "loadReleases"]);
   assert.deepEqual(spy.calls[1]!.input, { userId: MATAS, eventId: EV, body: { releaseId: "r1", sold: 62, confirmed: false } });
-  assert.equal(out.message, "Done: Tier 1: 62 sold. The claims are as the ladder gives them now.");
+  assert.equal(out.message, "Done: Tier 1 · 62 sold. Its claims now follow the ladder.");
   const claim = (out.claims as Row[]).find((c) => c.release === "Tier 1")!;
   assert.deepEqual([claim.claim, claim.met], ["80% sold", true], "62 % meets 60 %, not 70 %");
   assert.deepEqual(db.writes, []);
@@ -497,15 +497,15 @@ test("set_release: the card's save, then the claims the ladder gives after it", 
 
 test("set_release: a step back asks once (nothing is sent until confirmed), an unknown release names the show's releases", async () => {
   const spy = showsSpy({ releases: [release({ id: "r1", name: "Tier 1", state: "sold_out" })] });
-  const e = await refused(setReleaseTool.run(ctxFor({ shows: spy.shows }).ctx, { event: "AS27-LDN", release: "Tier 1", state: "on_sale" }));
+  const e = await refused(setReleaseTool.run(ctxFor({ shows: spy.shows }).ctx, { event: "XMPL27-LDN", release: "Tier 1", state: "on_sale" }));
   assert.equal(e.message, SHOWS_WORDS.releaseBackwards("Tier 1", "sold out", "on sale"));
   assert.deepEqual(spy.calls.map((c) => c.fn), ["loadReleases"]);
-  await setReleaseTool.run(ctxFor({ shows: spy.shows }).ctx, { event: "AS27-LDN", release: "Tier 1", state: "on_sale", confirmed: true });
+  await setReleaseTool.run(ctxFor({ shows: spy.shows }).ctx, { event: "XMPL27-LDN", release: "Tier 1", state: "on_sale", confirmed: true });
   assert.equal((spy.calls.find((c) => c.fn === "postRelease")!.input as { body: Row }).body.confirmed, true);
 
-  const unknown = await refused(setReleaseTool.run(ctxFor().ctx, { event: "AS27-LDN", release: "Tier 9", state: "on_sale" }));
-  assert.equal(unknown.message, SHOWS_WORDS.releaseUnknown("Tier 9", "AS27-LDN", ["Tier 1"]));
-  const empty = await refused(setReleaseTool.run(ctxFor().ctx, { event: "AS27-LDN", release: "Tier 1" }));
+  const unknown = await refused(setReleaseTool.run(ctxFor().ctx, { event: "XMPL27-LDN", release: "Tier 9", state: "on_sale" }));
+  assert.equal(unknown.message, SHOWS_WORDS.releaseUnknown("Tier 9", "XMPL27-LDN", ["Tier 1"]));
+  const empty = await refused(setReleaseTool.run(ctxFor().ctx, { event: "XMPL27-LDN", release: "Tier 1" }));
   assert.equal(empty.message, SHOWS_WORDS.releaseEmpty);
   const theirs = await refused(setReleaseTool.run(ctxFor().ctx, { event: "OT27-X", release: "Tier 1", state: "on_sale" }));
   assert.equal(theirs.message, EVENT_WORDS.refusedOtherAccount);
@@ -513,10 +513,10 @@ test("set_release: a step back asks once (nothing is sent until confirmed), an u
 
 test("set_release: the route's own ask and a failed save come back plain", async () => {
   const ask = showsSpy({ postAsk: true });
-  const e = await refused(setReleaseTool.run(ctxFor({ shows: ask.shows }).ctx, { event: "AS27-LDN", release: "Tier 1", state: "selling_fast" }));
+  const e = await refused(setReleaseTool.run(ctxFor({ shows: ask.shows }).ctx, { event: "XMPL27-LDN", release: "Tier 1", state: "selling_fast" }));
   assert.equal((e.summary as Row).refused, "backwards");
   const bad = showsSpy({ postStatus: 500 });
-  const f = await refused(setReleaseTool.run(ctxFor({ shows: bad.shows }).ctx, { event: "AS27-LDN", release: "Tier 1", state: "selling_fast" }));
+  const f = await refused(setReleaseTool.run(ctxFor({ shows: bad.shows }).ctx, { event: "XMPL27-LDN", release: "Tier 1", state: "selling_fast" }));
   assert.equal(f.message, SHOWS_WORDS.releaseFailed);
 });
 
@@ -529,9 +529,9 @@ test("set_release refuses a change that would move the presale or general sale t
   ];
   const spy = showsSpy({ releases: rows() });
   const { ctx, db } = ctxFor({ shows: spy.shows });
-  const e = await refused(setReleaseTool.run(ctx, { event: "AS27-LDN", release: "Tier 1", state: "selling_fast" }));
-  assert.equal(e.message, SHOWS_WORDS.releaseMovesTimes("AS27-LDN", true, true));
-  assert.equal(e.message, "Refused: this would move AS27-LDN’s presale and general sale times, and sale times move only through update_event, with Matas’s yes. Nothing was changed.");
+  const e = await refused(setReleaseTool.run(ctx, { event: "XMPL27-LDN", release: "Tier 1", state: "selling_fast" }));
+  assert.equal(e.message, SHOWS_WORDS.releaseMovesTimes("XMPL27-LDN", true, true));
+  assert.equal(e.message, "Refused: this would move XMPL27-LDN’s presale and general sale times, and sale times move only through update_event, with Matas’s yes. Nothing was changed.");
   assert.equal((e.summary as Row).refused, "moves_sale_times");
   assert.deepEqual(spy.calls.map((c) => c.fn), ["loadReleases"], "nothing posted");
   assert.deepEqual(db.writes, []);
@@ -540,9 +540,9 @@ test("set_release refuses a change that would move the presale or general sale t
   const t = tables();
   (t.events as Row[]).find((r) => r.id === EV)!.presale_at = "2026-12-01T18:00:00.000Z";
   const one = showsSpy({ releases: rows() });
-  const e2 = await refused(setReleaseTool.run(ctxFor({ shows: one.shows, t }).ctx, { event: "AS27-LDN", release: "Tier 1", count: 40 }));
-  assert.equal(e2.message, SHOWS_WORDS.releaseMovesTimes("AS27-LDN", false, true));
-  assert.match(e2.message, /move AS27-LDN’s general sale time,/);
+  const e2 = await refused(setReleaseTool.run(ctxFor({ shows: one.shows, t }).ctx, { event: "XMPL27-LDN", release: "Tier 1", count: 40 }));
+  assert.equal(e2.message, SHOWS_WORDS.releaseMovesTimes("XMPL27-LDN", false, true));
+  assert.match(e2.message, /move XMPL27-LDN’s general sale time,/);
   assert.match(e2.message, /update_event/);
   assert.match(e2.message, /Nothing was changed\.$/);
 
@@ -550,6 +550,38 @@ test("set_release refuses a change that would move the presale or general sale t
   const same = tables();
   Object.assign((same.events as Row[]).find((r) => r.id === EV)!, { presale_at: "2026-12-01T18:00:00+00:00", general_sale_at: "2026-12-05T10:00:00.000Z" });
   const ok = showsSpy({ releases: rows() });
-  await setReleaseTool.run(ctxFor({ shows: ok.shows, t: same }).ctx, { event: "AS27-LDN", release: "Tier 1", state: "selling_fast" });
+  await setReleaseTool.run(ctxFor({ shows: ok.shows, t: same }).ctx, { event: "XMPL27-LDN", release: "Tier 1", state: "selling_fast" });
   assert.deepEqual(ok.calls.map((c) => c.fn), ["loadReleases", "postRelease", "loadReleases"]);
 });
+
+test("design's ruled rows (verdict on #1391, 26 Nov) read word for word and have left the For design list", () => {
+  assert.equal(SHOWS_WORDS.lineupUnknown("XMPL Artist"), "Refused: XMPL Artist isn’t in the artist library. Pass their spotify_id to add them, or add them in the Lab. Nothing was changed.");
+  assert.equal(SHOWS_WORDS.lineupAmbiguous("XMPL Artist", 2), "Refused: 2 artists in the library are called XMPL Artist. Pass the spotify_id of the one you mean. Nothing was changed.");
+  assert.equal(SHOWS_WORDS.date, "Refused: give date as the show day, like 2027-03-14. Nothing was changed.");
+  assert.equal(SHOWS_WORDS.releaseDone("Tier 1", "on sale"), "Done: Tier 1 · on sale. Its claims now follow the ladder.");
+  assert.deepEqual(Object.keys(SHOWS_RULED).sort(), ["date", "lineupAmbiguous", "lineupUnknown", "releaseDone"]);
+  const pendingKeys = new Set(SHOWS_FOR_DESIGN.map((w) => w.key));
+  for (const k of ["claude.mcp.shows.lineup.refused.unknown", "claude.mcp.shows.lineup.refused.ambiguous", "claude.mcp.shows.event.refused.date", "claude.mcp.shows.release.done"]) {
+    assert.ok(!pendingKeys.has(k), `${k} is ruled`);
+  }
+  // Matas's 26 Nov ruling is still a new string for design.
+  assert.ok(pendingKeys.has("claude.mcp.shows.release.refused.moves_times"));
+});
+
+test("the shows tools' descriptions use invented XMPL names only, and create_event says only that nothing goes to Meta", () => {
+  const text = SHOWS_TOOLS_TEXT();
+  // Every client, act, venue and event code the descriptions name is an invented XMPL one.
+  const named = [...text.matchAll(/\b(?:client|name|parent_client|event|code|venue): "([^"]+)"/g), ...text.matchAll(/e\.g\. "([^"]+)"/g)].map((m) => m[1]!);
+  assert.ok(named.length >= 10, named.join(", "));
+  for (const n of named.filter((n) => !/^(Europe|America)\//.test(n))) assert.match(n, /^XMPL/, n);
+  assert.match(text, /XMPL27-LDN/);
+  const ce = MCP_TOOLS.find((t) => t.name === "create_event")!.description;
+  assert.match(ce, /Nothing goes to Meta\./);
+  assert.doesNotMatch(ce, /App only|any other platform/);
+});
+
+function SHOWS_TOOLS_TEXT(): string {
+  return MCP_TOOLS.filter((t) => ["create_event", "create_client", "set_lineup", "get_releases", "set_release"].includes(t.name))
+    .map((t) => [t.description, ...Object.values(t.inputSchema as Record<string, { description?: string }>).map((v) => v.description ?? "")].join("\n"))
+    .join("\n");
+}

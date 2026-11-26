@@ -1,11 +1,10 @@
 -- Migration 272 — a client's parent client (a sub-brand under its promoter)
 --
 -- Off/Pixel MCP M3d-a, create_client(name, parent_client?): a sub-brand
--- (Ahmed Spins under Deep House Bible) is its own client row, linked to the
--- client it sits under. Until now the app had no client-to-client link:
--- Electric's brands (ES, NX) are event codes under one client, and the
--- Ahmed Spins shows (AS26, AS27) sit under Deep House Bible. This column is
--- that link and nothing reads it yet; no existing row is changed.
+-- (XMPL Sub-brand under XMPL Promoter) is its own client row, linked to the
+-- client it sits under. Until now the app had no client-to-client link: a
+-- promoter's brands were event codes under one client. This column is that
+-- link and nothing reads it yet; no existing row is changed.
 --
 -- 1. clients.parent_client_id: nullable, the parent's id. Deleting the
 --    parent clears the link (ON DELETE SET NULL), never the sub-brand.
@@ -34,4 +33,4 @@ create index if not exists clients_parent_client_id_idx
   where parent_client_id is not null;
 
 comment on column public.clients.parent_client_id is
-  'The client this one is a sub-brand of (Ahmed Spins under Deep House Bible). Null for a top-level client. Set by create_client (Off/Pixel MCP M3d-a); read by nothing yet.';
+  'The client this one is a sub-brand of (XMPL Sub-brand under XMPL Promoter). Null for a top-level client. Set by create_client (Off/Pixel MCP M3d-a); read by nothing yet.';
