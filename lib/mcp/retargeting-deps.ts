@@ -134,7 +134,7 @@ export function realRetargetingDeps(db: SupabaseClient): McpRetargetingDeps {
       }
       return out;
     },
-    async create({ userId, eventId, clientId, clientName, approval, build, mode, today }) {
+    async create({ userId, eventId, clientId, approval, build, mode, today }) {
       const token = await tokenFor(userId);
       if (!token) throw new Error("no Facebook token");
       const outcome = await applyFunnel(

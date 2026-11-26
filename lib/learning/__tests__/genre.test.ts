@@ -205,6 +205,9 @@ describe("no path writes genre_family without an operator", () => {
       // The retargeting funnel's staged Similar tier (two-campaign record): the 08:00 read reads events.genre_family; page_groups has a genre_family column of its own.
       "lib/retargeting/runner.ts",
       "lib/retargeting/page-groups.ts",
+      // Name it in comments and types only (Similar's "no genre" skip).
+      "lib/retargeting/funnel.ts",
+      "lib/retargeting/plan.ts",
       "lib/retargeting/__tests__/show-campaigns.test.ts",
       "lib/retargeting/__tests__/migration-275.test.ts",
       "scripts/page-groups-seed.mts",
