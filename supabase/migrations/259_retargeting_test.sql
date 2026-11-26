@@ -11,12 +11,16 @@
 -- 2. Two op kinds on meta_write_idempotency: retargeting_study_create (POST
 --    /{business_id}/ad_studies, the two arm campaigns as 50 % cells) and
 --    retargeting_study_end (the test ended on the call). Main's 263 already
---    added both, so the op_kind CHECK is re-added unchanged: the 22 kinds
---    live on prod (read only, 24 Nov, after 257 and 267 were applied).
+--    added both. The op_kind CHECK is re-added with the 22 kinds live on prod
+--    (read only, 26 Nov, after 268–270 and 272) plus 271's five
+--    (#1389, 271_scheduled_meta_changes.sql: campaign_status_update,
+--    adset_budget_update, campaign_budget_update, object_name_update,
+--    ad_study_create), so 259 and 271 apply in either order and neither
+--    drops the other's kinds.
 --
 -- Both CHECKs are dropped by name and re-added with every value they hold
 -- live: the line kinds are prod's 11 plus retargeting_test_call; the op
--- kinds drop none of the 22.
+-- kinds drop none of the 22 and keep 271's five.
 --
 -- Write only. Not applied from this branch. Ops applies from the PR head.
 
@@ -54,7 +58,12 @@ alter table public.meta_write_idempotency
     'retargeting_study_end',
     'adset_end_time_update',
     'customer_list_create',
-    'customer_list_users'
+    'customer_list_users',
+    'campaign_status_update',
+    'adset_budget_update',
+    'campaign_budget_update',
+    'object_name_update',
+    'ad_study_create'
   ));
 
 notify pgrst, 'reload schema';
