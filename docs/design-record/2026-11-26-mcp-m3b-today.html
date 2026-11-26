@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>M3b’s changes on Today — 26 Nov 2026</title>
+<style>
+:root{
+  --sand:#F0C9A8; --card:#e8d4c0; --edit:#f6ebe0; --paper:#fff8f0; --ink:#1e1810; --ink-2:#4a3d30; --ink-3:#6f6052;
+  --border:rgba(30,24,16,.10); --border-strong:rgba(30,24,16,.18); --muted:rgba(30,24,16,.06);
+  --olive:#4f5a1f; --ochre:#8a560c; --brick:#8f3424;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--sand);color:var(--ink);font:14px/1.5 var(--sans);font-feature-settings:"calt" 0}
+.wrap{max-width:1360px;margin:0 auto;padding:40px 24px 120px}
+h1{font-size:24px;font-weight:600;margin:0 0 6px}
+h2{font-size:20px;font-weight:600;margin:56px 0 8px}
+h3{font-size:13px;font-weight:600;margin:20px 0 6px}
+p{margin:0 0 10px;max-width:86ch}
+.lead{font-size:13px;color:var(--ink-2)}
+.k{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+code{font:12px var(--mono);background:var(--muted);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+figure{margin:0;min-width:0;max-width:100%}
+figcaption{font:700 9px/1.5 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+table.t{border-collapse:collapse;width:100%;font-size:12.5px;margin:10px 0 22px;background:var(--card);border-radius:8px;overflow:hidden;table-layout:fixed}
+table.t th,table.t td{text-align:left;vertical-align:top;padding:8px 12px;border-bottom:1px solid var(--border);overflow-wrap:anywhere}
+table.t th{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.t td:first-child{font-weight:600;width:190px}
+table.t ul{margin:4px 0 0 16px;padding:0}table.t li{margin:0 0 4px}
+.open{background:#f3e3c8;border:1px dashed var(--ochre);border-radius:8px;padding:10px 14px;font-size:12.5px;margin:10px 0 16px}
+.notes{font-size:12.5px;color:var(--ink-2)}.notes li{margin:0 0 6px;max-width:96ch}
+.frame{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start;margin:12px 0 24px}
+.vp{background:var(--paper);border:1px solid var(--border-strong);border-radius:8px;overflow:hidden;max-width:100%;padding:16px;font-size:13px}
+.vp.wide{width:760px}.vp.w393{width:393px}
+.ph{font:700 9px/1.4 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+.h{font-weight:600;font-size:14px;margin:0 0 4px}
+.sub{font-size:12px;color:var(--ink-2);margin:0 0 10px}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 10px}
+.chip{border:1px solid var(--border-strong);border-radius:999px;padding:3px 10px;font-size:12px;background:#fff}
+.chip.on{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.mono{font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase}
+.row{display:grid;grid-template-columns:22px 26px 1fr auto;gap:8px;align-items:center;padding:7px 0;border-top:1px solid var(--border)}
+.row .n{color:var(--ink-3);font:12px var(--mono)}
+.box{width:16px;height:16px;border:1.5px solid var(--ink);border-radius:3px;display:inline-block}
+.box.on{background:var(--ink)}
+.box.off{border-color:var(--ink-3);opacity:.45}
+.fs{font-size:11.5px;color:var(--ink-2)}
+.fs.warn{color:var(--brick)}
+.ok{color:var(--olive)}
+.btn{display:inline-block;border:1px solid var(--ink);border-radius:4px;padding:5px 10px;font:700 10px var(--mono);letter-spacing:.1em;text-transform:uppercase;background:var(--ink);color:var(--paper)}
+.btn.ghost{background:transparent;color:var(--ink)}
+.btn.dis{opacity:.4}
+.wave{position:relative;height:64px;background:repeating-linear-gradient(90deg,var(--ink-3) 0 2px,transparent 2px 5px);border-radius:4px;margin:26px 0 4px;opacity:.9}
+.wave .win{position:absolute;top:-4px;bottom:-4px;border:2px solid var(--ink);background:rgba(232,212,192,.55);border-radius:4px}
+.wave .drop{position:absolute;top:-10px;bottom:-10px;width:2px;background:var(--brick)}
+.wave .drop span{position:absolute;top:-16px;left:-20px;font:700 9px var(--mono);letter-spacing:.1em;color:var(--brick);white-space:nowrap}
+.tl{display:flex;justify-content:space-between;font:11px var(--mono);color:var(--ink-3)}
+.pv{width:150px;height:267px;background:#222;border-radius:6px;position:relative;flex:none;display:flex;align-items:center;justify-content:center;color:#fff;font:700 9px var(--mono);letter-spacing:.12em}
+.pv .play{position:absolute;bottom:10px;left:10px;width:28px;height:28px;border-radius:50%;background:#fff}
+.split{display:flex;gap:16px;align-items:flex-start}
+table.v{border-collapse:collapse;width:100%;font-size:12px;margin:6px 0}
+table.v th{font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);text-align:left;padding:4px 6px;border-bottom:1px solid var(--border-strong)}
+table.v td{padding:6px;border-bottom:1px solid var(--border)}
+table.v td.r,table.v th.r{text-align:right}
+.st{display:inline-block;border:1px solid var(--border-strong);border-radius:10px;padding:2px 8px;font:700 9px/1.5 var(--mono);letter-spacing:.1em;text-transform:uppercase}
+.st.run{border-style:dashed}
+.st.win{background:var(--olive);color:#fff;border-color:var(--olive)}
+.test{border:1px solid var(--border);border-radius:6px;padding:10px 12px;margin:8px 0;background:#fff}
+.test.dim{opacity:.55}
+.line{background:var(--card);border-radius:6px;padding:8px 10px;margin:6px 0;font-size:12px}
+.inv{text-decoration:underline dotted var(--brick);text-decoration-thickness:1.5px;text-underline-offset:3px}
+table.t table.t td:first-child{width:auto;font-weight:400}
+@media (max-width:560px){table.t th[style]{width:100px!important}table.t td:first-child{width:100px}}
+.st.fail{border-color:var(--brick);color:var(--brick)}
+.line .acts{float:right;font:700 9px var(--mono);letter-spacing:.1em;text-transform:uppercase}
+.line.wait{opacity:.6}
+.line.failed{border:1px solid var(--brick);background:#f6e3dc}
+.tick{display:inline-block;width:11px;height:11px;border:1.5px solid var(--ink);border-radius:2px;margin-right:6px;vertical-align:-1px}
+.tick.on{background:var(--ink)}
+.bar{display:inline-block;height:8px;background:var(--ink-3);border-radius:2px;vertical-align:middle;margin-right:6px}
+.sbar{position:relative;display:inline-block;width:100px;height:8px;background:var(--muted);border-radius:2px;vertical-align:middle;margin-right:8px}
+.sbar i{position:absolute;left:0;top:0;bottom:0;background:var(--ink-3);border-radius:2px}
+.sbar i.lead{background:var(--olive)}
+.sbar b{position:absolute;left:60px;top:-3px;bottom:-3px;width:1px;background:var(--ink)}
+.sbar s{position:absolute;left:10px;top:-3px;bottom:-3px;width:1px;background:var(--ink-3);opacity:.6}
+
+/* ---------- campaign creator: replicate record ---------- */
+.scrollx{overflow-x:auto;max-width:100%}
+.vp.w1280{width:1280px;padding:0}
+.vp.w393{padding:0}
+.bar1{display:flex;justify-content:space-between;align-items:center;padding:12px 18px;border-bottom:1px solid var(--border);background:#fff}
+.bar1 .bc{font:700 9px var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3)}
+.bar1 .bc b{color:var(--ink)}
+.body1{padding:18px}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.g3{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.g4{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.card2{background:#fff;border:1px solid var(--border-strong);border-radius:8px;padding:14px 16px;min-width:0}
+.card2 .ttl{font-weight:600;font-size:14px;margin:0 0 2px}
+.card2 .s{font-size:12px;color:var(--ink-2)}
+.menu{width:260px;background:#fff;border:1px solid var(--border-strong);border-radius:8px;box-shadow:0 8px 28px rgba(30,24,16,.14);padding:6px 0}
+.menu .mi{padding:8px 14px;font-size:13px}
+.menu .mi small{display:block;font-size:11.5px;color:var(--ink-2)}
+.menu .mi.hi{background:var(--edit)}
+.menu hr{border:0;border-top:1px solid var(--border);margin:4px 0}
+.dlg{background:#fff;border:1px solid var(--border-strong);border-radius:10px;box-shadow:0 12px 40px rgba(30,24,16,.18);overflow:hidden}
+.dlg .dh{padding:14px 18px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}
+.dlg .dh b{font-size:15px}
+.dlg .db{padding:14px 18px}
+.dlg .df{padding:12px 18px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:8px;align-items:center;background:var(--paper)}
+.dlg .df .fs{margin-right:auto}
+.ev{display:grid;grid-template-columns:1fr auto;gap:2px 10px;padding:9px 10px;border:1px solid var(--border);border-radius:6px;margin:0 0 6px;font-size:13px;background:#fff}
+.ev.on{border:1.5px solid var(--ink);background:var(--edit)}
+.ev small{grid-column:1/-1;font-size:11.5px;color:var(--ink-2)}
+.ev .code{font:700 10px var(--mono);letter-spacing:.08em}
+.search{border:1px solid var(--border-strong);border-radius:6px;padding:8px 10px;font-size:13px;color:var(--ink-3);margin:0 0 10px;background:#fff}
+.chg{display:grid;grid-template-columns:96px 1fr;gap:4px 12px;padding:8px 0;border-top:1px solid var(--border);font-size:13px;align-items:baseline}
+.chg .l{font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3)}
+.chg .was{color:var(--ink-3)}
+.chg.amb{background:#f3e3c8;margin:0 -10px;padding:8px 10px;border-radius:6px;border-top:0}
+.sec2{font:700 9px var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin:14px 0 4px}
+.ask{border:1.5px solid var(--ink);border-radius:8px;padding:10px 12px;margin:10px 0 0;font-size:13px}
+.ask .btns{display:flex;gap:8px;margin-top:8px}
+.chk{border:1px solid var(--border-strong);border-left:4px solid var(--brick);border-radius:6px;padding:10px 12px;margin:0 0 8px;background:#fff;font-size:13px}
+.chk.warn{border-left-color:var(--ochre)}
+.chk .key{font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--brick);margin:0 0 3px}
+.chk.warn .key{color:var(--ochre)}
+.chk .ev2{font-size:11.5px;color:var(--ink-2);margin:4px 0 6px}
+.chk .acts{display:flex;gap:8px;flex-wrap:wrap}
+.sum{display:flex;gap:10px;align-items:center;font:700 10px var(--mono);letter-spacing:.1em;text-transform:uppercase;margin:0 0 10px}
+.sum .r{color:var(--brick)}.sum .a{color:var(--ochre)}
+.vc{background:#fff;border:1px solid var(--border-strong);border-radius:8px;padding:12px 14px}
+.vc .ttl{font-weight:600}
+.kv2{display:grid;grid-template-columns:90px 1fr;gap:6px 10px;font-size:12.5px;margin-top:8px;align-items:baseline}
+.kv2 .l{font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3)}
+.sel{display:inline-block;border:1px solid var(--border-strong);border-radius:6px;padding:4px 8px;background:var(--paper);font-size:12.5px}
+.ovr{border:1px dashed var(--ochre);background:#f7ecda}
+.tabs2{display:flex;gap:2px;border-bottom:1px solid var(--border-strong);margin:0 0 12px}
+.tabs2>span{padding:8px 14px;font:700 10px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3)}
+.tabs2>span.on{color:var(--ink);box-shadow:inset 0 -2px 0 var(--ink)}
+.beta{font:700 8px var(--mono);letter-spacing:.12em;border:1px solid var(--ochre);color:var(--ochre);border-radius:8px;padding:1px 5px;margin-left:5px;vertical-align:1px}
+.ti{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:7px 0;border-top:1px solid var(--border);font-size:13px}
+.ti small{display:block;font-size:11.5px;color:var(--ink-2)}
+.st.reuse{background:var(--olive);color:#fff;border-color:var(--olive)}
+.st.make{border-style:dashed;color:var(--ink-2)}
+.st.amb{border-color:var(--ochre);color:var(--ochre);background:#f7ecda}
+.st.ok2{border-color:var(--olive);color:var(--olive)}
+.tree{font-size:13px}
+.tree .stg{display:flex;justify-content:space-between;align-items:center;padding:10px 0 6px;border-top:1px solid var(--border-strong)}
+.tree .stg b{font:700 10px var(--mono);letter-spacing:.14em;text-transform:uppercase}
+.tree .cmp{margin-left:14px;padding:7px 0 7px 12px;border-left:2px solid var(--border-strong)}
+.tree .cmp .nm{font-weight:600}
+.tree .add{margin-left:30px;padding:4px 0 4px 12px;border-left:2px dashed var(--border-strong);font-size:12px;color:var(--ink-2)}
+.tree .add b{color:var(--ink);font-weight:600}
+.tk{display:flex;align-items:center;gap:8px;padding:6px 0;border-top:1px solid var(--border);font-size:13px}
+.tk.sub{padding-left:22px;font-size:12.5px;color:var(--ink-2)}
+.cap{border:1px solid var(--border-strong);border-radius:8px;padding:10px 12px;margin:0 0 8px;background:#fff;font-size:13px}
+.cap .meta{display:flex;justify-content:space-between;align-items:center;gap:8px;margin:0 0 6px}
+.cap .lock{background:var(--card);border-radius:3px;padding:0 3px}
+.form3{display:grid;grid-template-columns:80px 1fr;gap:8px;align-items:center;font-size:12.5px;margin:8px 0}
+.form3 .l{font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3)}
+.seg{display:inline-flex;border:1px solid var(--ink);border-radius:4px;overflow:hidden}
+.seg span{padding:3px 8px;font-size:12px}.seg span.on{background:var(--ink);color:#fff}
+table.w{border-collapse:collapse;width:100%;min-width:900px;font-size:12px;background:var(--card);table-layout:fixed}
+table.w th,table.w td{text-align:left;vertical-align:top;padding:6px 10px;border-bottom:1px solid var(--border);overflow-wrap:anywhere}
+table.w th{font:700 9px var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.w td:first-child{font:11px var(--mono)}
+.cap .meta{flex-wrap:wrap}.cap .meta .st{white-space:nowrap}
+.seg{flex-wrap:wrap}.seg span{white-space:nowrap}
+</style>
+</head><body>
+<div class="wrap">
+
+<p class="k">Off/Pixel · design record · MCP · M3b on Today · 26 November 2026 · extends 2026-11-25-mcp-full-control (FC1) for M3b’s live changes</p>
+<h1>M3b’s changes on Today’s log</h1>
+<p class="lead">M3b (#1389) shipped switched off, because the consent page promises “every change is listed on Today”. FC1 already made Today a log. This record gives Today the rows, Undo and scheduled changes M3b adds, so the builder can switch M3b on. FC1 stands as written, and the merged records aren’t edited.</p>
+<ul class="notes">
+<li>Each M3b change is an FC1 row: title, change line, “Approved in Claude · {date, time}” with What Claude asked, the outcome, and Undo where one exists.</li>
+<li>A budget change set for later sits at the top of the section until it runs, with Cancel.</li>
+<li>Reads, and refusals that are only a mistake in what Claude sent, aren’t logged.</li>
+</ul>
+
+<h2>Rulings</h2>
+<table class="t">
+<tr><th style="width:190px">#</th><th>Ruling</th></tr>
+<tr><td>MB1 · M3b’s rows</td><td>
+<ul>
+<li><b>Each change is one row,</b> in FC1’s form, newest first. The title and change line per tool:
+<ul>
+<li>pause and resume: “Pause campaign”, “Pause ad set”, “Pause ad”, and the same with Resume; “{name}: live → paused”, and the reverse;</li>
+<li>set_budget: “Change budget”; “{name}: £{x} → £{y} a day”, or “lifetime” for a lifetime budget. When the old amount wasn’t recorded: “{name}: to £{y} a day”;</li>
+<li>move_budget: “Move budget”; “£{x} a day: {from} → {to}”;</li>
+<li>rename: “Rename”; the change line is “{before}” → “{after}”, both names in quotes, because names carry “·”;</li>
+<li>add_creatives_to_stage and add_audience_to_stage: Step 0’s rows as they are;</li>
+<li>create_split_test: “Start an A/B test”; “{a} vs {b} · 50/50 · {start} – {end}”.</li>
+</ul></li>
+<li><b>Outcomes</b> use TD’s counts-only results. A test counts as “1 test created · {id}”. A change Meta refused outright reads “Failed · Meta didn’t take it, so nothing changed”. A move that only lowered one side reads TD’s “Failed · 1 of 2 ad sets changed · {id}”.</li>
+<li><b>Undo,</b> in FC1’s form, where M3b can put it back:
+<ul>
+<li>pause and resume, budget change and move: FC1’s lines. A lifetime budget reads “Undo puts it back to £{x} lifetime.”;</li>
+<li>rename: “Undo puts the old name back.”;</li>
+<li>creatives added paused: FC1’s delete line. Added live: FC1’s “It’s live, so Undo can’t delete it. Pause it in the campaign tree.”</li>
+</ul></li>
+<li><b>No Undo</b> on added audiences (nothing to say), a part-done move, or a test. A test’s row reads “A test can’t be undone here. End it in Ads Manager.”</li>
+</ul></td></tr>
+<tr><td>MB2 · Scheduled budget changes</td><td>
+<ul>
+<li><b>Before it runs:</b> a set_budget with a time is a row from the moment Matas says yes. It sits at the top of the section, soonest first, on every day until it runs. Beside the title, the header adds “{n} scheduled”.</li>
+<li>The row shows the change line and “Approved in Claude · {date, time} · What Claude asked”, then, with an ochre edge, “Scheduled for {date, time}”. Under that are Cancel and “It runs only if nothing has changed by then.”</li>
+<li><b>Cancel</b> is Matas’s own action and doesn’t confirm, because nothing has run. The row then reads “Cancelled by {name} · {date, time}”, muted. Claude’s cancel_scheduled reads “Cancelled in Claude · {date, time}”.</li>
+<li><b>When it’s due</b> the row moves into the day’s log at its run time and adds “Ran as scheduled · {date, time}” under the approval line. Then it shows:
+<ul>
+<li>Done, with the budget Undo;</li>
+<li>or, muted, “Skipped · {reason}”. The reasons are the six told to Claude by list_scheduled, in lower case: the budget changed, it was paused, it ended or was deleted, the ceiling, the switch, or Meta couldn’t be read;</li>
+<li>or “Failed · Meta didn’t take it, so nothing changed”. A budget that changed during the write reads as skipped for that reason.</li>
+</ul></li>
+</ul></td></tr>
+<tr><td>MB3 · What the log leaves out</td><td>
+<ul>
+<li>get_live and list_scheduled read only, so they have no row.</li>
+<li>Refusals: FC1’s rule stands. Muted rows for the reasons Matas acts on: no approval, ceiling, no ceiling, switch.</li>
+<li>Refusals that only correct what Claude sent stay out of the log. Claude is told each one, and the action log keeps them. Examples: wrong id or event, a budget type mismatch, bad dates, an unknown template.</li>
+</ul></td></tr>
+<tr><td>MB4 · Switching M3b on</td><td>
+<ul>
+<li>The PR that builds MB1–MB3 sets <code>LIVE_CHANGES_SHIPPED</code> and <code>TODAY_UNDO_SHIPPED</code> to true together. From then on, “Matas can undo this on Today.” goes out wherever an Undo exists (FC2).</li>
+<li>Neither flips on its own. Until both rows and Undo are on Today, the consent line’s “every change is listed on Today” isn’t true.</li>
+</ul></td></tr>
+</table>
+<h2>Frames</h2><h3>MB-A · Today, with M3b’s rows (MB1, MB2, MB3)</h3><div class="frame"><figure><figcaption>MB-A · 1280</figcaption><div class="scrollx"><div class="vp w1280"><div class="bar1"><span class="bc">Today</span><span class="bc">OFF/PIXEL</span></div><div class="body1"><div style="max-width:720px"><div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:6px"><b style="font-size:15px">Claude’s changes</b><span class="fs">5 today · 1 scheduled</span></div><p class="fs" style="margin:4px 0 0">Electric Brixton: £108.00 of <span style="white-space:nowrap">£150.00 a day</span></p><p class="fs" style="margin:2px 0 10px">Puzzle: £24.00 of <span style="white-space:nowrap">£40.00 a day</span></p><div style="border:1px solid var(--border-strong);border-left:4px solid #7a4a08;border-radius:8px;padding:10px 12px;background:#fff;margin:0 0 8px;"><div style="font-weight:600;font-size:13.5px">Change budget · <span style="white-space:nowrap">NX27-GLITTERBOX</span></div><div style="font-size:13px;margin-top:2px">Retargeting · Bottom: £12.00 → <span style="white-space:nowrap">£20.00 a day</span></div><div class="fs" style="margin-top:3px">Approved in Claude · <span style="white-space:nowrap">Thu 26 Nov, 16:40</span> · <span style="text-decoration:underline;text-underline-offset:2px">What Claude asked</span></div><div style="font-size:12.5px;margin-top:2px;color:var(--ink-2)"><span style="color:#7a4a08">Scheduled for <span style="white-space:nowrap">Fri 27 Nov, 09:00</span></span></div><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:8px"><span class="btn ghost">Cancel</span><span class="fs" style="font-size:12px">It runs only if nothing has changed by then.</span></div></div><div style="border:1px solid var(--border-strong);border-left:4px solid var(--olive);border-radius:8px;padding:10px 12px;background:#fff;margin:0 0 8px;"><div style="font-weight:600;font-size:13.5px">Change budget · <span style="white-space:nowrap">ES27-ENZOSIRAGUSA</span></div><div style="font-size:13px;margin-top:2px">Broad · 25–44: £20.00 → <span style="white-space:nowrap">£30.00 a day</span></div><div class="fs" style="margin-top:3px">Approved in Claude · <span style="white-space:nowrap">Thu 26 Nov, 15:12</span> · <span style="text-decoration:underline;text-underline-offset:2px">What Claude asked</span></div><div style="font-size:12.5px;margin-top:2px;color:var(--ink-2)"><span style="color:var(--olive)">Done · <span style="white-space:nowrap">1 ad set changed</span> · 120253104477310755</span></div><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:8px"><span class="btn ghost">Undo</span><span class="fs" style="font-size:12px">Undo puts it back to <span style="white-space:nowrap">£20.00 a day</span>.</span></div></div><div style="border:1px solid var(--border-strong);border-left:4px solid var(--olive);border-radius:8px;padding:10px 12px;background:#fff;margin:0 0 8px;"><div style="font-weight:600;font-size:13.5px">Rename · <span style="white-space:nowrap">NX27-SILVABUMPA</span></div><div style="font-size:13px;margin-top:2px">“Broad · 25–44” → “Broad · 25–34”</div><div class="fs" style="margin-top:3px">Approved in Claude · <span style="white-space:nowrap">Thu 26 Nov, 14:05</span> · <span style="text-decoration:underline;text-underline-offset:2px">What Claude asked</span></div><div style="font-size:12.5px;margin-top:2px;color:var(--ink-2)"><span style="color:var(--olive)">Done · <span style="white-space:nowrap">1 ad set changed</span> · 120251748789350755</span></div><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:8px"><span class="btn ghost">Undo</span><span class="fs" style="font-size:12px">Undo puts the old name back.</span></div></div><div style="border:1px solid var(--border-strong);border-left:4px solid var(--olive);border-radius:8px;padding:10px 12px;background:#fff;margin:0 0 8px;"><div style="font-weight:600;font-size:13.5px">Start an A/B test · <span style="white-space:nowrap">NX27-GLITTERBOX</span></div><div style="font-size:13px;margin-top:2px">[NX27-GLITTERBOX] Retargeting A vs <span style="white-space:nowrap">[NX27-GLITTERBOX]</span> Retargeting B · 50/50 · <span style="white-space:nowrap">Fri 27 Nov</span> – <span style="white-space:nowrap">Sat 19 Dec</span></div><div class="fs" style="margin-top:3px">Approved in Claude · <span style="white-space:nowrap">Thu 26 Nov, 12:48</span> · <span style="text-decoration:underline;text-underline-offset:2px">What Claude asked</span></div><div style="font-size:12.5px;margin-top:2px;color:var(--ink-2)"><span style="color:var(--olive)">Done · <span style="white-space:nowrap">1 test created</span> · 6421907781104</span></div><div style="font-size:12.5px;margin-top:2px;color:var(--ink-2)">A test can’t be undone here. End it in Ads Manager.</div></div><div style="border:1px solid var(--border-strong);border-left:4px solid var(--olive);border-radius:8px;padding:10px 12px;background:#fff;margin:0 0 8px;"><div style="font-weight:600;font-size:13.5px">Pause campaign · <span style="white-space:nowrap">NX26-DOD</span></div><div style="font-size:13px;margin-top:2px">[NX26-DOD] Retargeting: live → paused</div><div class="fs" style="margin-top:3px">Approved in Claude · <span style="white-space:nowrap">Thu 26 Nov, 10:30</span> · <span style="text-decoration:underline;text-underline-offset:2px">What Claude asked</span></div><div style="font-size:12.5px;margin-top:2px;color:var(--ink-2)"><span style="color:var(--olive)">Done · <span style="white-space:nowrap">1 campaign changed</span> · 120250214477310712</span></div><div style="font-size:12.5px;margin-top:2px;color:var(--ink-2)">Undone by Matas · <span style="white-space:nowrap">Thu 26 Nov, 11:05</span></div></div><div style="border:1px solid var(--border-strong);border-left:4px solid var(--border-strong);border-radius:8px;padding:10px 12px;background:#fff;margin:0 0 8px;opacity:.7;"><div style="font-weight:600;font-size:13.5px">Change budget · <span style="white-space:nowrap">P26-BDAY</span></div><div style="font-size:13px;margin-top:2px">Broad · Southampton: £10.00 → <span style="white-space:nowrap">£14.00 a day</span></div><div class="fs" style="margin-top:3px">Approved in Claude · <span style="white-space:nowrap">Wed 25 Nov, 17:20</span> · <span style="text-decoration:underline;text-underline-offset:2px">What Claude asked</span><br>Ran as scheduled · <span style="white-space:nowrap">Thu 26 Nov, 09:00</span></div><div style="font-size:12.5px;margin-top:2px;color:var(--ink-2)"><span style="color:var(--ink)">Skipped · it was paused after it was scheduled</span></div></div></div></div></div></div><p class="fs" style="max-width:640px;margin-top:8px">A scheduled budget change waits at the top with Cancel. Below, newest first: a budget change and a rename with Undo, a test with no Undo, an undone pause on a campaign, and yesterday’s scheduled change skipped (muted). Codes, names, ids, times and money invented.</p></figure><figure><figcaption>MB-A · 393</figcaption><div class="vp w393"><div class="bar1"><span class="bc">Today</span></div><div class="body1" style="padding:14px"><div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:6px"><b style="font-size:15px">Claude’s changes</b><span class="fs">5 today · 1 scheduled</span></div><p class="fs" style="margin:4px 0 0">Electric Brixton: £108.00 of <span style="white-space:nowrap">£150.00 a day</span></p><p class="fs" style="margin:2px 0 10px">Puzzle: £24.00 of <span style="white-space:nowrap">£40.00 a day</span></p><div style="border:1px solid var(--border-strong);border-left:4px solid #7a4a08;border-radius:8px;padding:10px 12px;background:#fff;margin:0 0 8px;"><div style="font-weight:600;font-size:13.5px">Change budget · <span style="white-space:nowrap">NX27-GLITTERBOX</span></div><div style="font-size:13px;margin-top:2px">Retargeting · Bottom: £12.00 → <span style="white-space:nowrap">£20.00 a day</span></div><div class="fs" style="margin-top:3px">Approved in Claude · <span style="white-space:nowrap">Thu 26 Nov, 16:40</span> · <span style="text-decoration:underline;text-underline-offset:2px">What Claude asked</span></div><div style="font-size:12.5px;margin-top:2px;color:var(--ink-2)"><span style="color:#7a4a08">Scheduled for <span style="white-space:nowrap">Fri 27 Nov, 09:00</span></span></div><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:8px"><span class="btn ghost">Cancel</span><span class="fs" style="font-size:12px">It runs only if nothing has changed by then.</span></div></div><div style="border:1px solid var(--border-strong);border-left:4px solid var(--olive);border-radius:8px;padding:10px 12px;background:#fff;margin:0 0 8px;"><div style="font-weight:600;font-size:13.5px">Change budget · <span style="white-space:nowrap">ES27-ENZOSIRAGUSA</span></div><div style="font-size:13px;margin-top:2px">Broad · 25–44: £20.00 → <span style="white-space:nowrap">£30.00 a day</span></div><div class="fs" style="margin-top:3px">Approved in Claude · <span style="white-space:nowrap">Thu 26 Nov, 15:12</span> · <span style="text-decoration:underline;text-underline-offset:2px">What Claude asked</span></div><div style="font-size:12.5px;margin-top:2px;color:var(--ink-2)"><span style="color:var(--olive)">Done · <span style="white-space:nowrap">1 ad set changed</span> · 120253104477310755</span></div><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:8px"><span class="btn ghost">Undo</span><span class="fs" style="font-size:12px">Undo puts it back to <span style="white-space:nowrap">£20.00 a day</span>.</span></div></div><div style="border:1px solid var(--border-strong);border-left:4px solid var(--olive);border-radius:8px;padding:10px 12px;background:#fff;margin:0 0 8px;"><div style="font-weight:600;font-size:13.5px">Rename · <span style="white-space:nowrap">NX27-SILVABUMPA</span></div><div style="font-size:13px;margin-top:2px">“Broad · 25–44” → “Broad · 25–34”</div><div class="fs" style="margin-top:3px">Approved in Claude · <span style="white-space:nowrap">Thu 26 Nov, 14:05</span> · <span style="text-decoration:underline;text-underline-offset:2px">What Claude asked</span></div><div style="font-size:12.5px;margin-top:2px;color:var(--ink-2)"><span style="color:var(--olive)">Done · <span style="white-space:nowrap">1 ad set changed</span> · 120251748789350755</span></div><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:8px"><span class="btn ghost">Undo</span><span class="fs" style="font-size:12px">Undo puts the old name back.</span></div></div><div style="border:1px solid var(--border-strong);border-left:4px solid var(--olive);border-radius:8px;padding:10px 12px;background:#fff;margin:0 0 8px;"><div style="font-weight:600;font-size:13.5px">Start an A/B test · <span style="white-space:nowrap">NX27-GLITTERBOX</span></div><div style="font-size:13px;margin-top:2px">[NX27-GLITTERBOX] Retargeting A vs <span style="white-space:nowrap">[NX27-GLITTERBOX]</span> Retargeting B · 50/50 · <span style="white-space:nowrap">Fri 27 Nov</span> – <span style="white-space:nowrap">Sat 19 Dec</span></div><div class="fs" style="margin-top:3px">Approved in Claude · <span style="white-space:nowrap">Thu 26 Nov, 12:48</span> · <span style="text-decoration:underline;text-underline-offset:2px">What Claude asked</span></div><div style="font-size:12.5px;margin-top:2px;color:var(--ink-2)"><span style="color:var(--olive)">Done · <span style="white-space:nowrap">1 test created</span> · 6421907781104</span></div><div style="font-size:12.5px;margin-top:2px;color:var(--ink-2)">A test can’t be undone here. End it in Ads Manager.</div></div><div style="border:1px solid var(--border-strong);border-left:4px solid var(--olive);border-radius:8px;padding:10px 12px;background:#fff;margin:0 0 8px;"><div style="font-weight:600;font-size:13.5px">Pause campaign · <span style="white-space:nowrap">NX26-DOD</span></div><div style="font-size:13px;margin-top:2px">[NX26-DOD] Retargeting: live → paused</div><div class="fs" style="margin-top:3px">Approved in Claude · <span style="white-space:nowrap">Thu 26 Nov, 10:30</span> · <span style="text-decoration:underline;text-underline-offset:2px">What Claude asked</span></div><div style="font-size:12.5px;margin-top:2px;color:var(--ink-2)"><span style="color:var(--olive)">Done · <span style="white-space:nowrap">1 campaign changed</span> · 120250214477310712</span></div><div style="font-size:12.5px;margin-top:2px;color:var(--ink-2)">Undone by Matas · <span style="white-space:nowrap">Thu 26 Nov, 11:05</span></div></div><div style="border:1px solid var(--border-strong);border-left:4px solid var(--border-strong);border-radius:8px;padding:10px 12px;background:#fff;margin:0 0 8px;opacity:.7;"><div style="font-weight:600;font-size:13.5px">Change budget · <span style="white-space:nowrap">P26-BDAY</span></div><div style="font-size:13px;margin-top:2px">Broad · Southampton: £10.00 → <span style="white-space:nowrap">£14.00 a day</span></div><div class="fs" style="margin-top:3px">Approved in Claude · <span style="white-space:nowrap">Wed 25 Nov, 17:20</span> · <span style="text-decoration:underline;text-underline-offset:2px">What Claude asked</span><br>Ran as scheduled · <span style="white-space:nowrap">Thu 26 Nov, 09:00</span></div><div style="font-size:12.5px;margin-top:2px;color:var(--ink-2)"><span style="color:var(--ink)">Skipped · it was paused after it was scheduled</span></div></div></div></div></figure></div><h3>MB-B · A scheduled change, start to end (MB2)</h3><div class="frame"><figure><figcaption>MB-B · 1280</figcaption><div class="scrollx"><div class="vp w1280"><div class="bar1"><span class="bc">Today</span><span class="bc">OFF/PIXEL</span></div><div class="body1"><div style="display:grid;grid-template-columns:1fr 1fr;gap:22px;align-items:start"><div><div class="fs" style="font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase;margin:0 0 6px">Scheduled, waiting</div><div style="border:1px solid var(--border-strong);border-left:4px solid #7a4a08;border-radius:8px;padding:10px 12px;background:#fff;margin:0 0 8px;"><div style="font-weight:600;font-size:13.5px">Change budget · <span style="white-space:nowrap">NX27-GLITTERBOX</span></div><div style="font-size:13px;margin-top:2px">Retargeting · Bottom: £12.00 → <span style="white-space:nowrap">£20.00 a day</span></div><div class="fs" style="margin-top:3px">Approved in Claude · <span style="white-space:nowrap">Thu 26 Nov, 16:40</span> · <span style="text-decoration:underline;text-underline-offset:2px">What Claude asked</span></div><div style="font-size:12.5px;margin-top:2px;color:var(--ink-2)"><span style="color:#7a4a08">Scheduled for <span style="white-space:nowrap">Fri 27 Nov, 09:00</span></span></div><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:8px"><span class="btn ghost">Cancel</span><span class="fs" style="font-size:12px">It runs only if nothing has changed by then.</span></div></div><div class="fs" style="font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase;margin:0 0 6px">Cancelled on Today</div><div style="border:1px solid var(--border-strong);border-left:4px solid var(--border-strong);border-radius:8px;padding:10px 12px;background:#fff;margin:0 0 8px;opacity:.7;"><div style="font-weight:600;font-size:13.5px">Change budget · <span style="white-space:nowrap">NX27-GLITTERBOX</span></div><div style="font-size:13px;margin-top:2px">Retargeting · Bottom: £12.00 → <span style="white-space:nowrap">£20.00 a day</span></div><div class="fs" style="margin-top:3px">Approved in Claude · <span style="white-space:nowrap">Thu 26 Nov, 16:40</span> · <span style="text-decoration:underline;text-underline-offset:2px">What Claude asked</span></div><div style="font-size:12.5px;margin-top:2px;color:var(--ink-2)">Cancelled by Matas · <span style="white-space:nowrap">Thu 26 Nov, 17:02</span></div></div><div class="fs" style="font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase;margin:0 0 6px">Cancelled in Claude</div><div style="border:1px solid var(--border-strong);border-left:4px solid var(--border-strong);border-radius:8px;padding:10px 12px;background:#fff;margin:0 0 8px;opacity:.7;"><div style="font-weight:600;font-size:13.5px">Change budget · <span style="white-space:nowrap">NX27-GLITTERBOX</span></div><div style="font-size:13px;margin-top:2px">Retargeting · Bottom: £12.00 → <span style="white-space:nowrap">£20.00 a day</span></div><div class="fs" style="margin-top:3px">Approved in Claude · <span style="white-space:nowrap">Thu 26 Nov, 16:40</span> · <span style="text-decoration:underline;text-underline-offset:2px">What Claude asked</span></div><div style="font-size:12.5px;margin-top:2px;color:var(--ink-2)">Cancelled in Claude · <span style="white-space:nowrap">Thu 26 Nov, 17:10</span></div></div></div><div><div class="fs" style="font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase;margin:0 0 6px">Ran, with What Claude asked opened</div><div style="border:1px solid var(--border-strong);border-left:4px solid var(--olive);border-radius:8px;padding:10px 12px;background:#fff;margin:0 0 8px;"><div style="font-weight:600;font-size:13.5px">Change budget · <span style="white-space:nowrap">NX27-GLITTERBOX</span></div><div style="font-size:13px;margin-top:2px">Retargeting · Bottom: £12.00 → <span style="white-space:nowrap">£20.00 a day</span></div><div class="fs" style="margin-top:3px">Approved in Claude · <span style="white-space:nowrap">Thu 26 Nov, 16:40</span> · <span style="text-decoration:underline;text-underline-offset:2px">What Claude asked</span><br>Ran as scheduled · <span style="white-space:nowrap">Fri 27 Nov, 09:00</span></div><div style="font-size:12.5px;margin-top:2px;color:var(--ink-2)"><span style="color:var(--olive)">Done · <span style="white-space:nowrap">1 ad set changed</span> · 120252675731800761</span></div><div style="margin-top:8px;padding:8px 10px;background:var(--paper);border:1px solid var(--border);border-radius:6px;font-size:12.5px"><div>Asked: “Raise <span style="white-space:nowrap">NX27-GLITTERBOX</span>’s Retargeting · Bottom from £12.00 to <span style="white-space:nowrap">£20.00 a day</span> at 09:00 tomorrow, <span style="white-space:nowrap">Fri 27 Nov</span>? Electric Brixton goes to £116.00 of its £150.00 ceiling.”</div><div style="margin-top:4px">Answer: “yes do it”</div></div><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:8px"><span class="btn ghost">Undo</span><span class="fs" style="font-size:12px">Undo puts it back to <span style="white-space:nowrap">£12.00 a day</span>.</span></div></div><div class="fs" style="font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase;margin:0 0 6px">Ran, and Meta refused it</div><div style="border:1px solid var(--border-strong);border-left:4px solid var(--brick);border-radius:8px;padding:10px 12px;background:#fff;margin:0 0 8px;"><div style="font-weight:600;font-size:13.5px">Change budget · <span style="white-space:nowrap">NX27-GLITTERBOX</span></div><div style="font-size:13px;margin-top:2px">Retargeting · Bottom: £12.00 → <span style="white-space:nowrap">£20.00 a day</span></div><div class="fs" style="margin-top:3px">Approved in Claude · <span style="white-space:nowrap">Thu 26 Nov, 16:40</span> · <span style="text-decoration:underline;text-underline-offset:2px">What Claude asked</span><br>Ran as scheduled · <span style="white-space:nowrap">Fri 27 Nov, 09:00</span></div><div style="font-size:12.5px;margin-top:2px;color:var(--ink-2)"><span style="color:var(--brick)">Failed · Meta didn’t take it, so nothing changed</span></div></div></div></div></div></div></div><p class="fs" style="max-width:640px;margin-top:8px">Waiting, cancelled on Today, cancelled in Claude, then run: done with the question and answer opened and Undo, or refused by Meta.</p></figure><figure><figcaption>MB-B · 393</figcaption><div class="vp w393"><div class="bar1"><span class="bc">Today</span></div><div class="body1" style="padding:14px"><div class="fs" style="font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase;margin:0 0 6px">Scheduled, waiting</div><div style="border:1px solid var(--border-strong);border-left:4px solid #7a4a08;border-radius:8px;padding:10px 12px;background:#fff;margin:0 0 8px;"><div style="font-weight:600;font-size:13.5px">Change budget · <span style="white-space:nowrap">NX27-GLITTERBOX</span></div><div style="font-size:13px;margin-top:2px">Retargeting · Bottom: £12.00 → <span style="white-space:nowrap">£20.00 a day</span></div><div class="fs" style="margin-top:3px">Approved in Claude · <span style="white-space:nowrap">Thu 26 Nov, 16:40</span> · <span style="text-decoration:underline;text-underline-offset:2px">What Claude asked</span></div><div style="font-size:12.5px;margin-top:2px;color:var(--ink-2)"><span style="color:#7a4a08">Scheduled for <span style="white-space:nowrap">Fri 27 Nov, 09:00</span></span></div><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:8px"><span class="btn ghost">Cancel</span><span class="fs" style="font-size:12px">It runs only if nothing has changed by then.</span></div></div><div class="fs" style="font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase;margin:0 0 6px">Cancelled on Today</div><div style="border:1px solid var(--border-strong);border-left:4px solid var(--border-strong);border-radius:8px;padding:10px 12px;background:#fff;margin:0 0 8px;opacity:.7;"><div style="font-weight:600;font-size:13.5px">Change budget · <span style="white-space:nowrap">NX27-GLITTERBOX</span></div><div style="font-size:13px;margin-top:2px">Retargeting · Bottom: £12.00 → <span style="white-space:nowrap">£20.00 a day</span></div><div class="fs" style="margin-top:3px">Approved in Claude · <span style="white-space:nowrap">Thu 26 Nov, 16:40</span> · <span style="text-decoration:underline;text-underline-offset:2px">What Claude asked</span></div><div style="font-size:12.5px;margin-top:2px;color:var(--ink-2)">Cancelled by Matas · <span style="white-space:nowrap">Thu 26 Nov, 17:02</span></div></div><div class="fs" style="font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase;margin:0 0 6px">Cancelled in Claude</div><div style="border:1px solid var(--border-strong);border-left:4px solid var(--border-strong);border-radius:8px;padding:10px 12px;background:#fff;margin:0 0 8px;opacity:.7;"><div style="font-weight:600;font-size:13.5px">Change budget · <span style="white-space:nowrap">NX27-GLITTERBOX</span></div><div style="font-size:13px;margin-top:2px">Retargeting · Bottom: £12.00 → <span style="white-space:nowrap">£20.00 a day</span></div><div class="fs" style="margin-top:3px">Approved in Claude · <span style="white-space:nowrap">Thu 26 Nov, 16:40</span> · <span style="text-decoration:underline;text-underline-offset:2px">What Claude asked</span></div><div style="font-size:12.5px;margin-top:2px;color:var(--ink-2)">Cancelled in Claude · <span style="white-space:nowrap">Thu 26 Nov, 17:10</span></div></div><div style="height:10px"></div><div class="fs" style="font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase;margin:0 0 6px">Ran, with What Claude asked opened</div><div style="border:1px solid var(--border-strong);border-left:4px solid var(--olive);border-radius:8px;padding:10px 12px;background:#fff;margin:0 0 8px;"><div style="font-weight:600;font-size:13.5px">Change budget · <span style="white-space:nowrap">NX27-GLITTERBOX</span></div><div style="font-size:13px;margin-top:2px">Retargeting · Bottom: £12.00 → <span style="white-space:nowrap">£20.00 a day</span></div><div class="fs" style="margin-top:3px">Approved in Claude · <span style="white-space:nowrap">Thu 26 Nov, 16:40</span> · <span style="text-decoration:underline;text-underline-offset:2px">What Claude asked</span><br>Ran as scheduled · <span style="white-space:nowrap">Fri 27 Nov, 09:00</span></div><div style="font-size:12.5px;margin-top:2px;color:var(--ink-2)"><span style="color:var(--olive)">Done · <span style="white-space:nowrap">1 ad set changed</span> · 120252675731800761</span></div><div style="margin-top:8px;padding:8px 10px;background:var(--paper);border:1px solid var(--border);border-radius:6px;font-size:12.5px"><div>Asked: “Raise <span style="white-space:nowrap">NX27-GLITTERBOX</span>’s Retargeting · Bottom from £12.00 to <span style="white-space:nowrap">£20.00 a day</span> at 09:00 tomorrow, <span style="white-space:nowrap">Fri 27 Nov</span>? Electric Brixton goes to £116.00 of its £150.00 ceiling.”</div><div style="margin-top:4px">Answer: “yes do it”</div></div><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:8px"><span class="btn ghost">Undo</span><span class="fs" style="font-size:12px">Undo puts it back to <span style="white-space:nowrap">£12.00 a day</span>.</span></div></div><div class="fs" style="font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase;margin:0 0 6px">Ran, and Meta refused it</div><div style="border:1px solid var(--border-strong);border-left:4px solid var(--brick);border-radius:8px;padding:10px 12px;background:#fff;margin:0 0 8px;"><div style="font-weight:600;font-size:13.5px">Change budget · <span style="white-space:nowrap">NX27-GLITTERBOX</span></div><div style="font-size:13px;margin-top:2px">Retargeting · Bottom: £12.00 → <span style="white-space:nowrap">£20.00 a day</span></div><div class="fs" style="margin-top:3px">Approved in Claude · <span style="white-space:nowrap">Thu 26 Nov, 16:40</span> · <span style="text-decoration:underline;text-underline-offset:2px">What Claude asked</span><br>Ran as scheduled · <span style="white-space:nowrap">Fri 27 Nov, 09:00</span></div><div style="font-size:12.5px;margin-top:2px;color:var(--ink-2)"><span style="color:var(--brick)">Failed · Meta didn’t take it, so nothing changed</span></div></div></div></div></figure></div><h2>The words</h2>
+<p class="lead">These rows are added to <code>scratch/mcp/words-mcp-today-2026-11-25.tsv</code>. No existing row changes. FC1’s rows serve as they are, and the skip reasons follow the <code>claude.mcp.live.skip.*</code> rows told to Claude.</p>
+<h3>New (32)</h3><div class="scrollx"><table class="w"><tr><th style="width:280px">Key</th><th style="width:240px">Where</th><th>Words</th></tr><tr><td>today.mcp.action.pause_campaign</td><td>Log row title, pause on a campaign (thing: campaign; result: changed)</td><td>Pause campaign</td></tr><tr><td>today.mcp.action.resume_campaign</td><td>Log row title, resume on a campaign (thing: campaign; result: changed)</td><td>Resume campaign</td></tr><tr><td>today.mcp.action.set_budget</td><td>Log row title, set_budget, now or scheduled (thing: campaign or ad set; result: changed)</td><td>Change budget</td></tr><tr><td>today.mcp.action.rename</td><td>Log row title, rename (thing: campaign, ad set or ad; result: changed)</td><td>Rename</td></tr><tr><td>today.mcp.action.split_test</td><td>Log row title, create_split_test (thing: test; result: created)</td><td>Start an A/B test</td></tr><tr><td>today.mcp.change.budget</td><td>Log row, what changes, set_budget; {per} is today.mcp.per.*</td><td>{name}: £{x} → £{y} {per}</td></tr><tr><td>today.mcp.change.budget.to</td><td>Log row, what changes, set_budget with no recorded old amount</td><td>{name}: to £{y} {per}</td></tr><tr><td>today.mcp.per.day</td><td>{per}, a daily budget</td><td>a day</td></tr><tr><td>today.mcp.per.lifetime</td><td>{per}, a lifetime budget</td><td>lifetime</td></tr><tr><td>today.mcp.change.rename</td><td>Log row, what changes, rename</td><td>“{before}” → “{after}”</td></tr><tr><td>today.mcp.change.split_test</td><td>Log row, what changes, create_split_test; {start} and {end} as “Fri 27 Nov”</td><td>{a} vs {b} · 50/50 · {start} – {end}</td></tr><tr><td>today.mcp.thing.test</td><td>{thing}</td><td>test</td></tr><tr><td>today.mcp.thing.test.many</td><td>{things}</td><td>tests</td></tr><tr><td>today.mcp.row.failed.none</td><td>Log row, result (brick), Meta refused the whole change</td><td>Failed · Meta didn’t take it, so nothing changed</td></tr><tr><td>today.mcp.undo.budget.lifetime</td><td>Log row, beside Undo, on a lifetime budget change</td><td>Undo puts it back to £{x} lifetime.</td></tr><tr><td>today.mcp.undo.rename</td><td>Log row, beside Undo, on a rename</td><td>Undo puts the old name back.</td></tr><tr><td>today.mcp.undo.test</td><td>Log row, in place of Undo, on a test</td><td>A test can’t be undone here. End it in Ads Manager.</td></tr><tr><td>today.mcp.count.scheduled</td><td>Today, section header, after “{n} today” and “ · ”</td><td>{n} scheduled</td></tr><tr><td>today.mcp.count.scheduled.one</td><td>Today, section header (1)</td><td>1 scheduled</td></tr><tr><td>today.mcp.row.scheduled</td><td>Log row, state (ochre edge), waiting to run</td><td>Scheduled for {date, time}</td></tr><tr><td>today.mcp.row.scheduled.note</td><td>Log row, beside Cancel</td><td>It runs only if nothing has changed by then.</td></tr><tr><td>today.mcp.cancel</td><td>Log row, button, a scheduled change</td><td>Cancel</td></tr><tr><td>today.mcp.row.cancelled</td><td>Log row, state (muted), cancelled on Today</td><td>Cancelled by {name} · {date, time}</td></tr><tr><td>today.mcp.row.cancelled.claude</td><td>Log row, state (muted), cancel_scheduled</td><td>Cancelled in Claude · {date, time}</td></tr><tr><td>today.mcp.row.ran</td><td>Log row, under the approval line, a scheduled change that ran</td><td>Ran as scheduled · {date, time}</td></tr><tr><td>today.mcp.row.skipped</td><td>Log row, state (muted), a scheduled change skipped; {reason} is today.mcp.skip.*</td><td>Skipped · {reason}</td></tr><tr><td>today.mcp.skip.budget_changed</td><td>{reason}</td><td>the budget changed after it was scheduled</td></tr><tr><td>today.mcp.skip.paused</td><td>{reason}</td><td>it was paused after it was scheduled</td></tr><tr><td>today.mcp.skip.ended</td><td>{reason}</td><td>it ended or was deleted after it was scheduled</td></tr><tr><td>today.mcp.skip.ceiling</td><td>{reason}</td><td>by then it would have gone over the client’s daily ceiling, or the client had no ceiling</td></tr><tr><td>today.mcp.skip.switch</td><td>{reason}</td><td>budget changes were switched off in Off/Pixel</td></tr><tr><td>today.mcp.skip.unread</td><td>{reason}</td><td>Meta couldn’t be read when it was due</td></tr></table></div>
+
+<h2>Acceptance</h2>
+<ul class="notes">
+<li><b>Every M3b write is a row,</b> with the question and answer exactly as stored, including a scheduled change from the moment it’s approved.</li>
+<li><b>Undo:</b> FC1’s acceptance holds for each M3b Undo, and a test checks each pair, rename included. No Undo appears on added audiences, a part-done move or a test.</li>
+<li><b>Scheduled:</b>
+<ul>
+<li>a row waits at the top until it runs, then moves to its run time;</li>
+<li>Cancel on Today stops it, with the same rule as cancel_scheduled: only while it’s still scheduled;</li>
+<li>a skipped or failed run shows its reason, and nothing raw from Meta.</li>
+</ul></li>
+<li><b>Switch:</b> <code>LIVE_CHANGES_SHIPPED</code> and <code>TODAY_UNDO_SHIPPED</code> flip in the same PR as these rows, and a test pins them together.</li>
+<li><b>Words:</b> every string is a row, exactly.</li>
+</ul>
+
+<h2>Invented here</h2>
+<ul class="notes">
+<li>Every word above that isn’t FC1’s or Step 0’s.</li>
+<li><b>Rules:</b>
+<ul>
+<li>scheduled rows above the log until they run;</li>
+<li>Cancel on Today (Matas confirmed 26 Nov: keep it, alongside cancelling in Claude);</li>
+<li>which refusals stay out of the log;</li>
+<li>a budget changed during the write reads as skipped.</li>
+</ul></li>
+<li><b>Frame contents:</b> codes, names, ids, times, money and the asked and answer text.</li>
+</ul>
+
+<h2>Hand-back</h2>
+<table class="t">
+<tr><th style="width:190px">To</th><th>What</th></tr>
+<tr><td>Builder (M3b on)</td><td>MB1–MB4 with FC1. Shoot MB-A and MB-B at 1280 and 393, plus FC-A and FC-B if they aren’t built yet, then flip both constants.</td></tr>
+<tr><td>Matas (answered 26 Nov)</td><td>Both: Cancel on Today, and cancel_scheduled in Claude, as MB2 rules.</td></tr>
+</table>
+
+</div>
+</body>
+</html>
