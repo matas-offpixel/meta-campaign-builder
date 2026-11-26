@@ -18,6 +18,12 @@
  *     that no other MCP file reaches it but the route wiring.
  *   - events, from lib/mcp/meta/event-write.ts only (update_event: three
  *     dates and two links).
+ *
+ * M3d-c adds one Drive seam, lib/mcp/folder-in-deps.ts
+ * (upload_to_event_folder): the export Drive and a Storage read, its writes
+ * folderDepsFor's files.copy and upload only. The walk stops at it; a test
+ * pins what it imports, that only the route wiring imports it, and that it
+ * never reaches a permission, share, move or delete.
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -49,6 +55,13 @@ const META_SEAM_IMPORTS: Record<string, readonly string[]> = {
   "app/api/meta/launch-campaign/route.ts": ["launchCampaignAs"],
   "lib/meta/upload-asset-handler.ts": ["handleUploadAsset", "uploadAssetHooksForUser"],
   "lib/plan/creative-intake-server.ts": ["sendStoredDraftAssetsToMeta", "waitForStoredVideosAs"],
+};
+
+/** M3d-c's Drive seam: the export Drive, a Storage read, and folderDepsFor's two writes. */
+const FOLDER_SEAM = "lib/mcp/folder-in-deps.ts";
+const FOLDER_SEAM_IMPORTS: Record<string, readonly string[]> = {
+  "lib/drive/client.ts": ["driveFromEnv"],
+  "lib/mcp/folder-in/place.ts": ["folderDepsFor"],
 };
 
 const ENTRIES = [
@@ -91,7 +104,7 @@ function walk(): Map<string, string> {
     const src = readFileSync(join(ROOT, file), "utf8");
     seen.set(file, src);
     // The Meta seam is pinned by its own test, not walked.
-    if (file === META_SEAM) continue;
+    if (file === META_SEAM || file === FOLDER_SEAM) continue;
     // Value imports only: `import type` brings no code.
     for (const m of src.matchAll(/^\s*(?:import|export)\s+(?!type\b)[^'"]*?from\s+["']([^"']+)["']/gm)) {
       const next = resolve(file, m[1]!);
@@ -154,9 +167,12 @@ const EXTERNAL_READERS: Record<string, readonly string[]> = {
   "lib/drive/file-owner.ts": ["mayUseFor", "resolveDriveOwner"],
   // M3a: the video step's slot helpers (pure); the send step itself is behind the Meta seam.
   "lib/plan/stored-assets-meta.ts": ["failVideos", "sentVideoIds"],
-  "lib/drive/picker-model.ts": ["PICKER_WORDS", "defaultBatchFields", "folderTiles", "formatBytes"],
+  "lib/drive/picker-model.ts": ["PICKER_WORDS", "defaultBatchFields", "folderTiles", "formatBytes", "PICKER_MAX_IMAGE_BYTES", "PICKER_MAX_VIDEO_BYTES"],
   "lib/drive/picker-batch.ts": ["planPrepare"],
-  "lib/drive/client.ts": ["driveFromEnv"],
+  "lib/drive/client.ts": ["driveFromEnv", "APP_ID_KEY", "APP_TAG_KEY", "FOLDER_MIME", "SHORTCUT_MIME"],
+  // M3d-c: the show's Lab lineup (event_artists, artists reads) and the tree's cycle names (pure).
+  "lib/drive/lineup.ts": ["loadLineupArtists"],
+  "lib/drive/tree.ts": ["cycleFolderName"],
   "lib/campaign-defaults.ts": ["createDefaultAssetVariation", "createDefaultCreative", "defaultCtaForObjective"],
   "lib/clients/channel-defaults.ts": ["loadClientChannelDefaults"],
   "lib/meta/server-token.ts": ["resolveServerMetaToken"],
@@ -264,7 +280,7 @@ test("from outside lib/mcp the MCP imports only reader functions, and none of th
   const unexpected: string[] = [];
   const used = new Map<string, Set<string>>();
   for (const [file, src] of own) {
-    if (file === META_SEAM) continue;
+    if (file === META_SEAM || file === FOLDER_SEAM) continue;
     for (const { target, names } of importsOf(file, src)) {
       if (isOwn(target)) continue;
       const allowed = EXTERNAL_READERS[target];
@@ -305,7 +321,7 @@ test("the tools and the server make no network calls and import no write paths; 
   const hits: string[] = [];
   const SENDERS = new Set(["lib/mcp/graph-reads.ts", "lib/mcp/draft-deps.ts"]);
   for (const [file, src] of files) {
-    if (!isOwn(file) || file === META_SEAM) continue;
+    if (!isOwn(file) || file === META_SEAM || file === FOLDER_SEAM) continue;
     const code = strip(src);
     if (!SENDERS.has(file) && (NETWORK.test(code) || /\bfetchImpl\s*\(/.test(code))) hits.push(`${file}: network`);
     for (const m of code.matchAll(/from\s+["']((?:@\/|\.\.?\/)[^"']*)["']/g)) {
@@ -353,6 +369,28 @@ test("M3a: the Meta seam imports exactly the launch route's handler, the upload 
   assert.match(route, /export async function launchCampaignAs\(/);
   assert.match(route, /const entityStatus = resolveMetaLaunchEntityStatus\(\{ createPaused \}\);/);
   assert.match(src, /body: JSON\.stringify\(\{ draft, createPaused \}\)/);
+});
+
+test("M3d-c: the Drive seam imports only the export Drive and folderDepsFor, writes only by copy and upload, and only the route wiring imports it", () => {
+  const files = walk();
+  assert.ok(files.has(FOLDER_SEAM), "the route wires the seam");
+  const src = files.get(FOLDER_SEAM)!;
+  const got: Record<string, string[]> = {};
+  for (const { target, names } of importsOf(FOLDER_SEAM, src)) got[target] = [...(got[target] ?? []), ...names].sort();
+  assert.deepEqual(got, Object.fromEntries(Object.entries(FOLDER_SEAM_IMPORTS).map(([k, v]) => [k, [...v].sort()])));
+  const code = strip(src);
+  assert.doesNotMatch(code, NETWORK);
+  assert.doesNotMatch(code, WRITE);
+  WRITE.lastIndex = 0;
+  // A Storage read, nothing else of Storage.
+  assert.deepEqual([...code.matchAll(/\.storage\.from\([^)]*\)\.(\w+)\(/g)].map((m) => m[1]), ["download"]);
+  const importers = [...files.entries()].filter(([f, s2]) => f !== FOLDER_SEAM && /from\s+["'][^"']*folder-in-deps["']/.test(s2)).map(([f]) => f);
+  assert.deepEqual(importers, ["lib/mcp/route-deps.ts"]);
+  // folderDepsFor writes by copyFile and uploadFile only: no permission, share, move, rename or delete.
+  const place = strip(readFileSync(join(ROOT, "lib/mcp/folder-in/place.ts"), "utf8"));
+  const driveCalls = [...place.matchAll(/\bdrive\.(\w+)\(/g)].map((m) => m[1]).sort();
+  assert.deepEqual([...new Set(driveCalls)].sort(), ["copyFile", "getFile", "listChildren", "uploadFile"]);
+  assert.doesNotMatch(place, /shareReader|removePermission|permissions|\.update\(fileId|trash|delete/i);
 });
 
 test("M3a: every meta tool checks the scope and the approval before anything else, and reaches Meta only through ctx.meta", async () => {
