@@ -4,12 +4,14 @@
  * the count helpers are the today.mcp.count.* rows; londonWhen is design's
  * "Thu 26 Nov, 18:00" (26 Nov verdict), weekday from London's own date; and
  * M3b ships switched off: every one of its tools answers the existing
- * claude.mcp.refused.switch row until LIVE_CHANGES_SHIPPED is true.
+ * claude.mcp.refused.switch row until LIVE_CHANGES_SHIPPED is true. The rows
+ * design corrected on 26 Nov (LIVE_RULED) are pinned here character for
+ * character, typographic ’ included, and leave LIVE_FOR_DESIGN.
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { LIVE_FOR_DESIGN, LIVE_ROWS, LIVE_WORDS, countAdSets, countAds, countChanges, countTiers } from "../live/words.ts";
+import { LIVE_FOR_DESIGN, LIVE_ROWS, LIVE_RULED, LIVE_WORDS, countAdSets, countAds, countCampaigns, countChanges, countTiers } from "../live/words.ts";
 import { londonWhen } from "../live/resolve.ts";
 import { LIVE_CHANGES_SHIPPED, LIVE_TOOL_NAMES } from "../live/shipped.ts";
 import { runScheduledChanges } from "../live/scheduled.ts";
@@ -62,6 +64,79 @@ test("M3b words: the rows it reuses are design's, word for word; every new strin
   // Refusals end as the house rule says.
   for (const w of LIVE_FOR_DESIGN.filter((x) => x.candidate.startsWith("Refused:"))) assert.match(w.candidate, /(Nothing was sent to Meta|Nothing was changed|Nothing was scheduled|nothing was changed\. Try again)\.$/, w.key);
   assert.ok(LIVE_WORDS.metaFailed);
+});
+
+// Design's 26 Nov verdict on #1389, copied character for character.
+const RULED: Record<string, string> = {
+  "claude.mcp.live.same.live": "Nothing changed: {name} is already live.",
+  "claude.mcp.live.resume.parent_off": "{name} is live, but its {parent} is paused, so it won’t spend until that’s live too.",
+  "claude.mcp.live.refused.paused_outside": "Refused: {name} was paused outside Off/Pixel. Ask Matas again, say so in the question, and send it with his answer. Nothing was sent to Meta.",
+  "claude.mcp.live.refused.budget_amount": "Refused: give one amount in £, from £1.00 to £100,000.00, as daily_gbp or lifetime_gbp. Nothing was sent to Meta.",
+  "claude.mcp.live.scheduled": "Scheduled for {when} London time: {change} (change {id}). It runs only if nothing has changed by then. Cancel it with cancel_scheduled.",
+  "claude.mcp.live.refused.at": "Refused: give at as a time with its zone, at least 15 minutes and at most 60 days ahead. Nothing was scheduled.",
+  "claude.mcp.live.cancelled": "Cancelled the change due {when} London time: {change}. It won’t run.",
+  "claude.mcp.live.refused.cancel_state": "Refused: change {id} is no longer scheduled ({state}). Nothing was changed.",
+  "claude.mcp.live.skip.budget_changed": "Skipped: the budget changed after it was scheduled.",
+  "claude.mcp.live.skip.paused": "Skipped: it was paused after it was scheduled.",
+  "claude.mcp.live.skip.ended": "Skipped: it ended or was deleted after it was scheduled.",
+  "claude.mcp.live.skip.ceiling": "Skipped: by then it would have gone over the client’s daily ceiling, or the client had no ceiling.",
+  "claude.mcp.live.move.partial": "{from} went down by £{x} a day, but {to} didn’t go up: its budget changed or Meta refused it. Read both with get_live.",
+  "claude.mcp.live.refused.too_many_ads": "Refused: that’s {ads} across {campaigns}, over the 200 ads and 8 campaigns one run can add. Narrow ad_set_ids. Nothing was sent to Meta.",
+  "claude.mcp.live.refused.test_dates": "Refused: give start and end as times with their zone: start now or later, end after start, at most 90 days apart. Nothing was sent to Meta.",
+  "claude.mcp.live.refused.test_business": "Refused: the ad account isn’t in a business portfolio, and Meta needs one to hold a test. Nothing was sent to Meta.",
+  "claude.mcp.live.test.line": "{a} and {b} split 50/50 from {start} to {end} London time, judged on cost per result.",
+  "claude.mcp.live.change.budget.to": "{name}: to £{y} {per}",
+};
+
+test("design's corrected rows (26 Nov) are word for word, typographic ’ and all, and no longer listed for design", () => {
+  assert.deepEqual(LIVE_RULED, RULED);
+  for (const w of Object.values(LIVE_RULED)) assert.doesNotMatch(w, /'/, "typographic ’ only");
+  const pendingKeys = new Set(LIVE_FOR_DESIGN.map((w) => w.key));
+  for (const k of Object.keys(LIVE_RULED)) assert.ok(!pendingKeys.has(k), `${k} left LIVE_FOR_DESIGN`);
+  assert.equal(LIVE_FOR_DESIGN.length, 55, "72 keys less design's 17 corrected rows");
+  for (const w of Object.values(LIVE_RULED).filter((x) => x.startsWith("Refused:"))) assert.match(w, /(Nothing was sent to Meta|Nothing was changed|Nothing was scheduled)\.$/);
+});
+
+test("design's corrected rows, as Claude reads them", () => {
+  assert.equal(LIVE_WORDS.sameLive("Broad"), "Nothing changed: Broad is already live.");
+  assert.equal(LIVE_WORDS.parentOff("Broad", "campaign"), "Broad is live, but its campaign is paused, so it won’t spend until that’s live too.");
+  assert.equal(LIVE_WORDS.pausedOutside("Broad"), "Refused: Broad was paused outside Off/Pixel. Ask Matas again, say so in the question, and send it with his answer. Nothing was sent to Meta.");
+  assert.equal(LIVE_WORDS.budgetAmount, "Refused: give one amount in £, from £1.00 to £100,000.00, as daily_gbp or lifetime_gbp. Nothing was sent to Meta.");
+  const change = LIVE_WORDS.budgetChange("Broad", 30, 40, false);
+  assert.equal(change, "Broad: £30.00 → £40.00 a day");
+  const when = londonWhen("2026-11-26T18:00:00Z");
+  assert.equal(LIVE_WORDS.scheduled(change, when, "5c01"), "Scheduled for Thu 26 Nov, 18:00 London time: Broad: £30.00 → £40.00 a day (change 5c01). It runs only if nothing has changed by then. Cancel it with cancel_scheduled.");
+  assert.equal(LIVE_WORDS.schedulePast, "Refused: give at as a time with its zone, at least 15 minutes and at most 60 days ahead. Nothing was scheduled.");
+  assert.equal(LIVE_WORDS.cancelled(change, when), "Cancelled the change due Thu 26 Nov, 18:00 London time: Broad: £30.00 → £40.00 a day. It won’t run.");
+  assert.equal(LIVE_WORDS.cancelState("5c01", LIVE_WORDS.state.failed!), "Refused: change 5c01 is no longer scheduled (failed). Nothing was changed.");
+  assert.equal(LIVE_WORDS.skip.budget_changed, "Skipped: the budget changed after it was scheduled.");
+  assert.equal(LIVE_WORDS.skip.paused, "Skipped: it was paused after it was scheduled.");
+  assert.equal(LIVE_WORDS.skip.ended, "Skipped: it ended or was deleted after it was scheduled.");
+  assert.equal(LIVE_WORDS.skip.ceiling, "Skipped: by then it would have gone over the client’s daily ceiling, or the client had no ceiling.");
+  assert.equal(LIVE_WORDS.movePartial("Broad", "Fans", 5), "Broad went down by £5.00 a day, but Fans didn’t go up: its budget changed or Meta refused it. Read both with get_live.");
+  assert.equal(LIVE_WORDS.testDates, "Refused: give start and end as times with their zone: start now or later, end after start, at most 90 days apart. Nothing was sent to Meta.");
+  assert.equal(LIVE_WORDS.testNoBusiness, "Refused: the ad account isn’t in a business portfolio, and Meta needs one to hold a test. Nothing was sent to Meta.");
+  assert.equal(
+    LIVE_WORDS.testLine("Teaser A", "Teaser B", londonWhen("2026-11-27T00:00:00Z"), londonWhen("2026-12-10T00:00:00Z")),
+    "Teaser A and Teaser B split 50/50 from Fri 27 Nov, 00:00 to Thu 10 Dec, 00:00 London time, judged on cost per result.",
+  );
+});
+
+test("refused.too_many_ads is counted: never \"1 ads\" or \"1 campaigns\"", () => {
+  assert.equal(countCampaigns(1), "1 campaign");
+  assert.equal(countCampaigns(9), "9 campaigns");
+  assert.equal(countCampaigns(0), "0 campaigns");
+  assert.equal(LIVE_WORDS.tooManyAds(1, 1), "Refused: that’s 1 ad across 1 campaign, over the 200 ads and 8 campaigns one run can add. Narrow ad_set_ids. Nothing was sent to Meta.");
+  assert.equal(LIVE_WORDS.tooManyAds(240, 9), "Refused: that’s 240 ads across 9 campaigns, over the 200 ads and 8 campaigns one run can add. Narrow ad_set_ids. Nothing was sent to Meta.");
+  assert.equal(LIVE_WORDS.tooManyAds(201, 1), "Refused: that’s 201 ads across 1 campaign, over the 200 ads and 8 campaigns one run can add. Narrow ad_set_ids. Nothing was sent to Meta.");
+  assert.equal(LIVE_WORDS.tooManyAds(1, 9), "Refused: that’s 1 ad across 9 campaigns, over the 200 ads and 8 campaigns one run can add. Narrow ad_set_ids. Nothing was sent to Meta.");
+  for (const [a, c] of [[1, 1], [1, 9], [201, 1], [240, 9]] as const) assert.doesNotMatch(LIVE_WORDS.tooManyAds(a, c), /\b1 (ads|campaigns)\b/);
+});
+
+test("live.change.budget.to: a budget change with no recorded old amount reads \"to £y\", never \"£0.00 →\"", () => {
+  assert.equal(LIVE_WORDS.budgetChange("Broad", null, 40, false), "Broad: to £40.00 a day");
+  assert.equal(LIVE_WORDS.budgetChange("Broad", null, 400, true), "Broad: to £400.00 lifetime");
+  assert.doesNotMatch(LIVE_WORDS.budgetChange("Broad", null, 40, false), /£0\.00 →/);
 });
 
 test("the count helpers are the today.mcp.count rows: .one at 1, {n} otherwise", () => {

@@ -1,12 +1,14 @@
 /**
  * lib/mcp/live/words.ts — what the M3b live tools tell Claude.
  *
- * Two kinds of string:
+ * Three kinds of string:
  *   - rows from design's list (scratch/mcp/words-mcp-today-2026-11-25.tsv,
  *     a copy in lib/mcp/__tests__/fixtures), word for word, re-used from
  *     lib/mcp/meta/words.ts or rendered here from their row (pinned by
  *     lib/mcp/__tests__/live-words.test.ts, with the count helpers and
  *     londonWhen's "Thu 26 Nov, 18:00");
+ *   - LIVE_RULED: the rows design corrected in its 26 Nov verdict on #1389,
+ *     plus its new claude.mcp.live.change.budget.to, word for word;
  *   - PENDING DESIGN: every string with no row yet. Each is in LIVE_FOR_DESIGN
  *     with its key, where it shows and the builder's candidate; the PR body's
  *     "For design" table is that list. When design rules them, the ruled words
@@ -79,10 +81,43 @@ const counted = (one: string, many: string) => (n: number) => (n === 1 ? one : m
 export const countAds = counted("1 ad", "{n} ads");
 /** today.mcp.count.adsets / .one */
 export const countAdSets = counted("1 ad set", "{n} ad sets");
+/** {campaigns}: "1 campaign" / "{n} campaigns", the today.mcp.thing.campaign nouns (no count row exists). */
+export const countCampaigns = counted(`1 ${LIVE_THINGS.campaign[0]}`, `{n} ${LIVE_THINGS.campaign[1]}`);
 /** today.mcp.count.tiers / .one */
 export const countTiers = counted("1 tier", "{n} tiers");
 /** today.mcp.count.changes / .one (Today's section header: "{n} today"). */
 export const countChanges = counted("1 today", "{n} today");
+
+// ── Design's corrected rows (26 Nov verdict on #1389, word for word) ─────────
+
+/**
+ * Rows design ruled on 26 Nov, key → words, copied character for character
+ * (typographic ’). Pinned word for word by lib/mcp/__tests__/live-words.test.ts.
+ * They are no longer PENDING DESIGN, so LIVE_FOR_DESIGN doesn't list them.
+ */
+export const LIVE_RULED = {
+  "claude.mcp.live.same.live": "Nothing changed: {name} is already live.",
+  "claude.mcp.live.resume.parent_off": "{name} is live, but its {parent} is paused, so it won’t spend until that’s live too.",
+  "claude.mcp.live.refused.paused_outside": "Refused: {name} was paused outside Off/Pixel. Ask Matas again, say so in the question, and send it with his answer. Nothing was sent to Meta.",
+  "claude.mcp.live.refused.budget_amount": "Refused: give one amount in £, from £1.00 to £100,000.00, as daily_gbp or lifetime_gbp. Nothing was sent to Meta.",
+  "claude.mcp.live.scheduled": "Scheduled for {when} London time: {change} (change {id}). It runs only if nothing has changed by then. Cancel it with cancel_scheduled.",
+  "claude.mcp.live.refused.at": "Refused: give at as a time with its zone, at least 15 minutes and at most 60 days ahead. Nothing was scheduled.",
+  "claude.mcp.live.cancelled": "Cancelled the change due {when} London time: {change}. It won’t run.",
+  "claude.mcp.live.refused.cancel_state": "Refused: change {id} is no longer scheduled ({state}). Nothing was changed.",
+  "claude.mcp.live.skip.budget_changed": "Skipped: the budget changed after it was scheduled.",
+  "claude.mcp.live.skip.paused": "Skipped: it was paused after it was scheduled.",
+  "claude.mcp.live.skip.ended": "Skipped: it ended or was deleted after it was scheduled.",
+  "claude.mcp.live.skip.ceiling": "Skipped: by then it would have gone over the client’s daily ceiling, or the client had no ceiling.",
+  "claude.mcp.live.move.partial": "{from} went down by £{x} a day, but {to} didn’t go up: its budget changed or Meta refused it. Read both with get_live.",
+  "claude.mcp.live.refused.too_many_ads": "Refused: that’s {ads} across {campaigns}, over the 200 ads and 8 campaigns one run can add. Narrow ad_set_ids. Nothing was sent to Meta.",
+  "claude.mcp.live.refused.test_dates": "Refused: give start and end as times with their zone: start now or later, end after start, at most 90 days apart. Nothing was sent to Meta.",
+  "claude.mcp.live.refused.test_business": "Refused: the ad account isn’t in a business portfolio, and Meta needs one to hold a test. Nothing was sent to Meta.",
+  "claude.mcp.live.test.line": "{a} and {b} split 50/50 from {start} to {end} London time, judged on cost per result.",
+  /** New row: a budget change with no recorded old amount (never "£0.00 → £y"). */
+  "claude.mcp.live.change.budget.to": "{name}: to £{y} {per}",
+} as const;
+
+const R = LIVE_RULED;
 
 // ── PENDING DESIGN ───────────────────────────────────────────────────────────
 
@@ -104,18 +139,14 @@ const T = {
   readFailed: pending("claude.mcp.live.refused.read_failed", "Told to Claude, Meta couldn't be read before a change", "Refused: Meta couldn’t be read, so nothing was changed. Try again."),
   // Pause / resume.
   samePaused: pending("claude.mcp.live.same.paused", "Told to Claude, pause on something already paused", "Nothing changed: {name} is already paused."),
-  sameLive: pending("claude.mcp.live.same.live", "Told to Claude, resume on something already on", "Nothing changed: {name} is already on."),
-  pausedOutside: pending(
-    "claude.mcp.live.refused.paused_outside",
-    "Told to Claude, resume on something paused outside Off/Pixel, when the question didn't say so",
-    "Refused: {name} was paused outside Off/Pixel, in Ads Manager. Ask Matas again and say so in the question, then send it with his answer. Nothing was sent to Meta.",
-  ),
-  parentOff: pending("claude.mcp.live.resume.parent_off", "Told to Claude after a resume, when the campaign or ad set above is still paused", "{name} is on, but its {parent} is paused, so it won’t spend until that’s on too."),
+  sameLive: R["claude.mcp.live.same.live"],
+  pausedOutside: R["claude.mcp.live.refused.paused_outside"],
+  parentOff: R["claude.mcp.live.resume.parent_off"],
   // Budgets.
   ownBudgetCampaign: pending("claude.mcp.live.refused.budget_on_campaign", "Told to Claude, set_budget on an ad set whose campaign holds the budget", "Refused: {name}’s budget is set on its campaign. Change the campaign’s budget instead. Nothing was sent to Meta."),
   ownBudgetAdSets: pending("claude.mcp.live.refused.budget_on_ad_sets", "Told to Claude, set_budget on a campaign whose ad sets hold the budgets", "Refused: {name}’s budgets are set on its ad sets. Change an ad set’s budget instead. Nothing was sent to Meta."),
   budgetType: pending("claude.mcp.live.refused.budget_type", "Told to Claude, a daily amount on a lifetime budget or the other way round", "Refused: {name} runs on a {type} budget, so give {field}. Nothing was sent to Meta."),
-  budgetAmount: pending("claude.mcp.live.refused.budget_amount", "Told to Claude, an amount that isn't money", "Refused: give one amount in £, more than £1.00, as daily_gbp or lifetime_gbp. Nothing was sent to Meta."),
+  budgetAmount: R["claude.mcp.live.refused.budget_amount"],
   budgetSame: pending("claude.mcp.live.same.budget", "Told to Claude, a budget already at the amount", "Nothing changed: {name} is already at £{x} {per}."),
   budgetChange: pending("claude.mcp.live.change.budget", "Told to Claude (and the change line Today would show), a budget change", "{name}: £{x} → £{y} {per}"),
   perDay: pending("claude.mcp.live.per.day", "{per} for a daily budget", "a day"),
@@ -128,20 +159,20 @@ const T = {
     "Refused: {name}’s budget changed since it was read, to £{x}. Read it again with get_live and ask Matas again. Nothing was sent to Meta.",
   ),
   // Scheduling.
-  scheduled: pending("claude.mcp.live.scheduled", "Told to Claude, set_budget with at", "Scheduled: {change} at {when} London (change {id}). It runs only if nothing has changed by then; cancel it with cancel_scheduled."),
-  schedulePast: pending("claude.mcp.live.refused.at", "Told to Claude, an at that isn't a future time with its zone within 60 days", "Refused: at must be a time with its zone, at least 15 minutes ahead and at most 60 days. Nothing was scheduled."),
-  cancelled: pending("claude.mcp.live.cancelled", "Told to Claude, cancel_scheduled", "Cancelled: {change} at {when} London won’t run."),
+  scheduled: R["claude.mcp.live.scheduled"],
+  schedulePast: R["claude.mcp.live.refused.at"],
+  cancelled: R["claude.mcp.live.cancelled"],
   cancelUnknown: pending("claude.mcp.live.refused.cancel_unknown", "Told to Claude, cancel_scheduled on an id it can't find", "Refused: there’s no scheduled change {id} for you. Nothing was changed."),
-  cancelState: pending("claude.mcp.live.refused.cancel_state", "Told to Claude, cancel_scheduled on a change that already ran or stopped", "Refused: change {id} is already {state}. Nothing was changed."),
+  cancelState: R["claude.mcp.live.refused.cancel_state"],
   stateScheduled: pending("claude.mcp.live.state.scheduled", "list_scheduled, a change waiting", "scheduled"),
   stateApplied: pending("claude.mcp.live.state.applied", "list_scheduled, a change that ran", "applied"),
   stateSkipped: pending("claude.mcp.live.state.skipped", "list_scheduled, a change skipped", "skipped"),
   stateCancelled: pending("claude.mcp.live.state.cancelled", "list_scheduled, a change cancelled", "cancelled"),
   stateFailed: pending("claude.mcp.live.state.failed", "list_scheduled, Meta refused the change", "failed"),
-  skipChanged: pending("claude.mcp.live.skip.budget_changed", "list_scheduled, why a change was skipped", "Skipped: the budget changed in Ads Manager after it was asked."),
-  skipPaused: pending("claude.mcp.live.skip.paused", "list_scheduled, why a change was skipped", "Skipped: it was paused after it was asked."),
-  skipEnded: pending("claude.mcp.live.skip.ended", "list_scheduled, why a change was skipped", "Skipped: it ended or was deleted after it was asked."),
-  skipCeiling: pending("claude.mcp.live.skip.ceiling", "list_scheduled, why a change was skipped", "Skipped: by then it was over the client’s daily ceiling, or the client had none."),
+  skipChanged: R["claude.mcp.live.skip.budget_changed"],
+  skipPaused: R["claude.mcp.live.skip.paused"],
+  skipEnded: R["claude.mcp.live.skip.ended"],
+  skipCeiling: R["claude.mcp.live.skip.ceiling"],
   skipSwitch: pending("claude.mcp.live.skip.switch", "list_scheduled, why a change was skipped", "Skipped: budget changes were switched off in Off/Pixel."),
   skipUnread: pending("claude.mcp.live.skip.unread", "list_scheduled, why a change was skipped", "Skipped: Meta couldn’t be read when it was due."),
   // Moves.
@@ -149,7 +180,7 @@ const T = {
   moveSame: pending("claude.mcp.live.refused.move_same", "Told to Claude, move_budget from an ad set to itself", "Refused: give two different ad sets. Nothing was sent to Meta."),
   moveNotDaily: pending("claude.mcp.live.refused.move_daily", "Told to Claude, move_budget where a side has no daily budget of its own", "Refused: both ad sets need daily budgets of their own to move money between them. Nothing was sent to Meta."),
   moveFloor: pending("claude.mcp.live.refused.move_floor", "Told to Claude, a move that takes the giving ad set under £1.00 a day", "Refused: that would take {from} under £1.00 a day. Nothing was sent to Meta."),
-  movePartial: pending("claude.mcp.live.move.partial", "Told to Claude, a move where only the giving side was written", "Only {from} went down by £{x} a day: {to}’s budget changed or Meta refused it, so it didn’t go up. Read both with get_live."),
+  movePartial: R["claude.mcp.live.move.partial"],
   // Rename.
   nameSame: pending("claude.mcp.live.same.name", "Told to Claude, rename to the name it already has", "Nothing changed: it’s already called {name}."),
   // Stage adds.
@@ -157,7 +188,7 @@ const T = {
   noAdSets: pending("claude.mcp.live.refused.no_ad_sets", "Told to Claude, none of the given ad sets are in the stage", "Refused: none of those ad sets are in {code}’s {stage} campaigns. Nothing was sent to Meta."),
   creativeUnknown: pending("claude.mcp.live.refused.creative_unknown", "Told to Claude, a draft creative id not on the event's drafts", "Refused: there’s no ad {id} on {code}’s drafts. Nothing was sent to Meta."),
   noCreatives: pending("claude.mcp.live.refused.no_creatives", "Told to Claude, add_creatives_to_stage with nothing to add", "Refused: give draft_creative_ids, file_ids or pairs. Nothing was sent to Meta."),
-  tooManyAds: pending("claude.mcp.live.refused.too_many_ads", "Told to Claude, over the tree's caps (8 campaigns, 200 ads)", "Refused: that’s {n} ads across {m} campaigns, over the 200 ads and 8 campaigns one run can add. Narrow ad_set_ids. Nothing was sent to Meta."),
+  tooManyAds: R["claude.mcp.live.refused.too_many_ads"],
   addFailed: pending("claude.mcp.live.add.failed", "Told to Claude, Meta made none of the ads", "Meta didn’t make any of the ads, so nothing was added. Try again: an ad already made won’t be made twice."),
   notAdded: pending("claude.mcp.live.add.not_added", "Told to Claude, ad sets the run didn't reach", "Not added to {adsets}: {names}."),
   audienceUnknown: pending("claude.mcp.live.refused.audience_unknown", "Told to Claude, an audience id Off/Pixel doesn't know for this client", "Refused: audience {id} isn’t one of this client’s audiences in Off/Pixel. Nothing was sent to Meta."),
@@ -171,12 +202,12 @@ const T = {
   testTwo: pending("claude.mcp.live.refused.test_two", "Told to Claude, create_split_test without two different campaigns", "Refused: a test takes two different campaigns. Nothing was sent to Meta."),
   testAccounts: pending("claude.mcp.live.refused.test_accounts", "Told to Claude, campaigns on different ad accounts", "Refused: {a} and {b} are on different ad accounts, and a test needs both on one. Nothing was sent to Meta."),
   testInStudy: pending("claude.mcp.live.refused.test_in_study", "Told to Claude, a campaign already in a running test", "Refused: {name} is already in a running test ({study}). Nothing was sent to Meta."),
-  testDates: pending("claude.mcp.live.refused.test_dates", "Told to Claude, bad start or end", "Refused: start and end are times with their zone, start from now, end after start, the test at most 90 days. Nothing was sent to Meta."),
-  testNoBusiness: pending("claude.mcp.live.refused.test_business", "Told to Claude, an ad account with no business to hold the test", "Refused: the ad account has no business manager to hold the test. Nothing was sent to Meta."),
+  testDates: R["claude.mcp.live.refused.test_dates"],
+  testNoBusiness: R["claude.mcp.live.refused.test_business"],
   testMetric: pending("claude.mcp.live.refused.test_metric", "Told to Claude, a metric other than cost per result", "Refused: a test here compares cost per result only. Nothing was sent to Meta."),
   testThing: pending("claude.mcp.live.thing.test", "{thing} for create_split_test's result", "test"),
   testThings: pending("claude.mcp.live.thing.test.many", "{things}", "tests"),
-  testLine: pending("claude.mcp.live.test.line", "Told to Claude after create_split_test", "{a} and {b} split 50 / 50 from {start} to {end} London, judged on cost per result."),
+  testLine: R["claude.mcp.live.test.line"],
   // get_live.
   strictFlag: pending("claude.mcp.live.flag.strict", "get_live, an ad set that runs strict while its draft asked for suggestions", "Runs strict: the draft asked for Advantage+ suggestions, and Meta shows Advantage+ off."),
   liveNotRead: pending("claude.mcp.live.not_read", "get_live, Meta couldn't be read", "Meta couldn’t be read, so this shows what Off/Pixel knows without live figures. Try again."),
@@ -203,7 +234,11 @@ export const LIVE_WORDS = {
   budgetType: (name: string, lifetime: boolean) => fill(T.budgetType, { name, type: lifetime ? T.typeLifetime : T.typeDaily, field: lifetime ? "lifetime_gbp" : "daily_gbp" }),
   budgetAmount: T.budgetAmount,
   budgetSame: (name: string, x: number, lifetime: boolean) => fill(T.budgetSame, { name, x: money(x), per: lifetime ? T.perLifetime : T.perDay }),
-  budgetChange: (name: string, x: number, y: number, lifetime: boolean) => fill(T.budgetChange, { name, x: money(x), y: money(y), per: lifetime ? T.perLifetime : T.perDay }),
+  /** "{name}: £{x} → £{y} {per}"; with no recorded old amount (x null), claude.mcp.live.change.budget.to: "{name}: to £{y} {per}". */
+  budgetChange: (name: string, x: number | null, y: number, lifetime: boolean) =>
+    x == null
+      ? fill(R["claude.mcp.live.change.budget.to"], { name, y: money(y), per: lifetime ? T.perLifetime : T.perDay })
+      : fill(T.budgetChange, { name, x: money(x), y: money(y), per: lifetime ? T.perLifetime : T.perDay }),
   underfoot: (name: string, x: number) => fill(T.underfoot, { name, x: money(x) }),
   scheduled: (change: string, when: string, id: string) => fill(T.scheduled, { change, when, id }),
   schedulePast: T.schedulePast,
@@ -236,7 +271,8 @@ export const LIVE_WORDS = {
   noAdSets: (code: string, stage: string) => fill(T.noAdSets, { code, stage }),
   creativeUnknown: (id: string, code: string) => fill(T.creativeUnknown, { id, code }),
   noCreatives: T.noCreatives,
-  tooManyAds: (n: number, m: number) => fill(T.tooManyAds, { n, m }),
+  /** {ads} and {campaigns} are counted: never "1 ads" or "1 campaigns". */
+  tooManyAds: (ads: number, campaigns: number) => fill(T.tooManyAds, { ads: countAds(ads), campaigns: countCampaigns(campaigns) }),
   addFailed: T.addFailed,
   notAdded: (adsets: string, names: string) => fill(T.notAdded, { adsets, names }),
   audienceUnknown: (id: string) => fill(T.audienceUnknown, { id }),

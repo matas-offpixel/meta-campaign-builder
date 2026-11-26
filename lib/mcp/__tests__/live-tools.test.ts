@@ -205,6 +205,25 @@ async function schedule(ctx: ToolContext, at: string, daily = 40) {
   return (out.data as { scheduled_id: string }).scheduled_id;
 }
 
+test("set_budget with at: Claude is told design's scheduled row, with londonWhen's time", async () => {
+  const { ctx } = liveCtx({ ceiling: 500 });
+  const out = await run(setBudgetTool, ctx, { event: CODE, kind: "ad_set", id: AS_BROAD, daily_gbp: 40, at: "2026-11-26T18:00:00Z", approval: YES });
+  const data = out.data as { message: string; scheduled_id: string };
+  assert.equal(data.message, `Scheduled for Thu 26 Nov, 18:00 London time: Broad: £30.00 → £40.00 a day (change ${data.scheduled_id}). It runs only if nothing has changed by then. Cancel it with cancel_scheduled.`);
+});
+
+test("list_scheduled: a change with no recorded old amount reads \"Broad: to £40.00 a day\", never \"£0.00 →\"", async () => {
+  const { ctx } = liveCtx({ ceiling: 500 });
+  const id = await schedule(ctx, "2026-11-26T18:00:00Z");
+  await ctx.db.from("scheduled_meta_changes").update({ expected_minor: null }).eq("id", id);
+  const listed = await run(listScheduledTool, ctx, { event: CODE });
+  const line = (listed.data as { changes: Array<{ id: string; change: string }> }).changes.find((c) => c.id === id)!;
+  assert.equal(line.change, "Broad: to £40.00 a day");
+  assert.doesNotMatch(line.change, /£0\.00 →/);
+  const out = await run(cancelScheduledTool, ctx, { id, approval: { asked: "Cancel it?", answer: "yes" } });
+  assert.equal((out.data as { message: string }).message, "Cancelled the change due Thu 26 Nov, 18:00 London time: Broad: to £40.00 a day. It won’t run.");
+});
+
 test("set_budget with at: stored with the yes, nothing sent now; applied once at its time, ceiling checked again", async () => {
   const { ctx, db, spy } = liveCtx({ ceiling: 500 });
   const id = await schedule(ctx, "2026-11-26T18:00:00Z");
@@ -255,7 +274,7 @@ test("cancel_scheduled: a cancelled change never runs; cancelling twice changes 
   const { ctx, spy } = liveCtx({ ceiling: 500 });
   const id = await schedule(ctx, "2026-11-26T18:00:00Z");
   const out = await run(cancelScheduledTool, ctx, { id, approval: { asked: "Cancel it?", answer: "yes" } });
-  assert.match((out.data as { message: string }).message, /^Cancelled: Broad: £30\.00 → £40\.00 a day at Thu 26 Nov, 18:00 London won’t run\.$/);
+  assert.match((out.data as { message: string }).message, /^Cancelled the change due Thu 26 Nov, 18:00 London time: Broad: £30\.00 → £40\.00 a day\. It won’t run\.$/);
   await run(cancelScheduledTool, ctx, { id, approval: { asked: "Cancel it?", answer: "yes" } });
   const ran = await runScheduledChanges({ db: ctx.db, live: ctx.live!, now: new Date("2026-11-27T00:00:00Z"), shipped: true });
   assert.equal(ran.due, 0);
@@ -263,14 +282,14 @@ test("cancel_scheduled: a cancelled change never runs; cancelling twice changes 
 
   const id2 = await schedule(ctx, "2026-11-26T19:00:00Z", 45);
   await runScheduledChanges({ db: ctx.db, live: ctx.live!, now: new Date("2026-11-26T19:00:00Z"), shipped: true });
-  await refused(run(cancelScheduledTool, ctx, { id: id2, approval: { asked: "Cancel it?", answer: "yes" } }), /is already applied\. Nothing was changed\.$/);
+  await refused(run(cancelScheduledTool, ctx, { id: id2, approval: { asked: "Cancel it?", answer: "yes" } }), /^Refused: change [0-9a-f-]+ is no longer scheduled \(applied\)\. Nothing was changed\.$/);
   await refused(run(cancelScheduledTool, ctx, { id: "5c000000-0000-4000-8000-000000000009", approval: { asked: "Cancel it?", answer: "yes" } }), /there’s no scheduled change/);
 });
 
 test("set_budget at: refused in the past, without a zone, or too far ahead", async () => {
   const { ctx } = liveCtx({ ceiling: 500 });
   for (const at of ["2026-11-26T09:00:00Z", "2026-11-26T18:00:00", "2027-03-01T10:00:00Z", "2026-11-26T10:05:00Z"]) {
-    await refused(run(setBudgetTool, ctx, { event: CODE, kind: "ad_set", id: AS_BROAD, daily_gbp: 40, at, approval: YES }), /^Refused: at must be a time with its zone/);
+    await refused(run(setBudgetTool, ctx, { event: CODE, kind: "ad_set", id: AS_BROAD, daily_gbp: 40, at, approval: YES }), /^Refused: give at as a time with its zone, at least 15 minutes and at most 60 days ahead\. Nothing was scheduled\.$/);
   }
 });
 
@@ -402,7 +421,7 @@ test("create_split_test: two campaigns on one account, in no running study; the 
     spy.studies.set(CAMP_B, "study-0");
     await refused(run(createSplitTestTool, ctx, { ...base, campaign_ids: [CAMP_A, CAMP_B], approval: YES }), /is already in a running test \(study-0\)/);
     await refused(run(createSplitTestTool, ctx, { ...base, campaign_ids: [CAMP_A, CAMP_A], approval: YES }), /takes two different campaigns/);
-    await refused(run(createSplitTestTool, ctx, { ...base, end: "2027-06-01T00:00:00Z", campaign_ids: [CAMP_A, CAMP_B], approval: YES }), /at most 90 days/);
+    await refused(run(createSplitTestTool, ctx, { ...base, end: "2027-06-01T00:00:00Z", campaign_ids: [CAMP_A, CAMP_B], approval: YES }), /^Refused: give start and end as times with their zone: start now or later, end after start, at most 90 days apart\. Nothing was sent to Meta\.$/);
     assert.equal(writes(spy).length, 0);
   }
 });

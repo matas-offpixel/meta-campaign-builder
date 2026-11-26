@@ -163,7 +163,7 @@ function scheduledLine(row: ScheduledRow) {
     name: row.object_name ?? row.object_id,
     kind: row.object_kind === "adset" ? "ad_set" : "campaign",
     object_id: row.object_id,
-    change: LIVE_WORDS.budgetChange(row.object_name ?? row.object_id, before ?? 0, Number(row.amount_minor) / 100, lifetime),
+    change: LIVE_WORDS.budgetChange(row.object_name ?? row.object_id, before, Number(row.amount_minor) / 100, lifetime),
     at: row.run_at,
     when: londonWhen(row.run_at),
     state: LIVE_WORDS.state[row.status] ?? row.status,
