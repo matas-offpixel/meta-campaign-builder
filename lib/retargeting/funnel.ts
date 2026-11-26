@@ -397,7 +397,8 @@ const idsKey = (ids: readonly string[]) => linkKey([...ids].sort().join(","));
 function accountAudiences(sources: FunnelSources, source: "engaged" | "followers", days: number | null): FunnelAudience[] {
   const accounts = usableAccounts(sources.accounts);
   const fb = accounts.filter((row) => row.platform === "facebook").map((row) => row.pageId);
-  const ig = accounts.filter((row) => row.platform === "instagram").map((row) => row.pageId);
+  // An Instagram rule takes the account's own id (#1400's ig_engagers / ig_followers specs); the Page id only when it isn't known.
+  const ig = accounts.filter((row) => row.platform === "instagram").map((row) => row.igId ?? row.pageId);
   const out: FunnelAudience[] = [];
   for (const [platform, ids] of [["fb", fb], ["ig", ig]] as const) {
     for (const part of chunk(ids, RT2.pagesPerAudience)) {
@@ -446,9 +447,8 @@ export function similarAudiences(group: PageGroup | null | undefined): FunnelAud
   for (const part of chunk(group.pageIds, RT2.pagesPerAudience)) {
     out.push({ key: `rf:similar_fb:${SIMILAR_ENGAGED_DAYS}:${idsKey(part)}`, source: "similar_pages", kind: "page_fb", pageIds: part, retentionDays: SIMILAR_ENGAGED_DAYS });
   }
-  // The builder's Instagram rule takes the Facebook Page ids of pages with an Instagram account.
-  const withIg = group.pageIds.slice(0, group.igIds.length ? group.pageIds.length : 0);
-  for (const part of chunk(withIg, RT2.pagesPerAudience)) {
+  // Instagram: the accounts' own ids (#1400's ig_engagers spec).
+  for (const part of chunk(group.igIds, RT2.pagesPerAudience)) {
     out.push({ key: `rf:similar_ig:${SIMILAR_ENGAGED_DAYS}:${idsKey(part)}`, source: "similar_pages", kind: "page_ig", pageIds: part, retentionDays: SIMILAR_ENGAGED_DAYS });
   }
   return out;

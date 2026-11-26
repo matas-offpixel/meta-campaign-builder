@@ -37,12 +37,12 @@
 import { NextResponse, type NextRequest } from "next/server";
 import crypto from "crypto";
 import { createClient } from "@/lib/supabase/server";
+import { facebookOAuthScopes } from "@/lib/meta/oauth-scopes";
 
-// Default scopes for the legacy Meta app (grandfathered for instagram_basic).
-// Override via FACEBOOK_OAUTH_SCOPES on deployments whose Meta app rejects it.
-const DEFAULT_FB_SCOPES =
-  "pages_show_list,pages_read_engagement,ads_management,ads_read,instagram_basic,business_management";
-const FB_SCOPES = process.env.FACEBOOK_OAUTH_SCOPES?.trim() || DEFAULT_FB_SCOPES;
+// Default scopes for the legacy Meta app (grandfathered for instagram_basic),
+// lib/meta/oauth-scopes.ts. Override via FACEBOOK_OAUTH_SCOPES on deployments
+// whose Meta app rejects one.
+const FB_SCOPES = facebookOAuthScopes();
 
 const COOKIE_MAX_AGE = 10 * 60; // 10 minutes — enough for the round-trip
 

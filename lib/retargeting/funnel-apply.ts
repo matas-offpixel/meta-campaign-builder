@@ -112,8 +112,12 @@ export type FunnelSeams = {
   createAudience(aud: MakeAudience, name: string, adAccountId: string): Promise<{ metaAudienceId: string } | null>;
   /** M3b's scheduled change (Job 1 switches it on). Returns the row's id. */
   scheduleChange(step: ScheduledStep): Promise<{ id: string }>;
-  /** Job 3's show ceiling on the change in the show's total. Throws a plain refusal. */
-  checkCeiling(change: { eventId: string; beforeMinor: number; afterMinor: number }): Promise<void>;
+  /**
+   * The show's ceiling (#1397, the per-show ceiling) on the change: Retargeting's daily
+   * budgets and Wider's lifetime as new spend, each lowered prospecting budget as it would be
+   * after. before / after are the show's money a day, for the log. Throws a plain refusal.
+   */
+  checkCeiling(change: { eventId: string; code: string; beforeMinor: number; afterMinor: number; retargetingDailyMinor: number; take: readonly TakeLine[]; wider: { name: string; lifetimeMinor: number } | null; endDay: string }): Promise<void>;
 };
 
 export type FunnelDeps = FunnelSeams & {
@@ -291,7 +295,7 @@ export async function applyFunnel(deps: FunnelDeps, build: FunnelBuild, ctx: { m
     try {
       // With Wider, the show's spend is Retargeting's plus Wider's (the prospecting it folds is paused on Matas's yes first).
       const afterMinor = build.wider ? totalAfter + build.wider.dailyMinor : build.plan.showDailyMinor - taken + totalAfter;
-      await deps.checkCeiling({ eventId: build.eventId, beforeMinor: build.plan.showDailyMinor, afterMinor });
+      await deps.checkCeiling({ eventId: build.eventId, code: build.eventCode, beforeMinor: build.plan.showDailyMinor, afterMinor, retargetingDailyMinor: totalAfter, take: build.plan.take, wider: build.wider ? { name: build.wider.campaignName, lifetimeMinor: build.wider.lifetimeMinor } : null, endDay: build.endDay });
     } catch (err) {
       return fail(err instanceof Error ? err.message : String(err), { step: "ceiling" });
     }

@@ -13,13 +13,15 @@
  *     picker's list that Meta checks an ad's page against at launch
  *     (GET /api/meta/pages, fetchPromotePages), cursors followed to 10 pages.
  *   - readAdSetsById: GET /?ids=… (≤ 50 a call), strict_audit's read of each
- *     launched ad set's status and Advantage+ audience flag (M3d-d).
+ *     launched ad set's status, Advantage+ audience flag and location
+ *     expansion (M3d-d; `individual_setting.geo`, lib/meta/geo-expansion.ts).
  *
  * The token is the operator's (resolveServerMetaToken in draft-deps.ts) and
  * is never logged or returned. `fetchImpl` is passed so the network test can
  * spy on every request. Relative imports only (node:test).
  */
 import { locationSearchQuery, parseLocationSearchHits, type LocationSearchHit } from "../meta/location-search.ts";
+import { geoExpansionOf, type GeoExpansionState } from "../meta/geo-expansion.ts";
 
 export const GRAPH_ORIGIN = "https://graph.facebook.com";
 
@@ -106,6 +108,12 @@ export interface AdSetTargetingRead {
   effectiveStatus: string | null;
   /** targeting.targeting_automation.advantage_audience as Meta stores it; null when Meta gave no targeting. */
   advantageAudience: number | null;
+  /**
+   * Location expansion, targeting.targeting_automation.individual_setting.geo:
+   * "on" (1), "off" (0), "not_set" (no geo key, which isn't proof it's off);
+   * null when Meta gave no targeting.
+   */
+  geoExpansion: GeoExpansionState | null;
 }
 
 /**
@@ -145,6 +153,7 @@ export async function readAdSetsById(fetchImpl: FetchLike, version: string, toke
         campaignName: typeof campaign?.name === "string" ? campaign.name : null,
         effectiveStatus: typeof r.effective_status === "string" ? r.effective_status : null,
         advantageAudience: flag != null && Number.isFinite(flag) ? flag : null,
+        geoExpansion: geoExpansionOf(targeting),
       });
     }
   }

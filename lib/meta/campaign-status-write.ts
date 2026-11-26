@@ -15,7 +15,8 @@
 import { adsetStatusWritesEnabled, AdSetStatusWritesDisabledError } from "./adset-status-write.ts";
 import { withMetaWriteIdempotency, type MetaWriteContext } from "./write-idempotency.ts";
 
-export type CampaignStatus = "PAUSED" | "ACTIVE";
+/** DELETED: Today's Undo of a paused campaign the connector launched (the MCP's Today Undo). */
+export type CampaignStatus = "PAUSED" | "ACTIVE" | "DELETED";
 
 export type CampaignStatusGraph = {
   /** POST /{campaignId} { status }. Single shot: never retried here. */

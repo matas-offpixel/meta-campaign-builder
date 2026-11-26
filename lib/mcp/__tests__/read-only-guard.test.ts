@@ -49,6 +49,17 @@
  * the Meta seam it isn't walked; a test pins exactly what it imports, what
  * each of those writes, and that only the route wiring imports it. It sends
  * nothing to Meta or Drive.
+ *
+ * M3c adds the audience seam, lib/mcp/audience-deps.ts (scope mcp:meta):
+ * Meta reads (GETs, and the purchase read's batch of GETs) with the
+ * operator's token; the Audience Builder's own create (createAudienceDraft,
+ * createMetaCustomAudience: meta_custom_audiences, its own
+ * meta_audience_write_idempotency ledger, behind
+ * OFFPIXEL_META_AUDIENCE_WRITES_ENABLED) with seed grants off; and one POST,
+ * /{business}/client_pages, handed to lib/meta/page-access-request.ts
+ * (ledger page_access_request, Off/Pixel's business refused). Like the Meta
+ * seam it isn't walked; a test pins exactly what it imports, its one POST,
+ * that seed grants are off, and that only the route wiring imports it.
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -119,6 +130,25 @@ const FOLDER_SEAM_IMPORTS: Record<string, readonly string[]> = {
  * (the Snippet route's scan and edit, the Clips card's owner write), and
  * the tables each one's body may write.
  */
+/** M3c's audience seam: what it imports, by file, and its one POST. */
+const AUDIENCE_SEAM = "lib/mcp/audience-deps.ts";
+const AUDIENCE_SEAM_IMPORTS: Record<string, readonly string[]> = {
+  "lib/db/meta-custom-audiences.ts": ["createAudienceDraft"],
+  "lib/meta/audience-write.ts": ["createMetaCustomAudience", "metaAudienceWritesEnabled"],
+  "lib/meta/client.ts": ["graphGetWithToken", "graphPostWithToken"],
+  "lib/meta/graph-multi-get.ts": ["graphMultiGetByIds"],
+  "lib/meta/server-token.ts": ["resolveServerMetaToken"],
+  "lib/meta/page-access.ts": ["businessSharedPages", "resolvePageAccess"],
+  "lib/meta/business-manager.ts": ["paginateAll"],
+  "lib/meta/page-access-request.ts": ["writePageAccessRequest"],
+  "lib/bm/user-token.ts": ["resolveUserFacebookToken"],
+  "lib/audiences/sources.ts": ["fetchAudienceMultiCampaignVideos"],
+  "lib/onsale-refresh/purchase-read.ts": ["fetchAdSetPixels", "fetchEventHosts"],
+  "lib/cirqlin/page-links.ts": ["fetchCirqlinPageLinks"],
+  "lib/retargeting/audiences.ts": ["groupVideosByPage"],
+  "lib/retargeting/links.ts": ["linksFromPages"],
+};
+
 const LAB_SEAM = "lib/mcp/lab-deps.ts";
 const LAB_SEAM_IMPORTS: Record<string, readonly string[]> = {
   "lib/creative-tests/audio-edits.ts": ["saveAudioEdit"],
@@ -169,8 +199,6 @@ const RETARGETING_SEAM_IMPORTS: Record<string, readonly string[]> = {
   "lib/meta/client.ts": ["checkAudienceReadiness", "createMetaAd", "createMetaAdSet", "graphGetWithToken", "graphPostWithToken"],
   "lib/meta/graph-multi-get.ts": ["graphMultiGetByIds"],
   "lib/meta/server-token.ts": ["resolveServerMetaToken"],
-  "lib/meta/audience-write.ts": ["createMetaCustomAudience"],
-  "lib/db/meta-custom-audiences.ts": ["createAudienceDraftWith"],
   "lib/audiences/sources.ts": ["fetchAudienceMultiCampaignVideos"],
   "lib/notify/ads-manager-url.ts": ["buildMetaAdsManagerCampaignUrl"],
   "lib/onsale-refresh/apply.ts": ["plainMetaReason"],
@@ -178,11 +206,22 @@ const RETARGETING_SEAM_IMPORTS: Record<string, readonly string[]> = {
   "lib/retargeting/audiences.ts": ["groupVideosKeepingUnpaged"],
   "lib/retargeting/funnel-apply.ts": ["applyFunnel", "funnelAudienceDraft"],
 };
+/** Its own MCP imports: the audience tools' create (#1400), the live reads for the show ceiling, M3b's scheduled-change writer, the ceiling (#1397), the lookalike spec. */
+const RETARGETING_SEAM_OWN = [
+  "lib/mcp/audience-deps.ts#realAudienceDeps",
+  "lib/mcp/audiences/specs.ts#LOOKALIKE_SPEC",
+  "lib/mcp/live/scheduled.ts#insertScheduled",
+  "lib/mcp/meta-deps.ts#realLiveDeps",
+  "lib/mcp/meta/show-ceiling.ts#checkShowCeiling",
+];
 /** The tables the funnel's create path writes (applyFunnel and its private helpers). */
 const FUNNEL_WRITES = /^(retargeting_builds|onsale_refresh_audiences|launched_ad_sets)$/;
-const SEAMS = new Set(["lib/mcp/meta-deps.ts", "lib/mcp/lab-deps.ts", "lib/mcp/folder-in-deps.ts", "lib/mcp/shows-deps.ts", RETARGETING_SEAM]);
+const SEAMS = new Set(["lib/mcp/meta-deps.ts", "lib/mcp/lab-deps.ts", "lib/mcp/folder-in-deps.ts", "lib/mcp/shows-deps.ts", "lib/mcp/audience-deps.ts", RETARGETING_SEAM]);
 
 const ENTRIES = [
+  // M3b on Today (MB1, MB2): Undo and Cancel, and the log they draw from.
+  "app/(dashboard)/today/claude-actions.ts",
+  "lib/mcp/today/load.ts",
   "lib/mcp/server.ts",
   "lib/mcp/tools/index.ts",
   "lib/mcp/draft-deps.ts",
@@ -267,6 +306,8 @@ const EXTERNAL_READERS: Record<string, readonly string[]> = {
   "lib/meta/location-search.ts": ["selectionFromGeoResult", "locationSearchQuery", "parseLocationSearchHits"],
   "lib/meta/location-radius.ts": ["clampCityRadius"],
   "lib/meta/location-targeting.ts": ["groupTier", "withGroupTier"],
+  // strict_audit's location expansion read and line (pure; cc/meta-geo-expansion-off).
+  "lib/meta/geo-expansion.ts": ["geoExpansionOf", "GEO_WORDS"],
   "lib/wizard/adset-suggestions.ts": [
     "addLocationToEveryAdSet",
     "adSetsTargetingLocation",
@@ -330,7 +371,7 @@ const EXTERNAL_READERS: Record<string, readonly string[]> = {
   "lib/render-templates/load.ts": ["compareTracks", "loadClips", "loadLineup"],
   "lib/creative-tests/snippet.ts": ["DROP_FOUND", "NO_CLEAR_DROP", "cantUseText", "dropSetBy", "mmss"],
   // M3b: the event's campaign tree (database reads, and Meta through the reader the live seam passes) and its pure helpers.
-  "lib/campaign-tree/load.ts": ["loadCampaignTree"],
+  "lib/campaign-tree/load.ts": ["loadCampaignTree", "loadEventAdSets", "loadEventDrafts", "splitCampaignIds"],
   "lib/campaign-tree/tree.ts": ["canWrite", "defaultSelection", "stageAccount", "stageLabel", "stageSheetCampaigns"],
   // M3d-a: the Releases card's ladder reckoning and its words (pure), as the card runs it.
   "lib/releases/types.ts": ["RELEASE_STATES", "stateIndex"],
@@ -342,6 +383,15 @@ const EXTERNAL_READERS: Record<string, readonly string[]> = {
   "lib/releases/visibility.ts": ["isBackfilled"],
   "lib/releases/london.ts": ["londonDayMonth"],
   "lib/ticket-warnings/next-rung.ts": ["derivedProposals", "nextRung", "sellingFastDays"],
+  // M3c: the Audience Builder's payload (pure: create_audiences compares rules before anything is made), the
+  // retargeting builder's URL rule and links fallback, the purchase read's pixel choice (pure), and the
+  // client_pages helper's fixed values (Off/Pixel's business, the tasks, the daily cap).
+  "lib/meta/audience-payload.ts": ["buildMetaCustomAudiencePayload"],
+  // M3c: the builder's own rule match, run against the account's full list (pure).
+  "lib/meta/reuse-existing-audience.ts": ["matchExistingCustomAudience"],
+  "lib/retargeting/links.ts": ["linksFallback", "urlRule"],
+  "lib/onsale-refresh/purchases.ts": ["resolvePixel"],
+  "lib/meta/page-access-request.ts": ["DEFAULT_PAGE_REQUEST_TASKS", "OFF_PIXEL_BUSINESS_IDS", "PAGE_REQUESTS_PER_DAY", "PAGE_REQUEST_TASKS"],
   // M3c: the retargeting funnel's words and plan lines, and its sources from the read (pure).
   "lib/retargeting/funnel-plan.ts": ["claudePlanLines", "doneLine", "planHead", "skipLine", "skipReason"],
   "lib/retargeting/funnel-view.ts": ["funnelSourcesOf"],
@@ -368,7 +418,7 @@ const EXTERNAL_WRITERS: Record<string, Record<string, RegExp>> = {
  * lib/meta modules the MCP may import: pure helpers and the token read. No
  * Meta write path (lib/meta/client.ts, the Graph client, is never imported).
  */
-const META_IMPORTS_ALLOWED = /\/meta\/(ad-account|location-pins|location-search|location-radius|location-targeting|server-token|advantage-plus-compat|adset)(\.ts)?["']/;
+const META_IMPORTS_ALLOWED = /\/meta\/(ad-account|location-pins|location-search|location-radius|location-targeting|server-token|advantage-plus-compat|adset|geo-expansion|audience-payload|page-access-request|reuse-existing-audience)(\.ts)?["']/;
 
 const isOwn = (f: string) => f.startsWith("lib/mcp/") || f.startsWith("app/") || f.startsWith("components/mcp/");
 
@@ -519,7 +569,8 @@ test("M3a: the Meta seam imports exactly the launch route's handler, the upload 
   for (const p of SEAM_POSTS) assert.equal(posts.filter((l) => p.test(l)).length, 1, String(p));
   // Only route-deps and the scheduled-changes cron wire it; no tool imports it (tools reach Meta through ctx.meta / ctx.live).
   const importers = [...files.entries()].filter(([f, s2]) => f !== META_SEAM && /from\s+["'][^"']*meta-deps["']/.test(s2)).map(([f]) => f).sort();
-  assert.deepEqual(importers, ["app/api/cron/mcp-scheduled-changes/route.ts", "lib/mcp/route-deps.ts"]);
+  // M3c: the retargeting seam takes the live reads for the show ceiling (realLiveDeps), nothing that writes.
+  assert.deepEqual(importers, ["app/(dashboard)/today/claude-actions.ts", "app/api/cron/mcp-scheduled-changes/route.ts", "lib/mcp/retargeting-deps.ts", "lib/mcp/route-deps.ts"]);
   // The tree's handlers are the routes' own, and bulk-attach keeps the tree switch and the paused flag.
   const attach = readFileSync(join(ROOT, "app/api/meta/bulk-attach-ads/route.ts"), "utf8");
   assert.match(attach, /export async function bulkAttachAs\(/);
@@ -533,6 +584,40 @@ test("M3a: the Meta seam imports exactly the launch route's handler, the upload 
   assert.match(route, /export async function launchCampaignAs\(/);
   assert.match(route, /const entityStatus = resolveMetaLaunchEntityStatus\(\{ createPaused \}\);/);
   assert.match(src, /body: JSON\.stringify\(\{ draft, createPaused \}\)/);
+});
+
+test("M3c: the audience seam imports exactly the Audience Builder's create, the reads and the client_pages helper, sends one POST, grants no seeds, and only the route wiring imports it", () => {
+  const files = walk();
+  assert.ok(files.has(AUDIENCE_SEAM), "the route wires the audience seam");
+  const src = files.get(AUDIENCE_SEAM)!;
+  const got: Record<string, string[]> = {};
+  for (const { target, names } of importsOf(AUDIENCE_SEAM, src)) {
+    if (isOwn(target)) continue;
+    got[target] = [...(got[target] ?? []), ...names].sort();
+  }
+  assert.deepEqual(got, Object.fromEntries(Object.entries(AUDIENCE_SEAM_IMPORTS).map(([k, v]) => [k, [...v].sort()])));
+  const code = strip(src);
+  // No database write of its own (the builder's create writes meta_custom_audiences), and no fetch or DELETE.
+  assert.doesNotMatch(code, WRITE);
+  WRITE.lastIndex = 0;
+  assert.doesNotMatch(code, /\b(fetch|graphDelete)\s*\(/);
+  // One POST: client_pages, the callback writePageAccessRequest is handed.
+  const posts = code.split("\n").filter((l) => /graphPostWithToken\s*[<(]/.test(l));
+  assert.equal(posts.length, 1);
+  assert.match(posts[0]!, /postClientPage: \(b, body\) => graphPostWithToken\(`\/\$\{b\}\/client_pages`, body, token\)/);
+  // The create is the builder's own, with the connector's rows client and seed grants off.
+  assert.match(code, /createMetaCustomAudience\(draft\.id, \{ userId, supabase: db as never, rows: db, remediateSeeds: noSeedGrants \}\)/);
+  assert.match(code, /const noSeedGrants = async \(_db: unknown, sourceIds: string\[\]\) => \(\{ remediated: \[\] as string\[\]/);
+  // Business Manager calls run as Matas's own token, never the env token.
+  assert.match(code, /const personal = \(userId: string\) => resolveUserFacebookToken\(db, userId\)/);
+  // The builder's create keeps its gate; the helper refuses Off/Pixel's business before the ledger.
+  const write = readFileSync(join(ROOT, "lib/meta/audience-write.ts"), "utf8");
+  assert.match(write, /export async function createMetaCustomAudience\([\s\S]*?assertMetaAudienceWritesEnabled\(\);/);
+  const helper = strip(readFileSync(join(ROOT, "lib/meta/page-access-request.ts"), "utf8"));
+  assert.match(helper, /export const OFF_PIXEL_BUSINESS_IDS: readonly string\[\] = \["944651277948334", "237857750137825"\];/);
+  assert.match(helper, /if \(isOffPixelBusiness\(businessId\)\) throw new OffPixelBusinessRefused\(\);[\s\S]*withMetaWriteIdempotency\([\s\S]*"page_access_request"[\s\S]*\{ required: true \}/);
+  const importers = [...files.entries()].filter(([f, s2]) => f !== AUDIENCE_SEAM && /from\s+["'][^"']*audience-deps["']/.test(s2)).map(([f]) => f);
+  assert.deepEqual([...importers].sort(), ["lib/mcp/retargeting-deps.ts", "lib/mcp/route-deps.ts"].sort());
 });
 
 test("M3d-b: the Lab seam imports exactly the Snippet tab's scan and drop edit and the Clips card's owner write, each writes only its table, and only the route wiring imports it", () => {
@@ -631,9 +716,12 @@ test("M3c: the retargeting seam imports exactly the 08:00 read, the funnel's cre
     got[target] = [...(got[target] ?? []), ...names].sort();
   }
   assert.deepEqual(got, Object.fromEntries(Object.entries(RETARGETING_SEAM_IMPORTS).map(([k, v]) => [k, [...v].sort()])));
-  // Its own MCP imports: M3b's scheduled-change writer, the ceiling read, the types.
   const own = importsOf(RETARGETING_SEAM, src).filter(({ target }) => isOwn(target)).map(({ target, names }) => `${target}#${names.join(",")}`).sort();
-  assert.deepEqual(own, ["lib/mcp/live/scheduled.ts#insertScheduled", "lib/mcp/meta/ceiling.ts#checkSpendCeiling"]);
+  assert.deepEqual(own, RETARGETING_SEAM_OWN);
+  // #1401: every ad set the show campaigns make goes through the shared create, which sends geo 0; the payloads set none of their own.
+  assert.match(strip(src), /async createAdSet\(adAccountId, payload\) \{\n\s*return \(await createMetaAdSet\(/);
+  assert.match(strip(readFileSync(join(ROOT, "lib/meta/client.ts"), "utf8")), /export async function createMetaAdSet[\s\S]{0,400}withLocationExpansionOff\(payload\)/);
+  assert.doesNotMatch(strip(readFileSync(join(ROOT, "lib/retargeting/apply.ts"), "utf8")), /individual_setting|\bgeo:/);
   const code = strip(src);
   assert.doesNotMatch(code, WRITE, "the seam writes nothing itself");
   WRITE.lastIndex = 0;
@@ -656,7 +744,7 @@ test("M3c: the retargeting seam imports exactly the 08:00 read, the funnel's cre
 
 test("M3a: every meta tool checks the scope and the approval before anything else, and reaches Meta only through ctx.meta", async () => {
   const { META_TOOLS } = await import("../tools/index.ts");
-  const files = ["lib/mcp/tools/meta-launch.ts", "lib/mcp/tools/meta-event.ts", "lib/mcp/tools/live-status.ts", "lib/mcp/tools/live-budget.ts", "lib/mcp/tools/live-rename.ts", "lib/mcp/tools/live-stage.ts", "lib/mcp/tools/live-test.ts", "lib/mcp/tools/live-read.ts", "lib/mcp/tools/retargeting.ts"];
+  const files = ["lib/mcp/tools/meta-launch.ts", "lib/mcp/tools/meta-event.ts", "lib/mcp/tools/live-status.ts", "lib/mcp/tools/live-budget.ts", "lib/mcp/tools/live-rename.ts", "lib/mcp/tools/live-stage.ts", "lib/mcp/tools/live-test.ts", "lib/mcp/tools/live-read.ts", "lib/mcp/tools/audiences.ts", "lib/mcp/tools/page-access.ts", "lib/mcp/tools/retargeting.ts"];
   for (const file of files) {
     const code = strip(readFileSync(join(ROOT, file), "utf8"));
     // The read-only meta tools (get_live, list_scheduled) check the scope; every other one the scope and the approval.
@@ -665,8 +753,8 @@ test("M3a: every meta tool checks the scope and the approval before anything els
   }
   // pause and resume share runStatus, which checks the approval first.
   assert.match(strip(readFileSync(join(ROOT, "lib/mcp/tools/live-status.ts"), "utf8")), /async function runStatus\(ctx: ToolContext, args: Record<string, unknown>, to: "PAUSED" \| "ACTIVE", tool: "pause" \| "resume"\) \{\n\s*const \{ approval \} = requireMetaApproval\(ctx, args\);/);
-  assert.ok(META_TOOLS.length === 16 && META_TOOLS.every((t) => t.kind === "meta"));
-  for (const t of META_TOOLS.filter((x) => x.readOnly === true)) assert.ok(["get_live", "list_scheduled", "plan_retargeting"].includes(t.name), t.name);
+  assert.ok(META_TOOLS.length === 21 && META_TOOLS.every((t) => t.kind === "meta"));
+  for (const t of META_TOOLS.filter((x) => x.readOnly === true)) assert.ok(["get_live", "list_scheduled", "list_audiences", "audience_sources", "pending_access", "plan_retargeting"].includes(t.name), t.name);
 });
 
 test("tools register with honest annotations: read tools read-only, draft tools never destructive", () => {
@@ -715,4 +803,34 @@ test("the proxy opens exactly the MCP paths", async () => {
   assert.equal(isPublicPath("/api/mcpx"), false);
   assert.equal(isPublicPath("/api/mcp/anything"), false);
   assert.equal(isPublicPath("/api/oauth/other"), false);
+});
+
+test("M3b on Today: Undo writes only through the live seam's own writers and the action log, Cancel only through cancelScheduled, and both are Matas's", () => {
+  const files = walk();
+  for (const f of ["app/(dashboard)/today/claude-actions.ts", "lib/mcp/today/undo.ts", "lib/mcp/today/log.ts", "lib/mcp/today/load.ts", "lib/mcp/today/words.ts"]) assert.ok(files.has(f), `${f} is walked`);
+  const undo = strip(files.get("lib/mcp/today/undo.ts")!);
+  // No table write of its own: the today_undo row goes through the action log, the cancel through scheduled.ts.
+  assert.doesNotMatch(undo, /\.(insert|update|upsert|delete|rpc)\s*\(/);
+  assert.match(undo, /await deps\.logger\s*\.log\(/);
+  assert.match(undo, /approvedOnToday: true/);
+  assert.match(undo, /cancelScheduled\(db, \{ userId: input\.userId, id: input\.id, now: input\.now, by: "today" \}\)/);
+  // Meta only through McpLiveDeps' existing writes, each keyed "undo:{row}" on the ledger.
+  const liveCalls = [...undo.matchAll(/\blive\.(\w+)\(/g)].map((m) => m[1]).sort();
+  assert.deepEqual([...new Set(liveCalls)], ["moveBudget", "readObjects", "rename", "setBudget", "setStatus", "switches"]);
+  const writesCalled = undo.split("\n").filter((l) => /live\.(setStatus|setBudget|rename|moveBudget)\(\{/.test(l));
+  assert.equal(writesCalled.length, 5);
+  for (const l of writesCalled) assert.match(l, /key: undoKey \}\);/, l);
+  // A delete is status DELETED, only after the confirm, and only here.
+  assert.match(undo, /if \(plan\.op === "delete" && opts\.confirmed !== true\) return \{ state: "confirm" \};/);
+  const deletes = [...files.entries()].filter(([f, src]) => isOwn(f) && /status: "DELETED"/.test(strip(src))).map(([f]) => f);
+  assert.deepEqual(deletes, ["lib/mcp/today/undo.ts"]);
+  // The seam sends DELETED through the same status POST as pause and resume (SEAM_POSTS is unchanged).
+  // The actions check MATAS_USER_IDS before anything runs.
+  const actions = strip(files.get("app/(dashboard)/today/claude-actions.ts")!);
+  assert.match(actions, /MATAS_USER_IDS\.includes\(id\)/);
+  for (const fn of ["undoClaudeChange", "cancelScheduledChange"]) {
+    const body = bodyOf(actions, fn)!;
+    assert.ok(body.indexOf("await matas()") >= 0 && body.indexOf("await matas()") < Math.max(body.indexOf("runUndo("), body.indexOf("cancelFromToday(")), fn);
+    assert.match(body, /if \(!userId\) return \{ state: "none" \};/);
+  }
 });

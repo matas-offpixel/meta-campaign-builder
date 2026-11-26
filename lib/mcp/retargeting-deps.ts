@@ -11,16 +11,16 @@
  *     app's own Meta calls — the on-sale refresh Apply's (createMetaAdSet,
  *     createMetaAd, graphPostWithToken for campaigns, budgets and status,
  *     checkAudienceReadiness, fetchAudienceMultiCampaignVideos) — and the
- *     three seams, each pointed at what's on main until its job lands:
- *       createAudience → Job 2: today the app's audience builder
- *         (createAudienceDraftWith + createMetaCustomAudience). SWITCH(Job 2):
- *         the create_audiences path.
- *       scheduleChange → Job 1: M3b's scheduled changes (insertScheduled,
- *         migration 271) with this create's chat yes; the cron applies them
- *         once LIVE_CHANGES_SHIPPED is on. SWITCH(Job 1) if its API changes.
- *       checkCeiling → Job 3: today the client's daily ceiling
- *         (checkSpendCeiling) on the change in the show's total. SWITCH(Job 3):
- *         the per-show ceiling.
+ *     three seams, each the code Jobs 1–3 landed:
+ *       createAudience → the audience tools' create (#1400,
+ *         lib/mcp/audience-deps.ts realAudienceDeps().createAudience: the
+ *         Audience Builder's draft and create), lookalikes GB at 1 % as its
+ *         specs make them (LOOKALIKE_SPEC);
+ *       scheduleChange → M3b's scheduled changes (#1398, insertScheduled,
+ *         migration 271) with this create's chat yes;
+ *       checkCeiling → the per-show ceiling (#1397, checkShowCeiling, migration
+ *         274): Retargeting's daily budgets and Wider's lifetime as new spend,
+ *         lowered prospecting as it would be after.
  */
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -28,8 +28,6 @@ import { checkAudienceReadiness, createMetaAd, createMetaAdSet, graphGetWithToke
 import { graphMultiGetByIds } from "@/lib/meta/graph-multi-get";
 import type { MetaAdSetPayload } from "@/lib/meta/adset";
 import { resolveServerMetaToken } from "@/lib/meta/server-token";
-import { createMetaCustomAudience } from "@/lib/meta/audience-write";
-import { createAudienceDraftWith } from "@/lib/db/meta-custom-audiences";
 import { fetchAudienceMultiCampaignVideos } from "@/lib/audiences/sources";
 import { buildMetaAdsManagerCampaignUrl } from "@/lib/notify/ads-manager-url";
 import { plainMetaReason } from "@/lib/onsale-refresh/apply";
@@ -37,7 +35,10 @@ import { runRetargetingRead } from "@/lib/retargeting/runner";
 import { groupVideosKeepingUnpaged } from "@/lib/retargeting/audiences";
 import { applyFunnel, funnelAudienceDraft, type FunnelMeta } from "@/lib/retargeting/funnel-apply";
 import { insertScheduled } from "./live/scheduled";
-import { checkSpendCeiling } from "./meta/ceiling";
+import { checkShowCeiling } from "./meta/show-ceiling";
+import { realAudienceDeps } from "./audience-deps";
+import { realLiveDeps } from "./meta-deps";
+import { LOOKALIKE_SPEC } from "./audiences/specs";
 import type { McpRetargetingDeps } from "./retargeting/types";
 
 /** Meta's own words never reach Claude: the refresh's plain reasons for the known cases, else one sentence (PENDING DESIGN). */
@@ -104,6 +105,8 @@ function funnelMetaFor(token: string): FunnelMeta {
 }
 
 export function realRetargetingDeps(db: SupabaseClient): McpRetargetingDeps {
+  const audiences = realAudienceDeps(db);
+  const live = realLiveDeps(db);
   const tokenFor = async (userId: string) => (await resolveServerMetaToken(db, userId)).token;
   return {
     async read({ userId, codes, now }) {
@@ -140,12 +143,18 @@ export function realRetargetingDeps(db: SupabaseClient): McpRetargetingDeps {
           env: process.env,
           meta: funnelMetaFor(token),
           async createAudience(aud, name, adAccountId) {
-            // SWITCH(Job 2): lookalikes come with its LOOKALIKE create; until then Wider's Lookalikes ad set is built without them.
-            if (aud.kind === "lookalike" || !clientId) return null;
-            const spec = funnelAudienceDraft(aud);
-            const draft = await createAudienceDraftWith(db, { userId, clientId, eventId, name, funnelStage: "retargeting", audienceSubtype: spec.subtype, retentionDays: spec.retentionDays, sourceId: spec.sourceId, sourceMeta: spec.sourceMeta as never, metaAdAccountId: adAccountId });
-            const made = await createMetaCustomAudience(draft.id, { userId, supabase: db as never });
-            return made.metaAudienceId ? { metaAudienceId: made.metaAudienceId } : null;
+            if (!clientId) return null;
+            const base = { userId, clientId, eventId, name, metaAdAccountId: adAccountId };
+            const insert =
+              aud.kind === "lookalike"
+                ? { ...base, funnelStage: "top_of_funnel" as const, audienceSubtype: "lookalike" as const, retentionDays: 1, sourceId: aud.originId, sourceMeta: { subtype: "lookalike", originAudienceId: aud.originId, ratio: LOOKALIKE_SPEC.ratio, country: LOOKALIKE_SPEC.country, seedName: aud.originKey, seedLocalAudienceId: null, type: "similarity" } }
+                : (() => {
+                    const spec = funnelAudienceDraft(aud);
+                    return { ...base, funnelStage: "retargeting" as const, audienceSubtype: spec.subtype, retentionDays: spec.retentionDays, sourceId: spec.sourceId, sourceMeta: spec.sourceMeta };
+                  })();
+            const made = await audiences.createAudience({ userId, insert: insert as never });
+            // A source under Meta's minimum, or a refused create: left out, and its tier or ad set built without it.
+            return !made.failed && made.metaAudienceId ? { metaAudienceId: made.metaAudienceId } : null;
           },
           async scheduleChange(step) {
             const row = await insertScheduled(db, {
@@ -169,9 +178,22 @@ export function realRetargetingDeps(db: SupabaseClient): McpRetargetingDeps {
             });
             return { id: row.id };
           },
-          async checkCeiling({ beforeMinor, afterMinor }) {
-            // RF4: the ceiling checks the change in the show's total; a full take changes nothing.
-            await checkSpendCeiling(db, { clientId, clientName, money: { gbp: Math.max(0, afterMinor - beforeMinor) / 100, basis: "ad_set_daily", days: null, currency: "GBP" } });
+          async checkCeiling(change) {
+            await checkShowCeiling({
+              db,
+              live,
+              userId,
+              event: { id: change.eventId, code: change.code },
+              change: {
+                starts: true,
+                objects: change.take.map((line) => ({ kind: line.kind, id: line.id, dailyMinor: line.afterMinor })),
+                added: [
+                  { label: `${change.code} · Retargeting`, dailyGbp: change.retargetingDailyMinor / 100, end: change.endDay },
+                  ...(change.wider ? [{ label: change.wider.name, lifetimeGbp: change.wider.lifetimeMinor / 100, end: change.endDay }] : []),
+                ],
+              },
+              now: new Date(),
+            });
           },
           owner: { userId, clientId, eventId, launchRunId: `mcp:${eventId}` },
           source: "connector",

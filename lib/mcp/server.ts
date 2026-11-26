@@ -33,6 +33,8 @@ import { checkRateLimit } from "./rate-limit.ts";
 import { MCP_TOOLS } from "./tools/index.ts";
 import type { McpLiveDeps } from "./live/types.ts";
 import type { McpFolderDeps } from "./folder-in/place.ts";
+import type { McpAudienceDeps } from "./audiences/types.ts";
+import { AUD_TOOL_WORDS } from "./audiences/words.ts";
 import { ToolInputError, type Db, type McpDraftDeps, type McpGraphReads, type McpLabDeps, type McpMetaDeps, type McpReaders, type McpRenderDeps, type McpShowsDeps, type McpTool, type ToolContext } from "./tool-types.ts";
 import type { McpRetargetingDeps } from "./retargeting/types.ts";
 
@@ -65,6 +67,8 @@ export interface McpHandlerDeps extends FlowDeps {
   folderIn?: McpFolderDeps;
   /** M3d-a's create and save paths (lib/mcp/shows-deps.ts). */
   shows?: McpShowsDeps;
+  /** M3c's audience and artist-access reach (lib/mcp/audience-deps.ts). */
+  audiences?: McpAudienceDeps;
   /** M3c's retargeting reach: the 08:00 read as a dry run and the funnel's create path (lib/mcp/retargeting-deps.ts). */
   retargeting?: McpRetargetingDeps;
 }
@@ -83,12 +87,14 @@ const INSTRUCTIONS = [
   "Shows are identified by event codes such as NX26-DOD. Start with morning_topline for the day, list_events to find a code, get_event for one show.",
   "Money is GBP. Phases: teaser, announced, presale, general sale (on sale), show week.",
   "The read tools only read. The draft tools change campaign drafts in the app (status draft only) and never Meta: nothing launches or spends.",
-  "The Meta tools (launch_draft, upload_draft_assets, update_event, and the live changes pause, resume, set_budget, move_budget, rename, add_creatives_to_stage, add_audience_to_stage, create_split_test, cancel_scheduled) run only after Matas says yes in this chat: ask him exactly what will change, where, the money a day and paused or live, then pass approval with your question and his reply word for word. Never fill in approval yourself. Anything that starts or raises spend (a live launch, resume, a budget up, a move into an ad set, live ads) is refused over the client's daily ceiling. get_live reads an event's live campaigns and gives the ids the live changes take; list_scheduled lists budget changes set for later.",
+  // PENDING DESIGN: claude.mcp.instructions.ceiling (PR D: the show's spend ceiling replaces "the client's daily ceiling").
+  "The Meta tools (launch_draft, upload_draft_assets, update_event, and the live changes pause, resume, set_budget, move_budget, rename, add_creatives_to_stage, add_audience_to_stage, create_split_test, cancel_scheduled) run only after Matas says yes in this chat: ask him exactly what will change, where, the money a day and paused or live, then pass approval with your question and his reply word for word. Never fill in approval yourself. Anything that starts or raises spend (a live launch, resume, a budget up, a move into an ad set, live ads) is refused when the show's committed spend (spent to date plus its live budgets to their end or show day) would pass its spend ceiling; a cut, a pause or a rename never is. get_live reads an event's live campaigns and gives the ids the live changes take; list_scheduled lists budget changes set for later.",
   "render_package renders a package (the 15 s montage, 9 files) and files it in the event's Drive folder, only after Matas says yes in this chat: ask him the recipe and file count, whose clips they are, the claim and any text in the artist's voice, then pass approval with your question and his reply word for word. get_render_package reads where it is.",
   "The Lab tools change the show's Lab material in the app only, never Meta: list_tracks (reads the act's Audio folder first, as the Snippet tab does) and set_track_drop place a track's drop; list_clips and set_clip_owner say whose footage a clip is. render_package's picks.trackId takes a track id from list_tracks.",
   "upload_to_event_folder puts one file into a show's own Drive folder (01 Open files, 3 On sale, 02 Source / Artist clips or Audio / {artist}, w/c {d Mon} / {owner} / Videos or Statics): a shared-drive file is copied, or a Storage file on one of the show's drafts uploaded. It never shares, moves or deletes, and only takes the show's client's own files or the artist library.",
   "strict_audit lists live ad sets that run strict (Advantage+ audience off) while their drafts asked for Advantage+ suggestions, for a client, an event or all; it only reads.",
   "The shows tools change the app only, never Meta: create_client (a sub-brand is its own client under parent_client) and create_event make a client and a show; set_lineup sets the show's Lab lineup in billing order; get_releases reads the Releases card and the claims its ladder gives now (use a claim only when it is met); set_release sets a release's state or count as the card does.",
+  AUD_TOOL_WORDS.instructions,
   // PENDING DESIGN: M3c's line.
   "plan_retargeting reads what each show's Retargeting campaign would be today (one code, a list, or \"live\" for every on-sale show) and changes nothing; create_show_campaigns makes one show's, paused or live, only after Matas says yes in this chat, as the other Meta tools do.",
   "Before a draft tool, call get_draft and pass its updatedAt as updated_at; every draft tool answers with the new updated_at and the launch checks. get_draft gives the ids the draft tools take (ads, ad sets, audience groups).",
@@ -262,6 +268,7 @@ export async function handleMcpRequest(req: Request, deps: McpHandlerDeps): Prom
     live: deps.live,
     folderIn: deps.folderIn,
     shows: deps.shows,
+    audiences: deps.audiences,
     retargeting: deps.retargeting,
     isMatas,
     seesClientNames: isMatas,

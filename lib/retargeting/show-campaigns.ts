@@ -22,6 +22,7 @@
  * Pure. Relative imports only (node:test).
  */
 
+import { GEO_WORDS, geoExpansionOf } from "../meta/geo-expansion.ts";
 import { FLOOR_MINOR, funnelSpecs, similarAudiences, type FunnelAudience, type FunnelSources, type PageGroup } from "./funnel.ts";
 
 /** Off until the two-campaign record merges and Matas rules the split. */
@@ -141,18 +142,9 @@ export function noGroupLine(genreFamily: string | null): string {
   return genreFamily ? `No confirmed page group for ${genreFamily}, so there's no Similar tier.` : "No genre set, so there's no Similar tier.";
 }
 
-/**
- * Design's ruling on #1401 (27 Nov), word for word: location expansion still
- * on after create, and a read-back that failed. SWITCH(#1401): take these
- * from its GEO_WORDS once it merges, and drop these copies.
- */
-export function untickLine(adSetName: string): string {
-  return `${adSetName} still has location expansion on. Untick “Reach more people likely to respond to your ads” for it in Ads Manager.`;
-}
-
-export function geoNotReadLine(adSetName: string): string {
-  return `Location expansion couldn’t be read back for ${adSetName}, so it may be on. Check “Reach more people likely to respond to your ads” in Ads Manager.`;
-}
+/** Design's ruled lines (#1401, 27 Nov): GEO_WORDS, lib/meta/geo-expansion.ts. */
+export const untickLine = GEO_WORDS.untick;
+export const geoNotReadLine = GEO_WORDS.notRead;
 
 /**
  * The read-back: an ad set's targeting as Meta holds it after create.
@@ -160,8 +152,7 @@ export function geoNotReadLine(adSetName: string): string {
  * missing key isn't proof it's off.
  */
 export function geoExpansionOff(targeting: Record<string, unknown> | null): boolean {
-  const automation = (targeting?.targeting_automation ?? null) as { individual_setting?: { geo?: unknown } } | null;
-  return automation?.individual_setting?.geo === 0;
+  return geoExpansionOf(targeting) === "off";
 }
 
 /** Retargeting's "Use as a suggestion" is off when advantage_audience is 0. */

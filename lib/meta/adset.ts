@@ -34,6 +34,7 @@ import { adSetDisplayName } from "../wizard/import-edits.ts";
 import { resolveEffectivePlacementConfig, buildPlacementConfigTargeting } from "./placement-config.ts";
 import { geoHasNoIncludedArea, resolveAdSetGeoLocations } from "./location-targeting.ts";
 import { META_INITIATE_CHECKOUT_EVENT, mapObjectiveToMeta } from "./campaign.ts";
+import { withGeoExpansionOff } from "./geo-expansion.ts";
 
 // ─── Optimization goal mapping ────────────────────────────────────────────────
 //
@@ -152,6 +153,12 @@ export interface MetaTargeting {
      */
     individual_setting?: {
       age?: 0 | 1;
+      /**
+       * Location expansion ("Reach more people likely to respond to your
+       * ads"): 1 on, 0 off. Every ad set the app creates sends 0
+       * (lib/meta/geo-expansion.ts), merged beside `age`, never over it.
+       */
+      geo?: 0 | 1;
     };
   };
   /**
@@ -486,17 +493,21 @@ export function buildMetaTargeting(
   // suggestion Meta expands beyond, never a hard limit.
   const advantagePlusActive = adSet.sourceType === "blank" || adSet.advantagePlus;
 
-  const targeting: MetaTargeting = advantagePlusActive
-    ? {
-        ...advantageAudienceAgeTargeting(adSet.ageMin, adSet.ageMax),
-        geo_locations: geoLocations,
-      }
-    : {
-        age_min: adSet.ageMin,
-        age_max: adSet.ageMax,
-        geo_locations: geoLocations,
-        targeting_automation: { advantage_audience: 0 },
-      };
+  // Location expansion off on both branches (individual_setting.geo = 0),
+  // merged beside the age suggestion's individual_setting.age, never over it.
+  const targeting: MetaTargeting = withGeoExpansionOff<MetaTargeting>(
+    advantagePlusActive
+      ? {
+          ...advantageAudienceAgeTargeting(adSet.ageMin, adSet.ageMax),
+          geo_locations: geoLocations,
+        }
+      : {
+          age_min: adSet.ageMin,
+          age_max: adSet.ageMax,
+          geo_locations: geoLocations,
+          targeting_automation: { advantage_audience: 0 },
+        },
+  );
 
   // Handle excluded_geo_locations (e.g. UK excl London)
   if (rawGeo?.excluded_geo_locations) {

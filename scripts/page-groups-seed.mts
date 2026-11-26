@@ -10,14 +10,15 @@
  * never guessed; on prod today none has one, so expect no groups yet.
  * Only clients whose Business Manager is linked are listed (4 of 9, 26 Nov).
  *
- * SWITCH(Job 2): until #1400 merges, the listing comes as a JSON file
- * (--listing FILE): an array of its rows, { client_id, kind, id, name,
- * genre_family, reach }, e.g. from PR B's audience_sources dry run. Once it
- * merges, call loadClientBuildableSources per linked client here instead.
+ * --from-meta calls loadClientBuildableSources for every client with a linked
+ * Business Manager (client_business_managers), as Matas (MATAS_USER_IDS, or
+ * --user): Meta GETs only, through the audience tools' own deps. --listing
+ * FILE takes its rows from a file instead (an array of { client_id, kind, id,
+ * name, genre_family, reach }), with no Meta call.
  *
- *   npx tsx --env-file=.env.local scripts/page-groups-seed.mts --listing FILE            # dry run: prints the plan
- *   npx tsx --env-file=.env.local scripts/page-groups-seed.mts --listing FILE --apply    # writes new and changed unconfirmed groups
- *   … --client UUID                                                                      # one client
+ *   npx tsx --conditions=react-server --env-file=.env.local scripts/page-groups-seed.mts --from-meta            # dry run: prints the plan
+ *   npx tsx --conditions=react-server --env-file=.env.local scripts/page-groups-seed.mts --from-meta --apply    # writes new and changed unconfirmed groups
+ *   … --listing FILE in place of --from-meta · … --client UUID for one client
  *
  * --apply never confirms a group and never touches a confirmed one: Matas
  * confirms each before the build uses it. Prints ids and counts only.
@@ -25,6 +26,7 @@
 import { readFileSync } from "node:fs";
 import { createClient } from "@supabase/supabase-js";
 
+import { MATAS_USER_IDS } from "../lib/auth/operator-allowlist.ts";
 import { noGenreLine, planPageGroups, type ClientBuildableSource, type StoredGroup } from "../lib/retargeting/page-groups.ts";
 
 function arg(name: string): string | undefined {
@@ -34,15 +36,37 @@ function arg(name: string): string | undefined {
 
 const APPLY = process.argv.includes("--apply");
 const LISTING = arg("--listing");
+const FROM_META = process.argv.includes("--from-meta");
 const CLIENT = arg("--client");
-if (!LISTING) throw new Error("--listing FILE is required until the audience-source listing lands (SWITCH(Job 2))");
+const USER = arg("--user") ?? MATAS_USER_IDS[0];
+if (!LISTING && !FROM_META) throw new Error("--from-meta or --listing FILE is required");
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
 if (!url || !key) throw new Error("NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required (--env-file=.env.local)");
 const db = createClient(url, key, { auth: { persistSession: false } });
 
-const listing = (JSON.parse(readFileSync(LISTING, "utf8")) as ClientBuildableSource[]).filter((row) => !CLIENT || row.client_id === CLIENT);
+/** #1400's listing for every client with a linked Business Manager (Meta GETs as Matas). */
+async function fromMeta(): Promise<ClientBuildableSource[]> {
+  if (!USER) throw new Error("--user UUID is required (MATAS_USER_IDS is empty)");
+  const { realAudienceDeps } = await import("../lib/mcp/audience-deps.ts");
+  const { loadClientBuildableSources } = await import("../lib/mcp/audiences/client-sources.ts");
+  const deps = realAudienceDeps(db as never);
+  const { data, error } = await db.from("client_business_managers").select("client_id, business_id").not("client_id", "is", null);
+  if (error) throw new Error(`client_business_managers: ${error.message}`);
+  const rows: ClientBuildableSource[] = [];
+  for (const link of (data ?? []) as { client_id: string; business_id: string }[]) {
+    if (CLIENT && link.client_id !== CLIENT) continue;
+    try {
+      rows.push(...(await loadClientBuildableSources(db as never, deps, USER, link.client_id, String(link.business_id))));
+    } catch {
+      console.error(`not read: client=${link.client_id} business=${link.business_id}`);
+    }
+  }
+  return rows;
+}
+
+const listing = (FROM_META ? await fromMeta() : (JSON.parse(readFileSync(LISTING!, "utf8")) as ClientBuildableSource[])).filter((row) => !CLIENT || row.client_id === CLIENT);
 const clientIds = [...new Set(listing.map((row) => row.client_id))];
 const stored: StoredGroup[] = [];
 for (let i = 0; i < clientIds.length; i += 100) {

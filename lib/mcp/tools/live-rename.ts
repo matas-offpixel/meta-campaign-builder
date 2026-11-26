@@ -10,6 +10,8 @@
  */
 import { z } from "zod";
 import { approvalInput, requireMetaApproval } from "../meta/approval.ts";
+import { MCP_WORDS } from "../meta/words.ts";
+import { undoOnToday } from "../meta/today-undo.ts";
 import { NAME_WORDS } from "../meta/words.ts";
 import { MAX_META_NAME, callKey, errorReason, liveEvent, metaId, placeObject, requireLive } from "../live/resolve.ts";
 import { LIVE_WORDS } from "../live/words.ts";
@@ -52,6 +54,7 @@ export const renameTool: McpTool = {
     } catch (e) {
       throw new ToolInputError(LIVE_WORDS.metaFailed, { ...base, refused: "meta_failed", error: errorReason(e) });
     }
-    return { data: { message: NAME_WORDS.done(before, name) }, eventId: event.id, clientId: event.clientId, summary: { ...base, key, undo: { tool: "rename", kind, id, name: before } } };
+    // FC2 / MB1: a rename has an Undo, so "Matas can undo this on Today." follows Done.
+    return { data: { message: [NAME_WORDS.done(before, name), ...(undoOnToday(ctx) ? [MCP_WORDS.undoNote] : [])].join("\n") }, eventId: event.id, clientId: event.clientId, summary: { ...base, ledgerDraftId: placed.ledger.draftId, key, undo: { tool: "rename", kind, id, name: before } } };
   },
 };

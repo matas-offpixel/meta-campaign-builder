@@ -4,8 +4,9 @@
  *
  * set_budget: one live campaign's or ad set's daily or lifetime budget,
  * through the optimisation budget write (McpLiveDeps.setBudget,
- * ENABLE_OPTIMISATION_WRITES). Up is spend-raising: the client's ceiling is
- * checked against the money a day it sets running. With `at` the change is
+ * ENABLE_OPTIMISATION_WRITES). Up is spend-raising: the show's spend
+ * ceiling is checked against its committed spend with the new budget
+ * (lib/mcp/meta/show-ceiling.ts); a cut never is. With `at` the change is
  * stored (scheduled_meta_changes, lib/mcp/live/scheduled.ts) with the chat
  * yes and applied by the 15-minute cron, ceiling checked again then, and
  * skipped if the object changed since.
@@ -21,8 +22,9 @@
 import { z } from "zod";
 import { approvalInput, requireMetaApproval } from "../meta/approval.ts";
 import { MCP_WORDS, RESULT_WORDS } from "../meta/words.ts";
-import { callKey, checkLiveCeiling, errorReason, liveEvent, londonWhen, metaId, placeObject, requireLive, round2 } from "../live/resolve.ts";
-import { cancelScheduled, insertScheduled, listScheduled, moneyAfter, type ScheduledRow } from "../live/scheduled.ts";
+import { undoOnToday } from "../meta/today-undo.ts";
+import { callKey, checkLiveCeiling, errorReason, liveEvent, londonWhen, metaId, placeObject, requireLive, withBase } from "../live/resolve.ts";
+import { cancelScheduled, insertScheduled, listScheduled, type ScheduledRow } from "../live/scheduled.ts";
 import type { MovePlanLite } from "../live/types.ts";
 import { LIVE_THINGS, LIVE_WORDS } from "../live/words.ts";
 import { ToolInputError, type McpTool, type ToolContext } from "../tool-types.ts";
@@ -56,7 +58,7 @@ export const setBudgetTool: McpTool = {
   failedText: LIVE_WORDS.metaFailed,
   description: [
     "Sets one live ad set's budget, or a campaign's when the budget is on the campaign, as the app's budget write does. Give daily_gbp for a daily budget or lifetime_gbp for a lifetime one, matching what it runs on (get_live shows it). Amounts are in the account's currency; ceilings are in £.",
-    "Raising it raises spend, so it's refused over the client's daily ceiling (and without one). at (a time with its zone, at least 15 minutes ahead) schedules it instead: it runs then only if the budget, status and end are as they are now, and the ceiling is checked again.",
+    /* PENDING DESIGN: claude.mcp.tool.set_budget.ceiling */ "Raising it raises spend, so it's refused when the show's committed spend would pass its spend ceiling (and without one); a cut is never refused. at (a time with its zone, at least 15 minutes ahead) schedules it instead: it runs then only if the budget, status and end are as they are now, and the ceiling is checked again.",
     "Needs Matas's yes in this chat: ask him the name, the budget before → after and when, then pass approval with your question (asked) and his reply word for word (answer).",
   ].join(" "),
   inputSchema: {
@@ -95,13 +97,21 @@ export const setBudgetTool: McpTool = {
     }
     const current = (field === "daily_budget" ? daily : lifetime)!;
     const isLifetime = field === "lifetime_budget";
-    const base = { code: event.code, kind, objectId: id, field, before: current, after: minor, ...(at ? { at } : {}) };
+    const base = { code: event.code, kind, objectId: id, name, field, before: current, after: minor, ledgerDraftId: placed.ledger.draftId, ...(at ? { at } : {}) };
     if (current === minor) {
       return { data: { message: LIVE_WORDS.budgetSame(name, minor / 100, isLifetime), changed: false }, eventId: event.id, clientId: event.clientId, summary: { ...base, noop: "same" } };
     }
     const raises = minor > current;
+    // A cut is never blocked; a rise is checked against the show's committed spend with the new budget.
     const ceiling = raises
-      ? await checkLiveCeiling(ctx, live, { event, accountId: object.accountId ?? placed.campaign.adAccountId, name, gbp: moneyAfter(object, field, minor, ctx.now) })
+      ? await withBase(base, () =>
+          checkLiveCeiling(ctx, live, {
+            event,
+            accountId: object.accountId ?? placed.campaign.adAccountId,
+            name,
+            change: { starts: false, objects: [{ kind, id, ...(field === "daily_budget" ? { dailyMinor: minor } : { lifetimeMinor: minor }) }] },
+          }),
+        )
       : null;
     const change = LIVE_WORDS.budgetChange(name, current / 100, minor / 100, isLifetime);
     const key = callKey("set_budget", args, approval);
@@ -147,7 +157,8 @@ export const setBudgetTool: McpTool = {
       throw new ToolInputError(LIVE_WORDS.metaFailed, { ...base, refused: "meta_failed", error: errorReason(e) });
     }
     return {
-      data: { message: MCP_WORDS.done(RESULT_WORDS.changed(LIVE_THINGS[kind], [id])), change },
+      // FC2: a budget change has an Undo, so "Matas can undo this on Today." follows Done.
+      data: { message: [MCP_WORDS.done(RESULT_WORDS.changed(LIVE_THINGS[kind], [id])), ...(undoOnToday(ctx) ? [MCP_WORDS.undoNote] : [])].join("\n"), change },
       eventId: event.id,
       clientId: event.clientId,
       summary: { ...base, key, raises, ...(ceiling ? { ceiling } : {}), undo: { tool: "set_budget", kind, id, field, minor: current, ...(isLifetime ? {} : { words: LIVE_WORDS.undoBudget(current / 100) }) } },
@@ -204,7 +215,7 @@ export const cancelScheduledTool: McpTool = {
     const id = String(args.id);
     let res: Awaited<ReturnType<typeof cancelScheduled>>;
     try {
-      res = await cancelScheduled(ctx.db, { userId: ctx.userId, id, now: ctx.now });
+      res = await cancelScheduled(ctx.db, { userId: ctx.userId, id, now: ctx.now, by: "claude" });
     } catch {
       throw new ToolInputError(LIVE_WORDS.readFailed, { refused: "scheduled_unreadable", id });
     }
@@ -239,7 +250,7 @@ export const moveBudgetTool: McpTool = {
   failedText: LIVE_WORDS.metaFailed,
   description: [
     "Moves an amount a day from one ad set's daily budget to another's in the same campaign, as the on-sale refresh's move does: the giving ad set first, so spend never goes up mid-move, and neither side written if its budget changed since it was read. The giving ad set keeps at least £1.00 a day.",
-    "The receiving ad set's new budget is checked against the client's daily ceiling.",
+    /* PENDING DESIGN: claude.mcp.tool.move_budget.ceiling */ "When the move raises the show's committed spend (the two ad sets end on different days), it's checked against the show's spend ceiling.",
     "Needs Matas's yes in this chat: ask him the amount a day, from → to, then pass approval with your question (asked) and his reply word for word (answer).",
   ].join(" "),
   inputSchema: {
@@ -265,7 +276,7 @@ export const moveBudgetTool: McpTool = {
     const to = await placeObject(ctx, live, event, "adset", toId);
     const x = delta / 100;
     const change = LIVE_WORDS.changeMove(x, from.name, to.name);
-    const base = { code: event.code, fromAdsetId: fromId, toAdsetId: toId, deltaMinor: delta, campaignId: from.campaign.metaCampaignId, key };
+    const base = { code: event.code, fromAdsetId: fromId, toAdsetId: toId, fromName: from.name, toName: to.name, deltaMinor: delta, campaignId: from.campaign.metaCampaignId, ledgerDraftId: from.ledger.draftId, key };
     if (earlier.done) {
       return { data: { message: MCP_WORDS.done(RESULT_WORDS.changed(LIVE_THINGS.adset, [fromId, toId])), change, changed: false }, eventId: event.id, clientId: event.clientId, summary: { ...base, noop: "already_moved", plan: earlier.plan } };
     }
@@ -274,7 +285,21 @@ export const moveBudgetTool: McpTool = {
     const toDaily = to.object.dailyBudgetMinor;
     if (!fromDaily || !toDaily) throw new ToolInputError(LIVE_WORDS.moveNotDaily, { ...base, refused: "not_daily" });
     if (!earlier.plan && fromDaily - delta < 100) throw new ToolInputError(LIVE_WORDS.moveFloor(from.name), { ...base, refused: "floor" });
-    const ceiling = await checkLiveCeiling(ctx, live, { event, accountId: to.object.accountId ?? to.campaign.adAccountId, name: to.name, gbp: round2((earlier.plan?.to.after ?? toDaily + delta) / 100) });
+    // Both sides as they'd be after the move: it's checked only when it raises the show's committed spend (different end dates).
+    const ceiling = await withBase(base, () =>
+      checkLiveCeiling(ctx, live, {
+        event,
+        accountId: to.object.accountId ?? to.campaign.adAccountId,
+        name: to.name,
+        change: {
+          starts: false,
+          objects: [
+            { kind: "adset", id: fromId, dailyMinor: earlier.plan?.from.after ?? fromDaily - delta },
+            { kind: "adset", id: toId, dailyMinor: earlier.plan?.to.after ?? toDaily + delta },
+          ],
+        },
+      }),
+    );
 
     let out: Awaited<ReturnType<NonNullable<ToolContext["live"]>["moveBudget"]>>;
     try {
@@ -292,7 +317,8 @@ export const moveBudgetTool: McpTool = {
       throw new ToolInputError(LIVE_WORDS.metaFailed, summary);
     }
     return {
-      data: { message: MCP_WORDS.done(RESULT_WORDS.changed(LIVE_THINGS.adset, [fromId, toId])), change },
+      // FC2: a whole move has an Undo (a part-done one doesn't), so "Matas can undo this on Today." follows Done.
+      data: { message: [MCP_WORDS.done(RESULT_WORDS.changed(LIVE_THINGS.adset, [fromId, toId])), ...(undoOnToday(ctx) ? [MCP_WORDS.undoNote] : [])].join("\n"), change },
       eventId: event.id,
       clientId: event.clientId,
       summary: { ...base, plan: out.plan ?? null, written: out.written, ceiling, undo: { tool: "move_budget", from_ad_set: toId, to_ad_set: fromId, gbp_a_day: x, words: LIVE_WORDS.undoMove(x, from.name) } },

@@ -12,6 +12,9 @@
  * the shows tools (scope mcp:draft): create_event, create_client,
  * set_lineup, get_releases, set_release. M3d-b adds the Lab tools (scope
  * mcp:draft): list_tracks, set_track_drop, list_clips, set_clip_owner.
+ * M3c adds the audience tools (scope mcp:meta, Matas only): list_audiences,
+ * audience_sources and pending_access read; create_audiences and
+ * request_page_access take his chat yes.
  * M3c adds plan_retargeting (reads) and create_show_campaigns (scope mcp:meta,
  * Matas only, on his chat yes), switched off with M3b until it ships.
  */
@@ -41,6 +44,8 @@ import { getLearningsTool } from "./learnings.ts";
 import { getCampaignTreeTool, runLaunchChecksTool } from "./pending.ts";
 import { morningToplineTool } from "./topline.ts";
 import { strictAuditTool } from "./strict-audit.ts";
+import { audienceSourcesTool, createAudiencesTool, listAudiencesTool } from "./audiences.ts";
+import { pendingAccessTool, requestPageAccessTool } from "./page-access.ts";
 import { createShowCampaignsTool, planRetargetingTool } from "./retargeting.ts";
 
 export const READ_TOOLS: readonly McpTool[] = [
@@ -100,7 +105,7 @@ export const META_TOOLS: readonly McpTool[] = [
   launchDraftTool,
   uploadDraftAssetsTool,
   updateEventTool,
-  // M3b: live changes, switched off until Today's rows land (lib/mcp/live/shipped.ts).
+  // M3b: live changes, on with Today's rows and Undo (lib/mcp/live/shipped.ts, record 2026-11-26-mcp-m3b-today MB4).
   ...[
     getLiveTool,
     pauseTool,
@@ -117,6 +122,12 @@ export const META_TOOLS: readonly McpTool[] = [
     planRetargetingTool,
     createShowCampaignsTool,
   ].map(switchedOffUntilShipped),
+  // M3c: audiences and artist Page access. The reads run now; create_audiences and request_page_access check the M3b switch themselves.
+  listAudiencesTool,
+  audienceSourcesTool,
+  createAudiencesTool,
+  requestPageAccessTool,
+  pendingAccessTool,
 ];
 
 /** Scope mcp:render (MATAS_USER_IDS only, M4a): each takes Matas's chat yes. */

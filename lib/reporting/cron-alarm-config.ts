@@ -126,6 +126,11 @@ export const CRON_ALARMS: CronAlarmSpec[] = [
   // when that BM failed. intervalMinutes is 1440 on purpose, not the longest
   // real gap (17 h): "not reporting" stays at 48 h without a run.
   { cronName: "bm-page-scan", intervalMinutes: 1440, zeroRule: "night_all_zero", runsPerNight: 4 },
+  // */15 UTC: the Off/Pixel connector's scheduled budget changes (M3b, migration 271).
+  // Most runs have nothing due, so only a missing or failed run alarms. With
+  // ENABLE_MCP off it answers 200 with skippedReason "killswitch" and still
+  // logs its cron_runs row, so it keeps reporting.
+  { cronName: "mcp-scheduled-changes", intervalMinutes: 15, zeroRule: "never" },
   { cronName: "budget-pacing-check", intervalMinutes: 60, zeroRule: "never" },
 
   // The watcher watches itself: if the evaluator stops running, nothing

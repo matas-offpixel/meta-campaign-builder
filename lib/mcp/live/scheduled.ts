@@ -14,14 +14,15 @@
  *   - budget_changed: Meta's budget isn't what it was when asked;
  *   - paused: the object (its own status) is paused;
  *   - ended: deleted, archived, or past its end time;
- *   - ceiling: a spend-raising change over the client's ceiling, or none set;
+ *   - ceiling: a spend-raising change that would take the show over its spend
+ *     ceiling (lib/mcp/meta/show-ceiling.ts), or the show has none;
  *   - switch: budget writes switched off;
  *   - unread: Meta couldn't be read when it was due.
  *
  * The only writer of scheduled_meta_changes (the guard test pins it).
  * Relative imports only (node:test).
  */
-import { checkSpendCeiling } from "../meta/ceiling.ts";
+import { checkShowCeiling } from "../meta/show-ceiling.ts";
 import type { Db } from "../tool-types.ts";
 import { londonDaysLeft, round2 } from "./resolve.ts";
 import type { LiveObject, McpLiveDeps } from "./types.ts";
@@ -77,17 +78,37 @@ export async function listScheduled(db: Db, input: { userId: string; eventId: st
   return (res.data ?? []) as ScheduledRow[];
 }
 
+/**
+ * Today's read (MB2): every change still waiting, any day, and every change
+ * that ran, skipped, failed or was cancelled since `since` (London midnight).
+ */
+export async function listScheduledForToday(db: Db, input: { userId: string; since: string }): Promise<ScheduledRow[]> {
+  const waiting = await db.from("scheduled_meta_changes").select(COLUMNS).eq("user_id", input.userId).in("status", ["scheduled", "applying"]).order("run_at", { ascending: true }).range(0, 199);
+  if (waiting.error) throw new Error("scheduled_unreadable");
+  const ran = await db.from("scheduled_meta_changes").select(COLUMNS).eq("user_id", input.userId).in("status", ["applied", "skipped", "failed"]).gte("run_at", input.since).order("run_at", { ascending: false }).range(0, 199);
+  if (ran.error) throw new Error("scheduled_unreadable");
+  const cancelled = await db.from("scheduled_meta_changes").select(COLUMNS).eq("user_id", input.userId).eq("status", "cancelled").gte("cancelled_at", input.since).order("cancelled_at", { ascending: false }).range(0, 199);
+  if (cancelled.error) throw new Error("scheduled_unreadable");
+  return [...((waiting.data ?? []) as ScheduledRow[]), ...((ran.data ?? []) as ScheduledRow[]), ...((cancelled.data ?? []) as ScheduledRow[])];
+}
+
 export async function getScheduled(db: Db, input: { userId: string; id: string }): Promise<ScheduledRow | null> {
   const res = await db.from("scheduled_meta_changes").select(COLUMNS).eq("id", input.id).eq("user_id", input.userId).maybeSingle();
   if (res.error) throw new Error("scheduled_unreadable");
   return (res.data as ScheduledRow | null) ?? null;
 }
 
-/** Cancel a row still scheduled. Returns the row as it is after (cancelled, or whatever state stopped the cancel). */
-export async function cancelScheduled(db: Db, input: { userId: string; id: string; now: Date }): Promise<{ cancelled: boolean; row: ScheduledRow | null }> {
+/**
+ * Cancel a row still scheduled. Returns the row as it is after (cancelled, or
+ * whatever state stopped the cancel). `by` is where it was cancelled (MB2):
+ * cancel_scheduled in Claude, or Cancel on Today; Today reads it back as
+ * "Cancelled in Claude · …" or "Cancelled by {name} · …". The same guard
+ * serves both: only a row still scheduled is cancelled.
+ */
+export async function cancelScheduled(db: Db, input: { userId: string; id: string; now: Date; by: "claude" | "today" }): Promise<{ cancelled: boolean; row: ScheduledRow | null }> {
   const res = await db
     .from("scheduled_meta_changes")
-    .update({ status: "cancelled", cancelled_at: input.now.toISOString() })
+    .update({ status: "cancelled", cancelled_at: input.now.toISOString(), outcome: { cancelled_by: input.by } })
     .eq("id", input.id)
     .eq("user_id", input.userId)
     .eq("status", "scheduled")
@@ -127,10 +148,10 @@ export interface ScheduledRunResult {
  * The cron's run: every due row (run_at ≤ now, still scheduled), oldest
  * first, at most MAX_DUE_PER_RUN.
  */
-export async function runScheduledChanges(input: { db: Db; live: Pick<McpLiveDeps, "switches" | "readObjects" | "setBudget" | "accountInfo">; now: Date; /** M3b on (live/shipped.ts); omitted means LIVE_CHANGES_SHIPPED. */ shipped?: boolean }): Promise<ScheduledRunResult> {
+export async function runScheduledChanges(input: { db: Db; live: Pick<McpLiveDeps, "switches" | "readObjects" | "readCampaigns" | "readChildren" | "setBudget" | "accountInfo">; now: Date; /** M3b on (live/shipped.ts); omitted means LIVE_CHANGES_SHIPPED. */ shipped?: boolean }): Promise<ScheduledRunResult> {
   const { db, live, now } = input;
   const out: ScheduledRunResult = { due: 0, applied: 0, skipped: 0, failed: 0, taken: 0, metaGets: 0 };
-  // M3b ships switched off (live/shipped.ts): nothing is read or applied until it's on.
+  // M3b switched off (live/shipped.ts): nothing is read or applied.
   if (!(input.shipped ?? LIVE_CHANGES_SHIPPED)) return { ...out, skippedReason: "m3b_not_shipped" };
   const due = await db.from("scheduled_meta_changes").select(COLUMNS).eq("status", "scheduled").lte("run_at", now.toISOString()).order("run_at", { ascending: true }).limit(MAX_DUE_PER_RUN);
   if (due.error) throw new Error("scheduled_unreadable");
@@ -176,10 +197,15 @@ export async function runScheduledChanges(input: { db: Db; live: Pick<McpLiveDep
       try {
         const info = await live.accountInfo(row.user_id, object.accountId ?? "");
         if ((info.currency ?? "GBP").toUpperCase() !== "GBP") throw new Error("not_gbp");
-        await checkSpendCeiling(db, {
-          clientId: row.client_id,
-          clientName: null,
-          money: { gbp: moneyAfter(object, row.field, Number(row.amount_minor), now), basis: "ad_set_daily", days: null, currency: "GBP" },
+        if (!row.event_id) throw new Error("no_show");
+        const amount = Number(row.amount_minor);
+        await checkShowCeiling({
+          db,
+          live,
+          userId: row.user_id,
+          event: { id: row.event_id },
+          change: { starts: false, objects: [{ kind: row.object_kind === "adset" ? "adset" : "campaign", id: row.object_id, ...(row.field === "daily_budget" ? { dailyMinor: amount } : { lifetimeMinor: amount }) }] },
+          now,
         });
       } catch {
         await skip("ceiling");
@@ -199,8 +225,13 @@ export async function runScheduledChanges(input: { db: Db; live: Pick<McpLiveDep
         key: `scheduled:${row.id}`,
       });
     } catch (e) {
+      // MB2: a budget that changed during the write reads as skipped for that reason, never failed.
+      if (e instanceof Error && e.name === "BudgetChangedUnderfootError") {
+        await skip("budget_changed");
+        continue;
+      }
       out.failed += 1;
-      await finish(db, row.id, { status: "failed", outcome: { reason: e instanceof Error && e.name === "BudgetChangedUnderfootError" ? "budget_changed" : "meta_failed" } });
+      await finish(db, row.id, { status: "failed", outcome: { reason: "meta_failed" } });
       continue;
     }
     out.applied += 1;

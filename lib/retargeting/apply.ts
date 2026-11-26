@@ -86,8 +86,8 @@ export function tierAdSetPayload(args: { code: string; tier: Tier | string; camp
  * advantageAudienceAgeTargeting: 18–65, no age suggestion), interests and
  * custom audiences as suggestions, buyers / Hot / Warm left out, the
  * location of the show's on-sale ad sets. Its money is the campaign's
- * lifetime budget, so the ad set carries none. Location expansion is the
- * shared create's (cc/meta-geo-expansion-off); it isn't set here.
+ * lifetime budget, so the ad set carries none. Location expansion off is the
+ * shared create's (createMetaAdSet → withGeoExpansionOff, #1401); it isn't set here.
  */
 export function widerAdSetPayload(args: { name: string; campaignId: string; pixelId: string; customConversionId: string | null; endDay: string; location: Record<string, unknown>; interests: { id: string; name: string }[]; suggestionIds: string[]; excludeIds: string[] }): Record<string, unknown> {
   return {

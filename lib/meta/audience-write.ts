@@ -7,6 +7,7 @@ import {
   getAudienceById,
   listSplitChildAudiences,
   updateAudience,
+  type AudienceRowsClient,
 } from "@/lib/db/meta-custom-audiences";
 import type { Database } from "@/lib/db/database.types";
 import {
@@ -150,6 +151,9 @@ const CHUNKABLE_SUBTYPES = new Set([
   "page_followers_ig",
 ]);
 
+/** updateAudience on the caller's rows client (M3c), the patch last as the call sites read. */
+const updateRow = (id: string, rows: AudienceRowsClient | undefined, patch: Parameters<typeof updateAudience>[1]) => updateAudience(id, patch, rows);
+
 export function metaAudienceWritesEnabled(): boolean {
   return process.env.OFFPIXEL_META_AUDIENCE_WRITES_ENABLED === "true";
 }
@@ -189,11 +193,18 @@ export async function createMetaCustomAudience(
     remediateSeeds?: SeedRemediator;
     /** Injectable GET /customaudiences. Defaults to global fetch. No token logging. */
     fetchExistingAudiences?: MetaGraphFetch;
+    /**
+     * The client for the meta_custom_audiences rows, for a caller with no
+     * cookie session (the Off/Pixel connector's service-role client, M3c).
+     * Omitted = the session client, as before.
+     */
+    rows?: AudienceRowsClient;
   },
 ): Promise<MetaCustomAudience> {
   assertMetaAudienceWritesEnabled();
+  const rows = options.rows;
   const supabase = options.supabase ?? (await createClient());
-  const audience = await getAudienceById(audienceId);
+  const audience = await getAudienceById(audienceId, rows);
   if (!audience || audience.userId !== options.userId) {
     throw new Error("Audience not found");
   }
@@ -204,7 +215,7 @@ export async function createMetaCustomAudience(
   const { token } = await resolveServerMetaToken(supabase, options.userId);
   const idempotencyKey = metaAudienceIdempotencyKey(audience.id, options.userId);
 
-  await updateAudience(audience.id, { status: "creating", statusError: null });
+  await updateRow(audience.id, rows, { status: "creating", statusError: null });
   try {
     const {
       audience: audienceForWrite,
@@ -243,6 +254,7 @@ export async function createMetaCustomAudience(
             post,
             userId: options.userId,
             warning,
+            rows,
           });
           if (!split.row.metaAudienceId) {
             throw new Error("Meta audience id missing after write");
@@ -259,6 +271,7 @@ export async function createMetaCustomAudience(
               token,
               post,
               userId: options.userId,
+              rows,
             });
             if (!split.row.metaAudienceId) {
               throw new Error("Meta audience id missing after write");
@@ -286,7 +299,7 @@ export async function createMetaCustomAudience(
     // overwrite that, and must not have called this branch at all.
     if (split.row) return split.row;
 
-    const updated = await updateAudience(audience.id, {
+    const updated = await updateRow(audience.id, rows, {
       status: "ready",
       metaAudienceId: outcome.metaAudienceId,
       // Non-fatal warnings (prefilter drops, and anything the 1713140 recovery
@@ -297,7 +310,7 @@ export async function createMetaCustomAudience(
     return outcome.reused ? { ...updated, reused: true } : updated;
   } catch (err) {
     const message = formatMetaWriteError(err);
-    const updated = await updateAudience(audience.id, {
+    const updated = await updateRow(audience.id, rows, {
       status: "failed",
       statusError: message,
     });
@@ -535,6 +548,7 @@ async function writeSplitPageEngagement(args: {
   token: string;
   post: MetaAudiencePost;
   userId: string;
+  rows?: AudienceRowsClient;
   warning: string | null;
 }): Promise<MetaCustomAudience> {
   const { supabase, audience, audienceForWrite, pageIds, token, post, userId, warning } =
@@ -569,7 +583,7 @@ async function writeSplitPageEngagement(args: {
 
   // Phase 2 — persist rows. Siblings first (find-or-create), primary last.
   const existingByPart = new Map<number, string>();
-  for (const child of await listSplitChildAudiences(audience.id)) {
+  for (const child of await listSplitChildAudiences(audience.id, args.rows)) {
     const part = Number((child.sourceMeta as Record<string, unknown>).splitPart);
     if (Number.isInteger(part)) existingByPart.set(part, child.id);
   }
@@ -583,9 +597,9 @@ async function writeSplitPageEngagement(args: {
     });
     const childId =
       existingByPart.get(part) ??
-      (await createAudienceDraft(splitChildInsert(audience, name, chunks[part], sourceMeta)))
+      (await createAudienceDraft(splitChildInsert(audience, name, chunks[part], sourceMeta), args.rows))
         .id;
-    await updateAudience(childId, {
+    await updateRow(childId, args.rows, {
       status: "ready",
       metaAudienceId: metaIds[part],
       name,
@@ -595,7 +609,7 @@ async function writeSplitPageEngagement(args: {
     });
   }
 
-  const primary = await updateAudience(audience.id, {
+  const primary = await updateRow(audience.id, args.rows, {
     status: "ready",
     metaAudienceId: metaIds[0],
     name: partAudienceName(baseName, 0, total),
@@ -695,6 +709,7 @@ async function writeSplitVideoViews(args: {
   token: string;
   post: MetaAudiencePost;
   userId: string;
+  rows?: AudienceRowsClient;
 }): Promise<MetaCustomAudience> {
   const { supabase, audience, videoIds, token, post, userId } = args;
   const chunks = chunkVideoIds(videoIds, MAX_VIDEO_VIEWS_VIDEOS);
@@ -727,7 +742,7 @@ async function writeSplitVideoViews(args: {
 
   // Phase 2 — persist rows. Siblings first (find-or-create), primary last.
   const existingByPart = new Map<number, string>();
-  for (const child of await listSplitChildAudiences(audience.id)) {
+  for (const child of await listSplitChildAudiences(audience.id, args.rows)) {
     const part = Number((child.sourceMeta as Record<string, unknown>).splitPart);
     if (Number.isInteger(part)) existingByPart.set(part, child.id);
   }
@@ -741,9 +756,9 @@ async function writeSplitVideoViews(args: {
     });
     const childId =
       existingByPart.get(part) ??
-      (await createAudienceDraft(splitChildInsert(audience, name, chunks[part]!, sourceMeta)))
+      (await createAudienceDraft(splitChildInsert(audience, name, chunks[part]!, sourceMeta), args.rows))
         .id;
-    await updateAudience(childId, {
+    await updateRow(childId, args.rows, {
       status: "ready",
       metaAudienceId: metaIds[part],
       name,
@@ -753,7 +768,7 @@ async function writeSplitVideoViews(args: {
     });
   }
 
-  const primary = await updateAudience(audience.id, {
+  const primary = await updateRow(audience.id, args.rows, {
     status: "ready",
     metaAudienceId: metaIds[0],
     name: partAudienceName(baseName, 0, total),

@@ -199,6 +199,9 @@ describe("no path writes genre_family without an operator", () => {
       "lib/learning/genre/shadow.ts",
       "lib/learning/runner.ts",
       "lib/learning/__tests__/genre.test.ts",
+      // M3c: the client's buildable Pages read each act's genre_family (events, select only) for Job 4's page-group seed.
+      "lib/mcp/audiences/client-sources.ts",
+      "lib/mcp/__tests__/audience-tools.test.ts",
       // The retargeting funnel's staged Similar tier (two-campaign record): the 08:00 read reads events.genre_family; page_groups has a genre_family column of its own.
       "lib/retargeting/runner.ts",
       "lib/retargeting/page-groups.ts",
@@ -215,6 +218,7 @@ describe("no path writes genre_family without an operator", () => {
     assert.deepEqual(named.filter((file) => !allowed.has(file)), []);
     const shadow = readFileSync("lib/learning/genre/shadow.ts", "utf8");
     assert.doesNotMatch(shadow, /\.(update|upsert|insert|delete)\(/);
+    assert.doesNotMatch(readFileSync("lib/mcp/audiences/client-sources.ts", "utf8"), /\.(update|upsert|insert|delete|rpc)\(/);
   });
 });
 

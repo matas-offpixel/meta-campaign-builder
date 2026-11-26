@@ -12,8 +12,8 @@ today.mcp.row.rejected.note	Request row, under Rejected	“{note}”
 today.mcp.row.done	Request row, result	Done · {result}
 today.mcp.row.failed	Request row, result (brick)	Failed · {result}
 today.mcp.row.expired	Request row, state (muted)	Expired · not approved within 24 hours, so nothing was sent
-today.mcp.row.refused	Request row, state (brick), refused before it reached you	Refused · it would take {client} to £{x} a day, over its £{c} ceiling
-today.mcp.row.refused.none	Log row, state (brick)	Refused · {client} has no daily ceiling, and this starts spend
+today.mcp.row.refused	Log row, state (brick), over the show’s ceiling (ruled 27 Nov with #1397)	Refused · it would take {code} to £{x} committed, over its £{c} ceiling
+today.mcp.row.refused.none	Log row, state (brick), no ceiling (ruled 27 Nov with #1397)	Refused · {code} has no spend ceiling, and this starts or raises spend
 today.mcp.result	Result, counts and ids	{n} {things} changed · {ids}
 today.mcp.result.one	Result (1)	1 {thing} changed · {id}
 today.mcp.result.partial	Result, part taken	{n} of {m} {things} changed · {ids}
@@ -22,8 +22,8 @@ today.mcp.reject	Request row, button	Reject
 today.mcp.reject.note	Reject, optional field	Why (Claude sees this)
 today.mcp.reject.confirm	Reject, button	Reject
 today.mcp.reject.cancel	Reject, button	Cancel
-today.mcp.ceiling	Today, section header, per client	{client}: £{s} of £{c} a day
-today.mcp.ceiling.none	Today, section header, per client	{client}: no daily ceiling, so Claude can’t start spend
+today.mcp.ceiling	Today, section header, one line per show with a change today (ruled 27 Nov with #1397: the ceiling is the show’s total)	{code}: £{x} of £{c} committed
+today.mcp.ceiling.none	Today, section header, a show with no ceiling (ruled 27 Nov with #1397)	{code}: no spend ceiling, so Claude can’t start or raise spend
 claude.mcp.waiting	Told to Claude, on request	Waiting for {name} to approve this on Today.
 claude.mcp.done	Told to Claude, when it ran	Done: {result}.
 claude.mcp.failed	Told to Claude, when Meta took part	Meta didn’t take it all: {result}.
@@ -142,7 +142,7 @@ launch.upload.video	Launch progress, second step, when videos are sent	Waiting f
 launch.upload.video.one	Launch progress, second step (1)	Waiting for Meta to finish 1 video…
 launch.upload.stopped	Launch panel (brick), an upload failed	Launch stopped: {n} files didn’t reach Meta, so nothing was created.
 launch.upload.stopped.one	Launch panel (brick) (1)	Launch stopped: 1 file didn’t reach Meta, so nothing was created.
-consent.line2.meta	Consent page, line 2, when the scope includes mcp:meta (straight apostrophes, as the page’s other lines)	It can read every client's events, spend, signup and ticket counts, drafts and learnings, make events and clients, set lineups, ticket releases and the Lab's drops and clip owners, put files in a show's own Drive folders, and make, change and archive campaign drafts. It can also send files to Meta, launch drafts paused or live, change live campaigns, and change an event's dates and links, each only after you say yes in Claude. It can't start or raise spend past a client's daily ceiling, and every change is listed on Today.
+consent.line2.meta	Consent page, line 2, when the scope includes mcp:meta (straight apostrophes, as the page’s other lines). Ruled 27 Nov: #1397 carries the ceiling clause, #1400 the audiences clause; the second to merge lands this exact line	It can read every client's events, spend, signup and ticket counts, drafts and learnings, make events and clients, set lineups, ticket releases and the Lab's drops and clip owners, put files in a show's own Drive folders, and make, change and archive campaign drafts. It can also send files to Meta, launch drafts paused or live, change live campaigns, make audiences (lookalikes too), ask artists' Facebook Pages for advertiser access from the client's own Business Manager, and change an event's dates and links, each only after you say yes in Claude. It can't start or raise spend past a show's spend ceiling, and every change is listed on Today.
 consent.title.upgrade.meta	Consent page, title, when a drafts grant is adding mcp:meta	Let Claude make Meta changes in Off/Pixel
 consent.title.upgrade.meta.loopback	Consent page, title, the same for an app on this computer	Let an app on this computer make Meta changes in Off/Pixel
 consent.upgrade.cancel_note.meta	Consent page, above the buttons, when a drafts grant is adding mcp:meta	If you cancel, it keeps the drafts access it has now.
@@ -216,3 +216,47 @@ claude.mcp.event.refused.code	Told to Claude, update_event (MW2’s rules, ruled
 claude.mcp.attach.other_client	Told to Claude, attach_drive_creatives: the file’s folders lead to another client’s tree (MW2’s rules, 25 Nov; no record)	Refused: {name} is in {client}’s folders, and only this show’s client’s own files or the artist library can go on its drafts. Nothing was saved.
 claude.mcp.attach.other_client.unnamed	Told to Claude, the same when that client has no name (MW2’s rules, 25 Nov; no record)	Refused: {name} is in another client’s folders, and only this show’s client’s own files or the artist library can go on its drafts. Nothing was saved.
 claude.mcp.attach.owner_unknown	Told to Claude, attach_drive_creatives: not under an event tree, a client folder or 00 Artist Library (MW2’s rules, 25 Nov; no record)	Refused: {name} isn’t under an event, a client’s folder or 00 Artist Library, so whose it is can’t be told. Move it into one of those and try again. Nothing was saved.
+today.mcp.action.pause_campaign	Log row title, pause on a campaign (thing: campaign; result: changed)	Pause campaign
+today.mcp.action.resume_campaign	Log row title, resume on a campaign (thing: campaign; result: changed)	Resume campaign
+today.mcp.action.set_budget	Log row title, set_budget, now or scheduled (thing: campaign or ad set; result: changed)	Change budget
+today.mcp.action.rename	Log row title, rename (thing: campaign, ad set or ad; result: changed)	Rename
+today.mcp.action.split_test	Log row title, create_split_test (thing: test; result: created)	Start an A/B test
+today.mcp.change.budget	Log row, what changes, set_budget; {per} is today.mcp.per.*	{name}: £{x} → £{y} {per}
+today.mcp.change.budget.to	Log row, what changes, set_budget with no recorded old amount	{name}: to £{y} {per}
+today.mcp.per.day	{per}, a daily budget	a day
+today.mcp.per.lifetime	{per}, a lifetime budget	lifetime
+today.mcp.change.rename	Log row, what changes, rename	“{before}” → “{after}”
+today.mcp.change.split_test	Log row, what changes, create_split_test; {start} and {end} as “Fri 27 Nov”	{a} vs {b} · 50/50 · {start} – {end}
+today.mcp.thing.test	{thing}	test
+today.mcp.thing.test.many	{things}	tests
+today.mcp.row.failed.none	Log row, result (brick), Meta refused the whole change	Failed · Meta didn’t take it, so nothing changed
+today.mcp.undo.budget.lifetime	Log row, beside Undo, on a lifetime budget change	Undo puts it back to £{x} lifetime.
+today.mcp.undo.rename	Log row, beside Undo, on a rename	Undo puts the old name back.
+today.mcp.undo.test	Log row, in place of Undo, on a test	A test can’t be undone here. End it in Ads Manager.
+today.mcp.count.scheduled	Today, section header, after “{n} today” and “ · ”	{n} scheduled
+today.mcp.count.scheduled.one	Today, section header (1)	1 scheduled
+today.mcp.row.scheduled	Log row, state (ochre edge), waiting to run	Scheduled for {date, time}
+today.mcp.row.scheduled.note	Log row, beside Cancel	It runs only if nothing has changed by then.
+today.mcp.cancel	Log row, button, a scheduled change	Cancel
+today.mcp.row.cancelled	Log row, state (muted), cancelled on Today	Cancelled by {name} · {date, time}
+today.mcp.row.cancelled.claude	Log row, state (muted), cancel_scheduled	Cancelled in Claude · {date, time}
+today.mcp.row.ran	Log row, under the approval line, a scheduled change that ran	Ran as scheduled · {date, time}
+today.mcp.row.skipped	Log row, state (muted), a scheduled change skipped; {reason} is today.mcp.skip.*	Skipped · {reason}
+today.mcp.skip.budget_changed	{reason}	the budget changed after it was scheduled
+today.mcp.skip.paused	{reason}	it was paused after it was scheduled
+today.mcp.skip.ended	{reason}	it ended or was deleted after it was scheduled
+today.mcp.skip.ceiling	{reason} (ruled 27 Nov with #1397)	by then it would have taken the show over its spend ceiling, or the show had no ceiling
+today.mcp.skip.switch	{reason}	budget changes were switched off in Off/Pixel
+today.mcp.skip.unread	{reason}	Meta couldn’t be read when it was due
+today.mcp.action.create_audiences	Log row title, create_audiences (thing: audience; result: created; no Undo) (ruled 27 Nov with #1400)	Make audiences
+today.mcp.change.create_audiences	Log row, what changes, create_audiences; {audiences} is today.mcp.count.audiences	{audiences} on the show’s ad account
+today.mcp.count.audiences	{audiences}	{n} audiences
+today.mcp.count.audiences.one	{audiences} (1)	1 audience
+today.mcp.thing.audience	{thing}	audience
+today.mcp.thing.audience.many	{things}	audiences
+today.mcp.action.request_page_access	Log row title, request_page_access (thing: request; result: sent; no Undo) (ruled 27 Nov with #1400)	Ask for Page access
+today.mcp.change.request_page_access	Log row, what changes; {pages} joined with “ · ”	{pages} · from {business}
+today.mcp.thing.request	{thing}	request
+today.mcp.thing.request.many	{things}	requests
+today.mcp.result.sent	Result, for access requests	{n} {things} sent · {ids}
+today.mcp.result.sent.one	Result (1), for access requests	1 {thing} sent · {id}

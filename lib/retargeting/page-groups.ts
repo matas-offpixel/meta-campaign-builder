@@ -22,9 +22,10 @@ import type { PageGroup } from "./funnel.ts";
  * One Page or Instagram account the client's business can build engagement
  * audiences from: PR B's ClientBuildableSource (#1400,
  * lib/mcp/audiences/client-sources.ts loadClientBuildableSources), as it
- * returns it. SWITCH(Job 2): import the type from there once #1400 merges.
+ * returns it.
  */
-export type ClientBuildableSource = { client_id: string; kind: "facebook_page" | "instagram_account"; id: string; name: string | null; genre_family: string | null; reach: "owned" | "client_shared" };
+export type { ClientBuildableSource } from "../mcp/audiences/client-sources.ts";
+import type { ClientBuildableSource } from "../mcp/audiences/client-sources.ts";
 
 export type StoredGroup = { id: string; client_id: string; genre_family: string; page_ids: string[]; ig_ids: string[]; confirmed_at: string | null };
 
