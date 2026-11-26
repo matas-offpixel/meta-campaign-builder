@@ -25,6 +25,12 @@
  * route handlers (bulkAttachAs, adsetAudienceAs). Its one table is
  * scheduled_meta_changes, from lib/mcp/live/scheduled.ts only, applied by
  * the cron route it pins too.
+ * M3d-c adds one Drive seam, lib/mcp/folder-in-deps.ts
+ * (upload_to_event_folder): the export Drive and a Storage read, its writes
+ * folderDepsFor's files.copy and upload only. The walk stops at it; a test
+ * pins what it imports, that only the route wiring imports it, and that it
+ * never reaches a permission, share, move or delete.
+ *
  * M3d-a adds the shows seam, lib/mcp/shows-deps.ts (scope mcp:draft): the
  * event form's create (insertEventRow: events, and its key-moments seed),
  * the clients form's create (insertClientRow: clients), the Lab's lineup
@@ -93,6 +99,13 @@ const SEAM_POSTS = [
   /postName: \(objectId, n\) => graphPostWithToken\(`\/\$\{objectId\}`, \{ name: n \}, token\)/,
   /createAdStudy: \(b, p\) => graphPostWithToken<\{ id: string \}>\(`\/\$\{b\}\/ad_studies`, p, token\)/,
 ];
+/** M3d-c's Drive seam: the export Drive, a Storage read, and folderDepsFor's two writes. */
+const FOLDER_SEAM = "lib/mcp/folder-in-deps.ts";
+const FOLDER_SEAM_IMPORTS: Record<string, readonly string[]> = {
+  "lib/drive/client.ts": ["driveFromEnv"],
+  "lib/mcp/folder-in/place.ts": ["folderDepsFor"],
+};
+
 /**
  * M3d-a's shows seam: the app's own create and save paths, pinned like the
  * Meta seam, and the tables each one's body may write. regenerateAutoMoments
@@ -159,7 +172,7 @@ function walk(): Map<string, string> {
     const src = readFileSync(join(ROOT, file), "utf8");
     seen.set(file, src);
     // The Meta seam is pinned by its own test, not walked.
-    if (file === META_SEAM || file === SHOWS_SEAM) continue;
+    if (file === META_SEAM || file === FOLDER_SEAM || file === SHOWS_SEAM) continue;
     // Value imports only: `import type` brings no code.
     for (const m of src.matchAll(/^\s*(?:import|export)\s+(?!type\b)[^'"]*?from\s+["']([^"']+)["']/gm)) {
       const next = resolve(file, m[1]!);
@@ -222,9 +235,12 @@ const EXTERNAL_READERS: Record<string, readonly string[]> = {
   "lib/drive/file-owner.ts": ["mayUseFor", "resolveDriveOwner"],
   // M3a: the video step's slot helpers (pure); the send step itself is behind the Meta seam.
   "lib/plan/stored-assets-meta.ts": ["failVideos", "sentVideoIds"],
-  "lib/drive/picker-model.ts": ["PICKER_WORDS", "defaultBatchFields", "folderTiles", "formatBytes"],
+  "lib/drive/picker-model.ts": ["PICKER_WORDS", "defaultBatchFields", "folderTiles", "formatBytes", "PICKER_MAX_IMAGE_BYTES", "PICKER_MAX_VIDEO_BYTES"],
   "lib/drive/picker-batch.ts": ["planPrepare"],
-  "lib/drive/client.ts": ["driveFromEnv"],
+  "lib/drive/client.ts": ["driveFromEnv", "APP_ID_KEY", "APP_TAG_KEY", "FOLDER_MIME", "SHORTCUT_MIME"],
+  // M3d-c: the show's Lab lineup (event_artists, artists reads) and the tree's cycle names (pure).
+  "lib/drive/lineup.ts": ["loadLineupArtists"],
+  "lib/drive/tree.ts": ["cycleFolderName"],
   "lib/campaign-defaults.ts": ["createDefaultAssetVariation", "createDefaultCreative", "defaultCtaForObjective"],
   "lib/clients/channel-defaults.ts": ["loadClientChannelDefaults"],
   "lib/meta/server-token.ts": ["resolveServerMetaToken"],
@@ -356,7 +372,7 @@ test("from outside lib/mcp the MCP imports only reader functions, and none of th
   const unexpected: string[] = [];
   const used = new Map<string, Set<string>>();
   for (const [file, src] of own) {
-    if (file === META_SEAM || file === SHOWS_SEAM) continue;
+    if (file === META_SEAM || file === FOLDER_SEAM || file === SHOWS_SEAM) continue;
     for (const { target, names } of importsOf(file, src)) {
       if (isOwn(target)) continue;
       const allowed = EXTERNAL_READERS[target];
@@ -392,12 +408,12 @@ test("the outside writers M2 calls write only what the Drive picker's copy write
   }
 });
 
-test("the tools and the server make no network calls and import no write paths; the only requests are graph-reads' three GETs", () => {
+test("the tools and the server make no network calls and import no write paths; the only requests are graph-reads' four GETs", () => {
   const files = walk();
   const hits: string[] = [];
   const SENDERS = new Set(["lib/mcp/graph-reads.ts", "lib/mcp/draft-deps.ts"]);
   for (const [file, src] of files) {
-    if (!isOwn(file) || file === META_SEAM || file === SHOWS_SEAM) continue;
+    if (!isOwn(file) || file === META_SEAM || file === FOLDER_SEAM || file === SHOWS_SEAM) continue;
     const code = strip(src);
     if (!SENDERS.has(file) && (NETWORK.test(code) || /\bfetchImpl\s*\(/.test(code))) hits.push(`${file}: network`);
     for (const m of code.matchAll(/from\s+["']((?:@\/|\.\.?\/)[^"']*)["']/g)) {
@@ -410,13 +426,13 @@ test("the tools and the server make no network calls and import no write paths; 
   }
   assert.deepEqual(hits, []);
   assert.ok(!files.has("lib/meta/client.ts"), "the Graph client is never imported");
-  // graph-reads: one request site, GET only, to /search and /{act}/promote_pages.
+  // graph-reads: one request site, GET only, to /search, /{act}/promote_pages and (M3d-d strict_audit) /?ids=….
   const reads = strip(readFileSync(join(ROOT, "lib/mcp/graph-reads.ts"), "utf8"));
   assert.equal([...reads.matchAll(/\bfetchImpl\s*\(/g)].length, 1, "one request site");
   assert.match(reads, /fetchImpl\(url\.toString\(\), \{ method: "GET", cache: "no-store" \}\)/);
   assert.doesNotMatch(reads, /\bfetch\s*\(|graphPost|method:\s*"(POST|DELETE|PUT|PATCH)"/);
   const paths = [...reads.matchAll(/graphGet\(fetchImpl, version, (["`])([^"`]+)\1/g)].map((m) => m[2]);
-  assert.deepEqual(paths.sort(), ["/act_${digits}/promote_pages", "/search", "/search"]);
+  assert.deepEqual(paths.sort(), ["/", "/act_${digits}/promote_pages", "/search", "/search"]);
   // draft-deps passes the global fetch through, and sends nothing itself.
   const deps = strip(readFileSync(join(ROOT, "lib/mcp/draft-deps.ts"), "utf8"));
   assert.equal([...deps.matchAll(/\bfetch\s*\(/g)].length, 1, "one fetch: the GET-only pass-through");
@@ -457,6 +473,28 @@ test("M3a: the Meta seam imports exactly the launch route's handler, the upload 
   assert.match(route, /export async function launchCampaignAs\(/);
   assert.match(route, /const entityStatus = resolveMetaLaunchEntityStatus\(\{ createPaused \}\);/);
   assert.match(src, /body: JSON\.stringify\(\{ draft, createPaused \}\)/);
+});
+
+test("M3d-c: the Drive seam imports only the export Drive and folderDepsFor, writes only by copy and upload, and only the route wiring imports it", () => {
+  const files = walk();
+  assert.ok(files.has(FOLDER_SEAM), "the route wires the seam");
+  const src = files.get(FOLDER_SEAM)!;
+  const got: Record<string, string[]> = {};
+  for (const { target, names } of importsOf(FOLDER_SEAM, src)) got[target] = [...(got[target] ?? []), ...names].sort();
+  assert.deepEqual(got, Object.fromEntries(Object.entries(FOLDER_SEAM_IMPORTS).map(([k, v]) => [k, [...v].sort()])));
+  const code = strip(src);
+  assert.doesNotMatch(code, NETWORK);
+  assert.doesNotMatch(code, WRITE);
+  WRITE.lastIndex = 0;
+  // A Storage read, nothing else of Storage.
+  assert.deepEqual([...code.matchAll(/\.storage\.from\([^)]*\)\.(\w+)\(/g)].map((m) => m[1]), ["download"]);
+  const importers = [...files.entries()].filter(([f, s2]) => f !== FOLDER_SEAM && /from\s+["'][^"']*folder-in-deps["']/.test(s2)).map(([f]) => f);
+  assert.deepEqual(importers, ["lib/mcp/route-deps.ts"]);
+  // folderDepsFor writes by copyFile and uploadFile only: no permission, share, move, rename or delete.
+  const place = strip(readFileSync(join(ROOT, "lib/mcp/folder-in/place.ts"), "utf8"));
+  const driveCalls = [...place.matchAll(/\bdrive\.(\w+)\(/g)].map((m) => m[1]).sort();
+  assert.deepEqual([...new Set(driveCalls)].sort(), ["copyFile", "getFile", "listChildren", "uploadFile"]);
+  assert.doesNotMatch(place, /shareReader|removePermission|permissions|\.update\(fileId|trash|delete/i);
 });
 
 test("M3d-a: the shows seam imports exactly the event and clients forms' create, the Lab's lineup save and the Releases card's reads and save, each writes only its tables, and only the route wiring imports it", () => {

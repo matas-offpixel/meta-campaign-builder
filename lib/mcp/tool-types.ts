@@ -14,10 +14,11 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { ZodRawShape } from "zod";
 import type { DriveApi } from "../drive/client.ts";
 import type { LocationSearchHit } from "../meta/location-search.ts";
-import type { AccountPage, InterestHit } from "./graph-reads.ts";
+import type { AccountPage, AdSetTargetingRead, InterestHit } from "./graph-reads.ts";
 import type { CampaignDraft } from "../types.ts";
 import type { StoredSendOutcome } from "../plan/stored-assets-meta.ts";
 import type { McpLiveDeps } from "./live/types.ts";
+import type { McpFolderDeps } from "./folder-in/place.ts";
 import type { ReleasesData } from "./shows/claims.ts";
 
 export type Db = Pick<SupabaseClient, "from">;
@@ -137,6 +138,16 @@ export interface McpRenderDeps {
 }
 
 /**
+ * M3d-d's Meta reads for the read tools (strict_audit): GETs only, through
+ * lib/mcp/graph-reads.ts with the operator's token. The route passes the
+ * real ones (lib/mcp/draft-deps.ts realGraphReads); tests pass fakes.
+ */
+export interface McpGraphReads {
+  /** Each ad set's status and Advantage+ flag, ≤ 50 ids a GET; `notRead` lists ids Meta didn't answer for. */
+  adSets(input: { userId: string; ids: readonly string[] }): Promise<{ adSets: AdSetTargetingRead[]; notRead: string[]; metaGets: number }>;
+}
+
+/**
  * M3d-a (scope mcp:draft): the app's own create and save paths the shows
  * tools call, for one operator. The route passes the real ones
  * (lib/mcp/shows-deps.ts, a pinned seam); tests pass spies. App database
@@ -165,12 +176,16 @@ export interface ToolContext {
   scope?: string;
   /** M2's outside reach; absent on read-only setups. */
   draft?: McpDraftDeps;
+  /** M3d-d's Meta reads (strict_audit); absent unless the route wires it. */
+  reads?: McpGraphReads;
   /** M3a's Meta reach (launch, uploads); absent unless the route wires it. */
   meta?: McpMetaDeps;
   /** M4a's render reach (the track's low end, the kit); absent unless the route wires it. */
   render?: McpRenderDeps;
   /** M3b's live reach (reads and the live writes, lib/mcp/live/types.ts); absent unless the route wires it. */
   live?: McpLiveDeps;
+  /** M3d-c's Drive writes into a show's own folders (lib/mcp/folder-in-deps.ts); absent unless the route wires it. */
+  folderIn?: McpFolderDeps;
   /** M3d-a's create and save paths (events, clients, the Lab lineup, releases); absent unless the route wires it. */
   shows?: McpShowsDeps;
   /** The caller is in MATAS_USER_IDS (mcp:meta tools check it again). */

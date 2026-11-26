@@ -1,10 +1,11 @@
 /**
  * lib/mcp/tools/index.ts — every MCP tool.
  *
- * M1's eight read tools and get_artist (AL5) (scope mcp:read), then the
+ * M1's eight read tools, get_artist (AL5) and strict_audit (M3d-d) (scope mcp:read), then the
  * draft tools (scope mcp:draft: app database only, campaign_drafts with
  * status draft): M2's eight and M2b's nine, enough to build a whole
- * campaign as a draft, and M3a's set_draft_name. Then the meta tools
+ * campaign as a draft, M3a's set_draft_name, and M3d-c's
+ * upload_to_event_folder (one file into a show's own Drive folder). Then the meta tools
  * (scope mcp:meta, Matas only, each on his chat yes): launch_draft,
  * upload_draft_assets and update_event, then M3b's live changes (get_live
  * and list_scheduled read; the rest change live Meta objects). M3d-a adds
@@ -25,6 +26,7 @@ import { addAudienceToStageTool, addCreativesToStageTool } from "./live-stage.ts
 import { createSplitTestTool } from "./live-test.ts";
 import { switchedOffUntilShipped } from "../live/shipped.ts";
 import { getRenderPackageTool, renderPackageTool } from "./render.ts";
+import { uploadToEventFolderTool } from "./folder-in.ts";
 import { createClientTool, createEventTool, getReleasesTool, setLineupTool, setReleaseTool } from "./shows.ts";
 import { replicateToEventTool } from "./draft-replicate.ts";
 import { setDraftAudiencesTool } from "./draft-audiences.ts";
@@ -34,6 +36,7 @@ import { getEventTool, listEventsTool } from "./events.ts";
 import { getLearningsTool } from "./learnings.ts";
 import { getCampaignTreeTool, runLaunchChecksTool } from "./pending.ts";
 import { morningToplineTool } from "./topline.ts";
+import { strictAuditTool } from "./strict-audit.ts";
 
 export const READ_TOOLS: readonly McpTool[] = [
   morningToplineTool,
@@ -47,6 +50,8 @@ export const READ_TOOLS: readonly McpTool[] = [
   getArtistTool,
   // M4a
   getRenderPackageTool,
+  // M3d-d
+  strictAuditTool,
 ];
 
 export const DRAFT_TOOLS: readonly McpTool[] = [
@@ -70,6 +75,8 @@ export const DRAFT_TOOLS: readonly McpTool[] = [
   setDraftAdNamesTool,
   // M3a
   setDraftNameTool,
+  // M3d-c
+  uploadToEventFolderTool,
   // M3d-a: shows and setup
   createClientTool,
   createEventTool,
