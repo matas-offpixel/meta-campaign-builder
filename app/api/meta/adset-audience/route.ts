@@ -47,10 +47,30 @@ function isAction(value: string): value is AudienceListAction {
 }
 
 export async function POST(request: Request) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  return pushAudience(request, null);
+}
+
+/**
+ * The same write for an operator without a browser session: the Off/Pixel
+ * connector's add_audience_to_stage (lib/mcp/meta-deps.ts, M3b), as
+ * launchCampaignAs is for launch_draft. `supabase` is the service-role
+ * client and `user` the connector's operator. The draft read names
+ * `user.id` itself; the switch, the read-then-write of the whole
+ * targeting, the ledger and the additions log are the route's own.
+ */
+export async function adsetAudienceAs(
+  request: Request,
+  auth: { supabase: Awaited<ReturnType<typeof createClient>>; user: { id: string; user_metadata?: Record<string, unknown> } },
+) {
+  return pushAudience(request, auth);
+}
+
+async function pushAudience(
+  request: Request,
+  auth: { supabase: Awaited<ReturnType<typeof createClient>>; user: { id: string; user_metadata?: Record<string, unknown> } } | null,
+) {
+  const supabase = auth?.supabase ?? (await createClient());
+  const user = auth ? auth.user : (await supabase.auth.getUser()).data.user;
   if (!user) {
     return Response.json({ error: "Not signed in" }, { status: 401 });
   }

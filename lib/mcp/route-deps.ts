@@ -13,9 +13,10 @@ import "server-only";
 import { createServiceRoleClient } from "@/lib/supabase/server";
 import { isOperator, MATAS_USER_IDS } from "@/lib/auth/operator-allowlist";
 import { createActionLogger } from "./action-log";
-import { realDraftDeps } from "./draft-deps";
+import { realDraftDeps, realGraphReads } from "./draft-deps";
 import { realLabDeps } from "./lab-deps";
-import { realMetaDeps } from "./meta-deps";
+import { realLiveDeps, realMetaDeps } from "./meta-deps";
+import { realFolderDeps } from "./folder-in-deps";
 import { realShowsDeps } from "./shows-deps";
 import { startDeps } from "@/lib/render-templates/server-deps";
 import { realReaders } from "./readers";
@@ -44,11 +45,17 @@ export function mcpHandlerDeps(): McpHandlerDeps {
     logger: createActionLogger(devStore ? null : db),
     readers: realReaders,
     draft: realDraftDeps(db),
+    // M3d-d: strict_audit's ad set GETs.
+    reads: realGraphReads(db),
     meta: realMetaDeps(db),
+    // M3b: get_live and the live changes.
+    live: realLiveDeps(db),
     // M4a: render_package starts packages; the render tick renders them.
     render: startDeps(db),
     // M3d-b: the Lab tools' paths (the Snippet tab's scan and drop, the Clips card's owner).
     lab: realLabDeps(db),
+    // M3d-c: upload_to_event_folder's two Drive writes (copy, upload) into a show's own folders.
+    folderIn: realFolderDeps(db),
     // M3d-a: the shows tools' paths (the event and clients forms' create, the Lab lineup, the Releases card).
     shows: realShowsDeps(db),
   };

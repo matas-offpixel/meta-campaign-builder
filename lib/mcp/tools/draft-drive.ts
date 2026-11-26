@@ -45,9 +45,9 @@ import { loadEventByCode, normaliseCode } from "./shared.ts";
 
 const CTAS: readonly CTAType[] = ["sign_up", "learn_more", "book_now", "buy_tickets"];
 
-type OwnedEvent = PickerEvent & { client_id: string | null; ticket_url: string | null; user_id: string | null };
+export type OwnedEvent = PickerEvent & { client_id: string | null; ticket_url: string | null; user_id: string | null };
 
-async function ownedEvent(ctx: ToolContext, eventId: string): Promise<OwnedEvent> {
+export async function ownedEvent(ctx: ToolContext, eventId: string): Promise<OwnedEvent> {
   const res = await ctx.db
     .from("events")
     .select("id, name, event_code, status, event_date, drive_folder_id, client_id, ticket_url, user_id")
@@ -210,6 +210,262 @@ type Planned = {
   parts: Array<{ fileId: string; fileName: string; role: "9:16" | "4:5" | "1:1" }>;
 };
 
+export type DriveAdAdded = { id: string; name: string; kind: string; fileId: string; storagePath: string; fileIds: string[]; slots: string[]; storagePaths: string[]; fromRegistry: boolean };
+
+/**
+ * attach_drive_creatives' build, shared with add_creatives_to_stage (M3b):
+ * the render-check and artist-voice refusals, each file's folder and owner
+ * (the event's tree, else the client's own or the artist library), the
+ * picker's tiles and names, copyPickedFile into Storage, and one creative
+ * per file or pair with its slots pending. Saves nothing. `draft` gives the
+ * objective, the last ad's defaults and the files already in it; `ref` goes
+ * into every refusal's summary.
+ */
+export async function buildDriveAds(
+  ctx: ToolContext,
+  deps: NonNullable<ToolContext["draft"]>,
+  input: {
+    event: OwnedEvent;
+    draft: CampaignDraft;
+    ref: Record<string, unknown>;
+    fileIds: string[];
+    pairs: Array<{ feed: string; vertical: string }>;
+    pageId: string;
+    igId: string;
+    primaryText: string | null;
+    headline: string | null;
+    cta: CTAType | null;
+  },
+): Promise<{ ads: AdCreativeDraft[]; added: DriveAdAdded[]; skipped: string[]; failed: Array<{ fileId: string; reason: string }>; unparsed: string[]; planned: Planned[]; fields: ReturnType<typeof defaultBatchFields> }> {
+  const { event, draft, fileIds, pairs, pageId, igId, primaryText, headline, cta } = input;
+  // M4 (RT2): a render package file that failed a check can't be uploaded, so it isn't added either.
+  const refusedRenders = await refusedUploads(ctx.db, [...fileIds, ...pairs.flatMap((p) => [p.feed, p.vertical])].map((id) => ({ driveFileId: id })));
+  if (refusedRenders.length) {
+    throw new ToolInputError(refusedRenders[0]!.line, { ...input.ref, refused: "render_failed_check", files: refusedRenders.length });
+  }
+
+  // Artist voice (until R8): refuse copy that is one of the event's artist-voice captions.
+  if ((primaryText && norm(primaryText)) || (headline && norm(headline))) {
+    const voices = await artistVoiceCaptions(ctx, event.id);
+    const hit = [primaryText, headline].some((t) => t && voices.some((v) => norm(t) === v || norm(t).includes(v)));
+    if (hit) {
+      throw new ToolInputError("This copy is an artist-voice caption. Artist-voice copy can't be added from here until the artist team's OK can be recorded (R8).", {
+        ...input.ref,
+        refused: "artist_voice",
+      });
+    }
+  }
+
+  const drive = deps.drive();
+  if (!drive || !drive.getMediaFile) throw new ToolInputError(PICKER_WORDS.unreadable, { refused: "unreadable" });
+
+  // Each file's folder, opened once: the event's tree, else anywhere in the shared drive.
+  const folderOf = new Map<string, string>();
+  for (const id of [...fileIds, ...pairs.flatMap((p) => [p.feed, p.vertical])]) {
+    if (folderOf.has(id)) continue;
+    const file = await drive.getMediaFile(id);
+    const parent = file && !file.trashed ? file.parents?.[0] : null;
+    if (!parent) throw new ToolInputError(ATTACH_WORDS.fileOutside(id), { ...input.ref, refused: "not_in_drive" });
+    folderOf.set(id, parent);
+  }
+  const opened = new Map<string, { open: OpenFolder; tiles: Tile[] }>();
+  for (const parent of new Set(folderOf.values())) {
+    let open: OpenFolder;
+    try {
+      open = await openFolder(ctx, drive, event, parent);
+    } catch (e) {
+      if (e instanceof ToolInputError) throw new ToolInputError(e.message, { ...input.ref, ...(e.summary ?? {}) });
+      throw e;
+    }
+    opened.set(parent, { open, tiles: folderTiles(open.files, "single") });
+  }
+  // A file from outside this show's tree must be the show's client's own, or artist material
+  // (lib/drive/file-owner.ts: the same resolution the prod transcript's runner checks with).
+  const ownerOf = new Map<string, DriveFileOwner>();
+  for (const [id, parent] of folderOf) {
+    if (opened.get(parent)!.open.inTree) continue;
+    const owner = ownerOf.get(parent) ?? (await resolveDriveOwner(ctx.db as never, drive, parent));
+    ownerOf.set(parent, owner);
+    const may = mayUseFor(owner, event.client_id);
+    if (may === "own" || may === "artist_library") continue;
+    const fileName = opened.get(parent)!.open.files.find((f) => f.id === id)?.name ?? id;
+    if (may === "other_client") {
+      const c = await ctx.db.from("clients").select("name").in("id", owner.clientIds).limit(1);
+      const name = ((c.error ? [] : (c.data ?? [])) as Array<{ name: string | null }>)[0]?.name?.trim();
+      throw new ToolInputError(name ? ATTACH_WORDS.otherClient(fileName, name) : ATTACH_WORDS.otherClientUnnamed(fileName), {
+        ...input.ref,
+        refused: "other_client",
+        fileId: id,
+      });
+    }
+    throw new ToolInputError(ATTACH_WORDS.ownerUnknown(fileName), { ...input.ref, refused: "owner_unknown", fileId: id });
+  }
+  const tileOf = (id: string): { tile: Tile; open: OpenFolder } => {
+    const at = opened.get(folderOf.get(id)!)!;
+    const tile = at.tiles.find((t) => t.file.id === id);
+    if (!tile) throw new ToolInputError(ATTACH_WORDS.notMedia(id), { ...input.ref, refused: "not_media" });
+    return { tile, open: at.open };
+  };
+  /** The picker's size refusal; aspect is checked by the caller. */
+  const sizeRefusal = (tile: Tile) =>
+    tile.reason === PICKER_WORDS.overVideo || tile.reason === PICKER_WORDS.overImage
+      ? new ToolInputError(ATTACH_WORDS.pickerReason(tile.file.name, tile.reason ?? ""), { ...input.ref, refused: "not_usable" })
+      : null;
+
+  const last = draft.creatives[draft.creatives.length - 1];
+  const fields = defaultBatchFields({
+    ticketUrl: event.ticket_url,
+    lastAd: last ? { destinationUrl: last.destinationUrl, cta: last.cta, identity: last.identity } : null,
+    objectiveCta: defaultCtaForObjective(draft.settings.objective),
+  });
+  const existingDriveIds = new Set<string>();
+  for (const c of draft.creatives) for (const v of c.assetVariations ?? []) for (const a of v.assets) if (a.driveFileId) existingDriveIds.add(a.driveFileId);
+  const names = draft.creatives.map((c) => c.name);
+  const skipped: string[] = [];
+  const planned: Planned[] = [];
+
+  /** The ad's name: its file's recipe, else the picker's (S14 or "{owner} - {folder} {n}"). */
+  const nameFor = (tile: Tile, open: OpenFolder, alsoFile?: string): { name: string; fromRecipe: boolean } | null => {
+    const plan = planPrepare({
+      tiles: [tile],
+      mode: "single",
+      owner: open.owner,
+      owners: open.owners,
+      folderName: open.folder.name,
+      existingNames: names,
+      existingDriveIds,
+    });
+    if (plan.ads.length === 0) return null;
+    const recipe = recipeOf(tile.file.name) ?? (alsoFile ? recipeOf(alsoFile) : null);
+    const name = recipe ? recipeNames([recipe], names)[0]! : plan.ads[0]!.name;
+    names.push(name);
+    return { name, fromRecipe: Boolean(recipe) };
+  };
+
+  // Singles: 9:16 only, refused with their aspect otherwise.
+  for (const id of fileIds) {
+    const { tile, open } = tileOf(id);
+    const size = sizeRefusal(tile);
+    if (size) throw size;
+    if (tile.ratio && tile.ratio !== "9:16") throw new ToolInputError(notNineSixteenSingle(tile.file.name, tile.ratio), { ...input.ref, refused: "not_916", aspect: tile.ratio });
+    if (!tile.selectable) throw new ToolInputError(ATTACH_WORDS.pickerReason(tile.file.name, tile.reason ?? ""), { ...input.ref, refused: "not_usable" });
+    if (existingDriveIds.has(id)) {
+      skipped.push(`${tile.file.name.replace(/\.[^.]+$/, "")}: ${PICKER_WORDS.alreadyInDraft}`);
+      continue;
+    }
+    const named = nameFor(tile, open)!;
+    planned.push({ ...named, kind: tile.kind, folder: open, parts: [{ fileId: id, fileName: tile.file.name, role: "9:16" }] });
+    existingDriveIds.add(id);
+  }
+
+  // Pairs: a 4:5 or 1:1 feed file and its 9:16, the same kind, as one ad (the multi-placement path).
+  for (const pair of pairs) {
+    const feed = tileOf(pair.feed);
+    const vertical = tileOf(pair.vertical);
+    for (const t of [feed.tile, vertical.tile]) {
+      const size = sizeRefusal(t);
+      if (size) throw size;
+    }
+    if (!feed.tile.ratio || !FEED_RATIOS.includes(feed.tile.ratio)) {
+      throw new ToolInputError(ATTACH_WORDS.pairFeed(feed.tile.file.name, feed.tile.ratio ?? ATTACH_WORDS.ratioUnknown), { ...input.ref, refused: "bad_feed_aspect", aspect: feed.tile.ratio });
+    }
+    if (vertical.tile.ratio && vertical.tile.ratio !== "9:16") {
+      throw new ToolInputError(ATTACH_WORDS.pairVertical(vertical.tile.file.name, vertical.tile.ratio), { ...input.ref, refused: "not_916", aspect: vertical.tile.ratio });
+    }
+    if (feed.tile.kind !== vertical.tile.kind) {
+      throw new ToolInputError(ATTACH_WORDS.pairKinds(feed.tile.file.name, ATTACH_WORDS.kind[feed.tile.kind]!, vertical.tile.file.name, ATTACH_WORDS.kind[vertical.tile.kind]!), { ...input.ref, refused: "mixed_pair" });
+    }
+    if (existingDriveIds.has(pair.feed) || existingDriveIds.has(pair.vertical)) {
+      skipped.push(`${vertical.tile.file.name.replace(/\.[^.]+$/, "")}: ${PICKER_WORDS.alreadyInDraft}`);
+      continue;
+    }
+    const named = nameFor(vertical.tile, vertical.open, feed.tile.file.name)!;
+    planned.push({
+      ...named,
+      kind: vertical.tile.kind,
+      folder: vertical.open,
+      parts: [
+        { fileId: pair.feed, fileName: feed.tile.file.name, role: feed.tile.ratio as "4:5" | "1:1" },
+        { fileId: pair.vertical, fileName: vertical.tile.file.name, role: "9:16" },
+      ],
+    });
+    existingDriveIds.add(pair.feed);
+    existingDriveIds.add(pair.vertical);
+  }
+
+  const ads: AdCreativeDraft[] = [];
+  const added: DriveAdAdded[] = [];
+  const failed: Array<{ fileId: string; reason: string }> = [];
+  const unparsed: string[] = [];
+  for (const ad of planned) {
+    const copies: Array<{ part: Planned["parts"][number]; copy: Extract<Awaited<ReturnType<typeof copyPickedFile>>, { ok: true }> }> = [];
+    let broke = false;
+    for (const part of ad.parts) {
+      const copy = await copyPickedFile(
+        {
+          db: ctx.db as never,
+          drive,
+          userId: ctx.userId,
+          uploadFile: deps.uploadFile,
+          copyObject: deps.copyObject,
+          locate: ad.folder.inTree ? (id) => fileInTree(ctx.db as never, drive, event, id) : (id) => fileInSharedDrive(drive, id),
+        },
+        event,
+        { fileId: part.fileId, role: part.role },
+      );
+      if (!copy.ok) {
+        failed.push({ fileId: part.fileId, reason: copy.reason });
+        broke = true;
+        break;
+      }
+      copies.push({ part, copy });
+    }
+    if (broke) continue;
+    // The picker's onPrepare, then its onUploaded patch without the Meta fields.
+    const c = createDefaultCreative(draft.settings.objective);
+    c.name = ad.name;
+    c.nameSource = ad.fromRecipe ? "file" : "operator";
+    if (!ad.fromRecipe) unparsed.push(ad.parts[ad.parts.length - 1]!.fileName);
+    c.identity = { pageId, instagramAccountId: igId };
+    c.captions = [{ id: deps.newId(), text: primaryText ?? fields.primaryText }];
+    c.headline = headline ?? fields.headline;
+    c.destinationUrl = fields.url;
+    c.cta = (cta ?? fields.cta) as CTAType;
+    c.mediaType = ad.kind === "video" ? "video" : "image";
+    // One file: Single (9:16). A pair: Dual, the feed slot and the 9:16 (buildCreativePayload's multi-placement path).
+    c.assetMode = ad.parts.length > 1 ? "dual" : "single";
+    const variation = createDefaultAssetVariation(ad.parts.map((p) => p.role as AssetRatio));
+    variation.name = "Variation 1";
+    copies.forEach(({ part, copy }, i) => {
+      Object.assign(variation.assets[i]!, {
+        aspectRatio: part.role,
+        fileName: part.fileName,
+        driveFileId: part.fileId,
+        sourceLabel: PICKER_WORDS.fromDrivePath(ad.folder.sourcePath),
+        registryAssetId: copy.registryAssetId,
+        storagePath: copy.storagePath,
+        storageBucket: copy.storageBucket,
+        uploadStatus: "pending",
+      });
+    });
+    c.assetVariations = [variation];
+    ads.push(c);
+    added.push({
+      id: c.id,
+      name: c.name,
+      kind: c.mediaType,
+      // The 9:16's, as before pairs; a pair's files are in fileIds / storagePaths, feed first.
+      fileId: ad.parts[ad.parts.length - 1]!.fileId,
+      storagePath: copies[copies.length - 1]!.copy.storagePath,
+      fileIds: ad.parts.map((p) => p.fileId),
+      slots: ad.parts.map((p) => p.role),
+      storagePaths: copies.map((x) => x.copy.storagePath),
+      fromRegistry: copies.every((x) => x.copy.fromRegistry),
+    });
+  }
+  return { ads, added, skipped, failed, unparsed, planned, fields };
+}
+
 export const attachDriveCreativesTool: McpTool = {
   name: "attach_drive_creatives",
   title: "Add Drive files to a draft as ads",
@@ -258,237 +514,14 @@ export const attachDriveCreativesTool: McpTool = {
     if (!eventId) throw new ToolInputError(PICKER_WORDS.noEvent, { draftId: loaded.row.id, refused: "no_event" });
     const event = await ownedEvent(ctx, eventId);
 
-    // M4 (RT2): a render package file that failed a check can't be uploaded, so it isn't added either.
-    const refusedRenders = await refusedUploads(ctx.db, [...fileIds, ...pairs.flatMap((p) => [p.feed, p.vertical])].map((id) => ({ driveFileId: id })));
-    if (refusedRenders.length) {
-      throw new ToolInputError(refusedRenders[0]!.line, { draftId: loaded.row.id, refused: "render_failed_check", files: refusedRenders.length });
-    }
-
-    // Artist voice (until R8): refuse copy that is one of the event's artist-voice captions.
-    if ((primaryText && norm(primaryText)) || (headline && norm(headline))) {
-      const voices = await artistVoiceCaptions(ctx, event.id);
-      const hit = [primaryText, headline].some((t) => t && voices.some((v) => norm(t) === v || norm(t).includes(v)));
-      if (hit) {
-        throw new ToolInputError("This copy is an artist-voice caption. Artist-voice copy can't be added from here until the artist team's OK can be recorded (R8).", {
-          draftId: loaded.row.id,
-          refused: "artist_voice",
-        });
-      }
-    }
-
     // Page and Instagram: given, else the client's.
     const stored = event.client_id ? await loadClientChannelDefaults(ctx.db, event.client_id) : null;
     const pageId = (typeof args.page_id === "string" && args.page_id) || stored?.defaultPageId || "";
     const igId = (typeof args.ig_account_id === "string" && args.ig_account_id) || stored?.defaultInstagramActorId || "";
     if (!pageId) throw new ToolInputError("No page_id given and the client has no default page. Give page_id.", { draftId: loaded.row.id, refused: "no_page" });
 
-    const drive = deps.drive();
-    if (!drive || !drive.getMediaFile) throw new ToolInputError(PICKER_WORDS.unreadable, { refused: "unreadable" });
-
-    // Each file's folder, opened once: the event's tree, else anywhere in the shared drive.
-    const folderOf = new Map<string, string>();
-    for (const id of [...fileIds, ...pairs.flatMap((p) => [p.feed, p.vertical])]) {
-      if (folderOf.has(id)) continue;
-      const file = await drive.getMediaFile(id);
-      const parent = file && !file.trashed ? file.parents?.[0] : null;
-      if (!parent) throw new ToolInputError(ATTACH_WORDS.fileOutside(id), { draftId: loaded.row.id, refused: "not_in_drive" });
-      folderOf.set(id, parent);
-    }
-    const opened = new Map<string, { open: OpenFolder; tiles: Tile[] }>();
-    for (const parent of new Set(folderOf.values())) {
-      let open: OpenFolder;
-      try {
-        open = await openFolder(ctx, drive, event, parent);
-      } catch (e) {
-        if (e instanceof ToolInputError) throw new ToolInputError(e.message, { draftId: loaded.row.id, ...(e.summary ?? {}) });
-        throw e;
-      }
-      opened.set(parent, { open, tiles: folderTiles(open.files, "single") });
-    }
-    // A file from outside this show's tree must be the show's client's own, or artist material
-    // (lib/drive/file-owner.ts: the same resolution the prod transcript's runner checks with).
-    const ownerOf = new Map<string, DriveFileOwner>();
-    for (const [id, parent] of folderOf) {
-      if (opened.get(parent)!.open.inTree) continue;
-      const owner = ownerOf.get(parent) ?? (await resolveDriveOwner(ctx.db as never, drive, parent));
-      ownerOf.set(parent, owner);
-      const may = mayUseFor(owner, event.client_id);
-      if (may === "own" || may === "artist_library") continue;
-      const fileName = opened.get(parent)!.open.files.find((f) => f.id === id)?.name ?? id;
-      if (may === "other_client") {
-        const c = await ctx.db.from("clients").select("name").in("id", owner.clientIds).limit(1);
-        const name = ((c.error ? [] : (c.data ?? [])) as Array<{ name: string | null }>)[0]?.name?.trim();
-        throw new ToolInputError(name ? ATTACH_WORDS.otherClient(fileName, name) : ATTACH_WORDS.otherClientUnnamed(fileName), {
-          draftId: loaded.row.id,
-          refused: "other_client",
-          fileId: id,
-        });
-      }
-      throw new ToolInputError(ATTACH_WORDS.ownerUnknown(fileName), { draftId: loaded.row.id, refused: "owner_unknown", fileId: id });
-    }
-    const tileOf = (id: string): { tile: Tile; open: OpenFolder } => {
-      const at = opened.get(folderOf.get(id)!)!;
-      const tile = at.tiles.find((t) => t.file.id === id);
-      if (!tile) throw new ToolInputError(ATTACH_WORDS.notMedia(id), { draftId: loaded.row.id, refused: "not_media" });
-      return { tile, open: at.open };
-    };
-    /** The picker's size refusal; aspect is checked by the caller. */
-    const sizeRefusal = (tile: Tile) =>
-      tile.reason === PICKER_WORDS.overVideo || tile.reason === PICKER_WORDS.overImage
-        ? new ToolInputError(ATTACH_WORDS.pickerReason(tile.file.name, tile.reason ?? ""), { draftId: loaded.row.id, refused: "not_usable" })
-        : null;
-
-    const last = draft.creatives[draft.creatives.length - 1];
-    const fields = defaultBatchFields({
-      ticketUrl: event.ticket_url,
-      lastAd: last ? { destinationUrl: last.destinationUrl, cta: last.cta, identity: last.identity } : null,
-      objectiveCta: defaultCtaForObjective(draft.settings.objective),
-    });
-    const existingDriveIds = new Set<string>();
-    for (const c of draft.creatives) for (const v of c.assetVariations ?? []) for (const a of v.assets) if (a.driveFileId) existingDriveIds.add(a.driveFileId);
-    const names = draft.creatives.map((c) => c.name);
-    const skipped: string[] = [];
-    const planned: Planned[] = [];
-
-    /** The ad's name: its file's recipe, else the picker's (S14 or "{owner} - {folder} {n}"). */
-    const nameFor = (tile: Tile, open: OpenFolder, alsoFile?: string): { name: string; fromRecipe: boolean } | null => {
-      const plan = planPrepare({
-        tiles: [tile],
-        mode: "single",
-        owner: open.owner,
-        owners: open.owners,
-        folderName: open.folder.name,
-        existingNames: names,
-        existingDriveIds,
-      });
-      if (plan.ads.length === 0) return null;
-      const recipe = recipeOf(tile.file.name) ?? (alsoFile ? recipeOf(alsoFile) : null);
-      const name = recipe ? recipeNames([recipe], names)[0]! : plan.ads[0]!.name;
-      names.push(name);
-      return { name, fromRecipe: Boolean(recipe) };
-    };
-
-    // Singles: 9:16 only, refused with their aspect otherwise.
-    for (const id of fileIds) {
-      const { tile, open } = tileOf(id);
-      const size = sizeRefusal(tile);
-      if (size) throw size;
-      if (tile.ratio && tile.ratio !== "9:16") throw new ToolInputError(notNineSixteenSingle(tile.file.name, tile.ratio), { draftId: loaded.row.id, refused: "not_916", aspect: tile.ratio });
-      if (!tile.selectable) throw new ToolInputError(ATTACH_WORDS.pickerReason(tile.file.name, tile.reason ?? ""), { draftId: loaded.row.id, refused: "not_usable" });
-      if (existingDriveIds.has(id)) {
-        skipped.push(`${tile.file.name.replace(/\.[^.]+$/, "")}: ${PICKER_WORDS.alreadyInDraft}`);
-        continue;
-      }
-      const named = nameFor(tile, open)!;
-      planned.push({ ...named, kind: tile.kind, folder: open, parts: [{ fileId: id, fileName: tile.file.name, role: "9:16" }] });
-      existingDriveIds.add(id);
-    }
-
-    // Pairs: a 4:5 or 1:1 feed file and its 9:16, the same kind, as one ad (the multi-placement path).
-    for (const pair of pairs) {
-      const feed = tileOf(pair.feed);
-      const vertical = tileOf(pair.vertical);
-      for (const t of [feed.tile, vertical.tile]) {
-        const size = sizeRefusal(t);
-        if (size) throw size;
-      }
-      if (!feed.tile.ratio || !FEED_RATIOS.includes(feed.tile.ratio)) {
-        throw new ToolInputError(ATTACH_WORDS.pairFeed(feed.tile.file.name, feed.tile.ratio ?? ATTACH_WORDS.ratioUnknown), { draftId: loaded.row.id, refused: "bad_feed_aspect", aspect: feed.tile.ratio });
-      }
-      if (vertical.tile.ratio && vertical.tile.ratio !== "9:16") {
-        throw new ToolInputError(ATTACH_WORDS.pairVertical(vertical.tile.file.name, vertical.tile.ratio), { draftId: loaded.row.id, refused: "not_916", aspect: vertical.tile.ratio });
-      }
-      if (feed.tile.kind !== vertical.tile.kind) {
-        throw new ToolInputError(ATTACH_WORDS.pairKinds(feed.tile.file.name, ATTACH_WORDS.kind[feed.tile.kind]!, vertical.tile.file.name, ATTACH_WORDS.kind[vertical.tile.kind]!), { draftId: loaded.row.id, refused: "mixed_pair" });
-      }
-      if (existingDriveIds.has(pair.feed) || existingDriveIds.has(pair.vertical)) {
-        skipped.push(`${vertical.tile.file.name.replace(/\.[^.]+$/, "")}: ${PICKER_WORDS.alreadyInDraft}`);
-        continue;
-      }
-      const named = nameFor(vertical.tile, vertical.open, feed.tile.file.name)!;
-      planned.push({
-        ...named,
-        kind: vertical.tile.kind,
-        folder: vertical.open,
-        parts: [
-          { fileId: pair.feed, fileName: feed.tile.file.name, role: feed.tile.ratio as "4:5" | "1:1" },
-          { fileId: pair.vertical, fileName: vertical.tile.file.name, role: "9:16" },
-        ],
-      });
-      existingDriveIds.add(pair.feed);
-      existingDriveIds.add(pair.vertical);
-    }
-
-    const ads: AdCreativeDraft[] = [];
-    const added: Array<{ id: string; name: string; kind: string; fileId: string; storagePath: string; fileIds: string[]; slots: string[]; storagePaths: string[]; fromRegistry: boolean }> = [];
-    const failed: Array<{ fileId: string; reason: string }> = [];
-    const unparsed: string[] = [];
-    for (const ad of planned) {
-      const copies: Array<{ part: Planned["parts"][number]; copy: Extract<Awaited<ReturnType<typeof copyPickedFile>>, { ok: true }> }> = [];
-      let broke = false;
-      for (const part of ad.parts) {
-        const copy = await copyPickedFile(
-          {
-            db: ctx.db as never,
-            drive,
-            userId: ctx.userId,
-            uploadFile: deps.uploadFile,
-            copyObject: deps.copyObject,
-            locate: ad.folder.inTree ? (id) => fileInTree(ctx.db as never, drive, event, id) : (id) => fileInSharedDrive(drive, id),
-          },
-          event,
-          { fileId: part.fileId, role: part.role },
-        );
-        if (!copy.ok) {
-          failed.push({ fileId: part.fileId, reason: copy.reason });
-          broke = true;
-          break;
-        }
-        copies.push({ part, copy });
-      }
-      if (broke) continue;
-      // The picker's onPrepare, then its onUploaded patch without the Meta fields.
-      const c = createDefaultCreative(draft.settings.objective);
-      c.name = ad.name;
-      c.nameSource = ad.fromRecipe ? "file" : "operator";
-      if (!ad.fromRecipe) unparsed.push(ad.parts[ad.parts.length - 1]!.fileName);
-      c.identity = { pageId, instagramAccountId: igId };
-      c.captions = [{ id: deps.newId(), text: primaryText ?? fields.primaryText }];
-      c.headline = headline ?? fields.headline;
-      c.destinationUrl = fields.url;
-      c.cta = (cta ?? fields.cta) as CTAType;
-      c.mediaType = ad.kind === "video" ? "video" : "image";
-      // One file: Single (9:16). A pair: Dual, the feed slot and the 9:16 (buildCreativePayload's multi-placement path).
-      c.assetMode = ad.parts.length > 1 ? "dual" : "single";
-      const variation = createDefaultAssetVariation(ad.parts.map((p) => p.role as AssetRatio));
-      variation.name = "Variation 1";
-      copies.forEach(({ part, copy }, i) => {
-        Object.assign(variation.assets[i]!, {
-          aspectRatio: part.role,
-          fileName: part.fileName,
-          driveFileId: part.fileId,
-          sourceLabel: PICKER_WORDS.fromDrivePath(ad.folder.sourcePath),
-          registryAssetId: copy.registryAssetId,
-          storagePath: copy.storagePath,
-          storageBucket: copy.storageBucket,
-          uploadStatus: "pending",
-        });
-      });
-      c.assetVariations = [variation];
-      ads.push(c);
-      added.push({
-        id: c.id,
-        name: c.name,
-        kind: c.mediaType,
-        // The 9:16's, as before pairs; a pair's files are in fileIds / storagePaths, feed first.
-        fileId: ad.parts[ad.parts.length - 1]!.fileId,
-        storagePath: copies[copies.length - 1]!.copy.storagePath,
-        fileIds: ad.parts.map((p) => p.fileId),
-        slots: ad.parts.map((p) => p.role),
-        storagePaths: copies.map((x) => x.copy.storagePath),
-        fromRegistry: copies.every((x) => x.copy.fromRegistry),
-      });
-    }
+    const built = await buildDriveAds(ctx, deps, { event, draft, ref: { draftId: loaded.row.id }, fileIds, pairs, pageId, igId, primaryText, headline, cta });
+    const { ads, added, skipped, failed, unparsed, planned, fields } = built;
     if (ads.length === 0) {
       throw new ToolInputError(
         failed.length ? ATTACH_WORDS.failed : "No ads were added: every file is already in this draft.",
