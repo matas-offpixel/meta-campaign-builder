@@ -14,6 +14,7 @@ import { ToolInputError, type ToolContext } from "../tool-types.ts";
 import { skipReason } from "../../drive/pickup.ts";
 import { audioFilesIn } from "../../creative-tests/audio-intake.ts";
 import { APP_ID_KEY, APP_TAG_KEY } from "../../drive/client.ts";
+import { mayUseFor, resolveDriveOwner } from "../../drive/file-owner.ts";
 import type { DriveApi, DriveFile } from "../../drive/client.ts";
 
 const DRIVE = "0ADRIVE";
@@ -357,4 +358,18 @@ test("a retry finds the connector's own copy by its marker and places nothing tw
   const again = await run(ctx, { folder: "02 Source / Artist clips / Enzo Siragusa", drive_file_id: "CLIP_OWN" });
   assert.equal((again.data as { placed: boolean }).placed, false);
   assert.deepEqual(writes(drive).map((c) => c.fn), ["copyFile"]);
+});
+
+test("a file the service account placed counts as the show's client's own: whose it is goes by its folders, never by who uploaded it", async () => {
+  const drive = spyDrive();
+  const { ctx, db } = ctxFor(drive);
+  await run(ctx, { folder: "02 Source / Artist clips / Enzo Siragusa", drive_file_id: "CLIP_LIB" });
+  const placed = drive.created[0]!;
+  // The owner check attach_drive_creatives and this tool use: parents up to the drive's root, mapped folders give the client.
+  const owner = await resolveDriveOwner(db as never, drive, placed.parents![0]!);
+  assert.deepEqual(owner.clientIds, [CLIENT]);
+  assert.equal(mayUseFor(owner, CLIENT), "own");
+  assert.equal(mayUseFor(owner, OTHER_CLIENT), "other_client");
+  // DriveFile carries no uploader field for the check to read.
+  assert.deepEqual(Object.keys(placed).sort(), ["appProperties", "id", "mimeType", "name", "parents"]);
 });
