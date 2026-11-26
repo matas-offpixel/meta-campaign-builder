@@ -217,6 +217,14 @@ const T = {
     "Told to Claude, set_release: a step back, which the card asks about once",
     "Refused: {release} would go back from {from} to {to}. Ask Matas, then send it again with confirmed: true. Nothing was changed.",
   ),
+  releaseMovesTimes: pending(
+    "claude.mcp.shows.release.refused.moves_times",
+    "Told to Claude, set_release: the change would move the presale or general sale time (Matas's ruling, 26 Nov; {times} is \"presale time\", \"general sale time\" or both)",
+    "Refused: this would move {code}’s {times}, and sale times move only through update_event, with Matas’s yes. Nothing was changed.",
+  ),
+  releaseTimesPresale: pending("claude.mcp.shows.release.times.presale", "{times} in claude.mcp.shows.release.refused.moves_times", "presale time"),
+  releaseTimesGeneral: pending("claude.mcp.shows.release.times.general", "{times} in claude.mcp.shows.release.refused.moves_times", "general sale time"),
+  releaseTimesBoth: pending("claude.mcp.shows.release.times.both", "{times} in claude.mcp.shows.release.refused.moves_times", "presale and general sale times"),
   releaseEmpty: pending(
     "claude.mcp.shows.release.refused.empty",
     "Told to Claude, set_release: neither a state nor a count",
@@ -285,6 +293,8 @@ export const SHOWS_WORDS = {
   releaseUnknown: (release: string, code: string, names: readonly string[]) => fill(T.releaseUnknown, { release, code, names: names.join(", ") }),
   releaseBackwards: (release: string, from: string, to: string) => fill(T.releaseBackwards, { release, from, to }),
   releaseEmpty: T.releaseEmpty,
+  releaseMovesTimes: (code: string, presale: boolean, general: boolean) =>
+    fill(T.releaseMovesTimes, { code, times: presale && general ? T.releaseTimesBoth : presale ? T.releaseTimesPresale : T.releaseTimesGeneral }),
   releaseDone: (release: string, change: string) => fill(T.releaseDone, { release, change }),
   releaseCount: (n: number) => fill(T.releaseCount, { n }),
   releaseFailed: T.releaseFailed,

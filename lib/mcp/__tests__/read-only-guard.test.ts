@@ -227,6 +227,9 @@ const EXTERNAL_READERS: Record<string, readonly string[]> = {
   "lib/render-templates/server-deps.ts": ["startDeps"],
   // M3d-a: the Releases card's ladder reckoning and its words (pure), as the card runs it.
   "lib/releases/types.ts": ["RELEASE_STATES", "stateIndex"],
+  // set_release's check before the save (Matas, 26 Nov): the route's own pure steps.
+  "lib/releases/entry.ts": ["applyCount", "applyState"],
+  "lib/releases/dates.ts": ["deriveSaleDates"],
   "lib/releases/ladder.ts": ["completeLadder"],
   "lib/releases/derived.ts": ["nextReleaseListAt"],
   "lib/releases/visibility.ts": ["isBackfilled"],

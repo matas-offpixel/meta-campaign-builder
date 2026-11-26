@@ -519,3 +519,37 @@ test("set_release: the route's own ask and a failed save come back plain", async
   const f = await refused(setReleaseTool.run(ctxFor({ shows: bad.shows }).ctx, { event: "AS27-LDN", release: "Tier 1", state: "selling_fast" }));
   assert.equal(f.message, SHOWS_WORDS.releaseFailed);
 });
+
+test("set_release refuses a change that would move the presale or general sale time (Matas, 26 Nov): nothing is saved, update_event is named", async () => {
+  // The card's save re-derives both times from the releases. Here the first release's community time and
+  // the General sale release's list time aren't the event's stored ones, so saving would move both.
+  const rows = () => [
+    release({ id: "r1", name: "Tier 1", position: 1, communityAt: "2026-12-01T18:00:00Z" }),
+    release({ id: "r2", name: "General sale", position: 2, listAt: "2026-12-05T10:00:00Z", state: "not_yet" }),
+  ];
+  const spy = showsSpy({ releases: rows() });
+  const { ctx, db } = ctxFor({ shows: spy.shows });
+  const e = await refused(setReleaseTool.run(ctx, { event: "AS27-LDN", release: "Tier 1", state: "selling_fast" }));
+  assert.equal(e.message, SHOWS_WORDS.releaseMovesTimes("AS27-LDN", true, true));
+  assert.equal(e.message, "Refused: this would move AS27-LDN’s presale and general sale times, and sale times move only through update_event, with Matas’s yes. Nothing was changed.");
+  assert.equal((e.summary as Row).refused, "moves_sale_times");
+  assert.deepEqual(spy.calls.map((c) => c.fn), ["loadReleases"], "nothing posted");
+  assert.deepEqual(db.writes, []);
+
+  // Only one of the two moving names that one; a count alone is checked the same way.
+  const t = tables();
+  (t.events as Row[]).find((r) => r.id === EV)!.presale_at = "2026-12-01T18:00:00.000Z";
+  const one = showsSpy({ releases: rows() });
+  const e2 = await refused(setReleaseTool.run(ctxFor({ shows: one.shows, t }).ctx, { event: "AS27-LDN", release: "Tier 1", count: 40 }));
+  assert.equal(e2.message, SHOWS_WORDS.releaseMovesTimes("AS27-LDN", false, true));
+  assert.match(e2.message, /move AS27-LDN’s general sale time,/);
+  assert.match(e2.message, /update_event/);
+  assert.match(e2.message, /Nothing was changed\.$/);
+
+  // Both already the event's (the same instants, written differently): the save goes ahead.
+  const same = tables();
+  Object.assign((same.events as Row[]).find((r) => r.id === EV)!, { presale_at: "2026-12-01T18:00:00+00:00", general_sale_at: "2026-12-05T10:00:00.000Z" });
+  const ok = showsSpy({ releases: rows() });
+  await setReleaseTool.run(ctxFor({ shows: ok.shows, t: same }).ctx, { event: "AS27-LDN", release: "Tier 1", state: "selling_fast" });
+  assert.deepEqual(ok.calls.map((c) => c.fn), ["loadReleases", "postRelease", "loadReleases"]);
+});

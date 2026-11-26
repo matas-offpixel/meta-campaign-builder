@@ -43,6 +43,8 @@ import { normaliseLink } from "../meta/event-write.ts";
 import { normalizeAdAccountId } from "../../meta/ad-account.ts";
 import { ARCHIVED } from "../../db/client-status.ts";
 import { RELEASE_STATES, stateIndex, type ReleaseState } from "../../releases/types.ts";
+import { applyCount, applyState } from "../../releases/entry.ts";
+import { deriveSaleDates } from "../../releases/dates.ts";
 import { ToolInputError, type McpShowsDeps, type McpTool, type ToolContext } from "../tool-types.ts";
 import { claimsView, stateLabel } from "../shows/claims.ts";
 import { SHOWS_ROWS, SHOWS_WORDS, SHOW_THINGS } from "../shows/words.ts";
@@ -515,6 +517,38 @@ export const getReleasesTool: McpTool = {
   },
 };
 
+type ReleasesRows = NonNullable<Awaited<ReturnType<McpShowsDeps["loadReleases"]>>>["releases"];
+
+const sameInstant = (a: string | null, b: string | null) => (a == null || b == null ? a == b : Date.parse(a) === Date.parse(b));
+
+/**
+ * Would the card's save move the event's presale or general sale time? The
+ * route's own steps, pure: applyState (when a state is given), applyCount
+ * (when a count is), then deriveSaleDates over every release, against what
+ * the event holds now.
+ */
+async function saleTimesMoved(
+  ctx: ToolContext,
+  eventId: string,
+  releases: ReleasesRows,
+  releaseId: string,
+  change: { state: ReleaseState | null; count: number | null; confirmed: boolean; userId: string; now: Date },
+) {
+  const res = await ctx.db.from("events").select("presale_at, general_sale_at").eq("id", eventId).maybeSingle();
+  if (res.error) throw new Error(`events: ${res.error.message}`);
+  const row = (res.data ?? {}) as { presale_at?: string | null; general_sale_at?: string | null };
+  const now = { presaleAt: row.presale_at ?? null, generalSaleAt: row.general_sale_at ?? null };
+  const current = releases.find((r) => r.id === releaseId)!;
+  let next = current;
+  if (change.state) {
+    const remembered = releases.find((r) => r.stateSource)?.stateSource ?? "entry";
+    next = applyState(current, change.state, { at: change.now.toISOString(), source: remembered, user: change.userId, confirmed: true }).release;
+  }
+  if (change.count != null) next = applyCount(next, change.count).release;
+  const after = deriveSaleDates(releases.map((r) => (r.id === next.id ? next : r)));
+  return { now, after, presale: !sameInstant(now.presaleAt, after.presaleAt), general: !sameInstant(now.generalSaleAt, after.generalSaleAt) };
+}
+
 export const setReleaseTool: McpTool = {
   name: "set_release",
   title: "Set a release's state or count",
@@ -523,7 +557,7 @@ export const setReleaseTool: McpTool = {
   idempotent: true,
   failedText: SHOWS_WORDS.releaseFailed,
   description: [
-    "Sets one ticket release's state (not_yet, on_sale, selling_fast, final_x, sold_out), its sold count, or both, as a tap on the Releases card does; the presale and general sale times follow, as they do in the app.",
+    "Sets one ticket release's state (not_yet, on_sale, selling_fast, final_x, sold_out), its sold count, or both, as a tap on the Releases card does. A change that would move the event's presale or general sale time is refused: those move only through update_event, with Matas's yes.",
     "A step back (sold_out to on_sale) asks once, as the card does: ask Matas, then send it again with confirmed: true. Returns the claims the ladder gives after the change, with when they were read.",
     'Example: set_release({ event: "P26-BDAY", release: "Tier 2", state: "selling_fast" }).',
   ].join(" "),
@@ -553,6 +587,21 @@ export const setReleaseTool: McpTool = {
     // The card's rule (applyState): a step back asks once. Checked here too so nothing is sent.
     if (state && stateIndex(state) < stateIndex(release.state) && !confirmed) {
       throw new ToolInputError(SHOWS_WORDS.releaseBackwards(release.name, stateLabel(release.state), stateLabel(state)), { code: event.code, releaseId: release.id, refused: "backwards" });
+    }
+
+    // Matas, 26 Nov: set_release never moves the event's times. The card's save
+    // re-derives presale_at and general_sale_at from the releases (deriveSaleDates);
+    // the same pure steps run here first, and a change that would move either is
+    // refused before anything is saved. Times move only through update_event.
+    const moved = await saleTimesMoved(ctx, event.id, before.data.releases, release.id, { state, count, confirmed, userId: ctx.userId, now: ctx.now });
+    if (moved.presale || moved.general) {
+      throw new ToolInputError(SHOWS_WORDS.releaseMovesTimes(event.code, moved.presale, moved.general), {
+        code: event.code,
+        releaseId: release.id,
+        refused: "moves_sale_times",
+        presale: moved.presale ? { now: moved.now.presaleAt, after: moved.after.presaleAt } : null,
+        general: moved.general ? { now: moved.now.generalSaleAt, after: moved.after.generalSaleAt } : null,
+      });
     }
 
     let res: { status: number; body: Record<string, unknown> };
