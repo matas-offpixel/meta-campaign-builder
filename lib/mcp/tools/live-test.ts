@@ -97,7 +97,7 @@ export const createSplitTestTool: McpTool = {
       },
       eventId: event.id,
       clientId: event.clientId,
-      summary: { ...base, key, studyId, businessId },
+      summary: { ...base, aName: pa.name, bName: pb.name, key, studyId, businessId },
     };
   },
 };

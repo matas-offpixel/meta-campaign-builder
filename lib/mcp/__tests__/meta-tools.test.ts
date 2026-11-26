@@ -96,15 +96,16 @@ test("launch_draft paused: the stored files go first (no drop), then the launch 
   assert.equal(out.data.adsManager, "https://adsmanager.facebook.com/adsmanager/manage/campaigns?act=606252931141334&selected_campaign_ids=120200000000000001");
   assert.equal(out.summary.metaCampaignId, "120200000000000001");
   assert.equal(out.data.ceiling, undefined, "a paused launch reads no ceiling");
-  // FC2: "Done: {result}." The undo note goes only where an Undo exists, and Today's Undo ships in M3b:
-  // with TODAY_UNDO_SHIPPED off (as M3a ships) a paused launch has no undo note.
-  assert.equal(TODAY_UNDO_SHIPPED, false, "M3b turns this on with Today's Undo");
+  // FC2: "Done: {result}." The undo note goes only where an Undo exists: Today's Undo is on (MB4),
+  // and a paused launch has one (it deletes the paused campaign Claude made).
+  assert.equal(TODAY_UNDO_SHIPPED, true, "M3b on Today turned this on");
   assert.equal(
     out.data.message,
     [
       "Done: 1 campaign launched · 120200000000000001.",
       "It’s paused: nothing spends until it’s switched on.",
       "Ads Manager: https://adsmanager.facebook.com/adsmanager/manage/campaigns?act=606252931141334&selected_campaign_ids=120200000000000001",
+      "Matas can undo this on Today.",
     ].join("\n"),
   );
   // FC4's second step: the sent videos waited for before the launch.
@@ -160,7 +161,7 @@ test("launch_draft live: refused with no show ceiling and when it would cross th
       run(launchDraftTool, ctx, { draft_id: D_DRAFT, mode: "live", approval: YES }),
       /^Refused: this would take NX27-GLITTERBOX to £1,350\.00 committed, over its £1,000\.00 ceiling \(set for this show\)\. Committed is £0\.00 spent \(none yet\), plus £0\.00 left on live lifetime budgets and £1,350\.00 in live daily budgets to their end or the show, read from Meta now\. This change adds £1,350\.00\. Nothing was sent to Meta\.$/,
     );
-    assert.deepEqual([e.summary?.refused, e.summary?.after, e.summary?.ceilingGbp, e.summary?.delta], ["over_ceiling", 1350, 1000, 1350]);
+    assert.deepEqual([e.summary?.refused, e.summary?.committedAfter, e.summary?.ceilingGbp, e.summary?.delta], ["over_ceiling", 1350, 1000, 1350]);
     assert.deepEqual([spy.uploads.length, spy.launches.length], [0, 0]);
   }
   {

@@ -33,8 +33,10 @@ import type { AdCreativeDraft, CampaignDraft, CTAType } from "../../types.ts";
 import { approvalInput, requireMetaApproval } from "../meta/approval.ts";
 import { LAUNCH_WORDS, MCP_WORDS, RESULT_WORDS } from "../meta/words.ts";
 import { loadTemplatesFor } from "../drafts/templates.ts";
-import { callKey, checkLiveCeiling, errorReason, keyUuid, liveEvent, moneyADay, requireLive, round2, type LiveEvent } from "../live/resolve.ts";
+import { callKey, checkLiveCeiling, errorReason, keyUuid, liveEvent, moneyADay, requireLive, round2, withBase, type LiveEvent } from "../live/resolve.ts";
+import { undoOnToday } from "../meta/today-undo.ts";
 import { advantageAudience } from "../live/strict.ts";
+import { checkTargeting, type TargetingReadBack } from "../live/targeting-check.ts";
 import { LIVE_THINGS, LIVE_WORDS, STAGE_ARG, countAdSets, countAds } from "../live/words.ts";
 import { ToolInputError, type McpTool, type ToolContext } from "../tool-types.ts";
 import { buildDriveAds, ownedEvent } from "./draft-drive.ts";
@@ -63,6 +65,26 @@ export function stageSelection(event: LiveEvent, stage: TreeStage, adSetIds: str
   const chosen = campaigns.filter((c) => selection[c.metaCampaignId]);
   return { campaigns: chosen, selection, account: stageAccount(chosen) };
 }
+
+/**
+ * Matas's 26 Nov plan, item 2: read back the ad sets a stage add reached and
+ * report the ones that don't keep the rules (location expansion off;
+ * retargeting strict). Nothing here writes: a stage add never makes an ad
+ * set or changes the targeting of one. A read that fails leaves the write as
+ * it is and reports nothing.
+ */
+async function readBack(ctx: ToolContext, live: NonNullable<ToolContext["live"]>, adSetIds: readonly string[], campaigns: readonly TreeCampaign[], selection: Record<string, string[]>): Promise<TargetingReadBack> {
+  const ids = [...new Set(adSetIds)];
+  const campaignNameOf = (id: string) => campaigns.find((c) => (selection[c.metaCampaignId] ?? []).includes(id))?.name ?? null;
+  try {
+    const read = await live.readObjects(ctx.userId, "adset", ids);
+    return checkTargeting(ids.map((id) => read.objects.get(id)).filter((o): o is NonNullable<typeof o> => Boolean(o)), campaignNameOf);
+  } catch {
+    return { read: 0, locationOn: [], locationUnset: [], retargetingSuggestions: [], lines: [], unread: true };
+  }
+}
+
+const checkSummary = (c: TargetingReadBack) => ({ read: c.read, locationOn: c.locationOn, locationUnset: c.locationUnset.length, retargetingSuggestions: c.retargetingSuggestions, ...(c.unread ? { unread: true } : {}) });
 
 async function eventDrafts(ctx: ToolContext, eventId: string): Promise<CampaignDraft[]> {
   const res = await ctx.db.from("campaign_drafts").select("id, draft_json").eq("event_id", eventId).eq("user_id", ctx.userId);
@@ -120,7 +142,7 @@ export const addCreativesToStageTool: McpTool = {
     const adSetCount = Object.values(selection).reduce((n, s) => n + s.length, 0);
     const adCount = (draftCreativeIds.length + fileIds.length + pairs.length) * adSetCount;
     if (campaigns.length > BULK_ATTACH_CAP || adCount > TOTAL_ADS_CAP) throw new ToolInputError(LIVE_WORDS.tooManyAds(adCount, campaigns.length), { refused: "over_caps", ads: adCount, campaigns: campaigns.length });
-    const base = { code: event.code, stage, campaigns: campaigns.map((c) => c.metaCampaignId), adSets: adSetCount, live: goLive };
+    const base = { code: event.code, stage, campaigns: campaigns.map((c) => c.metaCampaignId), adSets: adSetCount, adsPlanned: adCount, live: goLive, ledgerDraftId: campaigns[0]?.draftId ?? null };
 
     // Live ads start spend: the show's ceiling against its committed spend, before any file moves.
     // The ad sets' money a day is what the done message says ("up to £x a day").
@@ -141,7 +163,7 @@ export const addCreativesToStageTool: McpTool = {
         throw new ToolInputError(LIVE_WORDS.readFailed, { ...base, refused: "meta_unread" });
       }
       moneyGbp = round2(money);
-      ceiling = await checkLiveCeiling(ctx, live, { event, accountId: account, name: event.code, change: { starts: true } });
+      ceiling = await withBase(base, () => checkLiveCeiling(ctx, live, { event, accountId: account, name: event.code, change: { starts: true } }));
     }
 
     // The ads.
@@ -213,16 +235,19 @@ export const addCreativesToStageTool: McpTool = {
     }
     const result = RESULT_WORDS.added(LIVE_THINGS.ad, adIds);
     const partial = Number(res.body.totalAdsFailed ?? 0) > 0 || missed.length > 0;
+    const check = await readBack(ctx, live, [...reached], campaigns, selection);
     return {
       data: {
-        message: partial ? LIVE_WORDS.failed(result) : MCP_WORDS.done(result),
+        // FC2: paused ads Claude made have an Undo (delete), so "Matas can undo this on Today." follows Done.
+        message: partial ? LIVE_WORDS.failed(result) : [MCP_WORDS.done(result), ...(!goLive && undoOnToday(ctx) ? [MCP_WORDS.undoNote] : [])].join("\n"),
         change: LIVE_WORDS.changeAddCreatives(stageLabel(stage), countAds(adIds.length), countAdSets(reached.size)),
         mode: goLive ? LAUNCH_WORDS.live(moneyGbp) : LAUNCH_WORDS.paused,
         ...(missed.length ? { notAdded: LIVE_WORDS.notAdded(countAdSets(missed.length), missed.join(", ")) } : {}),
+        ...(check.lines.length ? { checks: check.lines } : {}),
       },
       eventId: event.id,
       clientId: event.clientId,
-      summary: { ...base, key, adIds, adSetsReached: [...reached], missed, ...(ceiling ? { ceiling, moneyGbp } : {}), ...(goLive ? {} : { undo: { tool: "delete_paused", adIds } }) },
+      summary: { ...base, key, adIds, adSetsReached: [...reached], missed, targetingCheck: checkSummary(check), ...(ceiling ? { ceiling, moneyGbp } : {}), ...(goLive ? {} : { undo: { tool: "delete_paused", adIds } }) },
     };
   },
 };
@@ -316,13 +341,18 @@ export const addAudienceToStageTool: McpTool = {
     }
     if (written.size === 0) throw new ToolInputError(LIVE_WORDS.metaFailed, { ...base, refused: "none_written", failedCalls });
 
-    // Advantage+ ad sets take them as suggestions (the write keeps targeting_automation).
+    // Advantage+ ad sets take them as suggestions (the write keeps targeting_automation). One read
+    // back gives that and the plan's item-2 check (location expansion off, retargeting strict).
     let advantage = 0;
+    let check: TargetingReadBack;
     try {
       const read = await live.readObjects(ctx.userId, "adset", [...written]);
       for (const o of read.objects.values()) if (advantageAudience(o.targeting) === 1) advantage += 1;
+      const campaignNameOf = (id: string) => campaigns.find((c) => (selection[c.metaCampaignId] ?? []).includes(id))?.name ?? null;
+      check = checkTargeting([...read.objects.values()], campaignNameOf);
     } catch {
       advantage = 0;
+      check = { read: 0, locationOn: [], locationUnset: [], retargetingSuggestions: [], lines: [], unread: true };
     }
     const audienceNames = wanted.map((id) => names.get(id) ?? id).join(" · ");
     const result = RESULT_WORDS.changed(LIVE_THINGS.adset, [...written]);
@@ -332,10 +362,11 @@ export const addAudienceToStageTool: McpTool = {
         change: LIVE_WORDS.changeAddAudiences(stageLabel(stage), audienceNames, countAdSets(written.size)),
         ...(advantage ? { note: LIVE_WORDS.suggestions } : {}),
         ...(skipped.length ? { notAdded: skipped } : {}),
+        ...(check.lines.length ? { checks: check.lines } : {}),
       },
       eventId: event.id,
       clientId: event.clientId,
-      summary: { ...base, key, audiences: wanted, written: [...written], advantageAdSets: advantage, skipped: skipped.length, failedCalls },
+      summary: { ...base, key, audiences: wanted, audienceNames, written: [...written], advantageAdSets: advantage, skipped: skipped.length, failedCalls, targetingCheck: checkSummary(check) },
     };
   },
 };

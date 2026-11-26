@@ -163,7 +163,7 @@ test("a launch that would cross the ceiling is refused; under it, it's checked a
   {
     const { check } = setup({ ceiling: 1800 });
     const e = await refused(check({ starts: true, added: [line] }), /to £1,875\.00 committed, over its £1,800\.00 ceiling \(set for this show\)\. .* This change adds £250\.00\./);
-    assert.deepEqual([e.summary?.before, e.summary?.after, e.summary?.delta], [BASE_COMMITTED, 1875, 250]);
+    assert.deepEqual([e.summary?.committedBefore, e.summary?.committedAfter, e.summary?.delta], [BASE_COMMITTED, 1875, 250]);
   }
   {
     const { check } = setup({ ceiling: 1875 });

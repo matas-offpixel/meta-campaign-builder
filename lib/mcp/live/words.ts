@@ -200,6 +200,17 @@ const T = {
   templateEmpty: pending("claude.mcp.live.refused.template_empty", "Told to Claude, a template with no audience made in this account", "Refused: none of {template}’s audiences are made in this ad account yet. Nothing was sent to Meta."),
   suggestions: pending("claude.mcp.live.audience.suggestions", "Told to Claude after adding audiences, when an ad set runs Advantage+", "On the Advantage+ ad sets the audiences go in as suggestions; Advantage+ stays on."),
   audienceSkipped: pending("claude.mcp.live.audience.skipped", "Told to Claude, ad sets an audience didn't reach", "{audience} didn’t go into {adsets}."),
+  // Matas's 26 Nov plan, item 2: the stage adds read the ad sets back (targeting-check.ts). The first is his own wording.
+  locationOn: pending(
+    "claude.mcp.live.check.location_on",
+    "Told to Claude after a stage add, per ad set whose location expansion (targeting_automation.individual_setting.geo) is on",
+    "Untick 'Reach more people likely to respond to your ads' in Ads Manager for {adset}.",
+  ),
+  retargetingSuggestions: pending(
+    "claude.mcp.live.check.retargeting_suggestions",
+    "Told to Claude after a stage add, per retargeting ad set with Advantage+ audience on (advantage_audience 1)",
+    "Turn off 'Use as a suggestion' in Ads Manager for {adset}: a retargeting ad set keeps to its own audience.",
+  ),
   // Split test.
   testTwo: pending("claude.mcp.live.refused.test_two", "Told to Claude, create_split_test without two different campaigns", "Refused: a test takes two different campaigns. Nothing was sent to Meta."),
   testAccounts: pending("claude.mcp.live.refused.test_accounts", "Told to Claude, campaigns on different ad accounts", "Refused: {a} and {b} are on different ad accounts, and a test needs both on one. Nothing was sent to Meta."),
@@ -285,6 +296,8 @@ export const LIVE_WORDS = {
   templateEmpty: (template: string) => fill(T.templateEmpty, { template }),
   suggestions: T.suggestions,
   audienceSkipped: (audience: string, adsets: string) => fill(T.audienceSkipped, { audience, adsets }),
+  locationOn: (adset: string) => fill(T.locationOn, { adset }),
+  retargetingSuggestions: (adset: string) => fill(T.retargetingSuggestions, { adset }),
   testTwo: T.testTwo,
   testAccounts: (a: string, b: string) => fill(T.testAccounts, { a, b }),
   testInStudy: (name: string, study: string) => fill(T.testInStudy, { name, study }),

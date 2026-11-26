@@ -548,7 +548,7 @@ export async function checkShowCeiling(input: {
     if (after > c.totalGbp) {
       throw new ToolInputError(
         CEILING_WORDS.over({ show: code, after, ceiling: c.totalGbp, source: c.source, spent: committed.spent, through: throughWords(part.through), lifetime: committed.lifetime, daily: committed.daily, delta }),
-        { ...base, refused: "over_ceiling", ceilingGbp: c.totalGbp, source: c.source, before, after, delta, committed },
+        { ...base, refused: "over_ceiling", ceilingGbp: c.totalGbp, source: c.source, committedBefore: before, committedAfter: after, delta, committed },
       );
     }
     if (!tightest || c.totalGbp - after < (tightest.ceilingGbp ?? 0) - (tightest.after ?? 0)) {

@@ -21,7 +21,7 @@ export default function TodayPage() {
           <Suspense fallback={null}>
             <ClaimToday />
           </Suspense>
-          {/* M4a (RY2): render packages Claude ran today, in FC1's log. */}
+          {/* FC1: Claude's changes today: render packages (RY2) and Meta changes with Undo, scheduled budget changes with Cancel (MB1–MB3). */}
           <Suspense fallback={null}>
             <ClaudeRenderLog />
           </Suspense>

@@ -89,7 +89,8 @@ export interface McpLiveDeps {
   readInsights(userId: string, ids: string[]): Promise<{ insights: Map<string, LiveInsight>; metaGets: number }>;
   /** GET /act_{id}?fields=currency,timezone_name,business. */
   accountInfo(userId: string, accountId: string): Promise<{ currency: string | null; timezone: string | null; businessId: string | null }>;
-  setStatus(input: { userId: string; kind: LiveKind; id: string; status: "PAUSED" | "ACTIVE"; ledger: LedgerRef; key: string }): Promise<void>;
+  /** DELETED is Today's Undo of paused objects Claude made (lib/mcp/today/undo.ts), through the same writes and switches. */
+  setStatus(input: { userId: string; kind: LiveKind; id: string; status: "PAUSED" | "ACTIVE" | "DELETED"; ledger: LedgerRef; key: string }): Promise<void>;
   setBudget(input: {
     userId: string;
     kind: "campaign" | "adset";
