@@ -222,7 +222,21 @@ export function splitTotal(totalMinor: number, split: Record<FunnelTier, number>
 // ─── RF4: where the money comes from ────────────────────────────────────────
 
 /** One prospecting budget: an ad set's daily budget, or a campaign's (which feeds `adSets` ad sets). */
-export type ProspectingBudget = { id: string; kind: "adset" | "campaign"; name: string; dailyMinor: number; adSets: number; campaignId?: string | null };
+export type ProspectingBudget = {
+  id: string;
+  kind: "adset" | "campaign";
+  name: string;
+  /** Its money a day: a daily budget, or a lifetime budget's remaining ÷ the days to its end (fix 5, 27 Nov). */
+  dailyMinor: number;
+  adSets: number;
+  campaignId?: string | null;
+  /** A lifetime budget (Meta's budget_remaining is what's left); absent or false = daily. */
+  lifetime?: boolean;
+  /** What it has left to spend: a lifetime budget's budget_remaining, a daily budget × the days to its end. */
+  remainingMinor?: number | null;
+  /** Its end (the ad set's end_time, the campaign's stop_time), as a London day; null = runs to show day. */
+  endDay?: string | null;
+};
 
 export type TakeLine = { id: string; kind: "adset" | "campaign"; name: string; beforeMinor: number; afterMinor: number; campaignId?: string | null };
 

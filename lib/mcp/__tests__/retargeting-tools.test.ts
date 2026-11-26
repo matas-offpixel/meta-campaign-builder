@@ -225,15 +225,15 @@ test("create_show_campaigns: a tier Meta still has location expansion on for get
   ]);
 });
 
-test("plan_retargeting: each existing prospecting campaign as keep, pause or fold into Wider (TC8)", async () => {
+test("plan_retargeting: each existing prospecting campaign is paused when Wider goes live (fix 4, Matas 27 Nov)", async () => {
   const campaigns = [
     { id: "1", name: "NX26-RUDIMENTAL · Prospecting", adSetNames: ["Broad · Advantage+"], delivering: true },
     { id: "2", name: "NX26-RUDIMENTAL · Lineup", adSetNames: ["Lineup · interests"], delivering: true },
   ];
   const { ctx } = ctxWith([record({ campaigns })]);
   const lines = String(((await run(planRetargetingTool, ctx, { events: "NX26-RUDIMENTAL" })).data as { message: string }).message).split("\n");
-  assert.ok(lines.includes("Existing prospecting: NX26-RUDIMENTAL · Prospecting · fold into Wider, once Matas says yes."));
-  assert.ok(lines.includes("Existing prospecting: NX26-RUDIMENTAL · Lineup · pause, once Matas says yes."));
+  assert.ok(lines.includes("Existing prospecting: NX26-RUDIMENTAL · Prospecting · pause when Wider goes live, its remaining budget to Wider, once Matas says yes."));
+  assert.ok(lines.includes("Existing prospecting: NX26-RUDIMENTAL · Lineup · pause when Wider goes live, its remaining budget to Wider, once Matas says yes."));
 });
 
 const FOLD = [
@@ -246,7 +246,7 @@ test("two campaigns: the plan names the fold; a live create waits until the pros
   const plan = ctxWith([record(twoInput)]);
   const message = String(((await run(planRetargetingTool, plan.ctx, { events: "NX26-RUDIMENTAL" })).data as { message: string }).message);
   assert.match(message, /^NX26-RUDIMENTAL · final month · 35 %: Wider £663\.00 lifetime \(£39\.00 a day\)/);
-  assert.match(message, /\nExisting prospecting: NX26-RUDIMENTAL · Prospecting · fold into Wider, once Matas says yes\./);
+  assert.match(message, /\nExisting prospecting: NX26-RUDIMENTAL · Prospecting · pause when Wider goes live, its remaining budget to Wider, once Matas says yes\./);
   assert.match(message, /\nExisting prospecting: NX26-RUDIMENTAL · Tests · keep\./);
 
   const running = ctxWith([record(twoInput)], { statuses: { 4101: "ACTIVE" } });

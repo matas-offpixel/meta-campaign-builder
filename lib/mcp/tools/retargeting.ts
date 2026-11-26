@@ -65,11 +65,14 @@ export function recordSkip(record: RetargetingRecord): SkipReason | null {
     built: record.plan.state === "running",
     runDay: input.runDay,
     showDay: input.eventDate,
-    pixelId: input.read?.pixel?.id ?? null,
+    // Fix 7: the pixel the funnel uses, the ads' or the fallback.
+    pixelId: input.sources.pixelId ?? input.read?.pixel?.id ?? input.fallbackPixel?.id ?? null,
     hasTicketLink: input.sources.links.some((link) => link.kind === "ticket"),
     hasSignupLink: input.sources.links.some((link) => link.kind === "landing"),
     presale: isPresale(input),
     plan: record.plan.funnel ?? null,
+    // Fix 6: a show the read didn't propose says why, never "no prospecting budget" by default.
+    state: record.plan.state,
   });
 }
 

@@ -47,6 +47,9 @@ import { fill as fillRf } from "./funnel-words.ts";
 import type { CampaignInput } from "../onsale-refresh/rules.ts";
 import { loadPageGroup } from "./page-groups.ts";
 import { SHOW_CAMPAIGNS_RULED } from "./show-campaigns.ts";
+import { newShowPagesCache, readShowPages } from "./show-pages.ts";
+import { resolveShowCeiling, spentToDate } from "../mcp/meta/show-ceiling.ts";
+import { businessClientLinks } from "../bm/client-links.ts";
 
 type Db = Pick<SupabaseClient, "from">;
 
@@ -95,8 +98,8 @@ export async function pagesWithRole(graph: RefreshGraph | null): Promise<{ roles
 
 type SourceRows = {
   clients: { id: string; name: string | null; default_page_ids: string[] | null; default_instagram_actor_id: string | null }[];
-  events: { id: string; venue_id: string | null; mailchimp_tag?: string | null; announcement_at?: string | null; genre_family?: string | null }[];
-  venues: { id: string; name: string | null; meta_page_id: string | null; meta_page_name: string | null }[];
+  events: { id: string; venue_id: string | null; mailchimp_tag?: string | null; announcement_at?: string | null; genre_family?: string | null; meta_pixel_id?: string | null; meta_ad_account_id?: string | null }[];
+  venues: { id: string; name: string | null; meta_page_id: string | null; meta_page_name: string | null; meta_pixel_id?: string | null }[];
   lineup: { event_id: string; artist_id: string; billing_order: number | null }[];
   artists: { id: string; name: string | null; meta_page_id: string | null; meta_page_name: string | null }[];
   lists: { event_id: string | null; name: string; list_role: string | null; meta_audience_id: string | null; status: string; source_meta: { uploadedAt?: string } | null; updated_at: string }[];
@@ -107,35 +110,35 @@ export async function loadSourceRows(db: Db, eventIds: readonly string[], client
   if (!eventIds.length) return { clients: [], events: [], venues: [], lineup: [], artists: [], lists: [] };
   const [clients, events, lineup, lists] = await Promise.all([
     loadAll<SourceRows["clients"][number]>(db, "clients", "id, name, default_page_ids, default_instagram_actor_id", ["id"], (q) => q.in("id", clientIds)),
-    loadAll<SourceRows["events"][number]>(db, "events", "id, venue_id, mailchimp_tag, announcement_at, genre_family", ["id"], (q) => q.in("id", eventIds)),
+    loadAll<SourceRows["events"][number]>(db, "events", "id, venue_id, mailchimp_tag, announcement_at, genre_family, meta_pixel_id, meta_ad_account_id", ["id"], (q) => q.in("id", eventIds)),
     loadAll<SourceRows["lineup"][number] & { id: string }>(db, "event_artists", "id, event_id, artist_id, billing_order", ["id"], (q) => q.in("event_id", eventIds)).catch(() => []),
     loadAll<SourceRows["lists"][number] & { id: string }>(db, "meta_custom_audiences", "id, event_id, name, list_role, meta_audience_id, status, source_meta, updated_at", ["id"], (q) => q.in("event_id", eventIds).eq("audience_subtype", "customer_list")).catch(() => []),
   ]);
   const venueIds = [...new Set(events.map((row) => row.venue_id).filter((id): id is string => Boolean(id)))];
   const artistIds = [...new Set(lineup.map((row) => row.artist_id))];
   const [venues, artists] = await Promise.all([
-    venueIds.length ? loadAll<SourceRows["venues"][number]>(db, "venues", "id, name, meta_page_id, meta_page_name", ["id"], (q) => q.in("id", venueIds)).catch(() => []) : Promise.resolve([]),
+    venueIds.length ? loadAll<SourceRows["venues"][number]>(db, "venues", "id, name, meta_page_id, meta_page_name, meta_pixel_id", ["id"], (q) => q.in("id", venueIds)).catch(() => []) : Promise.resolve([]),
     artistIds.length ? loadAll<SourceRows["artists"][number]>(db, "artists", "id, name, meta_page_id, meta_page_name", ["id"], (q) => q.in("id", artistIds)).catch(() => []) : Promise.resolve([]),
   ]);
   return { clients, events, venues, lineup, artists, lists };
 }
 
 /** RT2's source set for one show: one set feeds every window. */
-export function sourceSetFor(args: { event: EventRow; rows: SourceRows; pixelId: string | null; roles: Map<string, string | null> | null; hasVideo: boolean; links?: ShowLink[] }): SourceSet {
+export function sourceSetFor(args: { event: EventRow; rows: SourceRows; pixelId: string | null; roles: Map<string, string | null> | null; hasVideo: boolean; links?: ShowLink[]; /** Fix 1: the Pages matched as audience_sources matches them (show-pages.ts), in place of the client's default Pages and artists.meta_page_id. */ pages?: SourcePage[] | null }): SourceSet {
   const { event, rows } = args;
-  const pages: SourcePage[] = [];
+  const pages: SourcePage[] = args.pages ? [...args.pages] : [];
   const add = (id: string | null | undefined, name: string, kind: SourcePage["kind"], igId: string | null = null) => {
     if (!id) return;
     const role = args.roles ? args.roles.has(id) : null;
     pages.push({ id, name, igId: igId ?? (args.roles?.get(id) ?? null), kind, hasRole: role });
   };
   const client = rows.clients.find((row) => row.id === event.client_id);
-  (client?.default_page_ids ?? []).forEach((id, index) => add(id, client?.name ?? "Promoter page", "promoter", index === 0 ? (client?.default_instagram_actor_id ?? null) : null));
+  if (!args.pages) (client?.default_page_ids ?? []).forEach((id, index) => add(id, client?.name ?? "Promoter page", "promoter", index === 0 ? (client?.default_instagram_actor_id ?? null) : null));
   const venueId = rows.events.find((row) => row.id === event.id)?.venue_id ?? null;
   const venue = rows.venues.find((row) => row.id === venueId);
-  if (venue) add(venue.meta_page_id, venue.meta_page_name ?? venue.name ?? "Venue page", "venue");
+  if (venue && !args.pages) add(venue.meta_page_id, venue.meta_page_name ?? venue.name ?? "Venue page", "venue");
   const acts = rows.lineup.filter((row) => row.event_id === event.id).sort((a, b) => (a.billing_order ?? 0) - (b.billing_order ?? 0));
-  for (const act of acts) {
+  for (const act of args.pages ? [] : acts) {
     const artist = rows.artists.find((row) => row.id === act.artist_id);
     if (artist) add(artist.meta_page_id, artist.meta_page_name ?? artist.name ?? "Lineup page", "lineup");
   }
@@ -200,6 +203,124 @@ export function similarStepDue(args: { dryRun: boolean; ruled: boolean; row: Fun
   if (args.dryRun || !args.ruled || !row || row.state !== "live" || !row.progress?.active || row.progress.adSets?.similar) return false;
   if (!args.pageGroup?.confirmed || !row.build?.wider || !row.build.spec?.twoCampaigns) return false;
   return (row.build.plan?.steps ?? []).some((step) => step.day === args.day);
+}
+
+/** Days from one London day to another, both counted; 0 when the end is before the start. */
+function daysBetween(from: string, to: string): number {
+  return Math.max(0, Math.round((Date.parse(`${to}T12:00:00Z`) - Date.parse(`${from}T12:00:00Z`)) / 86_400_000) + 1);
+}
+
+/** A Meta time ("2026-12-12T23:59:00+0000") as its London day; null when absent or unreadable. */
+function londonDayOf(iso: unknown): string | null {
+  if (typeof iso !== "string" || !iso) return null;
+  const t = new Date(iso.replace(/([+-]\d{2})(\d{2})$/, "$1:$2"));
+  return Number.isNaN(t.getTime()) ? null : new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/London", year: "numeric", month: "2-digit", day: "2-digit" }).format(t);
+}
+
+/**
+ * Fix 5 (27 Nov): one prospecting budget as Meta holds it — a daily budget,
+ * or a lifetime budget (its budget_remaining spread over the days to its end,
+ * else to show day) — with what it has left. Null when it has no budget.
+ */
+export function budgetFromMeta(row: { daily_budget?: unknown; lifetime_budget?: unknown; budget_remaining?: unknown; end_time?: unknown; stop_time?: unknown }, args: { id: string; kind: "adset" | "campaign"; name: string; adSets: number; campaignId: string | null; today: string; showDay: string }): ProspectingBudget | null {
+  const n = (v: unknown) => (Number.isFinite(Number(v)) && Number(v) > 0 ? Math.round(Number(v)) : 0);
+  const end = londonDayOf(row.end_time ?? row.stop_time);
+  const last = end && end < args.showDay ? end : args.showDay;
+  const days = daysBetween(args.today, last);
+  if (days <= 0) return null;
+  const base = { id: args.id, kind: args.kind, name: args.name, adSets: args.adSets, campaignId: args.campaignId, endDay: end };
+  if (n(row.daily_budget)) return { ...base, dailyMinor: n(row.daily_budget), lifetime: false, remainingMinor: n(row.daily_budget) * days };
+  if (n(row.lifetime_budget)) {
+    const remaining = n(row.budget_remaining);
+    return remaining > 0 ? { ...base, dailyMinor: Math.floor(remaining / days), lifetime: true, remainingMinor: remaining } : null;
+  }
+  return null;
+}
+
+/**
+ * Fix 5 (27 Nov): the show's prospecting budgets read from Meta (GETs only):
+ * every campaign that isn't its Retargeting or Tests campaign, with an ad set
+ * that delivered in the window's last two days — its campaign budget (CBO,
+ * daily or lifetime) as one budget, else each delivering ad set's. Lifetime
+ * budgets count now (NX26-RUDIMENTAL, NX26-LOCKLEAD read "no prospecting
+ * budget" when only daily ones were summed).
+ */
+export async function readProspecting(graph: RefreshGraph, campaigns: readonly CampaignInput[], code: string, today: string, showDay: string): Promise<{ budgets: ProspectingBudget[]; calls: number }> {
+  const out: ProspectingBudget[] = [];
+  let calls = 0;
+  const live = campaigns.filter((c) => !isRetargetingCampaignName(c.campaignKey, code) && !isTestsCampaignName(c.campaignKey, code) && c.adSets.some((set) => set.delivering));
+  const campaignIds = [...new Set(live.flatMap((c) => c.campaignIds))];
+  type Row = { daily_budget?: unknown; lifetime_budget?: unknown; budget_remaining?: unknown; end_time?: unknown; stop_time?: unknown };
+  const read = async (ids: string[], fields: string) => {
+    const rows: Record<string, Row> = {};
+    for (let i = 0; i < ids.length; i += 50) {
+      calls += 1;
+      Object.assign(rows, ((await graph.multiGet("/", { ids: ids.slice(i, i + 50).join(","), fields }).catch(() => null)) ?? {}) as Record<string, Row>);
+    }
+    return rows;
+  };
+  const camps = campaignIds.length ? await read(campaignIds, "daily_budget,lifetime_budget,budget_remaining,stop_time") : {};
+  const adsetIds: string[] = [];
+  for (const campaign of live) {
+    const delivering = campaign.adSets.filter((set) => set.delivering);
+    const cboId = campaign.campaignIds.find((id) => camps[id] && (Number(camps[id]!.daily_budget) > 0 || Number(camps[id]!.lifetime_budget) > 0));
+    if (cboId) {
+      const b = budgetFromMeta(camps[cboId]!, { id: cboId, kind: "campaign", name: campaign.campaignKey, adSets: delivering.length, campaignId: cboId, today, showDay });
+      if (b) out.push(b);
+      continue;
+    }
+    adsetIds.push(...delivering.map((set) => set.adsetId));
+  }
+  const sets = adsetIds.length ? await read(adsetIds, "daily_budget,lifetime_budget,budget_remaining,end_time,campaign_id") : {};
+  for (const campaign of live) {
+    for (const set of campaign.adSets.filter((row) => row.delivering && sets[row.adsetId])) {
+      const row = sets[set.adsetId] as Row & { campaign_id?: unknown };
+      const b = budgetFromMeta(row, { id: set.adsetId, kind: "adset", name: set.name, adSets: 1, campaignId: row.campaign_id == null ? null : String(row.campaign_id), today, showDay });
+      if (b) out.push(b);
+    }
+  }
+  return { budgets: out, calls };
+}
+
+/**
+ * Fix 3 (27 Nov): the show's ceiling and what's left under it, from the
+ * per-show ceiling's own reads (resolveShowCeiling, and spentToDate over
+ * ad_daily_insights): the lowest ceiling that applies, less spend to date. A
+ * group ceiling counts this show's spend only here (the live create's check
+ * sums the group). Null when either can't be read.
+ */
+export async function showCeilingOf(db: Db, event: { id: string; code: string }, campaignIds: readonly string[]): Promise<RetargetingInput["ceiling"]> {
+  try {
+    const resolved = await resolveShowCeiling(db as never, event);
+    if (resolved.kind === "none") return { kind: "none" };
+    const totalGbp = Math.min(...resolved.ceilings.map((row) => row.totalGbp));
+    const spent = await spentToDate(db as never, [...new Set(campaignIds)]);
+    return { kind: "set", totalGbp, leftMinor: Math.round((totalGbp - spent.spent) * 100) };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Fix 7 (27 Nov): the pixel a show's funnel uses when its ads optimise on no
+ * pixel — the event's meta_pixel_id, else its venue's, else the ad account's
+ * one active pixel (GET /{account}/adspixels; one that isn't unavailable).
+ * Null with none: the show is skipped for no pixel, as before.
+ */
+export async function fallbackPixelOf(args: { event: string | null; venue: string | null; account: string | null; graph: RefreshGraph | null; cache: Map<string, string[] | null> }): Promise<{ pixel: { id: string; source: "event" | "venue" | "account" } | null; calls: number }> {
+  const ok = (v: string | null) => (v && /^\d{5,32}$/.test(v.trim()) ? v.trim() : null);
+  if (ok(args.event)) return { pixel: { id: ok(args.event)!, source: "event" }, calls: 0 };
+  if (ok(args.venue)) return { pixel: { id: ok(args.venue)!, source: "venue" }, calls: 0 };
+  if (!args.account || !args.graph) return { pixel: null, calls: 0 };
+  const account = args.account.startsWith("act_") ? args.account : `act_${args.account}`;
+  let calls = 0;
+  if (!args.cache.has(account)) {
+    calls += 1;
+    const body = (await args.graph.graphGet(`/${account}/adspixels`, { fields: "id,is_unavailable", limit: "50" }).catch(() => null)) as { data?: { id?: string; is_unavailable?: boolean }[] } | null;
+    args.cache.set(account, body ? (body.data ?? []).filter((row) => row.id && row.is_unavailable !== true).map((row) => String(row.id)) : null);
+  }
+  const active = args.cache.get(account);
+  return { pixel: active && active.length === 1 ? { id: active[0]!, source: "account" } : null, calls };
 }
 
 export type FunnelBuildRow = { event_id: string; state: string; mode: "paused" | "live" | null; meta_campaign_id: string | null; progress: FunnelProgress | null; build?: Partial<FunnelBuild> | null };
@@ -326,6 +447,14 @@ export function retargetingInput(args: {
   madeAudiences?: string[];
   /** TC9: the Pages the show matched (plan_retargeting's line). */
   matchedPages?: MatchedPages | null;
+  /** Fix 7: the pixel used when the ads optimise on none. */
+  fallbackPixel?: RetargetingInput["fallbackPixel"];
+  /** Fix 6: plan_retargeting / create_show_campaigns. */
+  connector?: boolean;
+  /** Fix 5: the prospecting budgets read from Meta (daily and lifetime); null = the purchase read's daily ones. */
+  prospectingRead?: ProspectingBudget[] | null;
+  /** Fix 3: the show's ceiling and what's left under it. */
+  ceiling?: RetargetingInput["ceiling"];
 }): RetargetingInput {
   const { event, day } = args;
   const code = event.event_code ?? event.id;
@@ -403,7 +532,10 @@ export function retargetingInput(args: {
     // Wider's suggestions: the lineup's and the genre's interests aren't read yet (staged); Broad then runs with none.
     lineupInterests: [],
     genreInterests: [],
-    prospecting: prospectingOf(campaigns, args.budgets, code),
+    prospecting: args.prospectingRead ?? prospectingOf(campaigns, args.budgets, code),
+    fallbackPixel: args.fallbackPixel ?? null,
+    connector: args.connector ?? false,
+    ceiling: args.ceiling ?? null,
     madeAudiences: args.madeAudiences ?? [],
     funnelBuilt: args.funnelBuilt ?? null,
     funnelWeek: args.funnelWeek,
@@ -552,6 +684,13 @@ export async function runRetargetingRead(input: {
    * addSimilarAtStep, the create path's gates). Absent, or a dry run = never.
    */
   similarStep?: (args: { event: EventRow; build: FunnelBuild; pageGroup: PageGroup; day: string }) => Promise<SimilarStepOutcome>;
+  /**
+   * plan_retargeting and create_show_campaigns (fix 6, 27 Nov): the purchase
+   * read decides nothing for retargeting (buyers are left out on the ticket
+   * links' Purchase rule), so its not-proposed states don't skip a show. The
+   * 08:00 read and the on-sale refresh keep their own rules (false).
+   */
+  connector?: boolean;
 }): Promise<RetargetingReadResult> {
   const dryRun = input.dryRun === true;
   if (!dryRun && !isRetargetingReadEnabled(input.env)) return { ok: true, skippedReason: "killswitch" };
@@ -621,6 +760,11 @@ export async function runRetargetingRead(input: {
     : [];
   const madeRows = await loadAll<{ id: string; event_id: string; part: string; meta_audience_id: string | null }>(input.db, "onsale_refresh_audiences", "id, event_id, part, meta_audience_id", ["id"], (q) => q.in("event_id", events.map((event) => event.id)).eq("kind", "retargeting_campaign")).catch(() => []);
   const hostsByPixel = new Map<string, PixelHosts>();
+  const accountPixels = new Map<string, string[] | null>();
+  const pagesCache = newShowPagesCache();
+  // Fix 1: each client's Business Managers (#1403's links), for the Pages' access check.
+  const businessesOf = new Map<string, string[]>();
+  if (SHOW_CAMPAIGNS_RULED) for (const link of await businessClientLinks(input.db, { clientIds }).catch(() => [])) businessesOf.set(link.client_id, [...(businessesOf.get(link.client_id) ?? []), link.business_id]);
   const readLinks = input.pageLinks ?? ((tag: string) => fetchCirqlinPageLinks(tag));
   // RT13: every show's links first, so a landing host another show uses gets no pixel line.
   const linksByShow = new Map<string, Awaited<ReturnType<typeof showLinks>>>();
@@ -639,8 +783,25 @@ export async function runRetargetingRead(input: {
       const hasVideo = rows.some((row) => !isRetargetingCampaignName(row.campaign_name, code) && num(row.video_plays_3s) > 0);
       const links = linksByShow.get(event.id)!;
       if (links.reason) skipped.push({ eventCode: code, reason: `CIRQLIN links: ${links.reason}` });
-      const sources = sourceSetFor({ event, rows: sourceRows, pixelId: read?.pixel?.id ?? null, roles: roles?.roles ?? null, hasVideo, links: links.links });
-      const pixelId = read?.pixel?.id ?? null;
+      const eventRow = sourceRows.events.find((row) => row.id === event.id);
+      const venueRow = sourceRows.venues.find((row) => row.id === eventRow?.venue_id) ?? null;
+      // The account the show's ads run on, for the Page and pixel reads: its draft's, else its ad-days', else the event's.
+      const readAccount = inputs.campaigns.find((campaign) => campaign.draft)?.draft?.adAccountId ?? inputs.campaigns.find((campaign) => campaign.adAccountId)?.adAccountId ?? eventRow?.meta_ad_account_id ?? null;
+      // Fix 7: no pixel the ads optimise on — the event's pixel, else the venue's, else the ad account's one active pixel.
+      let fallbackPixel: RetargetingInput["fallbackPixel"] = null;
+      if (!read?.pixel?.id) {
+        const fb = await fallbackPixelOf({ event: eventRow?.meta_pixel_id ?? null, venue: venueRow?.meta_pixel_id ?? null, account: readAccount, graph: input.graph ?? null, cache: accountPixels });
+        metaCalls += fb.calls;
+        fallbackPixel = fb.pixel;
+      }
+      const pixelId = read?.pixel?.id ?? fallbackPixel?.id ?? null;
+      // Fix 1: the show's Pages as audience_sources matches them.
+      let showPages: Awaited<ReturnType<typeof readShowPages>> | null = null;
+      if (SHOW_CAMPAIGNS_RULED) {
+        showPages = await readShowPages({ db: input.db as never, graph: input.graph ?? null, event: { id: event.id, client_id: event.client_id, clientName: sourceRows.clients.find((row) => row.id === event.client_id)?.name ?? null }, venue: venueRow, adAccountId: readAccount, businessIds: businessesOf.get(event.client_id ?? "") ?? [], cache: pagesCache }).catch(() => null);
+        metaCalls += showPages?.calls ?? 0;
+      }
+      const sources = sourceSetFor({ event, rows: sourceRows, pixelId, roles: roles?.roles ?? null, hasVideo, links: links.links, pages: showPages?.pages ?? null });
       if (pixelId && input.graph && !hostsByPixel.has(pixelId)) {
         const hosts = await pixelHostsOf(input.graph, pixelId, now);
         metaCalls += hosts.calls;
@@ -707,7 +868,7 @@ export async function runRetargetingRead(input: {
         metaCalls += sized.calls;
         similarTooSmall = sized.allUnderMinimum;
       }
-      const planInput = retargetingInput({ matchedPages: SHOW_CAMPAIGNS_RULED ? matchedPagesOf(sources.pages, roles?.names) : null, twoCampaigns: SHOW_CAMPAIGNS_RULED, pageGroup, genreFamily: genre, similarTooSmall, announcementAt, funnelBuilt, funnelWeek, madeAudiences, event, day, rows, campaigns: inputs.campaigns, read, budgets: purchases.budgets, sources, appliedLine, minDailyMinor: account ? (minDaily.get(account) ?? null) : null, linksRead: links.linksRead, pixelHosts: pixelId ? (hostsByPixel.get(pixelId) ?? null) : null, campaignStatus, otherLandingHosts: [...otherLandingHosts(landingByShow, event.id)], linkSizes, testWinner, pooledRead, signups: signupsSyncOf(syncRows.filter((row) => row.event_id === event.id), event), accountTimeZone: account ? (timeZones.get(account) ?? null) : null });
+      const planInput = retargetingInput({ matchedPages: SHOW_CAMPAIGNS_RULED ? (showPages?.matched ?? matchedPagesOf(sources.pages, roles?.names)) : null, fallbackPixel, ceiling: SHOW_CAMPAIGNS_RULED ? await showCeilingOf(input.db, { id: event.id, code }, inputs.campaigns.flatMap((campaign) => campaign.campaignIds)) : null, connector: input.connector === true, prospectingRead: SHOW_CAMPAIGNS_RULED && input.graph && event.event_date ? (await readProspecting(input.graph, inputs.campaigns, code, day, event.event_date).then((r) => ((metaCalls += r.calls), r.budgets)).catch(() => null)) : null, twoCampaigns: SHOW_CAMPAIGNS_RULED, pageGroup, genreFamily: genre, similarTooSmall, announcementAt, funnelBuilt, funnelWeek, madeAudiences, event, day, rows, campaigns: inputs.campaigns, read, budgets: purchases.budgets, sources, appliedLine, minDailyMinor: account ? (minDaily.get(account) ?? null) : null, linksRead: links.linksRead, pixelHosts: pixelId ? (hostsByPixel.get(pixelId) ?? null) : null, campaignStatus, otherLandingHosts: [...otherLandingHosts(landingByShow, event.id)], linkSizes, testWinner, pooledRead, signups: signupsSyncOf(syncRows.filter((row) => row.event_id === event.id), event), accountTimeZone: account ? (timeZones.get(account) ?? null) : null });
       const plan = planRetargeting(planInput);
       const record: RetargetingRecord = { eventId: event.id, eventCode: event.event_code, plan, input: planInput, proposalId: null, ...(similarOutcome && similarOutcome.state !== "skipped" ? { similarStep: { state: similarOutcome.state, reason: similarOutcome.reason } } : {}) };
       // RT13: a running campaign's rules against today's links. A failed read keeps the last rules, so nothing is compared.

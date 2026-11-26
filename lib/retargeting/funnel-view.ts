@@ -39,6 +39,7 @@ import {
 } from "./funnel.ts";
 import { widerGive } from "./show-campaigns.ts";
 import { SIMILAR_RETURN } from "./funnel-plan.ts";
+import { movedLine } from "./funnel-plan.ts";
 import { createLines, FLOOR_LINE, nextLine, shareLine, similarSkipRow, type FunnelShowPlan, type WiderWords } from "./funnel-plan.ts";
 import { fill, freq, JOIN, money, rfDay } from "./funnel-words.ts";
 import type { SourcePage, SourceSet } from "./audiences.ts";
@@ -251,7 +252,7 @@ export function runningPanel(
   return {
     shareLine: shareLine({ targetMinor: total, share: plan.share, stretch: plan.stretch }),
     access: accessLine(sources.accounts),
-    notes: presale ? [fill("rt.presale.note")] : [],
+    notes: [...(presale ? [fill("rt.presale.note")] : []), ...(plan.moved ?? []).map(movedLine)],
     create: null,
     wider: w ? { row: w.row, line: w.line } : null,
     tiers: funnelTierRows(sources, args.built.tiers, { week: args.built.week, took: args.built.took, spec: args.spec, similar: args.built.tiers.similar === 0 ? (similarShareOf(plan) ?? similarReturnOf(plan, args.built.similarRefused ?? null, (day) => !isDone(day) && day > args.today)) : null }),
