@@ -24,10 +24,12 @@
  */
 import { buildMetaCustomAudiencePayload } from "../../meta/audience-payload.ts";
 import { urlRule } from "../../retargeting/links.ts";
+import { matchExistingCustomAudience, type ListedMetaCustomAudience } from "../../meta/reuse-existing-audience.ts";
+import type { AccountAudience } from "./types.ts";
 import type { AudienceSubtype, MetaCustomAudience, MetaCustomAudienceInsert } from "../../types/audience.ts";
 import { AUDIENCE_FOR_DESIGN, AUD_WORDS } from "./words.ts";
 
-export const SPEC_KINDS = ["pixel_visitors", "pixel_event", "page_engagers", "ig_engagers", "page_followers", "ig_followers", "video_viewers"] as const;
+export const SPEC_KINDS = ["pixel_visitors", "pixel_event", "page_engagers", "ig_engagers", "page_followers", "ig_followers", "video_viewers", "lookalike"] as const;
 export type SpecKind = (typeof SPEC_KINDS)[number];
 
 export const MAX_SPECS = 30;
@@ -40,7 +42,12 @@ export const MAX_RETENTION: Record<SpecKind, number> = {
   page_followers: 365,
   ig_followers: 365,
   video_viewers: 365,
+  lookalike: 365,
 };
+/** Matas, 26 Nov: lookalikes are GB at 1 %, one per source audience. */
+export const LOOKALIKE_SPEC = { country: "GB", ratio: 0.01 } as const;
+/** The builder's stored retention for a lookalike (lib/audiences/lookalike-types.ts: Meta ignores it; the CHECK needs > 0). */
+const LOOKALIKE_STORED_RETENTION = 1;
 const FOLLOWER_STORED_RETENTION = 365;
 export const PIXEL_EVENTS = ["InitiateCheckout", "CompleteRegistration", "Purchase"] as const;
 
@@ -56,12 +63,14 @@ export const SOURCE_LABELS = {
   igFollowers: "followers",
   video: "video",
   allTime: "all time",
+  lookalike: "lookalike",
+  lookalikeWindow: "1 % UK",
 } as const;
 AUDIENCE_FOR_DESIGN.push({
   key: "claude.mcp.aud.name",
   where: "create_audiences, each audience's name in Off/Pixel (Meta strips it to letters, digits and _)",
   candidate:
-    "{code} · Visitors {rules} · {n} days | {code} · Checkout starters / Registrations / Buyers {rules} · {n} days | {code} · {Page} Page engagers · {n} days | {code} · @{ig} engagers · {n} days | {code} · {Page} Page followers · all time | {code} · @{ig} followers · all time | {code} · {Page} video 75 % / 95 % · {n} days",
+    "{code} · {audience} lookalike · 1 % UK | {code} · Visitors {rules} · {n} days | {code} · Checkout starters / Registrations / Buyers {rules} · {n} days | {code} · {Page} Page engagers · {n} days | {code} · @{ig} engagers · {n} days | {code} · {Page} Page followers · all time | {code} · @{ig} followers · all time | {code} · {Page} video 75 % / 95 % · {n} days",
 });
 
 export interface SpecInput {
@@ -73,6 +82,7 @@ export interface SpecInput {
   ig_id?: unknown;
   threshold?: unknown;
   video_ids?: unknown;
+  origin_audience_id?: unknown;
 }
 
 /** What audience_sources found for the show, as the specs need it. */
@@ -89,6 +99,10 @@ export interface SpecContext {
   igs: ReadonlyMap<string, { username: string; accessible: boolean }>;
   /** The show's ad videos by the Page each ran from. */
   videosByPage: ReadonlyMap<string, readonly string[]>;
+  /** The account's custom audiences by id (lookalike origins). */
+  accountAudiences: ReadonlyMap<string, { name: string | null; subtype: string | null; upper: number | null; deliveryCode: number | null }>;
+  /** Every audience on the account as listed (rules included where Meta sent them), for reuse. */
+  listed: readonly AccountAudience[];
 }
 
 export type SpecResult = { ok: true; insert: MetaCustomAudienceInsert } | { ok: false; why: string };
@@ -98,6 +112,7 @@ const idOf = (v: unknown) => (typeof v === "string" ? v.trim() : typeof v === "n
 
 function retentionOf(kind: SpecKind, v: unknown): number | string {
   if (kind === "page_followers" || kind === "ig_followers") return FOLLOWER_STORED_RETENTION;
+  if (kind === "lookalike") return LOOKALIKE_STORED_RETENTION;
   const n = typeof v === "number" ? v : typeof v === "string" && v.trim() ? Number(v) : NaN;
   if (!Number.isInteger(n) || n < 1 || n > MAX_RETENTION[kind]) return AUD_WORDS.whyRetention(MAX_RETENTION[kind]);
   return n;
@@ -138,6 +153,27 @@ export function buildSpec(input: SpecInput, ctx: SpecContext): SpecResult {
     ok: true,
     insert: { ...base, audienceSubtype: subtype, name, sourceId, sourceMeta: sourceMeta as MetaCustomAudienceInsert["sourceMeta"] },
   });
+
+  if (kind === "lookalike") {
+    const id = idOf(input.origin_audience_id);
+    const origin = META_ID.test(id) ? ctx.accountAudiences.get(id) : undefined;
+    if (!origin) return { ok: false, why: AUD_WORDS.whyOrigin(id || "?") };
+    if ((origin.subtype ?? "").toUpperCase() === "LOOKALIKE") return { ok: false, why: AUD_WORDS.whyOriginLookalike(origin.name ?? id) };
+    // Meta's minimum: an audience it calls too small (delivery 300), or one it sizes under 100.
+    if (origin.deliveryCode === 300 || (origin.upper != null && origin.upper >= 0 && origin.upper < 100)) return { ok: false, why: AUD_WORDS.whyOriginSmall(origin.name ?? id) };
+    const seedName = origin.name?.trim() || id;
+    return {
+      ok: true,
+      insert: {
+        ...base,
+        funnelStage: "top_of_funnel",
+        audienceSubtype: "lookalike",
+        name: audienceName(ctx.code, `${seedName} ${SOURCE_LABELS.lookalike}`, SOURCE_LABELS.lookalikeWindow),
+        sourceId: id,
+        sourceMeta: { subtype: "lookalike", originAudienceId: id, ratio: LOOKALIKE_SPEC.ratio, country: LOOKALIKE_SPEC.country, seedName, seedLocalAudienceId: null, seedSubtype: origin.subtype, type: "similarity" },
+      },
+    };
+  }
 
   if (kind === "pixel_visitors" || kind === "pixel_event") {
     if (!ctx.pixelId) return { ok: false, why: AUD_WORDS.whyNoPixel };
@@ -188,8 +224,36 @@ export function buildSpec(input: SpecInput, ctx: SpecContext): SpecResult {
 export function ruleKey(insert: Pick<MetaCustomAudience, "audienceSubtype" | "retentionDays" | "sourceId" | "sourceMeta" | "name">): string | null {
   try {
     const p = buildMetaCustomAudiencePayload({ ...insert, id: "", userId: "", clientId: "", eventId: null, funnelStage: "retargeting", metaAudienceId: null, metaAdAccountId: "", status: "draft", statusError: null, createdAt: "", updatedAt: "" } as MetaCustomAudience);
+    if (p.subtype === "LOOKALIKE") {
+      const spec = JSON.parse(p.lookalike_spec ?? "{}") as { country?: string; ratio?: number };
+      return JSON.stringify(["LOOKALIKE", p.origin_audience_id ?? null, spec.country ?? null, spec.ratio ?? null]);
+    }
     return JSON.stringify([p.rule ?? null, p.retention_days ?? null, p.subtype ?? null]);
   } catch {
     return null;
   }
+}
+
+/**
+ * An audience already on the account that is this row: a LOOKALIKE with the
+ * same origin, country and ratio, whatever its name or type (Matas, 26 Nov;
+ * Ads Manager's own say custom_ratio, the builder's similarity); otherwise
+ * the builder's own rule match (matchExistingCustomAudience) against the
+ * account's full list, which the builder's create can't read on a big
+ * account. A shared name is never a match.
+ */
+export function findOnAccount(insert: Pick<MetaCustomAudience, "audienceSubtype" | "retentionDays" | "sourceId" | "sourceMeta" | "name">, listed: readonly AccountAudience[]): AccountAudience | null {
+  if (insert.audienceSubtype === "lookalike") {
+    const meta = insert.sourceMeta as { originAudienceId?: string; country?: string; ratio?: number };
+    return listed.find((a) => (a.subtype ?? "").toUpperCase() === "LOOKALIKE" && a.lookalike?.originId === meta.originAudienceId && (a.lookalike?.country ?? "").toUpperCase() === (meta.country ?? "").toUpperCase() && a.lookalike?.ratio != null && Math.abs(a.lookalike.ratio - (meta.ratio ?? -1)) < 1e-9) ?? null;
+  }
+  let payload: Record<string, string>;
+  try {
+    payload = buildMetaCustomAudiencePayload({ ...insert, id: "", userId: "", clientId: "", eventId: null, funnelStage: "retargeting", metaAudienceId: null, metaAdAccountId: "", status: "draft", statusError: null, createdAt: "", updatedAt: "" } as MetaCustomAudience);
+  } catch {
+    return null;
+  }
+  const candidates: ListedMetaCustomAudience[] = listed.filter((a) => a.rule).map((a) => ({ id: a.id, name: a.name ?? undefined, subtype: a.subtype ?? undefined, rule: a.rule! }));
+  const hit = matchExistingCustomAudience(payload, candidates);
+  return hit ? (listed.find((a) => a.id === hit.id) ?? null) : null;
 }

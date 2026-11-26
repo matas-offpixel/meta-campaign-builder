@@ -352,6 +352,8 @@ const EXTERNAL_READERS: Record<string, readonly string[]> = {
   // retargeting builder's URL rule and links fallback, the purchase read's pixel choice (pure), and the
   // client_pages helper's fixed values (Off/Pixel's business, the tasks, the daily cap).
   "lib/meta/audience-payload.ts": ["buildMetaCustomAudiencePayload"],
+  // M3c: the builder's own rule match, run against the account's full list (pure).
+  "lib/meta/reuse-existing-audience.ts": ["matchExistingCustomAudience"],
   "lib/retargeting/links.ts": ["linksFallback", "urlRule"],
   "lib/onsale-refresh/purchases.ts": ["resolvePixel"],
   "lib/meta/page-access-request.ts": ["DEFAULT_PAGE_REQUEST_TASKS", "OFF_PIXEL_BUSINESS_ID", "PAGE_REQUESTS_PER_DAY", "PAGE_REQUEST_TASKS"],
@@ -376,7 +378,7 @@ const EXTERNAL_WRITERS: Record<string, Record<string, RegExp>> = {
  * lib/meta modules the MCP may import: pure helpers and the token read. No
  * Meta write path (lib/meta/client.ts, the Graph client, is never imported).
  */
-const META_IMPORTS_ALLOWED = /\/meta\/(ad-account|location-pins|location-search|location-radius|location-targeting|server-token|advantage-plus-compat|adset|audience-payload|page-access-request)(\.ts)?["']/;
+const META_IMPORTS_ALLOWED = /\/meta\/(ad-account|location-pins|location-search|location-radius|location-targeting|server-token|advantage-plus-compat|adset|audience-payload|page-access-request|reuse-existing-audience)(\.ts)?["']/;
 
 const isOwn = (f: string) => f.startsWith("lib/mcp/") || f.startsWith("app/") || f.startsWith("components/mcp/");
 

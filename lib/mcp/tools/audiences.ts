@@ -29,7 +29,7 @@ import { liveChangesOn } from "../live/shipped.ts";
 import { LIVE_ROWS } from "../live/words.ts";
 import { audienceEvent, clientBusiness, requireAudienceDeps, type AudienceEvent } from "../audiences/show.ts";
 import { readSources } from "../audiences/sources.ts";
-import { MAX_SPECS, SPEC_KINDS, buildSpec, ruleKey } from "../audiences/specs.ts";
+import { MAX_SPECS, SPEC_KINDS, buildSpec, findOnAccount, ruleKey } from "../audiences/specs.ts";
 import { AUD_TOOL_WORDS, AUD_WORDS } from "../audiences/words.ts";
 import { ToolInputError, type McpTool, type ToolContext } from "../tool-types.ts";
 import { requireMetaScope } from "./live-read.ts";
@@ -148,6 +148,7 @@ const specSchema = z
     ig_id: z.string().max(40).optional().describe("ig_engagers, ig_followers: an Instagram account id from audience_sources."),
     threshold: z.number().int().optional().describe("video_viewers: 75 or 95 (% watched)."),
     video_ids: z.array(z.string().max(40)).max(1000).optional().describe("video_viewers: the videos; default the show's ad videos from that Page."),
+    origin_audience_id: z.string().max(40).optional().describe("lookalike: a custom audience on the account (from list_audiences); the lookalike is GB at 1 %."),
   })
   .passthrough();
 
@@ -216,6 +217,13 @@ export const createAudiencesTool: McpTool = {
         continue;
       }
       if (key && seen.has(key)) continue; // the same rule twice in one call: made once.
+      const onMeta = findOnAccount(insert, sc.listed);
+      if (onMeta) {
+        results.push({ name: onMeta.name ?? insert.name, id: onMeta.id, state: "reused" });
+        lines.push(AUD_WORDS.reused(onMeta.name ?? insert.name, onMeta.id));
+        if (key) seen.set(key, { name: onMeta.name ?? insert.name, id: onMeta.id });
+        continue;
+      }
       try {
         const made = await deps.createAudience({ userId: ctx.userId, insert });
         if (made.failed || !made.metaAudienceId) {

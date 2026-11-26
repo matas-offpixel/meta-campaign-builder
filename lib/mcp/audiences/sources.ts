@@ -34,6 +34,7 @@ import type { Db, ToolContext } from "../tool-types.ts";
 import type { AudienceEvent, ClientBusinessResult } from "./show.ts";
 import type { AccountAudience, McpAudienceDeps, PixelEvents, ShowLinkLite } from "./types.ts";
 import type { SpecContext } from "./specs.ts";
+import { loadClientBuildableSources, type ClientBuildableSource } from "./client-sources.ts";
 import { AUD_WORDS } from "./words.ts";
 
 const NAME_CODE = /\[([^\]]+)\]/;
@@ -79,6 +80,8 @@ export interface SourcesRead {
   linksLine: string;
   pages: SourcePage[];
   instagram: SourceInstagram[];
+  /** Every Page and Instagram account the client's Business Manager can build from, with genre where known (Job 4's page-group seed); null with no BM linked or unread. */
+  clientSources: ClientBuildableSource[] | null;
   notes: string[];
   metaGets: number;
   specContext: SpecContext | null;
@@ -315,8 +318,18 @@ export async function readSources(ctx: ToolContext, deps: McpAudienceDeps, event
         pages: new Map(pages.map((p) => [p.id, { name: p.name, accessible: p.accessible }])),
         igs: new Map(instagram.filter((i) => i.id).map((i) => [i.id as string, { username: i.username ?? (i.id as string), accessible: i.accessible }])),
         videosByPage: new Map(videos.map((v) => [v.contextId, v.videoIds])),
+        accountAudiences: new Map(existing.map((a) => [a.id, { name: a.name, subtype: a.subtype, upper: a.upper, deliveryCode: a.deliveryCode ?? null }])),
+        listed: existing,
       }
     : null;
 
-  return { pixel, pixelLine, links, linksLine, pages, instagram, notes, metaGets, specContext };
+  let clientSources: ClientBuildableSource[] | null = null;
+  if (business.kind === "one" && event.clientId) {
+    clientSources = await loadClientBuildableSources(ctx.db, deps, ctx.userId, event.clientId, business.business.id).catch(() => {
+      notes.push(AUD_WORDS.clientSourcesUnread(business.business.name));
+      return null;
+    });
+  }
+
+  return { pixel, pixelLine, links, linksLine, pages, instagram, clientSources, notes, metaGets, specContext };
 }

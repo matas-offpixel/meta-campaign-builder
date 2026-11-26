@@ -35,12 +35,13 @@ type Call = { method: string; input: unknown };
 function tables(over: Record<string, Record<string, unknown>[]> = {}) {
   return {
     events: [
-      { id: EV, name: "XMPL Show", event_code: CODE, venue_name: null, venue_city: null, event_date: "2027-03-14", announcement_at: null, presale_at: null, general_sale_at: null, status: "on_sale", client_id: CL, meta_campaign_id: "9000001", client: { name: "XMPL Promoter" }, user_id: MATAS, meta_ad_account_id: "111111", venue_id: null, mailchimp_tag: null, ticket_url: "https://tix.example.com/e/1", signup_url: "https://xmpl-show.example.com" },
+      { id: "e0000000-0000-4000-8000-000000000002", event_code: "XMPL26-OTHER", genre_family: "tech_house", client_id: CL, user_id: MATAS, name: "XMPL Other", event_date: "2027-01-01", client: { name: "XMPL Promoter" } },
+      { id: EV, genre_family: "drum_and_bass", name: "XMPL Show", event_code: CODE, venue_name: null, venue_city: null, event_date: "2027-03-14", announcement_at: null, presale_at: null, general_sale_at: null, status: "on_sale", client_id: CL, meta_campaign_id: "9000001", client: { name: "XMPL Promoter" }, user_id: MATAS, meta_ad_account_id: "111111", venue_id: null, mailchimp_tag: null, ticket_url: "https://tix.example.com/e/1", signup_url: "https://xmpl-show.example.com" },
     ],
     clients: [{ id: CL, name: "XMPL Promoter", status: "active", user_id: MATAS, default_page_ids: [PROMO_PAGE] }],
     client_business_managers: [{ business_id: BM, business_name: "XMPL BM", client_id: CL }],
     campaign_drafts: [{ id: D1, event_id: EV, created_at: "2026-11-01T10:00:00Z", draft_json: { settings: { metaPageId: PROMO_PAGE }, creatives: [] } }],
-    event_artists: [{ event_id: EV, artist_id: A1, billing_order: 1, is_headliner: true }],
+    event_artists: [{ event_id: EV, artist_id: A1, billing_order: 1, is_headliner: true }, { event_id: "e0000000-0000-4000-8000-000000000002", artist_id: A1, billing_order: 1, is_headliner: true }, { event_id: "e0000000-0000-4000-8000-000000000003", artist_id: A1, billing_order: 1, is_headliner: true }],
     artists: [{ id: A1, name: "XMPL Act", meta_page_id: ACT_PAGE, meta_page_name: "XMPL Act", instagram_handle: "@xmplact" }],
     creative_lab_artists: [],
     ad_daily_insights: [{ meta_ad_id: "ad1", meta_adset_id: "as1", meta_campaign_id: "9000001", campaign_name: `[${CODE}] On sale`, date: "2026-11-25", spend: 40 }],
@@ -77,6 +78,7 @@ function spyDeps(over: Partial<McpAudienceDeps> & { accessible?: string[]; exist
     businessRole: async (_u, b) => rec("businessRole", b, "ADMIN"),
     businessPages: async (_u, b) => rec("businessPages", b, new Set<string>()),
     pendingPages: async (_u, b) => rec("pendingPages", b, []),
+    businessAssets: async (_u, b) => rec("businessAssets", b, { pages: [{ id: PROMO_PAGE, name: "XMPL Promoter", reach: "owned" as const }, { id: ACT_PAGE, name: "XMPL Act", reach: "client_shared" as const }], instagram: [{ id: PROMO_IG, name: "xmplpromoter", reach: "owned" as const }, { id: "17840000009", name: "xmplact", reach: "client_shared" as const }] }),
     requestPage: async (input) => {
       rec("requestPage", input, undefined);
     },
@@ -368,4 +370,80 @@ test("count words: 1 and n", () => {
   assert.equal(AUD_WORDS.alreadyShared(["1", "2"], "B"), "Refused: 1, 2 are already shared with B. Nothing was sent to Meta.");
   assert.equal(AUD_WORDS.overCap("B", 5, 1), "Refused: B has sent 5 of its 5 access requests in the last 24 hours, so 1 more would go over. Meta locks a Business Manager whose requests are reported. Nothing was sent to Meta.");
   assert.equal(AUD_WORDS.otherPages(1), "The ad account can also run from 1 other Page outside the promoter’s and this lineup’s; they aren’t listed.");
+});
+
+// ── 26 Nov additions: lookalikes, reuse from the full list, the client's buildable Pages ──
+
+const seed = (id: string, name: string, over: Partial<AccountAudience> = {}): AccountAudience => ({ id, name, subtype: "IG_BUSINESS", retentionDays: 365, lower: 90000, upper: 110000, delivery: "ready", operation: null, rule: null, deliveryCode: 200, lookalike: null, ...over });
+
+test("create_audiences lookalike: GB at 1 % from an audience on the account, named {code} · {source} lookalike · 1 % UK", async () => {
+  const { deps, calls } = spyDeps({ existing: [seed("120100", "XMPL IG Engagement 365d")] });
+  const out = await run(createAudiencesTool, ctxOf(deps).ctx, { event: CODE, approval: YES, specs: [{ kind: "lookalike", origin_audience_id: "120100" }] });
+  const made = sent(calls, "createAudience").map((c) => (c.input as { insert: Record<string, unknown> }).insert);
+  assert.equal(made.length, 1);
+  assert.equal(made[0]!.name, `${CODE} · XMPL IG Engagement 365d lookalike · 1 % UK`);
+  assert.equal(made[0]!.audienceSubtype, "lookalike");
+  assert.equal(made[0]!.sourceId, "120100");
+  assert.equal(made[0]!.retentionDays, 1);
+  assert.deepEqual({ ...(made[0]!.sourceMeta as object) }, { subtype: "lookalike", originAudienceId: "120100", ratio: 0.01, country: "GB", seedName: "XMPL IG Engagement 365d", seedLocalAudienceId: null, seedSubtype: "IG_BUSINESS", type: "similarity" });
+  assert.equal(out.data.message, "Done: 1 made, 0 already on the account, 0 not made. Nothing spends until an ad set uses them.");
+});
+
+test("create_audiences lookalike: one already on the account for that source at GB 1 % is reused, whatever its name or type; another ratio isn't", async () => {
+  const lal = (id: string, ratio: number, country = "GB") => seed(id, "Lookalike (GB, 1%) - anything", { subtype: "LOOKALIKE", lookalike: { originId: "120100", country, ratio } });
+  const { deps, calls } = spyDeps({ existing: [seed("120100", "XMPL IG Engagement 365d"), lal("120201", 0.02), lal("120202", 0.01, "IE"), lal("120203", 0.01)] });
+  const out = await run(createAudiencesTool, ctxOf(deps).ctx, { event: CODE, approval: YES, specs: [{ kind: "lookalike", origin_audience_id: "120100" }, { kind: "lookalike", origin_audience_id: "120100" }] });
+  assert.equal(sent(calls, "createAudience").length, 0);
+  assert.deepEqual(out.data.lines, ["Already on the account: Lookalike (GB, 1%) - anything (120203), used as it is."]);
+});
+
+test("create_audiences lookalike: a source under Meta's minimum, a lookalike source or one not on the account is refused per source, nothing made", async () => {
+  const { deps, calls } = spyDeps({ existing: [seed("120100", "XMPL Big"), seed("120101", "XMPL IG Followers", { deliveryCode: 300, lower: 1000, upper: 1000 }), seed("120102", "XMPL Tiny", { upper: 40 }), seed("120103", "XMPL LAL", { subtype: "LOOKALIKE" })] });
+  await assert.rejects(run(createAudiencesTool, ctxOf(deps).ctx, { event: CODE, approval: YES, specs: [
+    { kind: "lookalike", origin_audience_id: "120100" },
+    { kind: "lookalike", origin_audience_id: "120101" },
+    { kind: "lookalike", origin_audience_id: "120102" },
+    { kind: "lookalike", origin_audience_id: "120103" },
+    { kind: "lookalike", origin_audience_id: "120999" },
+  ] }), (e: Error) => {
+    assert.equal(e.message, [
+      "Refused: 4 specs can’t be built, so none were made. Nothing was sent to Meta.",
+      "Spec 2: XMPL IG Followers is under Meta’s minimum for a lookalike source, so no lookalike can be made from it yet.",
+      "Spec 3: XMPL Tiny is under Meta’s minimum for a lookalike source, so no lookalike can be made from it yet.",
+      "Spec 4: XMPL LAL is a lookalike already; give the audience it was made from.",
+      "Spec 5: 120999 isn’t a custom audience on this ad account: give one from list_audiences.",
+    ].join("\n"));
+    return true;
+  });
+  noWrites(calls);
+});
+
+test("create_audiences: 30 a call counts lookalikes too", async () => {
+  const { deps, calls } = spyDeps({ existing: [seed("120100", "XMPL Big")] });
+  const specs = [...Array.from({ length: 30 }, () => ({ kind: "page_engagers", page_id: PROMO_PAGE, retention_days: 30 })), { kind: "lookalike", origin_audience_id: "120100" }];
+  await refused(run(createAudiencesTool, ctxOf(deps).ctx, { event: CODE, approval: YES, specs }), AUD_WORDS.noSpecs);
+  assert.deepEqual(calls, []);
+});
+
+test("create_audiences: an audience on Meta with the builder's rule is reused from the account's full list (the builder's own lookup can't read a big account)", async () => {
+  const rule = JSON.stringify({ inclusions: { operator: "or", rules: [{ event_sources: [{ type: "ig_business", id: 17840000001 }], retention_seconds: 31536000, filter: { operator: "and", filters: [{ field: "event", operator: "eq", value: "ig_business_profile_all" }] } }] } });
+  const { deps, calls } = spyDeps({ existing: [seed("120300", "XMPL  IG Engagement 365d", { rule }), seed("120301", "XMPL  IG Followers", { rule: rule.replace("31536000", "0") })] });
+  const out = await run(createAudiencesTool, ctxOf(deps).ctx, { event: CODE, approval: YES, specs: [{ kind: "ig_engagers", ig_id: PROMO_IG, retention_days: 365 }, { kind: "ig_followers", ig_id: PROMO_IG }] });
+  // Engagers match; the account's "IG Followers" is an engagement rule at 0 seconds, not INSTAGRAM_PROFILE_FOLLOW, so followers are made.
+  assert.deepEqual(out.data.lines, ["Already on the account: XMPL  IG Engagement 365d (120300), used as it is.", `Made ${CODE} · @xmplpromoter followers · all time (120000000001).`]);
+  assert.equal(sent(calls, "createAudience").length, 1);
+});
+
+test("audience_sources: every Page and Instagram account the client's Business Manager can build from, with genre where known", async () => {
+  const { deps, calls } = spyDeps();
+  const { ctx } = ctxOf(deps, { tables: { creative_lab_artists: [{ artist_id: A1, meta_page_id: ACT_PAGE, instagram_actor_id: null, ig_username: "xmplact" }] } });
+  const out = await run(audienceSourcesTool, ctx, { event: CODE });
+  assert.deepEqual(out.data.clientSources, [
+    { client_id: CL, kind: "facebook_page", id: ACT_PAGE, name: "XMPL Act", genre_family: "drum_and_bass", reach: "client_shared" },
+    { client_id: CL, kind: "facebook_page", id: PROMO_PAGE, name: "XMPL Promoter", genre_family: null, reach: "owned" },
+    { client_id: CL, kind: "instagram_account", id: "17840000009", name: "xmplact", genre_family: "drum_and_bass", reach: "client_shared" },
+    { client_id: CL, kind: "instagram_account", id: PROMO_IG, name: "xmplpromoter", genre_family: null, reach: "owned" },
+  ]);
+  assert.deepEqual(sent(calls, "businessAssets").map((c) => c.input), [BM]);
+  noWrites(calls);
 });

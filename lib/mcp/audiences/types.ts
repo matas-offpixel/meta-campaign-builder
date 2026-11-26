@@ -22,8 +22,12 @@ export interface AccountAudience {
   delivery: string | null;
   /** operation_status.description, else its code. */
   operation: string | null;
-  /** The rule as Meta returns it (a JSON string); compared, never shown. */
+  /** The rule as Meta returns it (a JSON string); compared, never shown. Null when Meta couldn't send it. */
   rule: string | null;
+  /** delivery_status.code: 300 is Meta's "too small". */
+  deliveryCode?: number | null;
+  /** A LOOKALIKE's spec: its origin audience, country and ratio. */
+  lookalike?: { originId: string | null; country: string | null; ratio: number | null } | null;
 }
 
 export interface PromotePage {
@@ -48,6 +52,13 @@ export interface ShowLinkLite {
   url: string;
   /** The "URL contains" fragment (host + path). */
   rule: string;
+}
+
+/** A Page or Instagram account a business holds: its own (owned) or shared into it (client_shared). Instagram: id is the IG user id, name the username. */
+export interface BusinessAsset {
+  id: string;
+  name: string | null;
+  reach: "owned" | "client_shared";
 }
 
 export interface PendingPageRequest {
@@ -87,6 +98,8 @@ export interface McpAudienceDeps {
   businessRole(userId: string, businessId: string): Promise<string | null>;
   /** The business's owned and client Pages (ids). */
   businessPages(userId: string, businessId: string): Promise<Set<string>>;
+  /** The business's Pages and Instagram accounts (owned_pages, client_pages, owned_instagram_assets, client_instagram_assets), as Matas. */
+  businessAssets(userId: string, businessId: string): Promise<{ pages: BusinessAsset[]; instagram: BusinessAsset[] }>;
   /** GET /{business}/pending_client_pages. */
   pendingPages(userId: string, businessId: string): Promise<PendingPageRequest[]>;
   /** POST /{business}/client_pages through lib/meta/page-access-request.ts (ledgered, required). */

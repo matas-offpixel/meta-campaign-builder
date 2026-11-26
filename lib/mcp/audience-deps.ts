@@ -43,47 +43,75 @@ const str = (v: unknown) => (typeof v === "string" && v ? v : null);
 const num = (v: unknown) => (v == null || v === "" ? null : Number.isFinite(Number(v)) ? Number(v) : null);
 const act = (id: string) => (id.startsWith("act_") ? id : `act_${id}`);
 
-const AUDIENCE_FIELDS = "id,name,subtype,retention_days,approximate_count_lower_bound,approximate_count_upper_bound,delivery_status,operation_status,rule";
+const AUDIENCE_LEAN = "id,name,subtype,retention_days,approximate_count_lower_bound,approximate_count_upper_bound,delivery_status,operation_status,lookalike_spec";
+const AUDIENCE_FIELDS = `${AUDIENCE_LEAN},rule`;
 
 /**
- * GET a paged edge (the `after` cursor), at most `pages` pages. Meta answers
- * "Please reduce the amount of data" (code 1) or an unexpected error (code 2)
- * deep into a big account's audiences (read 26 Nov on NX's account, page 4
- * and 5 of 100): that page is asked again at half the limit, down to 10, then
- * once more; after that the read stops and says it's partial, keeping what
- * it has. A first page that fails is an error.
+ * GET a paged edge (the `after` cursor), at most `pages` pages.
+ *
+ * Read 26 Nov on NX's account (1,490 audiences): with `rule`, Meta answers
+ * "Please reduce the amount of data" (code 1) on the page holding one very
+ * large rule, at any page size, and an unexpected error (code 2) now and
+ * then. So a failed page is asked again at half the size, down to 1; a
+ * single row that still fails is read without the `lean` fields (its rule
+ * comes back null) so the walk carries on past it; then the size grows back.
+ * A page that fails even lean is retried once, then the read stops and says
+ * it's partial, keeping what it has. A first page that fails is an error.
  */
-async function edge(path: string, params: Record<string, string>, token: string, pages = 25): Promise<{ rows: Row[]; gets: number; complete: boolean }> {
+async function edge(path: string, params: Record<string, string>, token: string, pages = 25, lean?: string): Promise<{ rows: Row[]; gets: number; complete: boolean }> {
   const rows: Row[] = [];
   let after: string | undefined;
   let gets = 0;
-  let limit = Number(params.limit ?? "100");
+  const full = Number(params.limit ?? "100");
+  let limit = full;
   let retried = false;
   for (let i = 0; i < pages; i++) {
-    let res: { data?: Row[]; paging?: { next?: string; cursors?: { after?: string } } };
-    try {
+    const get = (fields: string) => {
       gets += 1;
-      res = await graphGetWithToken(path, { ...params, limit: String(limit), ...(after ? { after } : {}) }, token, { maxAttempts: 1 });
+      return graphGetWithToken<{ data?: Row[]; paging?: { next?: string; cursors?: { after?: string } } }>(path, { ...params, fields, limit: String(limit), ...(after ? { after } : {}) }, token, { maxAttempts: 1 });
+    };
+    let res: Awaited<ReturnType<typeof get>>;
+    try {
+      res = await get(params.fields ?? "");
     } catch (e) {
-      if (limit > 10) {
-        limit = Math.max(10, Math.floor(limit / 2));
+      if (limit > 1) {
+        limit = Math.max(1, Math.floor(limit / 2));
         i -= 1;
         continue;
       }
-      if (!retried) {
-        retried = true;
-        i -= 1;
-        continue;
+      try {
+        if (!lean) throw e;
+        res = await get(lean);
+      } catch (e2) {
+        if (!retried) {
+          retried = true;
+          i -= 1;
+          continue;
+        }
+        if (rows.length === 0) throw e2;
+        return { rows, gets, complete: false };
       }
-      if (rows.length === 0) throw e;
-      return { rows, gets, complete: false };
     }
     retried = false;
     rows.push(...(res?.data ?? []));
     after = res?.paging?.cursors?.after;
     if (!after || !res?.paging?.next) return { rows, gets, complete: true };
+    limit = Math.min(full, limit * 2);
   }
   return { rows, gets, complete: false };
+}
+
+/** A LOOKALIKE's spec as Meta lists it: { country, ratio, origin: [{ id }] } (read 26 Nov: type custom_ratio on Ads Manager's own). */
+function lookalikeOf(v: unknown): AccountAudience["lookalike"] {
+  let spec: Row | null = null;
+  try {
+    spec = typeof v === "string" ? (JSON.parse(v) as Row) : v && typeof v === "object" ? (v as Row) : null;
+  } catch {
+    spec = null;
+  }
+  if (!spec) return null;
+  const origin = Array.isArray(spec.origin) ? (spec.origin[0] as Row | undefined) : (spec.origin as Row | undefined);
+  return { originId: origin?.id != null ? String(origin.id) : null, country: str(spec.country), ratio: num(spec.ratio) };
 }
 
 const noSeedGrants = async (_db: unknown, sourceIds: string[]) => ({ remediated: [] as string[], skipped: sourceIds.map((sourceId) => ({ sourceId, reason: "seed grants are off for the connector" })) });
@@ -99,7 +127,7 @@ export function realAudienceDeps(db: SupabaseClient): McpAudienceDeps {
   return {
     audienceWrites: () => metaAudienceWritesEnabled(),
     async listAudiences(userId, adAccountId) {
-      const { rows, gets, complete } = await edge(`/${act(adAccountId)}/customaudiences`, { fields: AUDIENCE_FIELDS, limit: "100" }, await opToken(userId), 100);
+      const { rows, gets, complete } = await edge(`/${act(adAccountId)}/customaudiences`, { fields: AUDIENCE_FIELDS, limit: "100" }, await opToken(userId), 400, AUDIENCE_LEAN);
       const audiences: AccountAudience[] = rows.map((r) => ({
         id: String(r.id),
         name: str(r.name),
@@ -110,6 +138,8 @@ export function realAudienceDeps(db: SupabaseClient): McpAudienceDeps {
         delivery: str((r.delivery_status as Row | undefined)?.description) ?? (r.delivery_status ? String((r.delivery_status as Row).code ?? "") || null : null),
         operation: str((r.operation_status as Row | undefined)?.description) ?? (r.operation_status ? String((r.operation_status as Row).code ?? "") || null : null),
         rule: typeof r.rule === "string" ? r.rule : r.rule ? JSON.stringify(r.rule) : null,
+        deliveryCode: num((r.delivery_status as Row | undefined)?.code),
+        lookalike: lookalikeOf(r.lookalike_spec),
       }));
       return { audiences, metaGets: gets, complete };
     },
@@ -181,6 +211,19 @@ export function realAudienceDeps(db: SupabaseClient): McpAudienceDeps {
     async businessPages(userId, businessId) {
       const map = await businessSharedPages(businessId)(await personal(userId));
       return new Set(map.keys());
+    },
+    async businessAssets(userId, businessId) {
+      // The edges lib/bm/asset-kinds.ts verified live (client_instagram_accounts doesn't exist).
+      const token = await personal(userId);
+      const [owned, shared, ownedIg, sharedIg] = await Promise.all([
+        paginateAll<Row>(`/${businessId}/owned_pages`, { fields: "id,name" }, token),
+        paginateAll<Row>(`/${businessId}/client_pages`, { fields: "id,name" }, token),
+        paginateAll<Row>(`/${businessId}/owned_instagram_assets`, { fields: "id,ig_user_id,ig_username" }, token),
+        paginateAll<Row>(`/${businessId}/client_instagram_assets`, { fields: "id,ig_user_id,ig_username" }, token),
+      ]);
+      const page = (reach: "owned" | "client_shared") => (r: Row) => ({ id: String(r.id), name: str(r.name), reach });
+      const ig = (reach: "owned" | "client_shared") => (r: Row) => ({ id: String(r.ig_user_id ?? r.id), name: str(r.ig_username), reach });
+      return { pages: [...owned.map(page("owned")), ...shared.map(page("client_shared"))], instagram: [...ownedIg.map(ig("owned")), ...sharedIg.map(ig("client_shared"))] };
     },
     async pendingPages(userId, businessId) {
       // Meta answers ids only on this edge (read 26 Nov: name isn't returned even when asked): each id is the Page asked for.
