@@ -47,10 +47,23 @@ export function todayParts(text: string): TodayPart[] {
   return parts;
 }
 
-/** The row's text with each code, "What Claude asked" and date kept whole (a nowrap span); plain text when there's nothing to keep. */
+/**
+ * The row's text with each code, "What Claude asked" and date kept whole (a
+ * nowrap span) below sm (640 px), where lines wrap; plain text when there's
+ * nothing to keep. From sm up the text is the one run it always was
+ * (`display: contents`, no box): splitting a run into spans moves the glyphs
+ * after each span by a fraction of a pixel, and design's 1280 frames must not
+ * change. Only one copy is displayed at any width, so a screen reader reads
+ * it once.
+ */
 export function keepWholeToday(text: string | null | undefined): ReactNode {
   if (!text) return text ?? null;
   const parts = todayParts(text);
   if (!parts.some((p) => p.whole)) return text;
-  return createElement(Fragment, null, ...parts.map((p) => (p.whole ? createElement("span", { className: "whitespace-nowrap", "data-keep-whole": "" }, p.text) : p.text)));
+  return createElement(
+    Fragment,
+    null,
+    createElement("span", { className: "sm:hidden" }, ...parts.map((p) => (p.whole ? createElement("span", { className: "whitespace-nowrap", "data-keep-whole": "" }, p.text) : p.text))),
+    createElement("span", { className: "hidden sm:contents" }, text),
+  );
 }

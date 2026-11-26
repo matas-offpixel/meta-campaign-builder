@@ -57,7 +57,7 @@ export function ClaudeMetaRow({
       {row.approved ? (
         <details open={openAsked} className="text-xs">
           <summary className="cursor-pointer list-none text-muted-foreground">
-            {k(row.approved)} · <span className="whitespace-nowrap underline underline-offset-2">{row.asked}</span>
+            {k(row.approved)} · <span className="underline underline-offset-2 max-sm:whitespace-nowrap">{row.asked}</span>
           </summary>
           <div className="mt-1 space-y-1 rounded-md bg-muted p-2 [overflow-wrap:anywhere]">
             {row.askedQ ? <p>{k(row.askedQ)}</p> : null}
