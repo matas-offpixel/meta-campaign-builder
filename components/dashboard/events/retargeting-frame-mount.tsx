@@ -2,6 +2,7 @@
 
 import { OnSaleRefreshPanelView } from "@/components/dashboard/events/onsale-refresh-panel";
 import { ClaudeMetaRow } from "@/components/dashboard/today/claude-meta-row";
+import type { MetaLogRow } from "@/lib/mcp/today/log";
 import { rdStates, RD_PROPOSALS } from "@/scripts/plan-frames/retargeting-fixtures";
 import { rfbView, rfcView, twaPanels, twbPanels, twcFrames, twdBlocks, type CaptionedPanel } from "@/scripts/plan-frames/retargeting-funnel-fixtures";
 
@@ -19,7 +20,7 @@ import { FunnelWiderRow, RetargetingPanelView } from "./retargeting-panel";
  * draw them. data-frame-ready carries the shot's frame ("retargeting/TW-A"),
  * which scripts/plan-frames/run.mjs waits for.
  */
-export function RetargetingFrameMount({ id }: { id: string }) {
+export function RetargetingFrameMount({ id, todayRow = null }: { id: string; /** TW-C: the step on Today, built on the server (Today's log is server-side). */ todayRow?: MetaLogRow | null }) {
   const frame = (children: React.ReactNode) => (
     <main data-frame-ready={`retargeting/${id}`} className="min-h-screen bg-background p-4 text-foreground sm:p-8">
       <div className="mx-auto max-w-[72rem] space-y-4">{children}</div>
@@ -42,7 +43,7 @@ export function RetargetingFrameMount({ id }: { id: string }) {
   if (id === "TW-A") return panels(twaPanels());
   if (id === "TW-B") return panels(twbPanels());
   if (id === "TW-C") {
-    const { widers, today, floor } = twcFrames();
+    const { widers, floor } = twcFrames();
     const block = (w: (typeof widers)[number]) => (
       <div key={w.caption} className="space-y-1">
         {caption(w.caption)}
@@ -54,12 +55,14 @@ export function RetargetingFrameMount({ id }: { id: string }) {
     return frame(
       <>
         {widers.map(block)}
-        <div className="space-y-1">
-          {caption("The step on Today (MB1)")}
-          <ul className="space-y-2">
-            <ClaudeMetaRow row={today} />
-          </ul>
-        </div>
+        {todayRow ? (
+          <div className="space-y-1">
+            {caption("The step on Today (MB1)")}
+            <ul className="space-y-2">
+              <ClaudeMetaRow row={todayRow} />
+            </ul>
+          </div>
+        ) : null}
         {block(floor)}
       </>,
     );

@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 
 import { RetargetingFrameMount } from "@/components/dashboard/events/retargeting-frame-mount";
 import { FUNNEL_FRAME_IDS } from "@/scripts/plan-frames/retargeting-funnel-fixtures";
+import { twcTodayRow } from "@/scripts/plan-frames/retargeting-today-fixture";
 
 /** RD stands from the 17 Nov records; TW-A to TW-D are the two campaigns' (they re-rule RF-A and RF-E); RF-B and RF-C stand. */
 const RETARGETING_FRAME_IDS = ["RD", ...FUNNEL_FRAME_IDS] as const;
@@ -22,5 +23,5 @@ export default async function RetargetingFramePage({ params }: { params: Promise
   if (process.env.ENABLE_PLAN_FRAMES !== "1") notFound();
   const { id } = await params;
   if (!(RETARGETING_FRAME_IDS as readonly string[]).includes(id)) notFound();
-  return <RetargetingFrameMount id={id} />;
+  return <RetargetingFrameMount id={id} todayRow={id === "TW-C" ? twcTodayRow() : null} />;
 }

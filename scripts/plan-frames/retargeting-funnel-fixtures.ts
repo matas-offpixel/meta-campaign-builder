@@ -34,8 +34,6 @@ import { planRetargeting, type RetargetingInput, type RetargetingPlan, type Reta
 import { audiencesToMake, type FunnelAccount, type PageGroup, type ProspectingBudget, type TierMinor } from "../../lib/retargeting/funnel.ts";
 import { claudePlanLines, type MatchedPages } from "../../lib/retargeting/funnel-plan.ts";
 import { funnelSourcesOf, genreWords, widerRow, type FunnelPanel, type RunningWider } from "../../lib/retargeting/funnel-view.ts";
-import { scheduledRow, type LogContext, type MetaLogRow } from "../../lib/mcp/today/log.ts";
-import type { ScheduledRow } from "../../lib/mcp/live/scheduled.ts";
 
 export const FUNNEL_FRAME_IDS = ["TW-A", "TW-B", "TW-C", "TW-D", "RF-B", "RF-C"] as const;
 
@@ -228,7 +226,7 @@ export function twbPanels(): CaptionedPanel[] {
 }
 
 /** Rudimental as Create made it on Thu 26 Nov: Wider's lifetime and its steps. */
-function madeOn26(): RetargetingPlan {
+export function madeOn26(): RetargetingPlan {
   return planRetargeting(input({}));
 }
 
@@ -242,8 +240,8 @@ function running(day: string, remainingMinor: number, doneDays: string[]): Retar
 
 export type WiderFrame = { caption: string; wider: NonNullable<FunnelPanel["wider"]>; next: string | null };
 
-/** TW-C: Wider's row before and after the step, the step on Today, and the floor. */
-export function twcFrames(): { widers: WiderFrame[]; today: MetaLogRow; floor: WiderFrame } {
+/** TW-C: Wider's row before and after the step, and the floor (the step on Today is retargeting-today-fixture.ts, built on the server). */
+export function twcFrames(): { widers: WiderFrame[]; floor: WiderFrame } {
   // Sat 28 Nov, 00:00, before the scheduled change runs: £585.00 left (£39.00 × 15 days).
   const before = running("2026-11-28", 58500, []);
   // After it: £45.00 lower.
@@ -252,39 +250,10 @@ export function twcFrames(): { widers: WiderFrame[]; today: MetaLogRow; floor: W
     { caption: "Wider, just before the step", wider: before.funnel!.wider!, next: before.funnel!.next },
     { caption: "After it (Sat 28 Nov)", wider: after.funnel!.wider!, next: after.funnel!.next },
   ];
-  // The step as funnel-apply's stepChanges stores it: Wider's lifetime_budget, as Meta holds it.
-  const step = madeOn26().wider!.steps[0]!;
-  const ctx: LogContext = { codes: new Map([["nx26-rudimental", "NX26-RUDIMENTAL"]]), clientNames: new Map(), draftNames: new Map(), viewerName: "Matas", since: "2026-11-28T00:00:00Z" };
-  const row: ScheduledRow = {
-    id: "s-wider-1",
-    user_id: "u-matas",
-    event_id: "nx26-rudimental",
-    client_id: null,
-    kind: "set_budget",
-    object_kind: "campaign",
-    object_id: "120253311904770755",
-    object_name: "NX26-RUDIMENTAL · Wider",
-    field: "lifetime_budget",
-    amount_minor: step.afterMinor,
-    expected_minor: step.beforeMinor,
-    currency: "GBP",
-    raises_spend: false,
-    run_at: "2026-11-28T00:00:00Z",
-    ledger_draft_id: "00000000-0000-4000-8000-000000000001",
-    call_key: "rf:nx26-rudimental:2026-11-28:wider",
-    approval_asked: "Create NX26-RUDIMENTAL · Wider and NX26-RUDIMENTAL · Retargeting, live, with the stretch steps as scheduled changes?",
-    approval_answer: "yes",
-    status: "applied",
-    outcome: { before: step.beforeMinor, after: step.afterMinor },
-    applied_at: "2026-11-28T00:00:00Z",
-    cancelled_at: null,
-    created_at: "2026-11-26T16:10:00Z",
-  };
-  const today = scheduledRow(row, ctx)!;
   // XMPL-QUAY on Fri 27 Nov: £44.00 of £300.00 left to Mon 30 Nov, four Wider ad sets; a step wants £9.00 a day today.
   const quay: RunningWider = { lifetimeMinor: 30000, dailyMinor: 1100, daysLeft: 4, endDay: "2026-11-30", remainingMinor: 4400, adSets: 4, doneDays: [], steps: [{ day: "2026-11-27", beforeMinor: 30000, afterMinor: 30000, wantDailyMinor: 900, givenDailyMinor: 900, atFloor: false }] };
   const floored = widerRow(quay, { today: "2026-11-27", stretchOf: () => "final_week" });
-  return { widers, today, floor: { caption: "When the floor stops a full step", wider: { row: floored.row, line: floored.line }, next: null } };
+  return { widers, floor: { caption: "When the floor stops a full step", wider: { row: floored.row, line: floored.line }, next: null } };
 }
 
 /** TW-D: what Claude is told — Rudimental with its matched Pages, and XMPL-ATTIC (no venue match, no genre). */
