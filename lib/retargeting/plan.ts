@@ -481,7 +481,7 @@ export function retargetingOnSaleDay(event: { presale_at?: string | null; genera
   return raw ? raw.slice(0, 10) : null;
 }
 
-/** RF3's dates and RF4's budgets for the funnel plan of one show. */
+/** RF3's dates and RF4's budgets for the funnel plan of one show (a build's tiers and take when it has one). */
 function funnelPlanOf(input: RetargetingInput): FunnelShowPlan | null {
   if (!input.eventDate) return null;
   const sources = funnelSourcesOf(input.sources, input.accounts);
@@ -494,6 +494,7 @@ function funnelPlanOf(input: RetargetingInput): FunnelShowPlan | null {
     minDailyMinor: input.minDailyMinor,
     sources,
     made: new Set(input.madeAudiences ?? []),
+    existing: input.funnelBuilt ? { totalMinor: input.funnelBuilt.tiers.cold + input.funnelBuilt.tiers.warm + input.funnelBuilt.tiers.hot, took: input.funnelBuilt.took } : null,
   });
 }
 

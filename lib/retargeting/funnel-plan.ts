@@ -59,6 +59,12 @@ export type FunnelShowInput = {
   sources: FunnelSources;
   /** Audience keys already made for this show (a re-run reuses them). */
   made?: ReadonlySet<string>;
+  /**
+   * A build that runs (or is made paused): what its tiers run at and what it
+   * took. The show's daily spend is then prospecting plus this, nothing is
+   * taken today, and the steps go on from it.
+   */
+  existing?: { totalMinor: number; took: readonly TakeLine[] } | null;
 };
 
 export type FunnelStepPlan = {
@@ -127,12 +133,15 @@ export function planFunnelShow(input: FunnelShowInput): FunnelShowPlan {
   const dates = { showDay: input.showDay, announceDay: input.announceDay };
   const stretch = stretchOn(input.runDay, dates);
   const rule = RF3[stretch];
-  const showDailyMinor = showDailyOf(input.prospecting);
+  const existing = input.existing ?? null;
+  const showDailyMinor = showDailyOf(input.prospecting) + (existing?.totalMinor ?? 0);
   const specs = funnelSpecs(input.sources);
   const buildable = specs.map((spec) => spec.tier);
   const floors = floor * Math.max(1, buildable.length);
   const targetMinor = Math.floor((showDailyMinor * rule.share) / 100 + 1e-9);
-  const take = takeFromProspecting(input.prospecting, Math.max(targetMinor, floors), floor);
+  const take: Take = existing
+    ? { neededMinor: existing.totalMinor, takenMinor: existing.totalMinor, from: existing.took.map((row) => ({ ...row })), short: false }
+    : takeFromProspecting(input.prospecting, Math.max(targetMinor, floors), floor);
   const made = input.made ?? new Set<string>();
   const toMake = audiencesToMake(specs);
   const audiences = { made: toMake.filter((aud) => made.has(aud.key)).length, toMake: toMake.filter((aud) => !made.has(aud.key)).length, missingAccess: missingAccess(input.sources.accounts).length };
@@ -143,7 +152,7 @@ export function planFunnelShow(input: FunnelShowInput): FunnelShowPlan {
   }
   // A take above the share is only the floors' top-up (RF8), never more.
   const steps: FunnelStepPlan[] = [];
-  let budgets = afterTake(input.prospecting, take);
+  let budgets = existing ? input.prospecting.map((row) => ({ ...row })) : afterTake(input.prospecting, take);
   let taken: TakeLine[] = take.from.map((row) => ({ ...row }));
   let total = take.takenMinor;
   for (const step of stepsAfter(input.runDay, dates)) {
@@ -202,12 +211,18 @@ export function nextGivesBack(args: { stretch: string; date: string; p: number; 
   return `Next: ${args.stretch} from ${args.date} · ${args.p} % · moves £${args.x} a day from retargeting to ${args.to}`;
 }
 
+/** PENDING DESIGN: a step prospecting can't give anything more to (it was short already). No row covers it. */
+export function nextMovesNothing(args: { stretch: string; date: string; p: number }): string {
+  return `Next: ${args.stretch} from ${args.date} · ${args.p} % · prospecting has nothing more to give`;
+}
+
 /** The footer: the next stretch and what it moves, or the last stretch's show day. */
 export function nextLine(plan: FunnelShowPlan, showDay: string): string | null {
   if (plan.noMoney) return null;
   const step = plan.steps[0];
   if (!step) return fill("rt.next.none", { date: rfDay(showDay) });
   const names = [...new Set(step.prospecting.map((row) => row.name))].join(JOIN);
+  if (step.deltaMinor === 0) return nextMovesNothing({ stretch: stretchName(step.stretch), date: rfDay(step.day), p: step.share });
   if (step.deltaMinor < 0) return nextGivesBack({ stretch: stretchName(step.stretch), date: rfDay(step.day), p: step.share, x: money(-step.deltaMinor), to: names });
   return fill("rt.next", { stretch: stretchName(step.stretch), date: rfDay(step.day), p: step.share, x: money(step.deltaMinor), from: names });
 }
