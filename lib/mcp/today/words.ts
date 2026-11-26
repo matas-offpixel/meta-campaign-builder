@@ -5,7 +5,9 @@
  * (scratch/mcp/words-mcp-today-2026-11-25.tsv; the copy in
  * lib/mcp/__tests__/fixtures), word for word: FC1's log rows and Undo
  * (2026-11-25-mcp-full-control), Step 0's actions and change lines, and the
- * 32 rows record 2026-11-26-mcp-m3b-today (MB1–MB4) adds.
+ * 32 rows record 2026-11-26-mcp-m3b-today (MB1–MB4) adds, and the 12 rows
+ * ruled 27 Nov with #1400 (create_audiences and request_page_access, FC1
+ * rows with no Undo).
  * lib/mcp/__tests__/today-words.test.ts pins every key against the list.
  *
  * The only composed strings are TODAY_COMPOSED's, each made of ruled rows
@@ -121,6 +123,19 @@ export const TODAY_META_WORDS = {
   "today.mcp.skip.ceiling": "by then it would have taken the show over its spend ceiling, or the show had no ceiling",
   "today.mcp.skip.switch": "budget changes were switched off in Off/Pixel",
   "today.mcp.skip.unread": "Meta couldn’t be read when it was due",
+  // Ruled 27 Nov with #1400: create_audiences and request_page_access.
+  "today.mcp.action.create_audiences": "Make audiences",
+  "today.mcp.change.create_audiences": "{audiences} on the show’s ad account",
+  "today.mcp.count.audiences": "{n} audiences",
+  "today.mcp.count.audiences.one": "1 audience",
+  "today.mcp.thing.audience": "audience",
+  "today.mcp.thing.audience.many": "audiences",
+  "today.mcp.action.request_page_access": "Ask for Page access",
+  "today.mcp.change.request_page_access": "{pages} · from {business}",
+  "today.mcp.thing.request": "request",
+  "today.mcp.thing.request.many": "requests",
+  "today.mcp.result.sent": "{n} {things} sent · {ids}",
+  "today.mcp.result.sent.one": "1 {thing} sent · {id}",
 } as const;
 
 export type TodayMetaKey = keyof typeof TODAY_META_WORDS;
@@ -130,22 +145,25 @@ export function tw(key: TodayMetaKey, values: Record<string, string | number> = 
   return TODAY_META_WORDS[key].replace(/\{([a-z_, ]+)\}/g, (m, k: string) => (k in values ? String(values[k]) : m));
 }
 
-export type Thing = "campaign" | "adset" | "ad" | "test";
+export type Thing = "campaign" | "adset" | "ad" | "test" | "audience" | "request";
 
 /** {thing} and {things}: the today.mcp.thing.* rows. */
 export function things(t: Thing): [string, string] {
   if (t === "campaign") return [tw("today.mcp.thing.campaign"), tw("today.mcp.thing.campaign.many")];
   if (t === "adset") return [tw("today.mcp.thing.adset"), tw("today.mcp.thing.adset.many")];
   if (t === "ad") return [tw("today.mcp.thing.ad"), tw("today.mcp.thing.ad.many")];
+  if (t === "audience") return [tw("today.mcp.thing.audience"), tw("today.mcp.thing.audience.many")];
+  if (t === "request") return [tw("today.mcp.thing.request"), tw("today.mcp.thing.request.many")];
   return [tw("today.mcp.thing.test"), tw("today.mcp.thing.test.many")];
 }
 
-type ResultVerb = "changed" | "created" | "added" | "launched";
+type ResultVerb = "changed" | "created" | "added" | "launched" | "sent";
 const RESULT_KEYS: Record<ResultVerb, [TodayMetaKey, TodayMetaKey]> = {
   changed: ["today.mcp.result.one", "today.mcp.result"],
   created: ["today.mcp.result.created.one", "today.mcp.result.created"],
   added: ["today.mcp.result.added.one", "today.mcp.result.added"],
   launched: ["today.mcp.result.launched.one", "today.mcp.result.launched"],
+  sent: ["today.mcp.result.sent.one", "today.mcp.result.sent"],
 };
 
 /** TD's counts-only result: "1 ad set changed · {id}", "2 ad sets changed · a, b" (never "1 ad sets"). */
@@ -161,6 +179,8 @@ export const countToday = (n: number) => (n === 1 ? tw("today.mcp.count.changes.
 export const countScheduled = (n: number) => (n === 1 ? tw("today.mcp.count.scheduled.one") : tw("today.mcp.count.scheduled", { n }));
 /** "{n} ads" / "1 ad". */
 export const countAds = (n: number) => (n === 1 ? tw("today.mcp.count.ads.one") : tw("today.mcp.count.ads", { n }));
+/** "{n} audiences" / "1 audience". */
+export const countAudiences = (n: number) => (n === 1 ? tw("today.mcp.count.audiences.one") : tw("today.mcp.count.audiences", { n }));
 /** "{n} ad sets" / "1 ad set". */
 export const countAdSets = (n: number) => (n === 1 ? tw("today.mcp.count.adsets.one") : tw("today.mcp.count.adsets", { n }));
 

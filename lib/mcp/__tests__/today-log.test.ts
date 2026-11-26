@@ -42,7 +42,12 @@ test("every Today word is design's row, character for character, and all 32 of M
       }),
   );
   for (const [key, words] of Object.entries(TODAY_META_WORDS)) assert.equal(words, rows.get(key), key);
-  const mb = readFileSync(new URL("./fixtures/words-mcp-today-2026-11-25.tsv", import.meta.url), "utf8").split("\n").slice(-33, -1).map((l) => l.split("\t")[0]!);
+  const keys = readFileSync(new URL("./fixtures/words-mcp-today-2026-11-25.tsv", import.meta.url), "utf8").split("\n").map((l) => l.split("\t")[0]!);
+  // MB's 32 rows, then the 12 ruled 27 Nov with #1400 (the last rows).
+  const mb = keys.slice(keys.indexOf("today.mcp.action.pause_campaign"), keys.indexOf("today.mcp.action.pause_campaign") + 32);
+  const m3c = keys.filter(Boolean).slice(-12);
+  assert.equal(m3c[0], "today.mcp.action.create_audiences");
+  for (const key of m3c) assert.ok(key in TODAY_META_WORDS, `${key} is on Today`);
   assert.equal(mb.length, 32);
   assert.equal(mb[0], "today.mcp.action.pause_campaign");
   for (const key of mb) assert.ok(key in TODAY_META_WORDS, `${key} is on Today`);

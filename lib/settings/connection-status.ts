@@ -5,11 +5,9 @@ import type { SupabaseClient, User } from "@supabase/supabase-js";
 import type { Database } from "@/lib/db/database.types";
 import { GOOGLE_ADS_OAUTH_SCOPE } from "@/lib/google-ads/oauth";
 import { TIKTOK_OAUTH_SCOPE } from "@/lib/tiktok/oauth";
+import { facebookOAuthScopes } from "@/lib/meta/oauth-scopes";
 
-const FACEBOOK_SCOPES = (
-  process.env.FACEBOOK_OAUTH_SCOPES?.trim() ||
-  "pages_show_list,pages_read_engagement,ads_management,ads_read,instagram_basic,business_management"
-)
+const FACEBOOK_SCOPES = facebookOAuthScopes()
   .split(",")
   .map((s) => s.trim())
   .filter(Boolean);

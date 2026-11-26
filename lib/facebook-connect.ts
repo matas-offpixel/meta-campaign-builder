@@ -47,15 +47,17 @@
  *   ads_read              — read ad account data (balances, delivery)
  *   instagram_basic       — read the linked IG account profile + media
  *   business_management   — required for BM-owned Pages / IG accounts
+ *   pages_manage_metadata — ask a Page for access from a client's Business
+ *                           Manager (M3c; lib/meta/oauth-scopes.ts)
  *
  * Intentionally excluded:
  *   email / public_profile       — GoTrue injects these; our Facebook app
  *                                  does not support them → "Invalid Scopes"
  *   instagram_manage_insights    — advanced scope; requires explicit approval
  */
-export const FB_SCOPES =
-  "pages_show_list,pages_read_engagement,ads_management,ads_read," +
-  "instagram_basic,business_management";
+import { DEFAULT_FACEBOOK_OAUTH_SCOPES } from "./meta/oauth-scopes";
+
+export const FB_SCOPES = DEFAULT_FACEBOOK_OAUTH_SCOPES;
 
 export type FacebookConnectOptions = {
   returnPath?: string;

@@ -20,6 +20,7 @@ import type { StoredSendOutcome } from "../plan/stored-assets-meta.ts";
 import type { McpLiveDeps } from "./live/types.ts";
 import type { McpFolderDeps } from "./folder-in/place.ts";
 import type { ReleasesData } from "./shows/claims.ts";
+import type { McpAudienceDeps } from "./audiences/types.ts";
 
 export type Db = Pick<SupabaseClient, "from">;
 
@@ -213,6 +214,8 @@ export interface ToolContext {
   folderIn?: McpFolderDeps;
   /** M3d-a's create and save paths (events, clients, the Lab lineup, releases); absent unless the route wires it. */
   shows?: McpShowsDeps;
+  /** M3c's audience and artist-access reach (lib/mcp/audience-deps.ts); absent unless the route wires it. */
+  audiences?: McpAudienceDeps;
   /** The caller is in MATAS_USER_IDS (mcp:meta tools check it again). */
   isMatas?: boolean;
   /** Today's Undo exists; omitted means TODAY_UNDO_SHIPPED (meta/today-undo.ts). Injected so tests cover both. */
