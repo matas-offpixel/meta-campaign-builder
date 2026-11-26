@@ -1,3 +1,4 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
 import type { Tables, TablesInsert, TablesUpdate } from "@/lib/db/database.types";
 import { ARCHIVED, activeClientFilter } from "@/lib/db/client-status";
@@ -110,7 +111,19 @@ export type CreateClientInput = Omit<
 export async function createClientRow(
   input: CreateClientInput,
 ): Promise<ClientRow | null> {
-  const supabase = createClient();
+  return insertClientRow(createClient(), input);
+}
+
+/**
+ * The clients form's create, on a given client: the browser client from
+ * the form (createClientRow), or a service-role client for the Off/Pixel
+ * connector's create_client (its shows seam), which names `user_id`
+ * itself.
+ */
+export async function insertClientRow(
+  supabase: Pick<SupabaseClient, "from">,
+  input: CreateClientInput,
+): Promise<ClientRow | null> {
   const payload: ClientInsert = {
     ...input,
     slug: input.slug || slugify(input.name),
