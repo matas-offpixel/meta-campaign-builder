@@ -17,6 +17,7 @@ import type { LocationSearchHit } from "../meta/location-search.ts";
 import type { AccountPage, AdSetTargetingRead, InterestHit } from "./graph-reads.ts";
 import type { CampaignDraft } from "../types.ts";
 import type { StoredSendOutcome } from "../plan/stored-assets-meta.ts";
+import type { McpLiveDeps } from "./live/types.ts";
 import type { McpFolderDeps } from "./folder-in/place.ts";
 import type { ReleasesData } from "./shows/claims.ts";
 
@@ -181,6 +182,8 @@ export interface ToolContext {
   meta?: McpMetaDeps;
   /** M4a's render reach (the track's low end, the kit); absent unless the route wires it. */
   render?: McpRenderDeps;
+  /** M3b's live reach (reads and the live writes, lib/mcp/live/types.ts); absent unless the route wires it. */
+  live?: McpLiveDeps;
   /** M3d-c's Drive writes into a show's own folders (lib/mcp/folder-in-deps.ts); absent unless the route wires it. */
   folderIn?: McpFolderDeps;
   /** M3d-a's create and save paths (events, clients, the Lab lineup, releases); absent unless the route wires it. */
@@ -189,6 +192,8 @@ export interface ToolContext {
   isMatas?: boolean;
   /** Today's Undo exists; omitted means TODAY_UNDO_SHIPPED (meta/today-undo.ts). Injected so tests cover both. */
   todayUndo?: boolean;
+  /** M3b's live tools are on; omitted means LIVE_CHANGES_SHIPPED (live/shipped.ts, false until Today's rows land). Injected so tests cover both. */
+  liveShipped?: boolean;
   /** MATAS_USER_IDS sees client names on cross-client learnings; other operators don't. */
   seesClientNames: boolean;
   /** Today's London date (YYYY-MM-DD); injected so tests are stable. */

@@ -138,6 +138,10 @@
       "schedule": "0 7,8 * * *"
     },
     {
+      "path": "/api/cron/mcp-scheduled-changes",
+      "schedule": "*/15 * * * *"
+    },
+    {
       "path": "/api/cron/creative-lab-clip-sync",
       "schedule": "45 3 * * *"
     },

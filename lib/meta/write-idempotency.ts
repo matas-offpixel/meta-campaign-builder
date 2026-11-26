@@ -45,7 +45,17 @@ export type MetaWriteOpKind =
   /** SU1: a show's "{code} · Signups" customer list (lib/customer-lists/, migration 267). */
   | "customer_list_create"
   /** SU1: one batch of up to 10,000 hashed signups added to, removed from or (key op "replace") replacing a customer list's users (migration 267). */
-  | "customer_list_users";
+  | "customer_list_users"
+  /** M3b: a live campaign switched on or off from the connector (lib/meta/campaign-status-write.ts, migration 271). */
+  | "campaign_status_update"
+  /** M3b: a live ad set's daily or lifetime budget from the connector (lib/meta/budget-write.ts, migration 271). */
+  | "adset_budget_update"
+  /** M3b: a live campaign's (CBO) daily or lifetime budget from the connector (lib/meta/budget-write.ts, migration 271). */
+  | "campaign_budget_update"
+  /** M3b: a live campaign, ad set or ad renamed from the connector (lib/meta/object-name-write.ts, migration 271). */
+  | "object_name_update"
+  /** M3b: a Meta A/B test on two existing campaigns from the connector (lib/meta/ad-study.ts, migration 271). */
+  | "ad_study_create";
 
 /**
  * Thrown only when a caller passes `{ required: true }` and the ledger

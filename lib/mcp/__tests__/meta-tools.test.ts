@@ -61,7 +61,8 @@ test("no approval, an empty one or one over 1,000 characters: every meta tool re
   }
   assert.deepEqual(db.writes, [], "nothing written");
   assert.deepEqual([spy.uploads.length, spy.launches.length], [0, 0], "nothing sent");
-  assert.ok(META_TOOLS.every((t) => t.kind === "meta" && "approval" in t.inputSchema));
+  // Every meta tool that changes something takes the approval; get_live and list_scheduled only read (M3b).
+  assert.ok(META_TOOLS.every((t) => t.kind === "meta" && (t.readOnly === true ? !("approval" in t.inputSchema) : "approval" in t.inputSchema)));
 });
 
 test("a grant without mcp:meta, or a user no longer in MATAS_USER_IDS, is refused inside the tool too", async () => {

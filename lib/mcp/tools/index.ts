@@ -7,9 +7,10 @@
  * campaign as a draft, M3a's set_draft_name, and M3d-c's
  * upload_to_event_folder (one file into a show's own Drive folder). Then the meta tools
  * (scope mcp:meta, Matas only, each on his chat yes): launch_draft,
- * upload_draft_assets and update_event. M3d-a adds the shows tools (scope
- * mcp:draft): create_event, create_client, set_lineup, get_releases,
- * set_release.
+ * upload_draft_assets and update_event, then M3b's live changes (get_live
+ * and list_scheduled read; the rest change live Meta objects). M3d-a adds
+ * the shows tools (scope mcp:draft): create_event, create_client,
+ * set_lineup, get_releases, set_release.
  */
 import type { McpTool } from "../tool-types.ts";
 import { getArtistTool } from "./artist.ts";
@@ -17,6 +18,13 @@ import { attachDriveCreativesTool, listDriveCreativesTool } from "./draft-drive.
 import { applyAudienceTemplateTool, archiveDraftTool, setDraftBudgetTool, setDraftLinkTool, setDraftLocationsTool, setDraftNameTool } from "./draft-edit.ts";
 import { launchDraftTool, uploadDraftAssetsTool } from "./meta-launch.ts";
 import { updateEventTool } from "./meta-event.ts";
+import { getLiveTool } from "./live-read.ts";
+import { pauseTool, resumeTool } from "./live-status.ts";
+import { cancelScheduledTool, listScheduledTool, moveBudgetTool, setBudgetTool } from "./live-budget.ts";
+import { renameTool } from "./live-rename.ts";
+import { addAudienceToStageTool, addCreativesToStageTool } from "./live-stage.ts";
+import { createSplitTestTool } from "./live-test.ts";
+import { switchedOffUntilShipped } from "../live/shipped.ts";
 import { getRenderPackageTool, renderPackageTool } from "./render.ts";
 import { uploadToEventFolderTool } from "./folder-in.ts";
 import { createClientTool, createEventTool, getReleasesTool, setLineupTool, setReleaseTool } from "./shows.ts";
@@ -78,7 +86,25 @@ export const DRAFT_TOOLS: readonly McpTool[] = [
 ];
 
 /** Scope mcp:meta (MATAS_USER_IDS only): each takes Matas's chat yes. */
-export const META_TOOLS: readonly McpTool[] = [launchDraftTool, uploadDraftAssetsTool, updateEventTool];
+export const META_TOOLS: readonly McpTool[] = [
+  launchDraftTool,
+  uploadDraftAssetsTool,
+  updateEventTool,
+  // M3b: live changes, switched off until Today's rows land (lib/mcp/live/shipped.ts).
+  ...[
+    getLiveTool,
+    pauseTool,
+    resumeTool,
+    setBudgetTool,
+    listScheduledTool,
+    cancelScheduledTool,
+    moveBudgetTool,
+    renameTool,
+    addCreativesToStageTool,
+    addAudienceToStageTool,
+    createSplitTestTool,
+  ].map(switchedOffUntilShipped),
+];
 
 /** Scope mcp:render (MATAS_USER_IDS only, M4a): each takes Matas's chat yes. */
 export const RENDER_TOOLS: readonly McpTool[] = [renderPackageTool];

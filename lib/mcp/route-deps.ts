@@ -14,7 +14,7 @@ import { createServiceRoleClient } from "@/lib/supabase/server";
 import { isOperator, MATAS_USER_IDS } from "@/lib/auth/operator-allowlist";
 import { createActionLogger } from "./action-log";
 import { realDraftDeps, realGraphReads } from "./draft-deps";
-import { realMetaDeps } from "./meta-deps";
+import { realLiveDeps, realMetaDeps } from "./meta-deps";
 import { realFolderDeps } from "./folder-in-deps";
 import { realShowsDeps } from "./shows-deps";
 import { startDeps } from "@/lib/render-templates/server-deps";
@@ -47,6 +47,8 @@ export function mcpHandlerDeps(): McpHandlerDeps {
     // M3d-d: strict_audit's ad set GETs.
     reads: realGraphReads(db),
     meta: realMetaDeps(db),
+    // M3b: get_live and the live changes.
+    live: realLiveDeps(db),
     // M4a: render_package starts packages; the render tick renders them.
     render: startDeps(db),
     // M3d-c: upload_to_event_folder's two Drive writes (copy, upload) into a show's own folders.
