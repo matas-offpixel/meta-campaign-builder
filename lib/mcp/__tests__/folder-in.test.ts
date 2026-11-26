@@ -10,6 +10,7 @@ import { OPERATOR, STRANGER } from "./helpers.ts";
 import { uploadToEventFolderTool } from "../tools/folder-in.ts";
 import { folderDepsFor, sourceTag } from "../folder-in/place.ts";
 import { folderSegments, resolveFolderPath } from "../folder-in/resolve.ts";
+import { FOLDER_IN_DESCRIPTION, FOLDER_IN_WORDS } from "../folder-in/words.ts";
 import { ToolInputError, type ToolContext } from "../tool-types.ts";
 import { skipReason } from "../../drive/pickup.ts";
 import { audioFilesIn } from "../../creative-tests/audio-intake.ts";
@@ -336,6 +337,31 @@ test("refusals before anything is read or written: scope, event, owner, source a
   await refused(run(ctxFor(drive).ctx, { folder: "01 Open files", drive_file_id: "PHOTO_OWN", storage_path: "x" }), "source");
   await refused(run(ctxFor(drive).ctx, { drive_file_id: "PHOTO_OWN" }), "folder");
   await refused(run(ctxFor(null).ctx, { folder: "01 Open files", drive_file_id: "PHOTO_OWN" }), "no_drive");
+  assert.deepEqual(writes(drive), []);
+});
+
+test("design's corrected rows (26 Nov verdict), word for word, and the refusals Claude gets carry them", async () => {
+  assert.equal(FOLDER_IN_WORDS.refusedSource, "Refused: give one source: a Drive file id or a Storage path. Nothing was changed.");
+  assert.equal(
+    FOLDER_IN_WORDS.refusedFolder,
+    "Refused: the folder must be 01 Open files, 3 On sale, 02 Source / Artist clips / {artist}, 02 Source / Audio / {artist} or w/c 30 Nov (that week\u2019s Monday) / {owner} / Videos or Statics. Nothing was changed.",
+  );
+  // The format code is gone from the row and the tool description; the description shows the same example Monday.
+  assert.ok(!FOLDER_IN_WORDS.refusedFolder.includes("{d Mon}"));
+  assert.ok(!FOLDER_IN_DESCRIPTION.includes("{d Mon}"));
+  assert.ok(FOLDER_IN_DESCRIPTION.includes("w/c 30 Nov (that week\u2019s Monday) / {owner} / Videos | Statics"));
+  const drive = spyDrive();
+  const message = async (p: Promise<unknown>) => {
+    try {
+      await p;
+    } catch (e) {
+      assert.ok(e instanceof ToolInputError);
+      return e.message;
+    }
+    assert.fail("expected a refusal");
+  };
+  assert.equal(await message(run(ctxFor(drive).ctx, { folder: "01 Open files" })), FOLDER_IN_WORDS.refusedSource);
+  assert.equal(await message(run(ctxFor(drive).ctx, { drive_file_id: "PHOTO_OWN" })), FOLDER_IN_WORDS.refusedFolder);
   assert.deepEqual(writes(drive), []);
 });
 
