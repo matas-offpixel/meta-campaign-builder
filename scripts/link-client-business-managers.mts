@@ -1,6 +1,8 @@
 /**
- * M3c: link each client to its Business Manager (client_business_managers.client_id),
- * the BM tool's connections, so request_page_access asks from the client's own.
+ * M3c: link each client to its Business Manager, the BM tool's connections,
+ * so request_page_access asks from the client's own. One Business Manager can
+ * serve several clients (migration 276, client_business_manager_links; Matas,
+ * 27 Nov: LWE links to both Junction 2 and Ironworks).
  *
  *   npx tsx --env-file=.env.local scripts/link-client-business-managers.mts            (dry run: reads only)
  *   npx tsx --env-file=.env.local scripts/link-client-business-managers.mts --apply    (writes client_id)
@@ -10,20 +12,23 @@
  * (GET /act_{id}?fields=business with Matas's own token, user_facebook_tokens:
  * never the env token): the client's meta_ad_account_id, its events' and its
  * venues'. The rules are lib/bm/client-link.ts planClientLinks: an
- * Off/Pixel-owned account says nothing about the client's BM; a business
- * that owns two clients' accounts is left for Matas; a connection already
- * linked to another client is never overwritten. Archived clients are left out.
+ * Off/Pixel-owned account says nothing about the client's BM, and a business
+ * that owns several clients' accounts links to each of them. Archived
+ * clients are left out.
  *
- * --apply writes client_id on each planned link whose row has no client yet,
- * one UPDATE … WHERE business_id AND client_id IS NULL. Nothing else is
- * written and nothing is sent to Meta (GETs only). Prints client and business
- * names and ids, account ids and reasons: no tokens, no person data.
+ * --apply (needs migration 276) inserts a client_business_manager_links row
+ * per new (business, client), and sets client_business_managers.client_id
+ * (the primary client the BM tool reads) only for a business with one client
+ * here and none set: one UPDATE … WHERE business_id AND client_id IS NULL.
+ * Nothing else is written and nothing is sent to Meta (GETs only). Prints
+ * client and business names and ids, account ids and reasons: no tokens, no
+ * person data.
  */
 
 import { createClient } from "@supabase/supabase-js";
 
 import { MATAS_USER_IDS } from "../lib/auth/operator-allowlist.ts";
-import { planClientLinks, type AccountOwner, type Connected, type LinkClient } from "../lib/bm/client-link.ts";
+import { linkWrites, planClientLinks, type AccountOwner, type Connected, type LinkClient } from "../lib/bm/client-link.ts";
 
 const argv = process.argv.slice(2);
 const apply = argv.includes("--apply");
@@ -68,8 +73,12 @@ if (clientArg) {
 }
 const events = await all<{ id: string; client_id: string | null; meta_ad_account_id: string | null }>("events", "id, client_id, meta_ad_account_id");
 const venues = await all<{ id: string; client_id: string | null; meta_ad_account_id: string | null }>("venues", "id, client_id, meta_ad_account_id");
+// Links already made (276); a missing table reads as none, and --apply then stops.
+const linkRead = await db.from("client_business_manager_links").select("business_id, client_id").range(0, 9999);
+const linksTable = !linkRead.error;
+const existingLinks = (linksTable ? linkRead.data ?? [] : []) as { business_id: string; client_id: string }[];
 const connected = (await all<{ id: string; business_id: string; business_name: string | null; client_id: string | null }>("client_business_managers", "id, business_id, business_name, client_id")).map(
-  (r): Connected => ({ businessId: String(r.business_id), name: r.business_name ?? String(r.business_id), clientId: r.client_id }),
+  (r): Connected => ({ businessId: String(r.business_id), name: r.business_name ?? String(r.business_id), clientId: r.client_id, linkedClientIds: existingLinks.filter((l) => String(l.business_id) === String(r.business_id)).map((l) => l.client_id) }),
 );
 
 const accountsOf = new Map<string, Set<string>>();
@@ -106,25 +115,38 @@ console.log(`${apply ? "APPLY" : "DRY RUN"}: ${linkClients.length} client(s), ${
 console.log(`\nLinked (${plan.links.length}):`);
 for (const l of plan.links) {
   const stored = l.storedBusinessMatches == null ? "" : l.storedBusinessMatches ? "  · matches clients.meta_business_id" : "  · differs from clients.meta_business_id";
-  console.log(`  ${l.client} (${l.clientId}) → ${l.business} (${l.businessId})${l.already ? "  · already linked" : ""}  · accounts ${l.accounts.map((a) => `act_${a}`).join(", ")}${stored}`);
+  const shared = l.sharedWith ? `  · shared with ${l.sharedWith} other client(s)` : "";
+  console.log(`  ${l.client} (${l.clientId}) → ${l.business} (${l.businessId})${l.already ? "  · already linked" : ""}${shared}  · accounts ${l.accounts.map((a) => `act_${a}`).join(", ")}${stored}`);
 }
 console.log(`\nNot linked (${plan.unlinked.length}):`);
 for (const u of plan.unlinked) console.log(`  ${u.client} (${u.clientId}): ${u.reason} — ${u.detail}`);
 const linkedBusinesses = new Set(plan.links.map((l) => l.businessId));
-const idle = connected.filter((c) => !linkedBusinesses.has(c.businessId) && !c.clientId);
+const idle = connected.filter((c) => !linkedBusinesses.has(c.businessId) && !c.clientId && !(c.linkedClientIds ?? []).length);
+const writes = linkWrites(plan, connected);
+console.log(`\n--apply would insert ${writes.links.length} link row(s) and set the primary client on ${writes.primary.length} connection(s)${linksTable ? "" : " (needs migration 276: client_business_manager_links isn't there yet)"}.`);
 console.log(`\nConnected Business Managers no client's accounts point to (${idle.length}): ${idle.map((c) => `${c.name} (${c.businessId})`).join(", ")}`);
 
 if (!apply) {
-  console.log("\nDry run: nothing was written. Run with --apply to write client_id on the links above.");
+  console.log("\nDry run: nothing was written. Run with --apply (after migration 276) to write the links above.");
   process.exit(0);
 }
-let written = 0;
-for (const l of plan.links.filter((x) => !x.already)) {
-  const res = await db.from("client_business_managers").update({ client_id: l.clientId }).eq("business_id", l.businessId).is("client_id", null).select("business_id");
+if (!linksTable) {
+  console.error("\nclient_business_manager_links isn't there: apply migration 276 first. Nothing was written.");
+  process.exit(2);
+}
+let linked = 0;
+if (writes.links.length) {
+  const res = await db.from("client_business_manager_links").upsert(writes.links, { onConflict: "business_id,client_id", ignoreDuplicates: true }).select("business_id");
+  if (res.error) console.error(`  links not written — ${res.error.message}`);
+  else linked = (res.data ?? []).length;
+}
+let primary = 0;
+for (const w of writes.primary) {
+  const res = await db.from("client_business_managers").update({ client_id: w.client_id }).eq("business_id", w.business_id).is("client_id", null).select("business_id");
   if (res.error) {
-    console.error(`  ${l.business} (${l.businessId}): not written — ${res.error.message}`);
+    console.error(`  ${w.business_id}: primary client not written — ${res.error.message}`);
     continue;
   }
-  written += (res.data ?? []).length;
+  primary += (res.data ?? []).length;
 }
-console.log(`\nWrote client_id on ${written} connection(s).`);
+console.log(`\nWrote ${linked} link row(s) and the primary client on ${primary} connection(s).`);

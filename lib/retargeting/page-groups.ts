@@ -167,8 +167,10 @@ export function confirmedGenreRows(rows: readonly GenreRow[]): GenreRow[] {
 
 /**
  * The confirmed rows as the seed's listing: each Page under every client its
- * Business Manager is linked to (client_business_managers.business_name, matched
- * trimmed and case-blind). A business no client links to is returned apart.
+ * Business Manager is linked to — the BM's primary client and #1403's
+ * client_business_manager_links rows (the seed reads them through
+ * lib/bm/client-links.ts) — the BM matched by its business_name, trimmed and
+ * case-blind. A business no client links to is returned apart.
  */
 export function sourcesFromGenreRows(rows: readonly GenreRow[], links: readonly { client_id: string; business_name: string | null }[], opts: { venueOrPromoter?: ReadonlySet<string> } = {}): { sources: ClientBuildableSource[]; unlinked: string[]; leftOut: number } {
   const key = (name: string) => name.trim().toLowerCase();

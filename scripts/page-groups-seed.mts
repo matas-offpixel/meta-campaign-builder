@@ -11,7 +11,7 @@
  * Only clients whose Business Manager is linked are listed (4 of 9, 26 Nov).
  *
  * --from-meta calls loadClientBuildableSources for every client with a linked
- * Business Manager (client_business_managers), as Matas (MATAS_USER_IDS, or
+ * Business Manager (its primary client and #1403's client_business_manager_links), as Matas (MATAS_USER_IDS, or
  * --user): Meta GETs only, through the audience tools' own deps. --listing
  * FILE takes its rows from a file instead (an array of { client_id, kind, id,
  * name, genre_family, reach }), with no Meta call.
@@ -39,6 +39,7 @@ import { readFileSync } from "node:fs";
 import { createClient } from "@supabase/supabase-js";
 
 import { MATAS_USER_IDS } from "../lib/auth/operator-allowlist.ts";
+import { businessClientLinks } from "../lib/bm/client-links.ts";
 import { confirmedGenreRows, loadVenueAndPromoterPageIds, noGenreLine, parseGenreRows, planPageGroups, sourcesFromGenreRows, type ClientBuildableSource, type StoredGroup } from "../lib/retargeting/page-groups.ts";
 
 function arg(name: string): string | undefined {
@@ -61,16 +62,27 @@ const db = createClient(url, key, { auth: { persistSession: false } });
 // TC9: venue and promoter Pages never join a group.
 const venueOrPromoter = await loadVenueAndPromoterPageIds(db);
 
+/**
+ * Every (business, client) pair with the business's name: a Business Manager's
+ * primary client and its client_business_manager_links rows (#1403, migration
+ * 276: one BM can serve several clients), through lib/bm/client-links.ts.
+ */
+async function businessLinks(): Promise<{ client_id: string; business_id: string; business_name: string | null }[]> {
+  const { data, error } = await db.from("client_business_managers").select("business_id, business_name");
+  if (error) throw new Error(`client_business_managers: ${error.message}`);
+  const names = new Map(((data ?? []) as { business_id: string; business_name: string | null }[]).map((row) => [String(row.business_id), row.business_name]));
+  const links = await businessClientLinks(db, { businessIds: [...names.keys()] });
+  return links.map((link) => ({ client_id: link.client_id, business_id: link.business_id, business_name: names.get(link.business_id) ?? null }));
+}
+
 /** #1400's listing for every client with a linked Business Manager (Meta GETs as Matas). */
 async function fromMeta(): Promise<ClientBuildableSource[]> {
   if (!USER) throw new Error("--user UUID is required (MATAS_USER_IDS is empty)");
   const { realAudienceDeps } = await import("../lib/mcp/audience-deps.ts");
   const { loadClientBuildableSources } = await import("../lib/mcp/audiences/client-sources.ts");
   const deps = realAudienceDeps(db as never);
-  const { data, error } = await db.from("client_business_managers").select("client_id, business_id").not("client_id", "is", null);
-  if (error) throw new Error(`client_business_managers: ${error.message}`);
   const rows: ClientBuildableSource[] = [];
-  for (const link of (data ?? []) as { client_id: string; business_id: string }[]) {
+  for (const link of await businessLinks()) {
     if (CLIENT && link.client_id !== CLIENT) continue;
     try {
       rows.push(...(await loadClientBuildableSources(db as never, deps, USER, link.client_id, String(link.business_id))));
@@ -85,9 +97,7 @@ async function fromMeta(): Promise<ClientBuildableSource[]> {
 async function fromGenres(): Promise<ClientBuildableSource[]> {
   const rows = parseGenreRows(readFileSync(GENRES!, "utf8"));
   const confirmed = confirmedGenreRows(rows);
-  const { data, error } = await db.from("client_business_managers").select("client_id, business_name").not("client_id", "is", null);
-  if (error) throw new Error(`client_business_managers: ${error.message}`);
-  const { sources, unlinked, leftOut } = sourcesFromGenreRows(rows, (data ?? []) as { client_id: string; business_name: string | null }[], { venueOrPromoter });
+  const { sources, unlinked, leftOut } = sourcesFromGenreRows(rows, await businessLinks(), { venueOrPromoter });
   console.log(`genres file: rows=${rows.length} confirmed=${confirmed.length} ignored=${rows.length - confirmed.length} (draft, unsure, "?" or not a genre to group on) venue_or_promoter_left_out=${leftOut}`);
   for (const name of unlinked) console.log(`no client links business "${name}": its confirmed pages are left out`);
   return sources;

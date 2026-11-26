@@ -14,7 +14,6 @@ import {
   markBusinessManagerTokenExpired,
 } from "@/lib/db/business-managers";
 import {
-  dropArchivedClientRows,
   loadArchivedClientIds,
   logSkippedArchivedClients,
 } from "@/lib/db/client-status";
@@ -24,6 +23,7 @@ import {
   type AppUsageReading,
 } from "@/lib/meta/call-meter";
 import { scanBusinessManager } from "@/lib/bm/sync";
+import { businessClientLinks, keepForScan } from "@/lib/bm/client-links";
 import { scanBusinessManagerAllAssets, type AssetScanResult } from "@/lib/bm/sync-assets";
 import {
   BM_SCAN_TIME_BUDGET_MS,
@@ -122,10 +122,13 @@ export async function runBmCronScan(
   const startedAtMs = now();
 
   // Archived clients are out of every cron (lib/db/client-status.ts). A BM
-  // with no client_id is kept, as rows with no client are everywhere else.
+  // with no client is kept, as rows with no client are everywhere else. Since
+  // 276 a BM can serve several clients (client_id and its link rows): it is
+  // left out only when every one of them is archived.
   const connected = await listBusinessManagers(supabase);
   const archivedClientIds = await loadArchivedClientIds(supabase);
-  const bms = orderForRotation(dropArchivedClientRows(connected, archivedClientIds));
+  const links = await businessClientLinks(supabase, { businessIds: connected.map((bm) => bm.business_id) });
+  const bms = orderForRotation(keepForScan(connected, links, new Set(archivedClientIds)));
   const skippedArchivedClients = connected.length - bms.length;
   logSkippedArchivedClients("bm-page-scan", skippedArchivedClients);
   console.error(
