@@ -12,8 +12,8 @@
  *     rules them, the ruled words replace the candidates here.
  *
  *   - RULED 27 Nov: the rows design corrected in its verdict on #1400, word
- *     for word and character for character (straight apostrophes where design
- *     wrote them), pinned by lib/mcp/__tests__/audience-tools.test.ts.
+ *     for word and character for character (typographic apostrophes, Matas
+ *     27 Nov), pinned by lib/mcp/__tests__/audience-tools.test.ts.
  *
  * Except the one Matas wrote himself (refused.no_metadata, his words in the
  * 26 Nov brief) and the read failure (a read sends nothing, so it doesn't say
@@ -41,7 +41,7 @@ const T = {
   accountFormat: pending("claude.mcp.aud.refused.account", "Told to Claude, a bad ad_account", "Refused: give the event code, or ad_account as act_ followed by its digits. Nothing was sent to Meta."),
   accountNotYours: pending("claude.mcp.aud.refused.account_not_yours", "Told to Claude, an ad account no event of Matas's uses", "Refused: none of your events runs on {account}. Pass an event code instead. Nothing was sent to Meta."),
   /** Ruled 27 Nov (design on #1400). */
-  readFailed: "Meta couldn't be read, so nothing was listed. Try again.",
+  readFailed: "Meta couldn’t be read, so nothing was listed. Try again.",
   sizeBand: pending("claude.mcp.aud.size", "list_audiences, each audience's size", "{low}–{high} people"),
   sizeBelow: pending("claude.mcp.aud.size.below", "list_audiences, an audience under Meta's lowest band", "under 1,000 people"),
   sizeUnknown: pending("claude.mcp.aud.size.unknown", "list_audiences, size not read yet", "size not known yet"),
@@ -67,7 +67,7 @@ const T = {
   followersOffered: "Page followers ({page}, all time): offered.",
   followersNot: "Page followers ({page}, all time): not offered until {name} gives advertiser access.",
   followersExisting: "Page followers ({page}, all time): already on the account as {audience} ({id}).",
-  igNoPage: "Instagram followers (@{username}, all time): not offered, because it isn't linked to a Page this ad account can use.",
+  igNoPage: "Instagram followers (@{username}, all time): not offered, because it isn’t linked to a Page this ad account can use.",
   // The Instagram forms of the three Page lines: design ruled the Page form and ig.no_page only.
   igFollowersOffered: pending("claude.mcp.aud.src.ig.followers.yes", "audience_sources, Instagram followers offered (the Page row's Instagram form)", "Instagram followers (@{username}, all time): offered."),
   igFollowersNot: pending("claude.mcp.aud.src.ig.followers.no", "audience_sources, Instagram followers not offered until its Page has access (the Page row's Instagram form)", "Instagram followers (@{username}, all time): not offered until {name} gives advertiser access."),
@@ -87,7 +87,7 @@ const T = {
   emailBody: pending(
     "claude.mcp.aud.src.email.body",
     "audience_sources, the heads-up email for the artist's team",
-    "Hi,\n\nWe’re running the ads for {show}. {business} has sent {artist}’s Facebook Page a request for Advertise and Analyse access, so we can show the show’s ads to people who follow and engage with the Page. With it, {business} can run ads as the Page and see how they do; it can't post to the Page, message from it or change it.\n\nA Page admin will see it under Business Suite › Settings › Requests. Could you approve it when you get a moment?\n\nThanks",
+    "Hi,\n\nWe’re running the ads for {show}. {business} has sent {artist}’s Facebook Page a request for Advertise and Analyse access, so we can show the show’s ads to people who follow and engage with the Page. With it, {business} can run ads as the Page and see how they do; it can’t post to the Page, message from it or change it.\n\nA Page admin will see it under Business Suite › Settings › Requests. Could you approve it when you get a moment?\n\nThanks",
   ),
   // ── create_audiences ───────────────────────────────────────────────────────
   noSpecs: pending("claude.mcp.aud.refused.no_specs", "Told to Claude, no specs or more than 30", "Refused: give 1 to 30 audience specs. Nothing was sent to Meta."),
