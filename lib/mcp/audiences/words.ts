@@ -11,9 +11,14 @@
  *     candidate; the PR body's "For design" table is that list. When design
  *     rules them, the ruled words replace the candidates here.
  *
+ *   - RULED 27 Nov: the rows design corrected in its verdict on #1400, word
+ *     for word and character for character (straight apostrophes where design
+ *     wrote them), pinned by lib/mcp/__tests__/audience-tools.test.ts.
+ *
  * Except the one Matas wrote himself (refused.no_metadata, his words in the
- * 26 Nov brief), every refusal ends "Nothing was sent to Meta." and every
- * answer gives names, counts, ids and links only: no raw error, token or hash.
+ * 26 Nov brief) and the read failure (a read sends nothing, so it doesn't say
+ * so), every refusal ends "Nothing was sent to Meta." and every answer gives
+ * names, counts, ids and links only: no raw error, token or hash.
  *
  * Relative imports only (node:test).
  */
@@ -35,7 +40,8 @@ const T = {
   noAccount: pending("claude.mcp.aud.refused.no_account", "Told to Claude, the event has no ad account", "Refused: {code} has no ad account, so there’s nothing to read or build on. Set one on the event first. Nothing was sent to Meta."),
   accountFormat: pending("claude.mcp.aud.refused.account", "Told to Claude, a bad ad_account", "Refused: give the event code, or ad_account as act_ followed by its digits. Nothing was sent to Meta."),
   accountNotYours: pending("claude.mcp.aud.refused.account_not_yours", "Told to Claude, an ad account no event of Matas's uses", "Refused: none of your events runs on {account}. Pass an event code instead. Nothing was sent to Meta."),
-  readFailed: pending("claude.mcp.aud.refused.read_failed", "Told to Claude, Meta couldn't be read", "Meta couldn’t be read, so nothing was listed. Try again. Nothing was sent to Meta."),
+  /** Ruled 27 Nov (design on #1400). */
+  readFailed: "Meta couldn't be read, so nothing was listed. Try again.",
   sizeBand: pending("claude.mcp.aud.size", "list_audiences, each audience's size", "{low}–{high} people"),
   sizeBelow: pending("claude.mcp.aud.size.below", "list_audiences, an audience under Meta's lowest band", "under 1,000 people"),
   sizeUnknown: pending("claude.mcp.aud.size.unknown", "list_audiences, size not read yet", "size not known yet"),
@@ -57,18 +63,31 @@ const T = {
   accessible: pending("claude.mcp.aud.src.accessible", "audience_sources, a Page or account audiences can be built from", "accessible"),
   needsAccess: pending("claude.mcp.aud.src.needs_access", "audience_sources, a Page with no access", "needs advertiser access"),
   idUnknown: pending("claude.mcp.aud.src.id_unknown", "audience_sources, an artist with no Page or Instagram id on file", "{name}: no {what} id on file, so it can’t be checked or built from. Add it in the artist library."),
-  followersOffered: pending("claude.mcp.aud.src.followers.yes", "audience_sources, followers offered", "Followers ({event}, all time): offered."),
-  followersNot: pending("claude.mcp.aud.src.followers.no", "audience_sources, followers not offered", "Followers ({event}, all time): not offered until {name} gives advertiser access."),
-  followersExisting: pending("claude.mcp.aud.src.followers.existing", "audience_sources, a follower audience already on the account", "Followers ({event}, all time): already on the account as {audience} ({id})."),
-  igNoPage: pending("claude.mcp.aud.src.ig.no_page", "audience_sources, an Instagram account with no linked Page the account can use", "Followers (INSTAGRAM_PROFILE_FOLLOW, all time): not offered: {name} isn’t linked to a Page this ad account can use."),
+  /** Ruled 27 Nov (design on #1400): the follower lines name the source, never Meta's event. */
+  followersOffered: "Page followers ({page}, all time): offered.",
+  followersNot: "Page followers ({page}, all time): not offered until {name} gives advertiser access.",
+  followersExisting: "Page followers ({page}, all time): already on the account as {audience} ({id}).",
+  igNoPage: "Instagram followers (@{username}, all time): not offered, because it isn't linked to a Page this ad account can use.",
+  // The Instagram forms of the three Page lines: design ruled the Page form and ig.no_page only.
+  igFollowersOffered: pending("claude.mcp.aud.src.ig.followers.yes", "audience_sources, Instagram followers offered (the Page row's Instagram form)", "Instagram followers (@{username}, all time): offered."),
+  igFollowersNot: pending("claude.mcp.aud.src.ig.followers.no", "audience_sources, Instagram followers not offered until its Page has access (the Page row's Instagram form)", "Instagram followers (@{username}, all time): not offered until {name} gives advertiser access."),
+  igFollowersExisting: pending("claude.mcp.aud.src.ig.followers.existing", "audience_sources, an Instagram follower audience already on the account (the Page row's Instagram form)", "Instagram followers (@{username}, all time): already on the account as {audience} ({id})."),
   offerRequest: pending("claude.mcp.aud.src.offer_request", "audience_sources, the next step for an artist Page with no access", "Ask for access with request_page_access (Page {id}, from {business}). It goes to {name}’s Page admins to approve."),
-  offerNoBusiness: pending("claude.mcp.aud.src.offer_no_bm", "audience_sources, no client Business Manager to ask from", "There’s no Business Manager linked to {client}, so access can’t be asked for yet. Link it with scripts/link-client-business-managers.mts."),
-  igManual: pending("claude.mcp.aud.src.ig_manual", "audience_sources, the manual Instagram step", "Instagram can’t be asked for here. In Business Suite for {business}: Settings › Accounts › Instagram accounts › Add › Request access to an Instagram account, then enter @{username}."),
+  /** Ruled 27 Nov (design on #1400). */
+  offerNoBusiness: "There’s no Business Manager linked to {client}, so access can’t be asked for yet. Matas links it with scripts/link-client-business-managers.mts.",
+  /**
+   * Ruled 27 Nov (design on #1400): the shorter line, because the longer
+   * menu path couldn't be confirmed against Meta (27 Nov: Meta's Help Centre
+   * documents Add under Instagram accounts as adding an account you own, with
+   * its login, and a request to another business as Settings › Partners › Add
+   * › "Ask a partner to assign you their assets").
+   */
+  igManual: "In Business Suite for {business}, request access to @{username} under Settings › Accounts › Instagram accounts.",
   emailSubject: pending("claude.mcp.aud.src.email.subject", "audience_sources, the heads-up email's subject", "Access request for {artist}’s Facebook Page, for {show}"),
   emailBody: pending(
     "claude.mcp.aud.src.email.body",
     "audience_sources, the heads-up email for the artist's team",
-    "Hi,\n\nWe’re running the ads for {show}. {business} has sent {artist}’s Facebook Page a request for Advertise and Analyse access, so we can show the show’s ads to people who follow and engage with the Page. It can’t post, message or change the Page.\n\nA Page admin will see it under Business Suite › Settings › Requests. Could you approve it when you get a moment?\n\nThanks",
+    "Hi,\n\nWe’re running the ads for {show}. {business} has sent {artist}’s Facebook Page a request for Advertise and Analyse access, so we can show the show’s ads to people who follow and engage with the Page. With it, {business} can run ads as the Page and see how they do; it can't post to the Page, message from it or change it.\n\nA Page admin will see it under Business Suite › Settings › Requests. Could you approve it when you get a moment?\n\nThanks",
   ),
   // ── create_audiences ───────────────────────────────────────────────────────
   noSpecs: pending("claude.mcp.aud.refused.no_specs", "Told to Claude, no specs or more than 30", "Refused: give 1 to 30 audience specs. Nothing was sent to Meta."),
@@ -97,7 +116,9 @@ const T = {
   offPixelBusiness: pending("claude.mcp.access.refused.off_pixel", "Told to Claude, the linked Business Manager is Off/Pixel's", "Refused: access is never asked for from Off/Pixel’s own Business Manager, only the client’s. Nothing was sent to Meta."),
   notAdmin: pending("claude.mcp.access.refused.not_admin", "Told to Claude, Matas isn't an admin of the client's Business Manager", "Refused: you’re not an admin of {business}, and Meta takes access requests from admins only. Nothing was sent to Meta."),
   alreadyShared: pending("claude.mcp.access.refused.shared", "Told to Claude, a Page already shared with the business", "Refused: {pages} already shared with {business}. Nothing was sent to Meta."),
-  alreadyPending: pending("claude.mcp.access.refused.pending", "Told to Claude, a request already waiting", "Refused: {pages} already asked for from {business} and waiting on the Page’s admins. Nothing was sent to Meta."),
+  /** Ruled 27 Nov (design on #1400), one and many. */
+  alreadyPendingOne: "Refused: {page} was already asked for from {business} and is still waiting on its admins. Nothing was sent to Meta.",
+  alreadyPendingMany: "Refused: {pages} were already asked for from {business} and are still waiting on their admins. Nothing was sent to Meta.",
   overCap: pending("claude.mcp.access.refused.cap", "Told to Claude, over 5 requests a day from one business", "Refused: {business} has sent {sent} of its 5 access requests in the last 24 hours, so {asked} would go over. Meta locks a Business Manager whose requests are reported. Nothing was sent to Meta."),
   noMetadata: "Reconnect Facebook in Off/Pixel to allow access requests.",
   noToken: pending("claude.mcp.access.refused.no_token", "Told to Claude, no personal Facebook token", "Refused: there’s no Facebook connection for you in Off/Pixel. Connect Facebook in Settings first. Nothing was sent to Meta."),
@@ -135,10 +156,13 @@ export const AUD_WORDS = {
   clientSourcesUnread: (business: string) => fill(T.clientSourcesUnread, { business }),
   linksNone: (code: string) => fill(T.linksNone, { code }),
   idUnknown: (name: string, what: "Facebook Page" | "Instagram") => fill(T.idUnknown, { name, what }),
-  followersOffered: (event: string) => fill(T.followersOffered, { event }),
-  followersNot: (event: string, name: string) => fill(T.followersNot, { event, name }),
-  followersExisting: (event: string, audience: string, id: string) => fill(T.followersExisting, { event, audience, id }),
-  igNoPage: (name: string) => fill(T.igNoPage, { name }),
+  followersOffered: (page: string) => fill(T.followersOffered, { page }),
+  followersNot: (page: string, name: string) => fill(T.followersNot, { page, name }),
+  followersExisting: (page: string, audience: string, id: string) => fill(T.followersExisting, { page, audience, id }),
+  igNoPage: (username: string) => fill(T.igNoPage, { username }),
+  igFollowersOffered: (username: string) => fill(T.igFollowersOffered, { username }),
+  igFollowersNot: (username: string, name: string) => fill(T.igFollowersNot, { username, name }),
+  igFollowersExisting: (username: string, audience: string, id: string) => fill(T.igFollowersExisting, { username, audience, id }),
   offerRequest: (id: string, business: string, name: string) => fill(T.offerRequest, { id, business, name }),
   offerNoBusiness: (client: string) => fill(T.offerNoBusiness, { client }),
   igManual: (business: string, username: string) => fill(T.igManual, { business, username }),
@@ -161,7 +185,7 @@ export const AUD_WORDS = {
   manyBusinesses: (client: string, n: number) => fill(T.manyBusinesses, { client, n }),
   notAdmin: (business: string) => fill(T.notAdmin, { business }),
   alreadyShared: (pages: readonly string[], business: string) => fill(T.alreadyShared, { pages: pagesAre(pages, "is", "are"), business }),
-  alreadyPending: (pages: readonly string[], business: string) => fill(T.alreadyPending, { pages: pagesAre(pages, "was", "were"), business }),
+  alreadyPending: (pages: readonly string[], business: string) => (pages.length === 1 ? fill(T.alreadyPendingOne, { page: pages[0]!, business }) : fill(T.alreadyPendingMany, { pages: pages.join(", "), business })),
   overCap: (business: string, sent: number, asked: number) => fill(T.overCap, { business, sent, asked: count(asked, "more", "more") }),
   noDraft: (code: string) => fill(T.noDraft, { code }),
   noClient: (code: string) => fill(T.noClient, { code }),

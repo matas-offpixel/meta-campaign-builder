@@ -241,10 +241,16 @@ export async function readSources(ctx: ToolContext, deps: McpAudienceDeps, event
     if (!r.complete) notes.push(AUD_WORDS.partial(r.audiences.length));
     return r.audiences;
   });
-  const followerLine = (id: string, name: string, ok: boolean, ev: "page_liked" | "INSTAGRAM_PROFILE_FOLLOW") => {
-    const have = existingFollowers(existing, id, ev);
-    if (have) return AUD_WORDS.followersExisting(ev, have.name ?? have.id, have.id);
-    return ok ? AUD_WORDS.followersOffered(ev) : AUD_WORDS.followersNot(ev, name);
+  // Page followers are page_liked, Instagram followers INSTAGRAM_PROFILE_FOLLOW (the builder's rules); the lines name the source, never the event.
+  const pageFollowers = (id: string, page: string, ok: boolean, who: string) => {
+    const have = existingFollowers(existing, id, "page_liked");
+    if (have) return AUD_WORDS.followersExisting(page, have.name ?? have.id, have.id);
+    return ok ? AUD_WORDS.followersOffered(page) : AUD_WORDS.followersNot(page, who);
+  };
+  const igFollowers = (id: string, username: string, ok: boolean, who: string) => {
+    const have = existingFollowers(existing, id, "INSTAGRAM_PROFILE_FOLLOW");
+    if (have) return AUD_WORDS.igFollowersExisting(username, have.name ?? have.id, have.id);
+    return ok ? AUD_WORDS.igFollowersOffered(username) : AUD_WORDS.igFollowersNot(username, who);
   };
 
   const pages: SourcePage[] = [];
@@ -254,7 +260,7 @@ export async function readSources(ctx: ToolContext, deps: McpAudienceDeps, event
     const ok = accessible.has(p.id);
     const name = p.name ?? access.names[p.id] ?? p.id;
     const act = lineup.find((a) => a.pageId === p.id);
-    pages.push({ id: p.id, name, owner: act ? "artist" : "promoter", artist: act?.name ?? null, accessible: ok, status: ok ? AUD_WORDS.accessible : AUD_WORDS.needsAccess, followers: followerLine(p.id, name, ok, "page_liked") });
+    pages.push({ id: p.id, name, owner: act ? "artist" : "promoter", artist: act?.name ?? null, accessible: ok, status: ok ? AUD_WORDS.accessible : AUD_WORDS.needsAccess, followers: pageFollowers(p.id, name, ok, act?.name ?? name) });
     if (p.igId) igByPage.set(p.id, { id: p.igId, username: p.igUsername });
   }
   const promoteIds = new Set(promote.pages.map((p) => p.id));
@@ -264,7 +270,7 @@ export async function readSources(ctx: ToolContext, deps: McpAudienceDeps, event
     else if (!promoteIds.has(a.pageId) && !pages.some((p) => p.id === a.pageId)) {
       const ok = accessible.has(a.pageId);
       const name = access.names[a.pageId] ?? a.pageName ?? a.name;
-      const page: SourcePage = { id: a.pageId, name, owner: "artist", artist: a.name, accessible: ok, status: ok ? AUD_WORDS.accessible : AUD_WORDS.needsAccess, followers: followerLine(a.pageId, name, ok, "page_liked") };
+      const page: SourcePage = { id: a.pageId, name, owner: "artist", artist: a.name, accessible: ok, status: ok ? AUD_WORDS.accessible : AUD_WORDS.needsAccess, followers: pageFollowers(a.pageId, name, ok, a.name) };
       if (!ok) {
         page.next = {
           tool: "request_page_access",
@@ -280,9 +286,10 @@ export async function readSources(ctx: ToolContext, deps: McpAudienceDeps, event
   // Instagram: an account linked to an accessible Page the ad account can use is accessible.
   for (const [pageId, ig] of igByPage) {
     const ok = accessible.has(pageId);
-    const label = ig.username ? `@${ig.username}` : ig.id;
+    const label = ig.username ?? ig.id;
     const artist = lineup.find((a) => a.igId === ig.id || (a.igUsername && ig.username && a.igUsername.toLowerCase() === ig.username.toLowerCase()));
-    instagram.push({ id: ig.id, username: ig.username, owner: artist ? "artist" : "promoter", artist: artist?.name ?? null, accessible: ok, status: ok ? AUD_WORDS.accessible : AUD_WORDS.needsAccess, followers: followerLine(ig.id, label, ok, "INSTAGRAM_PROFILE_FOLLOW"), linkedPageId: pageId });
+    const pageName = pages.find((p) => p.id === pageId)?.name ?? pageId;
+    instagram.push({ id: ig.id, username: ig.username, owner: artist ? "artist" : "promoter", artist: artist?.name ?? null, accessible: ok, status: ok ? AUD_WORDS.accessible : AUD_WORDS.needsAccess, followers: igFollowers(ig.id, label, ok, artist?.name ?? pageName), linkedPageId: pageId });
   }
   for (const a of lineup) {
     const known = instagram.some((i) => (a.igId && i.id === a.igId) || (a.igUsername && i.username && i.username.toLowerCase() === a.igUsername.toLowerCase()));
@@ -291,7 +298,7 @@ export async function readSources(ctx: ToolContext, deps: McpAudienceDeps, event
       notes.push(AUD_WORDS.idUnknown(a.name, "Instagram"));
       continue;
     }
-    const label = a.igUsername ? `@${a.igUsername}` : (a.igId as string);
+    const label = a.igUsername ?? (a.igId as string);
     instagram.push({
       id: a.igId,
       username: a.igUsername,

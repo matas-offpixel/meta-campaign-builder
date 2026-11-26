@@ -261,17 +261,21 @@ test("audience_sources: the pixel, links, Pages and Instagram with access, follo
   assert.equal(d.clientBusinessManager.id, BM);
   const promo = d.pages.find((p: { id: string }) => p.id === PROMO_PAGE);
   assert.equal(promo.status, "accessible");
-  assert.equal(promo.followers, "Followers (page_liked, all time): already on the account as XMPL Promoter FB Likes (120555).");
+  assert.equal(promo.followers, "Page followers (XMPL Promoter, all time): already on the account as XMPL Promoter FB Likes (120555).");
   const act = d.pages.find((p: { id: string }) => p.id === ACT_PAGE);
   assert.equal(act.status, "needs advertiser access");
-  assert.equal(act.followers, "Followers (page_liked, all time): not offered until XMPL Act gives advertiser access.");
+  assert.equal(act.followers, "Page followers (XMPL Act, all time): not offered until XMPL Act gives advertiser access.");
   assert.deepEqual(act.next.page_ids, [ACT_PAGE]);
   assert.equal(act.next.line, `Ask for access with request_page_access (Page ${ACT_PAGE}, from XMPL BM). It goes to XMPL Act’s Page admins to approve.`);
   assert.equal(act.next.email.subject, "Access request for XMPL Act’s Facebook Page, for XMPL Show");
   const ig = d.instagram.find((i: { id: string }) => i.id === PROMO_IG);
-  assert.equal(ig.followers, "Followers (INSTAGRAM_PROFILE_FOLLOW, all time): offered.");
+  assert.equal(ig.followers, "Instagram followers (@xmplpromoter, all time): offered.");
   const actIg = d.instagram.find((i: { username: string }) => i.username === "xmplact");
-  assert.equal(actIg.manual, "Instagram can’t be asked for here. In Business Suite for XMPL BM: Settings › Accounts › Instagram accounts › Add › Request access to an Instagram account, then enter @xmplact.");
+  assert.equal(actIg.manual, "In Business Suite for XMPL BM, request access to @xmplact under Settings › Accounts › Instagram accounts.");
+  assert.equal(actIg.followers, "Instagram followers (@xmplact, all time): not offered, because it isn't linked to a Page this ad account can use.");
+  assert.match(act.next.email.body, /With it, XMPL BM can run ads as the Page and see how they do; it can't post to the Page, message from it or change it\./);
+  // No raw Meta event name reaches Claude.
+  assert.doesNotMatch(JSON.stringify(out.data), /page_liked|INSTAGRAM_PROFILE_FOLLOW/);
   // The ad account's other Pages are counted, not listed.
   assert.ok(d.notes.includes("The ad account can also run from 1 other Page outside the promoter’s and this lineup’s; they aren’t listed."));
   // Access is checked against the client's Business Manager.
@@ -457,4 +461,19 @@ test("pending_access: an Off/Pixel business linked to the client is refused like
     assert.deepEqual(sent(calls, "pendingPages"), [], id);
     noWrites(calls);
   }
+});
+
+test("design's 27 Nov rows for #1400, character for character", () => {
+  assert.equal(AUD_WORDS.followersOffered("P"), "Page followers (P, all time): offered.");
+  assert.equal(AUD_WORDS.followersNot("P", "N"), "Page followers (P, all time): not offered until N gives advertiser access.");
+  assert.equal(AUD_WORDS.followersExisting("P", "A", "1"), "Page followers (P, all time): already on the account as A (1).");
+  assert.equal(AUD_WORDS.igNoPage("u"), "Instagram followers (@u, all time): not offered, because it isn't linked to a Page this ad account can use.");
+  assert.equal(AUD_WORDS.readFailed, "Meta couldn't be read, so nothing was listed. Try again.");
+  assert.equal(AUD_WORDS.alreadyPending(["Pg"], "B"), "Refused: Pg was already asked for from B and is still waiting on its admins. Nothing was sent to Meta.");
+  assert.equal(AUD_WORDS.alreadyPending(["P1", "P2"], "B"), "Refused: P1, P2 were already asked for from B and are still waiting on their admins. Nothing was sent to Meta.");
+  assert.match(AUD_WORDS.email({ artist: "A", show: "S", business: "B" }).body, / With it, B can run ads as the Page and see how they do; it can't post to the Page, message from it or change it\.\n/);
+  assert.doesNotMatch(AUD_WORDS.email({ artist: "A", show: "S", business: "B" }).body, /It can’t post, message or change the Page/);
+  assert.equal(AUD_WORDS.offerNoBusiness("C"), "There’s no Business Manager linked to C, so access can’t be asked for yet. Matas links it with scripts/link-client-business-managers.mts.");
+  assert.equal(AUD_WORDS.igManual("B", "u"), "In Business Suite for B, request access to @u under Settings › Accounts › Instagram accounts.");
+  assert.equal(AUD_WORDS.noMetadata, "Reconnect Facebook in Off/Pixel to allow access requests.");
 });
