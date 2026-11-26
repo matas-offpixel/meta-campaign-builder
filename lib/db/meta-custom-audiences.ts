@@ -13,6 +13,14 @@ import type {
 
 const TABLE = "meta_custom_audiences";
 
+/**
+ * A client a caller with no cookie session passes (the Off/Pixel connector's
+ * service-role client, M3c). Omitted = the session client, as before.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type AudienceRowsClient = { from: (table: string) => any };
+const rowsClient = async (client?: AudienceRowsClient): Promise<AudienceRowsClient> => client ?? ((await createClient()) as unknown as AudienceRowsClient);
+
 interface MetaCustomAudienceRow {
   id: string;
   user_id: string;
@@ -76,8 +84,9 @@ export async function listAudiencesForClient(
 
 export async function getAudienceById(
   id: string,
+  client?: AudienceRowsClient,
 ): Promise<MetaCustomAudience | null> {
-  const supabase = await createClient();
+  const supabase = await rowsClient(client);
   const { data, error } = await supabase
     .from(TABLE)
     .select("*")
@@ -97,8 +106,9 @@ export async function getAudienceById(
  */
 export async function listSplitChildAudiences(
   parentId: string,
+  client?: AudienceRowsClient,
 ): Promise<MetaCustomAudience[]> {
-  const supabase = await createClient();
+  const supabase = await rowsClient(client);
   const { data, error } = await supabase
     .from(TABLE)
     .select("*")
@@ -111,8 +121,9 @@ export async function listSplitChildAudiences(
 
 export async function createAudienceDraft(
   input: MetaCustomAudienceInsert,
+  client?: AudienceRowsClient,
 ): Promise<MetaCustomAudience> {
-  const supabase = await createClient();
+  const supabase = await rowsClient(client);
   const payload: MetaCustomAudiencePayload = {
     ...audienceInsertToRow(input),
     status: "draft",
@@ -148,11 +159,12 @@ export async function createAudienceDrafts(
 export async function updateAudience(
   id: string,
   patch: MetaCustomAudienceUpdate,
+  client?: AudienceRowsClient,
 ): Promise<MetaCustomAudience | null> {
-  const current = await getAudienceById(id);
+  const current = await getAudienceById(id, client);
   if (!current) return null;
 
-  const supabase = await createClient();
+  const supabase = await rowsClient(client);
   const { data, error } = await supabase
     .from(TABLE)
     .update(audienceUpdateToRow(patch))

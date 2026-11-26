@@ -49,6 +49,17 @@
  * the Meta seam it isn't walked; a test pins exactly what it imports, what
  * each of those writes, and that only the route wiring imports it. It sends
  * nothing to Meta or Drive.
+ *
+ * M3c adds the audience seam, lib/mcp/audience-deps.ts (scope mcp:meta):
+ * Meta reads (GETs, and the purchase read's batch of GETs) with the
+ * operator's token; the Audience Builder's own create (createAudienceDraft,
+ * createMetaCustomAudience: meta_custom_audiences, its own
+ * meta_audience_write_idempotency ledger, behind
+ * OFFPIXEL_META_AUDIENCE_WRITES_ENABLED) with seed grants off; and one POST,
+ * /{business}/client_pages, handed to lib/meta/page-access-request.ts
+ * (ledger page_access_request, Off/Pixel's business refused). Like the Meta
+ * seam it isn't walked; a test pins exactly what it imports, its one POST,
+ * that seed grants are off, and that only the route wiring imports it.
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -119,6 +130,25 @@ const FOLDER_SEAM_IMPORTS: Record<string, readonly string[]> = {
  * (the Snippet route's scan and edit, the Clips card's owner write), and
  * the tables each one's body may write.
  */
+/** M3c's audience seam: what it imports, by file, and its one POST. */
+const AUDIENCE_SEAM = "lib/mcp/audience-deps.ts";
+const AUDIENCE_SEAM_IMPORTS: Record<string, readonly string[]> = {
+  "lib/db/meta-custom-audiences.ts": ["createAudienceDraft"],
+  "lib/meta/audience-write.ts": ["createMetaCustomAudience", "metaAudienceWritesEnabled"],
+  "lib/meta/client.ts": ["graphGetWithToken", "graphPostWithToken"],
+  "lib/meta/graph-multi-get.ts": ["graphMultiGetByIds"],
+  "lib/meta/server-token.ts": ["resolveServerMetaToken"],
+  "lib/meta/page-access.ts": ["businessSharedPages", "resolvePageAccess"],
+  "lib/meta/business-manager.ts": ["paginateAll"],
+  "lib/meta/page-access-request.ts": ["writePageAccessRequest"],
+  "lib/bm/user-token.ts": ["resolveUserFacebookToken"],
+  "lib/audiences/sources.ts": ["fetchAudienceMultiCampaignVideos"],
+  "lib/onsale-refresh/purchase-read.ts": ["fetchAdSetPixels", "fetchEventHosts"],
+  "lib/cirqlin/page-links.ts": ["fetchCirqlinPageLinks"],
+  "lib/retargeting/audiences.ts": ["groupVideosByPage"],
+  "lib/retargeting/links.ts": ["linksFromPages"],
+};
+
 const LAB_SEAM = "lib/mcp/lab-deps.ts";
 const LAB_SEAM_IMPORTS: Record<string, readonly string[]> = {
   "lib/creative-tests/audio-edits.ts": ["saveAudioEdit"],
@@ -200,7 +230,7 @@ function walk(): Map<string, string> {
     const src = readFileSync(join(ROOT, file), "utf8");
     seen.set(file, src);
     // The Meta, Lab, Drive and shows seams are pinned by their own tests, not walked.
-    if (file === META_SEAM || file === LAB_SEAM || file === FOLDER_SEAM || file === SHOWS_SEAM) continue;
+    if (file === META_SEAM || file === LAB_SEAM || file === FOLDER_SEAM || file === SHOWS_SEAM || file === AUDIENCE_SEAM) continue;
     // Value imports only: `import type` brings no code.
     for (const m of src.matchAll(/^\s*(?:import|export)\s+(?!type\b)[^'"]*?from\s+["']([^"']+)["']/gm)) {
       const next = resolve(file, m[1]!);
@@ -318,6 +348,13 @@ const EXTERNAL_READERS: Record<string, readonly string[]> = {
   "lib/releases/visibility.ts": ["isBackfilled"],
   "lib/releases/london.ts": ["londonDayMonth"],
   "lib/ticket-warnings/next-rung.ts": ["derivedProposals", "nextRung", "sellingFastDays"],
+  // M3c: the Audience Builder's payload (pure: create_audiences compares rules before anything is made), the
+  // retargeting builder's URL rule and links fallback, the purchase read's pixel choice (pure), and the
+  // client_pages helper's fixed values (Off/Pixel's business, the tasks, the daily cap).
+  "lib/meta/audience-payload.ts": ["buildMetaCustomAudiencePayload"],
+  "lib/retargeting/links.ts": ["linksFallback", "urlRule"],
+  "lib/onsale-refresh/purchases.ts": ["resolvePixel"],
+  "lib/meta/page-access-request.ts": ["DEFAULT_PAGE_REQUEST_TASKS", "OFF_PIXEL_BUSINESS_ID", "PAGE_REQUESTS_PER_DAY", "PAGE_REQUEST_TASKS"],
 };
 
 /**
@@ -339,7 +376,7 @@ const EXTERNAL_WRITERS: Record<string, Record<string, RegExp>> = {
  * lib/meta modules the MCP may import: pure helpers and the token read. No
  * Meta write path (lib/meta/client.ts, the Graph client, is never imported).
  */
-const META_IMPORTS_ALLOWED = /\/meta\/(ad-account|location-pins|location-search|location-radius|location-targeting|server-token|advantage-plus-compat|adset)(\.ts)?["']/;
+const META_IMPORTS_ALLOWED = /\/meta\/(ad-account|location-pins|location-search|location-radius|location-targeting|server-token|advantage-plus-compat|adset|audience-payload|page-access-request)(\.ts)?["']/;
 
 const isOwn = (f: string) => f.startsWith("lib/mcp/") || f.startsWith("app/") || f.startsWith("components/mcp/");
 
@@ -403,7 +440,7 @@ test("from outside lib/mcp the MCP imports only reader functions, and none of th
   const unexpected: string[] = [];
   const used = new Map<string, Set<string>>();
   for (const [file, src] of own) {
-    if (file === META_SEAM || file === LAB_SEAM || file === FOLDER_SEAM || file === SHOWS_SEAM) continue;
+    if (file === META_SEAM || file === LAB_SEAM || file === FOLDER_SEAM || file === SHOWS_SEAM || file === AUDIENCE_SEAM) continue;
     for (const { target, names } of importsOf(file, src)) {
       if (isOwn(target)) continue;
       const allowed = EXTERNAL_READERS[target];
@@ -444,7 +481,7 @@ test("the tools and the server make no network calls and import no write paths; 
   const hits: string[] = [];
   const SENDERS = new Set(["lib/mcp/graph-reads.ts", "lib/mcp/draft-deps.ts"]);
   for (const [file, src] of files) {
-    if (!isOwn(file) || file === META_SEAM || file === LAB_SEAM || file === FOLDER_SEAM || file === SHOWS_SEAM) continue;
+    if (!isOwn(file) || file === META_SEAM || file === LAB_SEAM || file === FOLDER_SEAM || file === SHOWS_SEAM || file === AUDIENCE_SEAM) continue;
     const code = strip(src);
     if (!SENDERS.has(file) && (NETWORK.test(code) || /\bfetchImpl\s*\(/.test(code))) hits.push(`${file}: network`);
     for (const m of code.matchAll(/from\s+["']((?:@\/|\.\.?\/)[^"']*)["']/g)) {
@@ -504,6 +541,39 @@ test("M3a: the Meta seam imports exactly the launch route's handler, the upload 
   assert.match(route, /export async function launchCampaignAs\(/);
   assert.match(route, /const entityStatus = resolveMetaLaunchEntityStatus\(\{ createPaused \}\);/);
   assert.match(src, /body: JSON\.stringify\(\{ draft, createPaused \}\)/);
+});
+
+test("M3c: the audience seam imports exactly the Audience Builder's create, the reads and the client_pages helper, sends one POST, grants no seeds, and only the route wiring imports it", () => {
+  const files = walk();
+  assert.ok(files.has(AUDIENCE_SEAM), "the route wires the audience seam");
+  const src = files.get(AUDIENCE_SEAM)!;
+  const got: Record<string, string[]> = {};
+  for (const { target, names } of importsOf(AUDIENCE_SEAM, src)) {
+    if (isOwn(target)) continue;
+    got[target] = [...(got[target] ?? []), ...names].sort();
+  }
+  assert.deepEqual(got, Object.fromEntries(Object.entries(AUDIENCE_SEAM_IMPORTS).map(([k, v]) => [k, [...v].sort()])));
+  const code = strip(src);
+  // No database write of its own (the builder's create writes meta_custom_audiences), and no fetch or DELETE.
+  assert.doesNotMatch(code, WRITE);
+  WRITE.lastIndex = 0;
+  assert.doesNotMatch(code, /\b(fetch|graphDelete)\s*\(/);
+  // One POST: client_pages, the callback writePageAccessRequest is handed.
+  const posts = code.split("\n").filter((l) => /graphPostWithToken\s*[<(]/.test(l));
+  assert.equal(posts.length, 1);
+  assert.match(posts[0]!, /postClientPage: \(b, body\) => graphPostWithToken\(`\/\$\{b\}\/client_pages`, body, token\)/);
+  // The create is the builder's own, with the connector's rows client and seed grants off.
+  assert.match(code, /createMetaCustomAudience\(draft\.id, \{ userId, supabase: db as never, rows: db, remediateSeeds: noSeedGrants \}\)/);
+  assert.match(code, /const noSeedGrants = async \(_db: unknown, sourceIds: string\[\]\) => \(\{ remediated: \[\] as string\[\]/);
+  // Business Manager calls run as Matas's own token, never the env token.
+  assert.match(code, /const personal = \(userId: string\) => resolveUserFacebookToken\(db, userId\)/);
+  // The builder's create keeps its gate; the helper refuses Off/Pixel's business before the ledger.
+  const write = readFileSync(join(ROOT, "lib/meta/audience-write.ts"), "utf8");
+  assert.match(write, /export async function createMetaCustomAudience\([\s\S]*?assertMetaAudienceWritesEnabled\(\);/);
+  const helper = strip(readFileSync(join(ROOT, "lib/meta/page-access-request.ts"), "utf8"));
+  assert.match(helper, /if \(businessId === OFF_PIXEL_BUSINESS_ID\) throw new OffPixelBusinessRefused\(\);[\s\S]*withMetaWriteIdempotency\([\s\S]*"page_access_request"[\s\S]*\{ required: true \}/);
+  const importers = [...files.entries()].filter(([f, s2]) => f !== AUDIENCE_SEAM && /from\s+["'][^"']*audience-deps["']/.test(s2)).map(([f]) => f);
+  assert.deepEqual(importers, ["lib/mcp/route-deps.ts"]);
 });
 
 test("M3d-b: the Lab seam imports exactly the Snippet tab's scan and drop edit and the Clips card's owner write, each writes only its table, and only the route wiring imports it", () => {
@@ -594,7 +664,7 @@ test("M3d-a: the shows seam imports exactly the event and clients forms' create,
 
 test("M3a: every meta tool checks the scope and the approval before anything else, and reaches Meta only through ctx.meta", async () => {
   const { META_TOOLS } = await import("../tools/index.ts");
-  const files = ["lib/mcp/tools/meta-launch.ts", "lib/mcp/tools/meta-event.ts", "lib/mcp/tools/live-status.ts", "lib/mcp/tools/live-budget.ts", "lib/mcp/tools/live-rename.ts", "lib/mcp/tools/live-stage.ts", "lib/mcp/tools/live-test.ts", "lib/mcp/tools/live-read.ts"];
+  const files = ["lib/mcp/tools/meta-launch.ts", "lib/mcp/tools/meta-event.ts", "lib/mcp/tools/live-status.ts", "lib/mcp/tools/live-budget.ts", "lib/mcp/tools/live-rename.ts", "lib/mcp/tools/live-stage.ts", "lib/mcp/tools/live-test.ts", "lib/mcp/tools/live-read.ts", "lib/mcp/tools/audiences.ts", "lib/mcp/tools/page-access.ts"];
   for (const file of files) {
     const code = strip(readFileSync(join(ROOT, file), "utf8"));
     // The read-only meta tools (get_live, list_scheduled) check the scope; every other one the scope and the approval.
@@ -603,8 +673,8 @@ test("M3a: every meta tool checks the scope and the approval before anything els
   }
   // pause and resume share runStatus, which checks the approval first.
   assert.match(strip(readFileSync(join(ROOT, "lib/mcp/tools/live-status.ts"), "utf8")), /async function runStatus\(ctx: ToolContext, args: Record<string, unknown>, to: "PAUSED" \| "ACTIVE", tool: "pause" \| "resume"\) \{\n\s*const \{ approval \} = requireMetaApproval\(ctx, args\);/);
-  assert.ok(META_TOOLS.length === 14 && META_TOOLS.every((t) => t.kind === "meta"));
-  for (const t of META_TOOLS.filter((x) => x.readOnly === true)) assert.ok(["get_live", "list_scheduled"].includes(t.name), t.name);
+  assert.ok(META_TOOLS.length === 19 && META_TOOLS.every((t) => t.kind === "meta"));
+  for (const t of META_TOOLS.filter((x) => x.readOnly === true)) assert.ok(["get_live", "list_scheduled", "list_audiences", "audience_sources", "pending_access"].includes(t.name), t.name);
 });
 
 test("tools register with honest annotations: read tools read-only, draft tools never destructive", () => {

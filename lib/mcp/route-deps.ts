@@ -18,6 +18,7 @@ import { realLabDeps } from "./lab-deps";
 import { realLiveDeps, realMetaDeps } from "./meta-deps";
 import { realFolderDeps } from "./folder-in-deps";
 import { realShowsDeps } from "./shows-deps";
+import { realAudienceDeps } from "./audience-deps";
 import { startDeps } from "@/lib/render-templates/server-deps";
 import { realReaders } from "./readers";
 import { createSupabaseStore, devMemoryStore, type McpStore } from "./oauth/store";
@@ -58,6 +59,8 @@ export function mcpHandlerDeps(): McpHandlerDeps {
     folderIn: realFolderDeps(db),
     // M3d-a: the shows tools' paths (the event and clients forms' create, the Lab lineup, the Releases card).
     shows: realShowsDeps(db),
+    // M3c: the audience tools (the Audience Builder's create) and artist Page access from the client's Business Manager.
+    audiences: realAudienceDeps(db),
   };
 }
 

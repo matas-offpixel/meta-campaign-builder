@@ -87,7 +87,8 @@ test("a grant without mcp:meta, or a user no longer Matas, is refused by every M
       assert.deepEqual(spy.calls, [], tool.name);
     }
   }
-  assert.equal(META_TOOLS.length, 14);
+  // M3b's eleven, M3a's three and M3c's five.
+  assert.equal(META_TOOLS.length, 19);
 });
 
 // ── pause / resume ──────────────────────────────────────────────────────────

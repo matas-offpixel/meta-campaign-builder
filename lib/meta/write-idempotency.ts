@@ -59,7 +59,9 @@ export type MetaWriteOpKind =
   /** M3b: a live campaign, ad set or ad renamed from the connector (lib/meta/object-name-write.ts, migration 271). */
   | "object_name_update"
   /** M3b: a Meta A/B test on two existing campaigns from the connector (lib/meta/ad-study.ts, migration 271). */
-  | "ad_study_create";
+  | "ad_study_create"
+  /** M3c: a Page asked for access from a client's Business Manager (POST /{business}/client_pages, lib/meta/page-access-request.ts, migration 273). */
+  | "page_access_request";
 
 /**
  * Thrown only when a caller passes `{ required: true }` and the ledger
