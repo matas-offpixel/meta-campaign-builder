@@ -95,7 +95,7 @@ test("design's corrected rows (26 Nov) are word for word, typographic ’ and al
   for (const w of Object.values(LIVE_RULED)) assert.doesNotMatch(w, /'/, "typographic ’ only");
   const pendingKeys = new Set(LIVE_FOR_DESIGN.map((w) => w.key));
   for (const k of Object.keys(LIVE_RULED)) assert.ok(!pendingKeys.has(k), `${k} left LIVE_FOR_DESIGN`);
-  assert.equal(LIVE_FOR_DESIGN.length, 55, "72 keys less design's 17 corrected rows");
+  assert.equal(LIVE_FOR_DESIGN.length, 57, "72 keys less design's 17 corrected rows, plus the 26 Nov plan's two read-back lines");
   for (const w of Object.values(LIVE_RULED).filter((x) => x.startsWith("Refused:"))) assert.match(w, /(Nothing was sent to Meta|Nothing was changed|Nothing was scheduled)\.$/);
 });
 
