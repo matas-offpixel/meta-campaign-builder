@@ -17,7 +17,7 @@ rt.src.similar.one	Tier row, audiences (Hot), one	1 similar list
 rt.src.accounts	Tier row, after an account-based source; {n} with a one-form (withdrawn 26 Nov by TC: not used)	{n} accounts
 rt.src.accounts.one	Tier row, one account (withdrawn 26 Nov by TC: not used)	1 account
 rt.m.freq	Tier card at 393, under the tier name	Frequency {f}
-rt.m.leaves	Tier card at 393, after the frequency; {x} is rt.leaves.* with its first letter lower-cased	leaves out {x}
+rt.m.leaves	Tier card at 393, after the frequency; {x} is rt.leaves.*. Only when {x} is rt.leaves.hot or rt.leaves.hot.presale is its first letter lower-cased; tier names keep their capitals	leaves out {x}
 rt.leaves.cold	Tier row, Leaves out (Cold)	Warm · Hot · buyers
 rt.leaves.warm	Tier row, Leaves out (Warm)	Hot · buyers
 rt.leaves.hot	Tier row, Leaves out (Hot)	Buyers
@@ -144,5 +144,14 @@ rt.create.passed	Create path refusal	The show has passed.
 rt.create.ad_unread	Create path refusal	The ad it reuses ({name}) can’t be read.
 rt.create.budget_changed	Create path refusal	{name}’s budget was changed in Ads Manager since the plan. Plan it again.
 rt.create.switch_on	Create path, built but not switched on	Built and paused, but not switched on. Ask again to switch it on.
-meta.name.audience	Ads Manager audience name; {source} and {n} as the tier row says them	{code} · {source} · {n} days
+meta.name.audience	Ads Manager audience name; {source} and {n} as the tier row says them, split by platform (meta.name.src.*). Every name is unique within the show	{code} · {source} · {n} days
 meta.name.lookalike	Ads Manager lookalike name; {source} is the source audience’s name without the code, never an internal key	{code} · Lookalike 1 % UK · {source}
+meta.name.src.page_fb	{source} in meta.name.audience: Facebook Page engagers	Page engagers
+meta.name.src.page_ig	{source} in meta.name.audience: Instagram engagers	Instagram engagers
+meta.name.followers_fb	Ads Manager name, Facebook Page followers (no window)	{code} · Page followers · all time
+meta.name.followers_ig	Ads Manager name, Instagram followers (no window)	{code} · Instagram followers · all time
+meta.name.part	Ads Manager name when one source makes more than one audience (a page group over 5 Pages, a video source per Page); {name} is the name above	{name} · {i} of {n}
+rt.similar.fail.owner	{reason} in rt.similar.back.failed and its Claude line	the show’s owner isn’t known
+rt.similar.fail.token	{reason}	there’s no Facebook token for the show’s owner
+rt.similar.fail.draft	{reason}	the build has no draft to record its writes on
+rt.similar.fail.error	{reason}, an unexpected failure	the read hit an unexpected error

@@ -290,7 +290,8 @@ export function funnelBudget(minor: number): string {
 
 /** RF-B / TW at 393: "Frequency 3.2 · leaves out Warm · Hot · buyers", or "leaves out …" before figures. */
 export function cardMeta(row: FunnelTierRow): string {
-  // {x} with its first letter lower-cased (the 27 Nov list).
-  const leaves = fill("rt.m.leaves", { x: row.leavesOut ? row.leavesOut[0]!.toLowerCase() + row.leavesOut.slice(1) : row.leavesOut });
+  // Only Hot's leave-out ("Buyers", "Signed up") is lower-cased; tier names keep their capitals (r2 list).
+  const hot = row.tier === "hot" && row.leavesOut;
+  const leaves = fill("rt.m.leaves", { x: hot ? row.leavesOut[0]!.toLowerCase() + row.leavesOut.slice(1) : row.leavesOut });
   return row.frequency == null ? leaves : `${fill("rt.m.freq", { f: freq(row.frequency) })}${JOIN}${leaves}`;
 }

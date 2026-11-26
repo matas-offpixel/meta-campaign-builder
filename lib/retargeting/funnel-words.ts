@@ -1,10 +1,10 @@
 /**
  * The words of retargeting (docs/design-record/2026-11-26-retargeting-funnel.html,
  * RF1–RF9, and docs/design-record/2026-11-26-retargeting-two-campaigns.html, TC1–TC9): every row of
- * scratch/retargeting/words-retargeting-2026-11-27.tsv (design's verdict on
- * #1399, 27 Nov; sha256 986bcc53…, 147 rows, 10 of them withdrawn), word for
- * word. The test pins each row against the committed copy
- * (__tests__/fixtures/words-retargeting-2026-11-27.tsv).
+ * scratch/retargeting/words-retargeting-2026-11-27-r2.tsv (design's second
+ * verdict on #1399, 27 Nov; sha256 5de297b9…, 156 rows, 10 of them
+ * withdrawn), word for word. The test pins each row against the committed
+ * copy (__tests__/fixtures/words-retargeting-2026-11-27-r2.tsv).
  *
  * `fill` puts values into a row's {slots}; every figure is formatted here
  * (money to the penny, "£15.00"; shares as whole numbers, "25"; dates
@@ -162,6 +162,15 @@ export const RF_WORDS = {
   "rt.create.switch_on": "Built and paused, but not switched on. Ask again to switch it on.",
   "meta.name.audience": "{code} · {source} · {n} days",
   "meta.name.lookalike": "{code} · Lookalike 1 % UK · {source}",
+  "meta.name.src.page_fb": "Page engagers",
+  "meta.name.src.page_ig": "Instagram engagers",
+  "meta.name.followers_fb": "{code} · Page followers · all time",
+  "meta.name.followers_ig": "{code} · Instagram followers · all time",
+  "meta.name.part": "{name} · {i} of {n}",
+  "rt.similar.fail.owner": "the show’s owner isn’t known",
+  "rt.similar.fail.token": "there’s no Facebook token for the show’s owner",
+  "rt.similar.fail.draft": "the build has no draft to record its writes on",
+  "rt.similar.fail.error": "the read hit an unexpected error",
 } as const;
 
 /** Rows the two-campaign record (TC, 26 Nov) withdrew: kept in the list, never used (a test greps for them). */

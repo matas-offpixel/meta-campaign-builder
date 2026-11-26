@@ -10,6 +10,7 @@ import { describe, it } from "node:test";
 
 import { promotedObject, tierAdSetPayload, widerAdSetPayload, widerCampaignFields } from "../apply.ts";
 import { capTiers, funnelSpecs, funnelTiersMatching, RF3, SPLIT_WITH_SIMILAR, splitOf, splitTotal, stepsAfter, type FunnelAudience, type FunnelSources, type PageGroup } from "../funnel.ts";
+import { fill } from "../funnel-words.ts";
 import { nextGivesBack, planFunnelShow, similarReturnLine, similarSkipLine } from "../funnel-plan.ts";
 import { cardMeta, createTitle, runningPanel, similarReturnOf, widerRow } from "../funnel-view.ts";
 import { funnelAudienceName, lookalikeName } from "../funnel-apply.ts";
@@ -353,17 +354,33 @@ describe("design's verdict on #1399 (27 Nov): the rows the code now writes", () 
     assert.equal(createTitle("NX26-RUDIMENTAL"), "NX26-RUDIMENTAL · Wider and NX26-RUDIMENTAL · Retargeting");
     const cold = funnelSpecs(SOURCES, { twoCampaigns: true }).find((spec) => spec.tier === "cold")!;
     const engaged = cold.includes.find((aud) => aud.source === "engaged")! as Exclude<FunnelAudience, { kind: "list" }>;
-    assert.equal(funnelAudienceName("NX26-RUDIMENTAL", engaged), "NX26-RUDIMENTAL · Page and Instagram engagers · 180 days");
-    assert.equal(lookalikeName("NX26-RUDIMENTAL", "NX26-RUDIMENTAL · Page and Instagram engagers · 180 days"), "NX26-RUDIMENTAL · Lookalike 1 % UK · Page and Instagram engagers · 180 days");
+    assert.equal(funnelAudienceName("NX26-RUDIMENTAL", engaged), "NX26-RUDIMENTAL · Page engagers · 180 days");
+    assert.equal(lookalikeName("NX26-RUDIMENTAL", "NX26-RUDIMENTAL · Page engagers · 180 days"), "NX26-RUDIMENTAL · Lookalike 1 % UK · Page engagers · 180 days");
     assert.equal(lookalikeName("NX26-RUDIMENTAL", "Melodic Techno Similar Data"), "NX26-RUDIMENTAL · Lookalike 1 % UK · Melodic Techno Similar Data");
   });
 
-  it("the tier card's leave-outs lower-case their first letter; a step couldn't add Similar reads ochre", () => {
+  it("the tier card: only Hot's leave-out is lower-cased (r2), tier names keep their capitals; a step couldn't add Similar reads ochre", () => {
     const row = { tier: "hot", label: "Hot", audiences: [], from: null, skipped: null, leavesOut: "Signed up", frequency: null, budgetMinor: 100, lines: [] } as const;
     assert.equal(cardMeta(row as never), "leaves out signed up");
+    assert.equal(cardMeta({ ...row, leavesOut: "Buyers" } as never), "leaves out buyers");
+    assert.equal(cardMeta({ ...row, tier: "similar", leavesOut: "Cold · Warm · Hot · buyers" } as never), "leaves out Cold · Warm · Hot · buyers");
+    assert.equal(cardMeta({ ...row, tier: "warm", leavesOut: "Hot · signed up" } as never), "leaves out Hot · signed up");
     const plan = planFunnelShow({ code: "X", runDay: "2026-11-29", showDay: "2026-12-12", announceDay: "2026-09-29", prospecting: [], sources: SOURCES, spec: { twoCampaigns: true, pageGroup: GROUP, genreFamily: "dnb" }, existing: { totalMinor: 2400, took: [] }, showDailyMinor: 6000 });
     assert.equal(similarReturnOf(plan, { day: "2026-11-28", reason: "Its audience is too small." }, () => true)?.tone, "ochre");
     assert.equal(similarReturnOf(plan, null, () => true)?.tone, "muted");
     assert.equal(nextGivesBack({ stretch: "normally", date: "Mon 9 Nov", p: 30, x: "3.00", y: "60.00", n: 20 }), "Next: normally from Mon 9 Nov · 30 % · Retargeting down £3.00 a day, Wider’s remaining budget up £60.00 (£3.00 a day × 20 days)");
+  });
+});
+
+describe("design's second verdict (27 Nov): the Similar step's own refusals are lower-case reasons inside rt.similar.back.failed", () => {
+  it("each reads as one sentence on the row and for Claude", () => {
+    const plan = planFunnelShow({ code: "X", runDay: "2026-11-29", showDay: "2026-12-12", announceDay: "2026-09-29", prospecting: [], sources: SOURCES, spec: { twoCampaigns: true, pageGroup: GROUP, genreFamily: "dnb" }, existing: { totalMinor: 2400, took: [] }, showDailyMinor: 6000 });
+    const rows = { owner: "the show’s owner isn’t known", token: "there’s no Facebook token for the show’s owner", draft: "the build has no draft to record its writes on", error: "the read hit an unexpected error" };
+    for (const [key, words] of Object.entries(rows)) {
+      const reason = fill(`rt.similar.fail.${key}` as never);
+      assert.equal(reason, words);
+      assert.equal(similarReturnOf(plan, { day: "2026-11-28", reason }, () => true)?.text, `Similar couldn’t be added on Sat 28 Nov: ${words}. Its £2.40 a day stays in Cold.`);
+      assert.equal(similarReturnLine({ nextDay: null, refused: { day: "2026-11-28", reason } }), `Similar couldn’t be added on Sat 28 Nov: ${words}. Its share stays in Cold.`);
+    }
   });
 });

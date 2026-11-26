@@ -45,7 +45,7 @@ import { applyEnabled, audienceWritesEnabledFrom, retargetingGates, applyGates }
 import { campaignCreateEnabled, customConversionCreateEnabled, reuseAd, type ReusedCreative } from "../onsale-refresh/apply-purchase.ts";
 import { isOptimisationWritesEnabledFromEnv } from "../optimisation/gates.ts";
 import { widerAdSetPayload, widerCampaignFields, locationOf, RT_AUDIENCE_BUILDING, RT_AUDIENCE_SMALL, RT_AUDIENCES_OFF, RT_CONVERSION_OFF, RT_CREATE_OFF, tierAdSetPayload, type RetargetingMeta } from "./apply.ts";
-import { type SpecOptions, audiencesToMake, funnelAdSetName, funnelSpecs, FUNNEL_TIERS, FUNNEL_TIER_LABEL, SPLIT_WITH_SIMILAR, splitTotal, type FunnelAudience, type PageGroup, type FunnelSources, type FunnelStretch, type FunnelTier, type TakeLine, type TierMinor } from "./funnel.ts";
+import { type FunnelSpec, type SpecOptions, audiencesToMake, funnelAdSetName, funnelSpecs, FUNNEL_TIERS, FUNNEL_TIER_LABEL, SPLIT_WITH_SIMILAR, splitTotal, type FunnelAudience, type PageGroup, type FunnelSources, type FunnelStretch, type FunnelTier, type TakeLine, type TierMinor } from "./funnel.ts";
 import type { FunnelStepPlan } from "./funnel-plan.ts";
 import { fill } from "./funnel-words.ts";
 import { genreLabelInSentence, type GenreFamilyKey } from "../learning/genre/families.ts";
@@ -233,23 +233,44 @@ async function storeAudience(db: Db, row: { event_id: string; user_id: string; p
 }
 
 /**
- * An audience's name in Ads Manager (meta.name.audience: "{code} · {source} ·
- * {n} days", the source and window as the tier row says them). Followers
- * have no window: PENDING DESIGN, "{code} · Followers · all time" as the row.
+ * An audience's name in Ads Manager, before any part number: meta.name.audience
+ * ("{code} · {source} · {n} days", the source and window as the tier row says
+ * them, engagers split by platform, meta.name.src.*), and the followers'
+ * meta.name.followers_* (no window).
  */
 export function funnelAudienceName(code: string, aud: Exclude<FunnelAudience, { kind: "list" }>, _pageName?: string | null, genreLabel?: string | null): string {
   const days = "retentionDays" in aud ? aud.retentionDays : 0;
   const named = (source: string) => fill("meta.name.audience", { code, source, n: days });
-  if (aud.kind === "followers_fb" || aud.kind === "followers_ig") return `${code} · ${fill("rt.src.followers")}`;
+  if (aud.kind === "followers_fb") return fill("meta.name.followers_fb", { code });
+  if (aud.kind === "followers_ig") return fill("meta.name.followers_ig", { code });
   if (aud.kind === "video") return named(`Video viewers ${aud.threshold} %`);
   if (aud.source === "similar_pages") return named(fill("rt.src.page_group", { genre: genreLabel ?? "", n: 0 }).split(" · ")[0]!);
-  if (aud.kind === "page_fb" || aud.kind === "page_ig") return named(fill("rt.src.engaged", { n: days }).split(" · ")[0]!);
+  if (aud.kind === "page_fb") return named(fill("meta.name.src.page_fb"));
+  if (aud.kind === "page_ig") return named(fill("meta.name.src.page_ig"));
   if (aud.key.startsWith("rf:signup_visitors")) return named(fill("rt.src.signup_visitors").split(" · ")[0]!);
   if (aud.key.startsWith("rf:show_visitors")) return named(fill("rt.src.show_visitors60").split(" · ")[0]!);
   if (aud.source === "visitors") return named(fill("rt.src.visitors60").split(" · ")[0]!);
   if (aud.source === "ticket") return named(fill("rt.src.ticket30").split(" · ")[0]!);
   if (aud.source === "checkout") return named(fill("rt.src.checkout"));
   return named(fill("rt.src.signups").split(" · ")[0]!);
+}
+
+/**
+ * Every audience's name in a show, by key: funnelAudienceName, and when one
+ * source makes more than one audience (a page group over 5 Pages, a video
+ * source per Page, accounts over 5 Pages) meta.name.part, " · {i} of {n}" in
+ * the order the plan lists them. Every name is unique within the show.
+ * Names only label: an audience already made is found by its key (its rule),
+ * never by its name, so a renamed one is reused, not made twice.
+ */
+export function audienceNames(code: string, specs: readonly FunnelSpec[], genreLabel?: string | null): Map<string, string> {
+  const auds = audiencesToMake(specs);
+  const base = new Map(auds.map((aud) => [aud.key, funnelAudienceName(code, aud, null, genreLabel)] as const));
+  const groups = new Map<string, string[]>();
+  for (const aud of auds) groups.set(base.get(aud.key)!, [...(groups.get(base.get(aud.key)!) ?? []), aud.key]);
+  const out = new Map<string, string>();
+  for (const [name, keys] of groups) keys.forEach((key, index) => out.set(key, keys.length > 1 ? fill("meta.name.part", { name, i: index + 1, n: keys.length }) : name));
+  return out;
 }
 
 /** "drum & bass": the build's genre as the rows write it. */
@@ -383,7 +404,7 @@ export async function applyFunnel(deps: FunnelDeps, build: FunnelBuild, ctx: { m
     // 3. The audiences: stored ids reused; lists as uploaded; one the builder can't make yet is left out.
     progress.audiences ??= {};
     const stored = await storedAudiences(deps.db, build.eventId);
-    const pageName = (id: string) => sources.accounts.find((row) => row.pageId === id)?.name ?? null;
+    const names = audienceNames(build.eventCode, specs, genreOf(build));
     const notMade = new Set<string>();
     for (const aud of audiencesToMake(specs)) {
       const have = progress.audiences[aud.key] ?? stored.get(aud.key);
@@ -391,7 +412,7 @@ export async function applyFunnel(deps: FunnelDeps, build: FunnelBuild, ctx: { m
         progress.audiences[aud.key] = have;
         continue;
       }
-      const name = funnelAudienceName(build.eventCode, aud, aud.kind === "video" ? pageName(aud.pageId) : null, genreOf(build));
+      const name = names.get(aud.key) ?? funnelAudienceName(build.eventCode, aud, null, genreOf(build));
       const made = await deps.createAudience(aud, name, adAccountId);
       if (!made) {
         notMade.add(aud.key);
@@ -543,13 +564,8 @@ async function buildWider(deps: FunnelDeps, build: FunnelBuild, progress: Funnel
   }
   const idOf = (key: string) => progress.audiences?.[key] ?? (key.startsWith("list:") ? key.slice(5) : null);
   // The source audience's name: a list as uploaded, else the funnel audience's own name.
-  const origins = new Map(funnelSpecs(build.sources, build.spec).flatMap((spec) => spec.includes).map((aud) => [aud.key, aud] as const));
-  const originNameOf = (key: string) => {
-    const list = build.sources.lists.find((row) => `list:${row.metaAudienceId}` === key);
-    if (list) return list.name;
-    const aud = origins.get(key);
-    return aud && aud.kind !== "list" ? funnelAudienceName(build.eventCode, aud) : key;
-  };
+  const originNames = audienceNames(build.eventCode, funnelSpecs(build.sources, build.spec), genreOf(build));
+  const originNameOf = (key: string) => build.sources.lists.find((row) => `list:${row.metaAudienceId}` === key)?.name ?? originNames.get(key) ?? key;
   progress.wider.adSets ??= {};
   for (const set of wider.adSets) {
     if (progress.wider.adSets[set.key]) continue;
@@ -693,6 +709,7 @@ export async function addSimilarAtStep(deps: SimilarStepDeps, args: { build: Fun
   const keyBase = { rf: build.eventId, similar_at: today };
   try {
     // 1. Similar's audiences.
+    const similarNames = audienceNames(build.eventCode, [similar], genreOf(args.pageGroup.genreFamily));
     progress.audiences ??= {};
     const stored = await storedAudiences(deps.db, build.eventId);
     const ids: string[] = [];
@@ -700,7 +717,7 @@ export async function addSimilarAtStep(deps: SimilarStepDeps, args: { build: Fun
       if (aud.kind === "list") continue;
       let id: string | undefined = progress.audiences[aud.key] ?? stored.get(aud.key);
       if (!id) {
-        const name = funnelAudienceName(build.eventCode, aud, null, genreOf(args.pageGroup.genreFamily));
+        const name = similarNames.get(aud.key) ?? funnelAudienceName(build.eventCode, aud, null, genreOf(args.pageGroup.genreFamily));
         const made = await deps.createAudience(aud, name, adAccountId);
         if (!made) continue;
         id = made.metaAudienceId;

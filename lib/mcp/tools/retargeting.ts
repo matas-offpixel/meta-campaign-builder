@@ -140,7 +140,7 @@ export const CREATE_DESCRIPTION =
 
 export const planRetargetingTool: McpTool = {
   name: "plan_retargeting",
-  title: "Plan each show’s two campaigns",
+  title: "Plan each show's two campaigns",
   kind: "meta",
   readOnly: true,
   idempotent: true,

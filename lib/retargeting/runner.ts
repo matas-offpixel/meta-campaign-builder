@@ -43,6 +43,7 @@ import { FUNNEL_TIERS, type FunnelTier, type ProspectingBudget, type TierWeek } 
 import { BUILDS_TABLE, type FunnelBuild, type FunnelProgress, type SimilarStepOutcome } from "./funnel-apply.ts";
 import type { PageGroup } from "./funnel.ts";
 import type { MatchedPages } from "./funnel-plan.ts";
+import { fill as fillRf } from "./funnel-words.ts";
 import type { CampaignInput } from "../onsale-refresh/rules.ts";
 import { loadPageGroup } from "./page-groups.ts";
 import { SHOW_CAMPAIGNS_RULED } from "./show-campaigns.ts";
@@ -690,9 +691,10 @@ export async function runRetargetingRead(input: {
       // Matas, 27 Nov: a group confirmed after the build brings Similar back at the next stretch step.
       let similarOutcome: SimilarStepOutcome | null = null;
       if (similarStepDue({ dryRun, ruled: SHOW_CAMPAIGNS_RULED, row: buildRow, pageGroup, day }) && input.similarStep) {
-        similarOutcome = await input.similarStep({ event, build: buildRow!.build as FunnelBuild, pageGroup: pageGroup!, day }).catch((err) => ({ state: "failed" as const, reason: "Similar couldn’t be added this read.", progress: buildRow!.progress ?? {}, error: err instanceof Error ? err.message : String(err) }));
+        similarOutcome = await input.similarStep({ event, build: buildRow!.build as FunnelBuild, pageGroup: pageGroup!, day }).catch((err) => ({ state: "failed" as const, reason: fillRf("rt.similar.fail.error"), progress: { ...(buildRow!.progress ?? {}), similarRefused: { day, reason: fillRf("rt.similar.fail.error") } }, error: err instanceof Error ? err.message : String(err) }));
         if (similarOutcome.state !== "skipped") {
-          buildRow!.progress = similarOutcome.progress;
+          // What the step left on the build, over what this read loaded.
+          buildRow!.progress = { ...(buildRow!.progress ?? {}), ...similarOutcome.progress };
           funnelBuilt = funnelBuiltOf(buildRow, widerId ? { remainingMinor, doneDays: widerDoneDays(stepRows, event.id) } : null);
         }
         if (similarOutcome.state === "failed") skipped.push({ eventCode: code, reason: `Similar not added at this step: ${similarOutcome.reason ?? "unknown"}${similarOutcome.error ? ` (${similarOutcome.error})` : ""}` });

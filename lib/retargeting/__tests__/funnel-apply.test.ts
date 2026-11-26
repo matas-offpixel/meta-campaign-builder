@@ -10,7 +10,8 @@ import { strict as assert } from "node:assert";
 import { describe, it } from "node:test";
 
 import { memoryDb } from "../../onsale-refresh/__tests__/memory-db.ts";
-import { addSimilarAtStep, applyFunnel, funnelAudienceDraft, stepChanges, type FunnelBuild, type FunnelDeps, type FunnelMeta } from "../funnel-apply.ts";
+import { addSimilarAtStep, applyFunnel, audienceNames, funnelAudienceDraft, stepChanges, type FunnelBuild, type FunnelDeps, type FunnelMeta } from "../funnel-apply.ts";
+import { audiencesToMake, funnelSpecs } from "../funnel.ts";
 import { planFunnelShow } from "../funnel-plan.ts";
 import type { FunnelSources, ProspectingBudget } from "../funnel.ts";
 import { planWider, widerSpecs } from "../show-campaigns.ts";
@@ -432,5 +433,55 @@ describe("Matas, 27 Nov (\"Yes, at the next step\"): a group confirmed after the
     const out = await addSimilarAtStep(deps, t.args());
     assert.equal(out.state, "failed");
     assert.deepEqual(t.calls, []);
+  });
+});
+
+describe("design's second verdict (27 Nov): audience names per meta.name.*, unique within a show", () => {
+  // Seven Facebook Pages and seven Instagram accounts (two audiences each at 5 a time), videos on two Pages, a 7-Page group.
+  const many: FunnelSources = {
+    ...SOURCES,
+    accounts: Array.from({ length: 7 }, (_, i) => [
+      { pageId: `30${i}`, name: `Page ${i}`, platform: "facebook" as const, kind: "lineup" as const, access: true },
+      { pageId: `30${i}`, igId: `ig30${i}`, name: `Page ${i}`, platform: "instagram" as const, kind: "lineup" as const, access: true },
+    ]).flat(),
+    videos: [{ pageId: "300", videoIds: ["v1"] }, { pageId: "301", videoIds: ["v2"] }],
+  };
+  const group = { id: "g", genreFamily: "dnb", pageIds: ["1", "2", "3", "4", "5", "6", "7"], igIds: [], confirmed: true };
+  const specs = funnelSpecs(many, { twoCampaigns: true, pageGroup: group, genreFamily: "dnb" });
+
+  it("every audience the show makes has its own name", () => {
+    const names = [...audienceNames("NX26-RUDIMENTAL", specs, "drum & bass").values()];
+    assert.equal(new Set(names).size, names.length, names.join("\n"));
+    assert.ok(names.length >= 12);
+  });
+
+  it("the r2 forms: engagers by platform, followers with no window, and \" · {i} of {n}\" when one source makes more than one", () => {
+    const names = [...audienceNames("NX26-RUDIMENTAL", specs, "drum & bass").values()];
+    for (const name of [
+      "NX26-RUDIMENTAL · Page engagers · 180 days · 1 of 2",
+      "NX26-RUDIMENTAL · Page engagers · 180 days · 2 of 2",
+      "NX26-RUDIMENTAL · Instagram engagers · 30 days · 2 of 2",
+      "NX26-RUDIMENTAL · Page followers · all time · 1 of 2",
+      "NX26-RUDIMENTAL · Instagram followers · all time · 2 of 2",
+      "NX26-RUDIMENTAL · Video viewers 75 % · 180 days · 1 of 2",
+      "NX26-RUDIMENTAL · Video viewers 95 % · 60 days · 2 of 2",
+    ]) assert.ok(names.includes(name), name);
+    assert.ok(names.some((name) => /^NX26-RUDIMENTAL · Engagers of the drum & bass page group · 365 days · \d of \d$/.test(name)));
+    // One audience of a source: no part number.
+    const one = [...audienceNames("NX26-RUDIMENTAL", funnelSpecs(SOURCES, { twoCampaigns: true })).values()];
+    assert.ok(one.includes("NX26-RUDIMENTAL · Page followers · all time"));
+    assert.ok(one.includes("NX26-RUDIMENTAL · Instagram followers · all time"));
+  });
+
+  it("an audience made under an older name is found by its rule (its key), not its name: nothing is made twice", async () => {
+    const { calls, deps, ctx, mem } = setup();
+    const build = buildFor();
+    // Every audience this build makes, stored under the names the 26 Nov build gave them.
+    const keys = audiencesToMake(funnelSpecs({ ...SOURCES, videos: [{ pageId: "1001", videoIds: ["v1", "v2"] }] })).map((aud) => aud.key);
+    keys.forEach((key, i) => mem.tables.onsale_refresh_audiences!.push({ event_id: EVENT, kind: "retargeting_campaign", campaign_key: "", part: key, meta_audience_id: String(70000 + i), name: `NX26-RUDIMENTAL · old name ${i}` }));
+    const out = await applyFunnel(deps, build, ctx("paused"));
+    assert.equal(out.state, "applied", out.reason ?? "");
+    const made = names(calls, "createAudience").map((call) => call[1]);
+    assert.deepEqual(made.filter((key) => keys.includes(String(key))), []);
   });
 });

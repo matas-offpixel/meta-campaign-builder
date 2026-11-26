@@ -31,13 +31,13 @@ import {
 import { claudePlanLines, createLines, doneLine, matchedPagesLine, nextLine, planFunnelShow, planHead, shareLine, similarSkipRow, skipLine, skipReason, splitLine, wordsSplit, type FunnelShowPlan, type WiderWords } from "../funnel-plan.ts";
 import { planWider } from "../show-campaigns.ts";
 
-const TSV = new URL("./fixtures/words-retargeting-2026-11-27.tsv", import.meta.url);
+const TSV = new URL("./fixtures/words-retargeting-2026-11-27-r2.tsv", import.meta.url);
 
-test("the words: the design list, row for row, character for character (sha 986bcc53…)", () => {
+test("the words: the design list, row for row, character for character (sha 5de297b9…)", () => {
   const raw = readFileSync(TSV);
-  assert.equal(createHash("sha256").update(raw).digest("hex"), "986bcc53e97973357ee678c6156a71412e300aa4ba9fbfac725f6242a5e361e2");
+  assert.equal(createHash("sha256").update(raw).digest("hex"), "5de297b9c054063b04a506b086b5e76f799ada5a7a29add62fac396ffc5db2b2");
   const rows = raw.toString("utf8").split("\n").filter(Boolean).slice(1).map((line) => line.split("\t"));
-  assert.equal(rows.length, 147);
+  assert.equal(rows.length, 156);
   assert.deepEqual(Object.keys(RF_WORDS), rows.map((row) => row[0]));
   for (const [key, , words] of rows) assert.equal(RF_WORDS[key as keyof typeof RF_WORDS], words, key);
 });
