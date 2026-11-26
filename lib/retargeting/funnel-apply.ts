@@ -47,6 +47,7 @@ import { isOptimisationWritesEnabledFromEnv } from "../optimisation/gates.ts";
 import { locationOf, RT_AUDIENCE_BUILDING, RT_AUDIENCE_SMALL, RT_AUDIENCES_OFF, RT_CONVERSION_OFF, RT_CREATE_OFF, tierAdSetPayload, type RetargetingMeta } from "./apply.ts";
 import { audiencesToMake, funnelAdSetName, funnelSpecs, FUNNEL_TIERS, FUNNEL_TIER_LABEL, type FunnelAudience, type FunnelSources, type FunnelStretch, type FunnelTier, type TakeLine, type TierMinor } from "./funnel.ts";
 import type { FunnelStepPlan } from "./funnel-plan.ts";
+import { advantageOff, geoExpansionOff } from "./show-campaigns.ts";
 
 type Db = Pick<SupabaseClient, "from">;
 
@@ -119,6 +120,8 @@ export type FunnelProgress = {
   moved?: { id: string; kind: "adset" | "campaign"; name?: string; beforeMinor: number; afterMinor: number }[];
   active?: boolean;
   scheduled?: string[];
+  /** Each tier ad set's settings as Meta holds them after create (Matas's 26 Nov item 2): location expansion off, Advantage+ off. */
+  readBack?: { adsetId: string; name: string; geoOff: boolean; advantageOff: boolean }[];
 };
 
 export type FunnelOutcome = {
@@ -346,6 +349,14 @@ export async function applyFunnel(deps: FunnelDeps, build: FunnelBuild, ctx: { m
       progress.adSets[spec.tier] = { id, dailyMinor };
       await saveProgress(deps, build, progress, { state: "building" });
       await recordTierAdSet(deps, { metaAdsetId: id, campaignId: progress.campaignId!, adAccountId, draftId: ctx.ledger.draftId ?? null, name: String(payload.name), dailyMinor, tier: spec.tier });
+    }
+    // The read-back: location expansion off and Advantage+ off on every tier, as Meta holds them (reported, never forced).
+    progress.readBack = [];
+    for (const tier of FUNNEL_TIERS) {
+      const set = progress.adSets[tier];
+      if (!set) continue;
+      const targeting = await deps.meta.readAdSetTargeting(set.id).catch(() => null);
+      progress.readBack.push({ adsetId: set.id, name: funnelAdSetName(build.eventCode, tier), geoOff: geoExpansionOff(targeting), advantageOff: advantageOff(targeting) });
     }
     // 5. The ads: the show's live creatives, the same in every tier, as they run (their copy too).
     const creatives: ReusedCreative[] = [];

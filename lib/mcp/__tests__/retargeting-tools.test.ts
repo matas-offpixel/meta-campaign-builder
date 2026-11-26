@@ -1,12 +1,12 @@
 /**
- * M3c: plan_retargeting and create_retargeting, with the 08:00 read and the
+ * M3c: plan_retargeting and create_show_campaigns, with the 08:00 read and the
  * create path as spies (RF9's words; the house rules: Matas's chat yes,
  * plain refusals that end "Nothing was changed.", ids and links only).
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { ToolInputError, type McpTool, type ToolContext } from "../tool-types.ts";
-import { createRetargetingTool, planRetargetingTool } from "../tools/retargeting.ts";
+import { createShowCampaignsTool, planRetargetingTool } from "../tools/retargeting.ts";
 import type { McpRetargetingDeps } from "../retargeting/types.ts";
 import { planRetargeting, type RetargetingInput } from "../../retargeting/plan.ts";
 import type { RetargetingRecord } from "../../retargeting/runner.ts";
@@ -135,23 +135,23 @@ test("both tools: refused without mcp:meta or for anyone but Matas, before any r
   for (const opts of [{ scope: "mcp:read mcp:draft" }, { isMatas: false }]) {
     const { ctx, calls } = ctxWith([record()], opts);
     await refused(run(planRetargetingTool, ctx, { events: "live" }), /^Refused: this connection can’t make Meta changes\./);
-    await refused(run(createRetargetingTool, ctx, { event: "NX26-RUDIMENTAL", mode: "paused", approval: YES }), /^Refused: this connection can’t make Meta changes\./);
+    await refused(run(createShowCampaignsTool, ctx, { event: "NX26-RUDIMENTAL", mode: "paused", approval: YES }), /^Refused: this connection can’t make Meta changes\./);
     assert.deepEqual(calls.read, []);
   }
 });
 
-test("create_retargeting: no chat yes, nothing runs", async () => {
+test("create_show_campaigns: no chat yes, nothing runs", async () => {
   const { ctx, calls } = ctxWith([record()]);
   for (const approval of [undefined, { asked: "", answer: "yes" }, { asked: "x", answer: "y".repeat(1001) }]) {
-    await assert.rejects(run(createRetargetingTool, ctx, { event: "NX26-RUDIMENTAL", mode: "live", approval }), ToolInputError);
+    await assert.rejects(run(createShowCampaignsTool, ctx, { event: "NX26-RUDIMENTAL", mode: "live", approval }), ToolInputError);
   }
   assert.deepEqual(calls.read, []);
   assert.deepEqual(calls.create, []);
 });
 
-test("create_retargeting paused: the plan's build, paused, the done line, ids and the Ads Manager link", async () => {
+test("create_show_campaigns paused: the plan's build, paused, the done line, ids and the Ads Manager link", async () => {
   const { ctx, calls } = ctxWith([record()]);
-  const out = await run(createRetargetingTool, ctx, { event: "NX26-RUDIMENTAL", mode: "paused", approval: YES });
+  const out = await run(createShowCampaignsTool, ctx, { event: "NX26-RUDIMENTAL", mode: "paused", approval: YES });
   assert.equal(calls.create.length, 1);
   assert.equal(calls.create[0]!.mode, "paused");
   assert.deepEqual(calls.create[0]!.approval, YES);
@@ -164,39 +164,63 @@ test("create_retargeting paused: the plan's build, paused, the done line, ids an
   assert.match(String(data.ads_manager), /^https:\/\/business\.facebook\.com\/adsmanager\/manage\/campaigns\?act=123&selected_campaign_ids=120000000000001$/);
 });
 
-test("create_retargeting live: says what it takes, and a paused build asked as live goes live from its stored build", async () => {
+test("create_show_campaigns live: says what it takes, and a paused build asked as live goes live from its stored build", async () => {
   const fresh = ctxWith([record()]);
-  const out = await run(createRetargetingTool, fresh.ctx, { event: "NX26-RUDIMENTAL", mode: "live", approval: YES });
+  const out = await run(createShowCampaignsTool, fresh.ctx, { event: "NX26-RUDIMENTAL", mode: "live", approval: YES });
   assert.equal((out.data as { message: string }).message, "Done: NX26-RUDIMENTAL · Retargeting created live · 3 ad sets · 6 audiences made. Takes £21.00 a day from prospecting.");
   const stored = record().plan.build as FunnelBuild;
   const paused = ctxWith([record({ funnelBuilt: { state: "paused", mode: "paused", campaignId: "1", tiers: { similar: 0, cold: 630, warm: 945, hot: 525 }, took: [] } })], { build: { build: stored, mode: "paused", state: "paused", progress: { campaignId: "1" }, meta_campaign_id: "1" } });
-  await run(createRetargetingTool, paused.ctx, { event: "NX26-RUDIMENTAL", mode: "live", approval: YES });
+  await run(createShowCampaignsTool, paused.ctx, { event: "NX26-RUDIMENTAL", mode: "live", approval: YES });
   assert.equal(paused.calls.create[0]!.mode, "live");
   assert.equal(paused.calls.create[0]!.build, stored);
 });
 
-test("create_retargeting: already live, or paused asked again as paused, is a no-op", async () => {
+test("create_show_campaigns: already live, or paused asked again as paused, is a no-op", async () => {
   const stored = record().plan.build as FunnelBuild;
   const live = ctxWith([record()], { build: { build: stored, mode: "live", state: "live", progress: { campaignId: "1", active: true }, meta_campaign_id: "1" } });
-  assert.equal((await run(createRetargetingTool, live.ctx, { event: "NX26-RUDIMENTAL", mode: "live", approval: YES })).data && live.calls.create.length, 0);
+  assert.equal((await run(createShowCampaignsTool, live.ctx, { event: "NX26-RUDIMENTAL", mode: "live", approval: YES })).data && live.calls.create.length, 0);
   const paused = ctxWith([record()], { build: { build: stored, mode: "paused", state: "paused", progress: { campaignId: "1" }, meta_campaign_id: "1" } });
-  const out = await run(createRetargetingTool, paused.ctx, { event: "NX26-RUDIMENTAL", mode: "paused", approval: YES });
+  const out = await run(createShowCampaignsTool, paused.ctx, { event: "NX26-RUDIMENTAL", mode: "paused", approval: YES });
   assert.equal((out.data as { message: string }).message, "NX26-RUDIMENTAL · Retargeting is already made and paused. Nothing was changed.");
   assert.equal(paused.calls.create.length, 0);
 });
 
-test("create_retargeting: a show that can't be built is refused with its skip line; another account's show too", async () => {
+test("create_show_campaigns: a show that can't be built is refused with its skip line; another account's show too", async () => {
   const noLink = ctxWith([record({ sources: { ...input().sources, links: [] } })]);
-  await refused(run(createRetargetingTool, noLink.ctx, { event: "NX26-RUDIMENTAL", mode: "paused", approval: YES }), /^Refused: NX26-RUDIMENTAL · skipped: it has no ticket link\. Nothing was changed\.$/);
+  await refused(run(createShowCampaignsTool, noLink.ctx, { event: "NX26-RUDIMENTAL", mode: "paused", approval: YES }), /^Refused: NX26-RUDIMENTAL · skipped: it has no ticket link\. Nothing was changed\.$/);
   const theirs = ctxWith([record()], { owner: "someone-else" });
-  await refused(run(createRetargetingTool, theirs.ctx, { event: "NX26-RUDIMENTAL", mode: "paused", approval: YES }), /another account/);
+  await refused(run(createShowCampaignsTool, theirs.ctx, { event: "NX26-RUDIMENTAL", mode: "paused", approval: YES }), /another account/);
   assert.deepEqual([...noLink.calls.create, ...theirs.calls.create], []);
 });
 
-test("create_retargeting: a failure says what's made, in plain words; the ceiling's own refusal comes through as written", async () => {
+test("create_show_campaigns: a failure says what's made, in plain words; the ceiling's own refusal comes through as written", async () => {
   const partly = ctxWith([record()], { outcome: { state: "failed", reason: "Meta is still building an audience. Retry in an hour.", step: "audience", error: "raw meta body" } });
-  const e = await refused(run(createRetargetingTool, partly.ctx, { event: "NX26-RUDIMENTAL", mode: "paused", approval: YES }), /^Meta is still building an audience\. Retry in an hour\. What's made so far is paused; ask again to carry on\.$/);
+  const e = await refused(run(createShowCampaignsTool, partly.ctx, { event: "NX26-RUDIMENTAL", mode: "paused", approval: YES }), /^Meta is still building an audience\. Retry in an hour\. What's made so far is paused; ask again to carry on\.$/);
   assert.doesNotMatch(JSON.stringify(e.summary), /raw meta body/);
   const ceiling = ctxWith([record()], { outcome: { state: "failed", reason: "Refused: NX has no daily ceiling, so nothing that starts spend can run. Matas sets one in Settings › Claude. Nothing was sent to Meta.", step: "ceiling", progress: {} } });
-  await refused(run(createRetargetingTool, ceiling.ctx, { event: "NX26-RUDIMENTAL", mode: "live", approval: YES }), /^Refused: NX has no daily ceiling.*Nothing was sent to Meta\.$/);
+  await refused(run(createShowCampaignsTool, ceiling.ctx, { event: "NX26-RUDIMENTAL", mode: "live", approval: YES }), /^Refused: NX has no daily ceiling.*Nothing was sent to Meta\.$/);
+});
+
+test("create_show_campaigns: a tier Meta still has location expansion on for gets the untick line, per ad set", async () => {
+  const readBack = [
+    { adsetId: "131", name: "NX26-RUDIMENTAL · Retargeting · Cold", geoOff: true, advantageOff: true },
+    { adsetId: "133", name: "NX26-RUDIMENTAL · Retargeting · Hot", geoOff: false, advantageOff: true },
+  ];
+  const { ctx } = ctxWith([record()], { outcome: { progress: { campaignId: "120000000000001", audiences: { a: "1" }, adSets: { similar: undefined, cold: { id: "131", dailyMinor: 630 }, hot: { id: "133", dailyMinor: 525 } }, readBack } as never } });
+  const out = await run(createShowCampaignsTool, ctx, { event: "NX26-RUDIMENTAL", mode: "paused", approval: YES });
+  const lines = String((out.data as { message: string }).message).split("\n");
+  assert.deepEqual(lines.slice(1), ["Untick 'Reach more people likely to respond to your ads' in Ads Manager for NX26-RUDIMENTAL · Retargeting · Hot."]);
+});
+
+test("plan_retargeting: the keep / pause / fold advice only once the two-campaign record is ruled", async () => {
+  const campaigns = [
+    { id: "1", name: "NX26-RUDIMENTAL · Prospecting", adSetNames: ["Broad · Advantage+"], delivering: true },
+    { id: "2", name: "NX26-RUDIMENTAL · Lineup", adSetNames: ["Lineup · interests"], delivering: true },
+  ];
+  const off = ctxWith([record({ campaigns })]);
+  assert.doesNotMatch(String(((await run(planRetargetingTool, off.ctx, { events: "NX26-RUDIMENTAL" })).data as { message: string }).message), /Fold into Wider/);
+  const on = ctxWith([record({ campaigns })]);
+  (on.ctx as { showCampaignsRuled?: boolean }).showCampaignsRuled = true;
+  const message = String(((await run(planRetargetingTool, on.ctx, { events: "NX26-RUDIMENTAL" })).data as { message: string }).message);
+  assert.match(message, /\nPause: NX26-RUDIMENTAL · Lineup\. Fold into Wider: NX26-RUDIMENTAL · Prospecting\. Nothing is paused without Matas's yes\.$/);
 });

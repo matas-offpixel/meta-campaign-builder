@@ -90,7 +90,7 @@ const INSTRUCTIONS = [
   "strict_audit lists live ad sets that run strict (Advantage+ audience off) while their drafts asked for Advantage+ suggestions, for a client, an event or all; it only reads.",
   "The shows tools change the app only, never Meta: create_client (a sub-brand is its own client under parent_client) and create_event make a client and a show; set_lineup sets the show's Lab lineup in billing order; get_releases reads the Releases card and the claims its ladder gives now (use a claim only when it is met); set_release sets a release's state or count as the card does.",
   // PENDING DESIGN: M3c's line.
-  "plan_retargeting reads what each show's Retargeting campaign would be today (one code, a list, or \"live\" for every on-sale show) and changes nothing; create_retargeting makes one show's, paused or live, only after Matas says yes in this chat, as the other Meta tools do.",
+  "plan_retargeting reads what each show's Retargeting campaign would be today (one code, a list, or \"live\" for every on-sale show) and changes nothing; create_show_campaigns makes one show's, paused or live, only after Matas says yes in this chat, as the other Meta tools do.",
   "Before a draft tool, call get_draft and pass its updatedAt as updated_at; every draft tool answers with the new updated_at and the launch checks. get_draft gives the ids the draft tools take (ads, ad sets, audience groups).",
 ].join(" ");
 

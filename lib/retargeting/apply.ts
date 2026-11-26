@@ -11,6 +11,7 @@
  * its create and the arms' create are removed rather than kept beside it.
  */
 
+import { ADVANTAGE_AUDIENCE_AGE_MAX, advantageAudienceAgeTargeting } from "../meta/adset.ts";
 import { showEndTime, type PurchaseMeta } from "../onsale-refresh/apply-purchase.ts";
 import { tierAdSetName, type Tier } from "./words.ts";
 
@@ -78,3 +79,41 @@ export function tierAdSetPayload(args: { code: string; tier: Tier | string; camp
 
 
 
+
+/**
+ * STAGED (two-campaign record, pending design): one "{code} · Wider" ad set.
+ * Advantage+ audience on, with #1387's age (lib/meta/adset.ts
+ * advantageAudienceAgeTargeting: 18–65, no age suggestion), interests and
+ * custom audiences as suggestions, buyers / Hot / Warm left out, the
+ * location of the show's on-sale ad sets. Its money is the campaign's
+ * lifetime budget, so the ad set carries none. Location expansion is the
+ * shared create's (cc/meta-geo-expansion-off); it isn't set here.
+ */
+export function widerAdSetPayload(args: { name: string; campaignId: string; pixelId: string; customConversionId: string | null; endDay: string; location: Record<string, unknown>; interests: { id: string; name: string }[]; suggestionIds: string[]; excludeIds: string[] }): Record<string, unknown> {
+  return {
+    name: args.name,
+    campaign_id: args.campaignId,
+    status: "PAUSED",
+    optimization_goal: "OFFSITE_CONVERSIONS",
+    billing_event: "IMPRESSIONS",
+    promoted_object: args.customConversionId ? { pixel_id: args.pixelId, custom_conversion_id: args.customConversionId } : { pixel_id: args.pixelId, custom_event_type: "PURCHASE" },
+    attribution_spec: TIER_ATTRIBUTION,
+    end_time: showEndTime(args.endDay),
+    targeting: {
+      ...args.location,
+      ...advantageAudienceAgeTargeting(18, ADVANTAGE_AUDIENCE_AGE_MAX),
+      ...(args.interests.length ? { flexible_spec: [{ interests: args.interests.map((row) => ({ id: row.id, name: row.name })) }] } : {}),
+      ...(args.suggestionIds.length ? { custom_audiences: args.suggestionIds.map((id) => ({ id })) } : {}),
+      ...(args.excludeIds.length ? { excluded_custom_audiences: args.excludeIds.map((id) => ({ id })) } : {}),
+    },
+  };
+}
+
+/**
+ * STAGED: "{code} · Wider", its lifetime budget on the campaign (READING: one
+ * budget Meta spreads across the four ad sets). No stop_time: it's read-only
+ * on Marketing API v21.0; the end Meta keeps is each ad set's end_time.
+ */
+export function widerCampaignFields(args: { lifetimeMinor: number }): Record<string, unknown> {
+  return { lifetime_budget: args.lifetimeMinor, bid_strategy: "LOWEST_COST_WITHOUT_CAP" };
+}

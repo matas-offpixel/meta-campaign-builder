@@ -316,6 +316,9 @@ export function retargetingInput(args: {
     madeAudiences: args.madeAudiences ?? [],
     funnelBuilt: args.funnelBuilt ?? null,
     funnelWeek: args.funnelWeek,
+    campaigns: campaigns
+      .filter((campaign) => !isRetargetingCampaignName(campaign.campaignKey, code))
+      .map((campaign) => ({ id: campaign.campaignIds[0] ?? campaign.campaignKey, name: campaign.campaignKey, adSetNames: campaign.adSets.filter((set) => set.delivering).map((set) => set.name), delivering: campaign.adSets.some((set) => set.delivering) })),
   };
 }
 

@@ -12,7 +12,7 @@
  * on-sale show of a non-archived client and opens with the counts; a show
  * that can't be built is one skipped line with its reason.
  *
- * create_retargeting(event, mode, approval): Matas's chat yes first, then
+ * create_show_campaigns(event, mode, approval) (was create_retargeting; Matas, 26 Nov): Matas's chat yes first, then
  * the show's plan from the same read, then the funnel's create path
  * (lib/retargeting/funnel-apply.ts: the Purchase create path with budgets
  * on the ad sets and its gates, every write on meta_write_idempotency keyed
@@ -28,6 +28,7 @@ import { z } from "zod";
 import type { FunnelBuild, FunnelProgress } from "../../retargeting/funnel-apply.ts";
 import { claudePlanLines, doneLine, planHead, skipLine, skipReason, type SkipReason } from "../../retargeting/funnel-plan.ts";
 import { funnelSourcesOf } from "../../retargeting/funnel-view.ts";
+import { adviceLine, adviseExisting, SHOW_CAMPAIGNS_RULED, untickLine } from "../../retargeting/show-campaigns.ts";
 import type { RetargetingRecord } from "../../retargeting/runner.ts";
 import { approvalInput, requireMetaApproval } from "../meta/approval.ts";
 import { EVENT_WORDS } from "../meta/words.ts";
@@ -97,6 +98,18 @@ function linesFor(record: RetargetingRecord): ShowLines {
   return { code, skipped: null, lines: claudePlanLines(plan, funnelSourcesOf(input.sources, input.accounts)) };
 }
 
+/** Staged: once the two-campaign record is ruled, each show's current campaigns, keep / pause / fold into Wider (advice only). */
+function withAdvice(row: ShowLines, record: RetargetingRecord, ruled: boolean): ShowLines {
+  if (!ruled || row.skipped === "archived" || row.skipped === "not_on_sale") return row;
+  const line = adviceLine(adviseExisting(record.input?.campaigns ?? []));
+  return line ? { ...row, lines: [...row.lines, line] } : row;
+}
+
+/** PENDING DESIGN: "Use as a suggestion" still on after create. */
+export function suggestionOnLine(adSetName: string): string {
+  return `Turn off 'Use as a suggestion' in Ads Manager for ${adSetName}.`;
+}
+
 export const planRetargetingTool: McpTool = {
   name: "plan_retargeting",
   title: "Plan each show's Retargeting campaign",
@@ -123,7 +136,8 @@ export const planRetargetingTool: McpTool = {
     } catch {
       throw new ToolInputError(RT_CLAUDE_WORDS.readFailed, { refused: "read_failed" });
     }
-    const shows: ShowLines[] = read.records.map(linesFor);
+    const ruled = ctx.showCampaignsRuled ?? SHOW_CAMPAIGNS_RULED;
+    const shows: ShowLines[] = read.records.map((record) => withAdvice(linesFor(record), record, ruled));
     for (const code of codes ?? []) {
       if (archived.has(code.toUpperCase())) shows.push({ code, skipped: "archived", lines: [skipLine(code, "archived")] });
       else if (!shows.some((row) => row.code.toUpperCase() === code.toUpperCase())) shows.push({ code, skipped: "not_on_sale", lines: [`${code} · skipped: ${RT_CLAUDE_WORDS.notOnSale}.`] });
@@ -149,9 +163,9 @@ async function buildRowOf(ctx: ToolContext, eventId: string): Promise<BuildRow |
 
 const made = (progress: FunnelProgress) => Object.keys(progress.audiences ?? {}).length;
 
-export const createRetargetingTool: McpTool = {
-  name: "create_retargeting",
-  title: "Make a show's Retargeting campaign",
+export const createShowCampaignsTool: McpTool = {
+  name: "create_show_campaigns",
+  title: "Make a show's campaigns",
   kind: "meta",
   readOnly: false,
   idempotent: true,
@@ -220,7 +234,7 @@ export const createRetargetingTool: McpTool = {
     const progress = out.progress;
     const ids = {
       campaign_id: progress.campaignId ?? null,
-      ad_set_ids: Object.fromEntries(Object.entries(progress.adSets ?? {}).map(([tier, set]) => [tier, set!.id])),
+      ad_set_ids: Object.fromEntries(Object.entries(progress.adSets ?? {}).flatMap(([tier, set]) => (set ? [[tier, set.id]] : []))),
       audiences_made: made(progress),
       ads: progress.ads?.length ?? 0,
       scheduled: progress.scheduled ?? [],
@@ -234,7 +248,10 @@ export const createRetargetingTool: McpTool = {
       throw new ToolInputError(said, { ...summary, refused: out.step ?? "failed" }, { ...ids, ads_manager: link });
     }
     const taken = build.plan.take.reduce((sum, line) => sum + (line.beforeMinor - line.afterMinor), 0);
-    const message = [doneLine({ code: code!, live, made: ids.audiences_made, takenMinor: taken }), ...(live && out.step === "schedule" ? [RT_CLAUDE_WORDS.stepsNotScheduled] : [])].join("\n");
+    // Matas, 26 Nov item 2: every ad set's settings as Meta holds them; anything still on is said per ad set.
+    const readBack = progress.readBack ?? [];
+    const settings = [...readBack.filter((row) => !row.geoOff).map((row) => untickLine(row.name)), ...readBack.filter((row) => !row.advantageOff).map((row) => suggestionOnLine(row.name))];
+    const message = [doneLine({ code: code!, live, made: ids.audiences_made, takenMinor: taken }), ...(live && out.step === "schedule" ? [RT_CLAUDE_WORDS.stepsNotScheduled] : []), ...settings].join("\n");
     return { data: { message, ...ids, ads_manager: link }, eventId, clientId: ownerRow.client_id, summary: { ...summary, takenMinor: taken } };
   },
 };

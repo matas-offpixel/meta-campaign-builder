@@ -225,3 +225,15 @@ describe("an idempotent re-run", () => {
     assert.equal(new Set(stepChanges(build, sets).map((row) => row.key)).size, stepChanges(build, sets).length);
   });
 });
+
+describe("Matas, 26 Nov item 2: the settings read-back", () => {
+  it("each tier's targeting is read back after create; a missing geo setting is reported, never assumed off", async () => {
+    const { deps, ctx } = setup();
+    const out = await applyFunnel(deps, buildFor(), ctx("paused"));
+    assert.deepEqual(out.progress.readBack?.map((row) => [row.name, row.geoOff, row.advantageOff]), [
+      ["NX26-RUDIMENTAL · Retargeting · Cold", false, false],
+      ["NX26-RUDIMENTAL · Retargeting · Warm", false, false],
+      ["NX26-RUDIMENTAL · Retargeting · Hot", false, false],
+    ]);
+  });
+});

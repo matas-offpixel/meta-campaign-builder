@@ -1,5 +1,10 @@
 -- 275: Retargeting re-ruled to the funnel (docs/design-record/2026-11-26-retargeting-funnel.html,
--- RF1–RF9), M3c's create_retargeting.
+-- RF1–RF9), M3c's create_show_campaigns; and the two-campaign record's page
+-- groups (staged: scratch/retargeting-two-campaigns-2026-11-26.md, pending
+-- design's re-ruling of #1396).
+--
+-- 1. retargeting_builds (below).
+-- 2. page_groups (at the end).
 --
 -- retargeting_builds: one row per show's "{code} · Retargeting" funnel build,
 -- whether the panel's Accept or the connector's create_retargeting made it.
@@ -63,3 +68,35 @@ begin
       using (auth.uid() = user_id);
   end if;
 end $$;
+
+-- 2. page_groups: the Similar tier's genre page groups. One row per client
+--    and genre (events.genre_family's keys, migration 253): Facebook Pages
+--    and Instagram accounts the client's business can build engagement
+--    audiences from (its own brand pages and pages shared with it). Seeded
+--    by scripts/page-groups-seed.mts (a dry run unless --apply) from the
+--    audience-source listing; a seeded group is unconfirmed, and the build
+--    never uses one until Matas confirms it (confirmed_at, confirmed_by).
+--    One engagement audience is made per 5 pages of a group, at build time.
+--    Service role only, RLS on with no policy, like 268.
+
+create table if not exists public.page_groups (
+  id            uuid        primary key default gen_random_uuid(),
+  client_id     uuid        not null references public.clients (id) on delete cascade,
+  genre_family  text        not null,
+  page_ids      text[]      not null default '{}' check (array_position(page_ids, null) is null),
+  ig_ids        text[]      not null default '{}' check (array_position(ig_ids, null) is null),
+  -- Where the seed found it: 'seed' (the script) or 'hand' (Matas).
+  source        text        not null default 'seed' check (source in ('seed', 'hand')),
+  confirmed_at  timestamptz,
+  confirmed_by  uuid        references auth.users (id) on delete set null,
+  created_at    timestamptz not null default now(),
+  updated_at    timestamptz not null default now(),
+  constraint page_groups_client_genre_unique unique (client_id, genre_family),
+  constraint page_groups_confirmed_pair check ((confirmed_at is null) = (confirmed_by is null))
+);
+
+comment on table public.page_groups is
+  'The Similar tier''s genre page groups per client (two-campaign record, staged): pages and Instagram accounts the client''s business can build engagement audiences from. Unconfirmed until Matas confirms. Migration 275.';
+
+alter table public.page_groups enable row level security;
+revoke all on public.page_groups from anon, authenticated;

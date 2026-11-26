@@ -177,7 +177,7 @@ const BUILT_B = {
   state: "live",
   mode: "live" as const,
   campaignId: "120000000000000300",
-  tiers: { cold: 480, warm: 1080, hot: 840 },
+  tiers: { similar: 0, cold: 480, warm: 1080, hot: 840 },
   took: [{ id: "120000000000000101", kind: "adset" as const, name: BROAD, beforeMinor: 3600, afterMinor: 1200 }],
 };
 
@@ -202,7 +202,7 @@ export function rfcView(): RetargetingView {
       today: "2026-11-26",
       accounts: [...ACCOUNTS, ...MISSING],
       prospecting: [{ ...PROSPECTING[0]!, dailyMinor: 1500 }, PROSPECTING[1]!, PROSPECTING[2]!],
-      funnelBuilt: { state: "paused", mode: "paused", campaignId: "120000000000000300", tiers: { cold: 630, warm: 945, hot: 525 }, took: [{ id: "120000000000000101", kind: "adset", name: BROAD, beforeMinor: 3600, afterMinor: 1500 }] },
+      funnelBuilt: { state: "paused", mode: "paused", campaignId: "120000000000000300", tiers: { similar: 0, cold: 630, warm: 945, hot: 525 }, took: [{ id: "120000000000000101", kind: "adset", name: BROAD, beforeMinor: 3600, afterMinor: 1500 }] },
     }),
   ).view;
 }

@@ -254,6 +254,8 @@ export type RetargetingInput = {
   funnelBuilt?: { state: string; mode: "paused" | "live" | null; campaignId: string | null; tiers: TierMinor; took: TakeLine[] } | null;
   /** RF5: each tier's 7-day frequency and spend, once it runs. */
   funnelWeek?: Partial<Record<FunnelTier, TierWeek>>;
+  /** Staged two-campaign record: the show's on-sale campaigns and their delivering ad sets, for keep / pause / fold. */
+  campaigns?: { id: string; name: string; adSetNames: string[]; delivering: boolean }[];
 };
 
 export type RetargetingBuild = {

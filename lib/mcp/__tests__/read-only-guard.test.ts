@@ -345,6 +345,8 @@ const EXTERNAL_READERS: Record<string, readonly string[]> = {
   // M3c: the retargeting funnel's words and plan lines, and its sources from the read (pure).
   "lib/retargeting/funnel-plan.ts": ["claudePlanLines", "doneLine", "planHead", "skipLine", "skipReason"],
   "lib/retargeting/funnel-view.ts": ["funnelSourcesOf"],
+  // Staged two-campaign record: the keep / pause / fold advice, the settings read-back's words and the flag (pure).
+  "lib/retargeting/show-campaigns.ts": ["adviceLine", "adviseExisting", "SHOW_CAMPAIGNS_RULED", "untickLine"],
 };
 
 /**
