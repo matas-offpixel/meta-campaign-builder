@@ -47,6 +47,7 @@ import { fill as fillRf } from "./funnel-words.ts";
 import type { CampaignInput } from "../onsale-refresh/rules.ts";
 import { loadPageGroup } from "./page-groups.ts";
 import { SHOW_CAMPAIGNS_RULED } from "./show-campaigns.ts";
+import { isOnSale } from "../onsale-refresh/on-sale.ts";
 
 type Db = Pick<SupabaseClient, "from">;
 
@@ -363,6 +364,8 @@ export function retargetingInput(args: {
     runDay: day,
     eventDate: event.event_date,
     onSaleDay: retargetingOnSaleDay(event),
+    // The on-sale panel's rule (isOnSale), so a show on sale by its status alone plans (Matas, 27 Nov).
+    onSale: isOnSale(event, day),
     read: args.read,
     last7SpendGbp: Math.round(last7 * 100) / 100,
     minDailyMinor: args.minDailyMinor,
