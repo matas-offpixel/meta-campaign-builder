@@ -40,7 +40,8 @@ import { isPresale, planRetargeting, retargetingOnSaleDay, type RetargetingInput
 import { loadArchivedClientIds } from "../db/client-status.ts";
 import { isRetargetingCampaignName, isTestsCampaignName, retargetingCampaignName, TIERS, type Tier } from "./words.ts";
 import { FUNNEL_TIERS, type FunnelTier, type ProspectingBudget, type TierWeek } from "./funnel.ts";
-import { BUILDS_TABLE, type FunnelBuild, type FunnelProgress } from "./funnel-apply.ts";
+import { BUILDS_TABLE, type FunnelBuild, type FunnelProgress, type SimilarStepOutcome } from "./funnel-apply.ts";
+import type { PageGroup } from "./funnel.ts";
 import type { MatchedPages } from "./funnel-plan.ts";
 import type { CampaignInput } from "../onsale-refresh/rules.ts";
 import { loadPageGroup } from "./page-groups.ts";
@@ -192,6 +193,14 @@ export async function loadPresaleEvents(db: Db, today: string): Promise<EventRow
   return rows.filter((event) => event.client_id && !archived.has(event.client_id) && isPresale({ onSaleDay: retargetingOnSaleDay(event), runDay: today, announceDay: event.announcement_at?.slice(0, 10) ?? null, eventDate: event.event_date }));
 }
 
+/** The read adds Similar today: not a dry run, a live build that runs without it, its group confirmed, and today one of the build's stretch steps. */
+export function similarStepDue(args: { dryRun: boolean; ruled: boolean; row: FunnelBuildRow | undefined; pageGroup: PageGroup | null; day: string }): boolean {
+  const { row } = args;
+  if (args.dryRun || !args.ruled || !row || row.state !== "live" || !row.progress?.active || row.progress.adSets?.similar) return false;
+  if (!args.pageGroup?.confirmed || !row.build?.wider || !row.build.spec?.twoCampaigns) return false;
+  return (row.build.plan?.steps ?? []).some((step) => step.day === args.day);
+}
+
 export type FunnelBuildRow = { event_id: string; state: string; mode: "paused" | "live" | null; meta_campaign_id: string | null; progress: FunnelProgress | null; build?: Partial<FunnelBuild> | null };
 
 /**
@@ -208,7 +217,7 @@ export function funnelBuiltOf(row: FunnelBuildRow | undefined, wider: { remainin
   const runningWider = made && row.progress?.wider?.campaignId
     ? { lifetimeMinor: made.lifetimeMinor, dailyMinor: made.dailyMinor, daysLeft: made.daysLeft, endDay: made.endDay, steps: made.steps, adSets: made.adSets.length, remainingMinor: wider?.remainingMinor ?? null, doneDays: wider?.doneDays ?? [], showDailyMinor: row.build?.plan?.showDailyMinor }
     : null;
-  return { state: row.state, mode: row.mode, campaignId: row.meta_campaign_id ?? row.progress?.campaignId ?? null, tiers, took, wider: runningWider };
+  return { state: row.state, mode: row.mode, campaignId: row.meta_campaign_id ?? row.progress?.campaignId ?? null, tiers, took, wider: runningWider, similarRefused: row.progress?.similarRefused ?? null };
 }
 
 /** The Wider steps whose scheduled change ran (funnel-apply's stepChanges key: rf:{event}:{day}:wider). */
@@ -269,6 +278,8 @@ export type RetargetingRecord = {
   proposalId: string | null;
   /** RT13: a running campaign's audiences whose rules differ from today's links. */
   ruleChanges?: string[];
+  /** Matas, 27 Nov: the read tried to add Similar at this step. */
+  similarStep?: { state: "applied" | "failed"; reason: string | null };
   /** RT13: those rewritten on Meta (the refresh's token and write path, behind its gates). */
   rulesRewritten?: string[];
 };
@@ -534,6 +545,12 @@ export async function runRetargetingRead(input: {
   pageLinks?: (tag: string) => Promise<PageLinksResult>;
   /** RT13's rule rewrite: the refresh's POST (graphPostWithToken), with the owner's refresh token. Absent = never write. */
   graphPost?: (path: string, body: Record<string, unknown>, token: string) => Promise<unknown>;
+  /**
+   * Matas, 27 Nov ("Yes, at the next step"): add Similar to a live build at a
+   * stretch step once its page group is confirmed (funnel-apply.ts
+   * addSimilarAtStep, the create path's gates). Absent, or a dry run = never.
+   */
+  similarStep?: (args: { event: EventRow; build: FunnelBuild; pageGroup: PageGroup; day: string }) => Promise<SimilarStepOutcome>;
 }): Promise<RetargetingReadResult> {
   const dryRun = input.dryRun === true;
   if (!dryRun && !isRetargetingReadEnabled(input.env)) return { ok: true, skippedReason: "killswitch" };
@@ -660,7 +677,7 @@ export async function runRetargetingRead(input: {
         const body = (await input.graph.graphGet(`/${widerId}`, { fields: "budget_remaining" }).catch(() => null)) as { budget_remaining?: unknown } | null;
         remainingMinor = body && body.budget_remaining != null && Number.isFinite(Number(body.budget_remaining)) ? Number(body.budget_remaining) : null;
       }
-      const funnelBuilt = funnelBuiltOf(buildRow, widerId ? { remainingMinor, doneDays: widerDoneDays(stepRows, event.id) } : null);
+      let funnelBuilt = funnelBuiltOf(buildRow, widerId ? { remainingMinor, doneDays: widerDoneDays(stepRows, event.id) } : null);
       let funnelWeek: RetargetingInput["funnelWeek"];
       if (funnelBuilt?.campaignId && buildRow?.progress?.active && input.graph) {
         metaCalls += 1;
@@ -670,6 +687,16 @@ export async function runRetargetingRead(input: {
       const madeAudiences = madeRows.filter((row) => row.event_id === event.id && row.meta_audience_id).map((row) => row.part);
       const genre = sourceRows.events.find((row) => row.id === event.id)?.genre_family ?? null;
       const pageGroup = SHOW_CAMPAIGNS_RULED ? await loadPageGroup(input.db, event.client_id, genre) : null;
+      // Matas, 27 Nov: a group confirmed after the build brings Similar back at the next stretch step.
+      let similarOutcome: SimilarStepOutcome | null = null;
+      if (similarStepDue({ dryRun, ruled: SHOW_CAMPAIGNS_RULED, row: buildRow, pageGroup, day }) && input.similarStep) {
+        similarOutcome = await input.similarStep({ event, build: buildRow!.build as FunnelBuild, pageGroup: pageGroup!, day }).catch((err) => ({ state: "failed" as const, reason: "Similar couldn't be added this read.", progress: buildRow!.progress ?? {}, error: err instanceof Error ? err.message : String(err) }));
+        if (similarOutcome.state !== "skipped") {
+          buildRow!.progress = similarOutcome.progress;
+          funnelBuilt = funnelBuiltOf(buildRow, widerId ? { remainingMinor, doneDays: widerDoneDays(stepRows, event.id) } : null);
+        }
+        if (similarOutcome.state === "failed") skipped.push({ eventCode: code, reason: `Similar not added at this step: ${similarOutcome.reason ?? "unknown"}${similarOutcome.error ? ` (${similarOutcome.error})` : ""}` });
+      }
       // Matas, 26 Nov: rechecked on every read — Similar's stored audiences sized under Meta's minimum skip it (its share goes to Cold).
       let similarTooSmall = false;
       const similarStored = madeRows.filter((row) => row.event_id === event.id && row.meta_audience_id && /^rf:similar_/.test(row.part));
@@ -680,7 +707,7 @@ export async function runRetargetingRead(input: {
       }
       const planInput = retargetingInput({ matchedPages: SHOW_CAMPAIGNS_RULED ? matchedPagesOf(sources.pages, roles?.names) : null, twoCampaigns: SHOW_CAMPAIGNS_RULED, pageGroup, genreFamily: genre, similarTooSmall, announcementAt, funnelBuilt, funnelWeek, madeAudiences, event, day, rows, campaigns: inputs.campaigns, read, budgets: purchases.budgets, sources, appliedLine, minDailyMinor: account ? (minDaily.get(account) ?? null) : null, linksRead: links.linksRead, pixelHosts: pixelId ? (hostsByPixel.get(pixelId) ?? null) : null, campaignStatus, otherLandingHosts: [...otherLandingHosts(landingByShow, event.id)], linkSizes, testWinner, pooledRead, signups: signupsSyncOf(syncRows.filter((row) => row.event_id === event.id), event), accountTimeZone: account ? (timeZones.get(account) ?? null) : null });
       const plan = planRetargeting(planInput);
-      const record: RetargetingRecord = { eventId: event.id, eventCode: event.event_code, plan, input: planInput, proposalId: null };
+      const record: RetargetingRecord = { eventId: event.id, eventCode: event.event_code, plan, input: planInput, proposalId: null, ...(similarOutcome && similarOutcome.state !== "skipped" ? { similarStep: { state: similarOutcome.state, reason: similarOutcome.reason } } : {}) };
       // RT13: a running campaign's rules against today's links. A failed read keeps the last rules, so nothing is compared.
       const storedRules = ((appliedLine?.applied_result?.retargeting ?? null) as { rules?: Record<string, string[]> } | null)?.rules;
       if (plan.state === "running" && storedRules && comparesRules(links.linksRead)) {

@@ -26,7 +26,7 @@
  */
 import { z } from "zod";
 import type { FunnelBuild, FunnelProgress } from "../../retargeting/funnel-apply.ts";
-import { claudePlanLines, doneLine, isPresale, planHead, similarSkipLine, skipLine, skipReason, type SkipReason } from "../../retargeting/funnel-plan.ts";
+import { claudePlanLines, doneLine, isPresale, planHead, similarReturnLine, similarSkipLine, skipLine, skipReason, type SkipReason } from "../../retargeting/funnel-plan.ts";
 import { funnelSourcesOf, genreWords } from "../../retargeting/funnel-view.ts";
 import { adviseExisting, foldFirstLine, geoNotReadLine, untickLine } from "../../retargeting/show-campaigns.ts";
 import type { RetargetingRecord } from "../../retargeting/runner.ts";
@@ -104,7 +104,13 @@ function linesFor(record: RetargetingRecord): ShowLines {
   const input = record.input;
   if (!input) return { code, skipped: "not_on_sale", lines: [`${code} · skipped: ${RT_CLAUDE_WORDS.notOnSale}.`] };
   const skip = recordSkip(record);
-  if (skip) return { code, skipped: skip, lines: [skipLine(code, skip)] };
+  if (skip) {
+    // Matas, 27 Nov: a built show without Similar whose group is confirmed now — Similar comes back at the next step.
+    const plan = record.plan.funnel;
+    const built = input.funnelBuilt;
+    const back = skip === "built" && plan && built && built.tiers.similar === 0 && !plan.similarSkip && plan.specs.some((spec) => spec.tier === "similar");
+    return { code, skipped: skip, lines: [skipLine(code, skip), ...(back ? [similarReturnLine({ nextDay: plan.steps[0]?.day ?? null, refused: built.similarRefused ?? null })] : [])] };
+  }
   const plan = record.plan.funnel!;
   const wider = record.plan.wider;
   if (!wider) return { code, skipped: "no_budget", lines: [skipLine(code, "no_budget")] };

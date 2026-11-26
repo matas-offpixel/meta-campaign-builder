@@ -263,3 +263,14 @@ test("two campaigns: the plan names the fold; a live create waits until the pros
   await run(createShowCampaignsTool, paused.ctx, { event: "NX26-RUDIMENTAL", mode: "paused", approval: YES });
   assert.equal(paused.calls.create.length, 1);
 });
+
+test("plan_retargeting: a built show without Similar whose group is confirmed now says Similar comes back at the next step (Matas, 27 Nov)", async () => {
+  const group = { id: "g", genreFamily: "dnb", pageIds: ["2001", "2002"], igIds: [], confirmed: true };
+  const built = record({ genreFamily: "dnb", pageGroup: group, funnelBuilt: { state: "live", mode: "live", campaignId: "1", tiers: { similar: 0, cold: 840, warm: 735, hot: 525 }, took: [] } });
+  const { ctx } = ctxWith([built]);
+  const lines = String(((await run(planRetargetingTool, ctx, { events: "NX26-RUDIMENTAL" })).data as { message: string }).message).split("\n");
+  assert.deepEqual(lines, ["NX26-RUDIMENTAL · skipped: it already has a Wider or Retargeting campaign.", "Similar comes back at the next step, Sat 28 Nov, now its page group is confirmed."]);
+  const refused = record({ genreFamily: "dnb", pageGroup: group, funnelBuilt: { state: "live", mode: "live", campaignId: "1", tiers: { similar: 0, cold: 840, warm: 735, hot: 525 }, took: [], similarRefused: { day: "2026-11-26", reason: "Its audience is too small." } } });
+  const again = ctxWith([refused]);
+  assert.match(String(((await run(planRetargetingTool, again.ctx, { events: "NX26-RUDIMENTAL" })).data as { message: string }).message), /\nSimilar couldn't be added on Thu 26 Nov: Its audience is too small\. Its share stays in Cold\.$/);
+});

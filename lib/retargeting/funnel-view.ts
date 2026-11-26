@@ -38,6 +38,7 @@ import {
   type TierWeek,
 } from "./funnel.ts";
 import { widerGive } from "./show-campaigns.ts";
+import { SIMILAR_RETURN } from "./funnel-plan.ts";
 import { createLines, FLOOR_LINE, nextLine, shareLine, similarSkipRow, type FunnelShowPlan, type WiderWords } from "./funnel-plan.ts";
 import { fill, freq, JOIN, money, rfDay } from "./funnel-words.ts";
 import type { SourcePage, SourceSet } from "./audiences.ts";
@@ -116,7 +117,7 @@ export type RowOptions = {
   took?: readonly TakeLine[];
   spec?: SpecOptions;
   /** TC3: Similar skipped this read (its share is in Cold's budget): the reason, the code and its share. */
-  similar?: { reason: "no_genre" | "no_group" | "too_small"; code: string; minor: number } | null;
+  similar?: { reason: "no_genre" | "no_group" | "too_small"; code: string; minor: number; /** In place of the skip row: Similar comes back at the next step, or couldn't be added. */ text?: string } | null;
 };
 
 /** The tier rows for these budgets; with the 7-day figures (a running campaign), RF5's caps. */
@@ -128,9 +129,9 @@ export function funnelTierRows(sources: FunnelSources, shares: TierMinor, opts: 
   const rows: FunnelTierRow[] = [];
   for (const tier of FUNNEL_TIERS) {
     const spec = specs.find((row) => row.tier === tier);
-    if (tier === "similar" && !spec) {
+    if (tier === "similar" && (!spec || opts.similar?.text)) {
       // TC3: the row says Similar is skipped, and Cold takes its share.
-      if (opts.similar) rows.push({ tier, label: FUNNEL_TIER_LABEL[tier], audiences: [], from: null, skipped: similarSkipRow(opts.similar.reason, { code: opts.similar.code, genre, minor: opts.similar.minor }), leavesOut: "", frequency: null, budgetMinor: null, lines: [] });
+      if (opts.similar) rows.push({ tier, label: FUNNEL_TIER_LABEL[tier], audiences: [], from: null, skipped: opts.similar.text ?? similarSkipRow(opts.similar.reason, { code: opts.similar.code, genre, minor: opts.similar.minor }), leavesOut: "", frequency: null, budgetMinor: null, lines: [] });
       continue;
     }
     if (!spec) continue;
@@ -237,7 +238,7 @@ const WIDER_AD_SETS = 4;
 export function runningPanel(
   plan: FunnelShowPlan,
   sources: FunnelSources,
-  args: { showDay: string; today: string; built: { tiers: TierMinor; took: readonly TakeLine[]; week?: Partial<Record<FunnelTier, TierWeek>> }; wider?: RunningWider | null; spec?: SpecOptions; onSaleDay?: string | null },
+  args: { showDay: string; today: string; built: { tiers: TierMinor; took: readonly TakeLine[]; week?: Partial<Record<FunnelTier, TierWeek>>; similarRefused?: { day: string; reason: string } | null }; wider?: RunningWider | null; spec?: SpecOptions; onSaleDay?: string | null },
 ): FunnelPanel {
   const total = FUNNEL_TIERS.reduce((sum, tier) => sum + args.built.tiers[tier], 0);
   const presale = args.spec?.presale === true;
@@ -250,9 +251,22 @@ export function runningPanel(
     notes: presale ? [fill("rt.presale.note")] : [],
     create: null,
     wider: w ? { row: w.row, line: w.line } : null,
-    tiers: funnelTierRows(sources, args.built.tiers, { week: args.built.week, took: args.built.took, spec: args.spec, similar: args.built.tiers.similar === 0 ? similarShareOf(plan) : null }),
+    tiers: funnelTierRows(sources, args.built.tiers, { week: args.built.week, took: args.built.took, spec: args.spec, similar: args.built.tiers.similar === 0 ? (similarShareOf(plan) ?? similarReturnOf(plan, args.built.similarRefused ?? null, (day) => !isDone(day) && day > args.today)) : null }),
     next: nextLine({ ...plan, steps: footerSteps(plan, args.wider ?? null, args.today, isDone) }, args.showDay, args.wider && w ? { ...args.wider, steps: w.steps } : null, presale && args.onSaleDay ? { onSaleDay: args.onSaleDay } : null),
   };
+}
+
+/**
+ * Matas, 27 Nov ("Yes, at the next step"): a running build without Similar
+ * whose group is confirmed now — Similar comes back at the next step (or
+ * couldn't be added at the last one); its share is in Cold until then.
+ */
+export function similarReturnOf(plan: FunnelShowPlan, refused: { day: string; reason: string } | null, ahead: (day: string) => boolean): RowOptions["similar"] {
+  if (plan.similarSkip || !plan.specs.some((spec) => spec.tier === "similar")) return null;
+  const minor = splitTotal(plan.totalMinor, SPLIT_WITH_SIMILAR[plan.stretch])?.tiers.similar ?? 0;
+  const next = plan.steps.find((step) => ahead(step.day)) ?? null;
+  const text = refused ? SIMILAR_RETURN.rowRefused(rfDay(refused.day), refused.reason, money(minor)) : next ? SIMILAR_RETURN.row(rfDay(next.day), money(minor)) : SIMILAR_RETURN.rowNoStep(money(minor));
+  return { reason: "no_group", code: plan.code, minor, text };
 }
 
 /**

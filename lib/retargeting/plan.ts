@@ -254,7 +254,7 @@ export type RetargetingInput = {
   /** Audience keys already made for the show (onsale_refresh_audiences). */
   madeAudiences?: string[];
   /** The show's funnel build (retargeting_builds), when it has one. */
-  funnelBuilt?: { state: string; mode: "paused" | "live" | null; campaignId: string | null; tiers: TierMinor; took: TakeLine[]; wider?: RunningWider | null } | null;
+  funnelBuilt?: { state: string; mode: "paused" | "live" | null; campaignId: string | null; tiers: TierMinor; took: TakeLine[]; wider?: RunningWider | null; /** The read couldn't add Similar at a step (Matas, 27 Nov): its day and reason. */ similarRefused?: { day: string; reason: string } | null } | null;
   /** RF5: each tier's 7-day frequency and spend, once it runs. */
   funnelWeek?: Partial<Record<FunnelTier, TierWeek>>;
   /** Staged two-campaign record: Wider and the Similar tier are planned (SHOW_CAMPAIGNS_RULED). */
@@ -578,7 +578,7 @@ export function planRetargeting(input: RetargetingInput): RetargetingPlan {
     const built = input.funnelBuilt ?? null;
     const tiers: TierMinor = built?.tiers ?? { similar: 0, cold: 0, warm: 0, hot: 0 };
     const wider = built?.wider ?? null;
-    const funnel = planned && input.eventDate ? runningPanel(planned, sources, { showDay: input.eventDate, today: input.runDay, built: { tiers, took: built?.took ?? [], week: input.funnelWeek }, wider, spec, onSaleDay: presale ? input.onSaleDay : null }) : null;
+    const funnel = planned && input.eventDate ? runningPanel(planned, sources, { showDay: input.eventDate, today: input.runDay, built: { tiers, took: built?.took ?? [], week: input.funnelWeek, similarRefused: built?.similarRefused ?? null }, wider, spec, onSaleDay: presale ? input.onSaleDay : null }) : null;
     const read = input.read;
     const path = read ? signalPath(read) : null;
     const signal = read && (path === "own_domain" || path === "platform") ? { wide: signalLine(path, { pixelName: read.pixelName, domain: read.domain }), narrow: signalNarrow(path, { pixelName: read.pixelName, domain: read.domain }) } : null;

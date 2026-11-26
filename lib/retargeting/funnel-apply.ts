@@ -45,7 +45,7 @@ import { applyEnabled, audienceWritesEnabledFrom, retargetingGates, applyGates }
 import { campaignCreateEnabled, customConversionCreateEnabled, reuseAd, type ReusedCreative } from "../onsale-refresh/apply-purchase.ts";
 import { isOptimisationWritesEnabledFromEnv } from "../optimisation/gates.ts";
 import { widerAdSetPayload, widerCampaignFields, locationOf, RT_AUDIENCE_BUILDING, RT_AUDIENCE_SMALL, RT_AUDIENCES_OFF, RT_CONVERSION_OFF, RT_CREATE_OFF, tierAdSetPayload, type RetargetingMeta } from "./apply.ts";
-import { type SpecOptions, audiencesToMake, funnelAdSetName, funnelSpecs, FUNNEL_TIERS, FUNNEL_TIER_LABEL, type FunnelAudience, type FunnelSources, type FunnelStretch, type FunnelTier, type TakeLine, type TierMinor } from "./funnel.ts";
+import { type SpecOptions, audiencesToMake, funnelAdSetName, funnelSpecs, FUNNEL_TIERS, FUNNEL_TIER_LABEL, SPLIT_WITH_SIMILAR, splitTotal, type FunnelAudience, type PageGroup, type FunnelSources, type FunnelStretch, type FunnelTier, type TakeLine, type TierMinor } from "./funnel.ts";
 import type { FunnelStepPlan } from "./funnel-plan.ts";
 import { advantageOff, geoExpansionOff, widerAdSetName, type Interest, type LookalikeAudience, type WiderAdSetKey, type WiderStep } from "./show-campaigns.ts";
 
@@ -152,6 +152,10 @@ export type FunnelProgress = {
   similarSkipped?: "too_small";
   /** STAGED: the Wider campaign's ids. */
   wider?: { campaignId?: string; adSets?: Partial<Record<WiderAdSetKey, { id: string }>>; ads?: string[] };
+  /** Matas, 27 Nov ("Yes, at the next step"): the stretch step at which the read added Similar after the build. */
+  similarAdded?: string;
+  /** The last time the read couldn't add Similar at a step: its day and the plain reason (the share stayed in Cold). */
+  similarRefused?: { day: string; reason: string };
 };
 
 export type FunnelOutcome = {
@@ -181,6 +185,7 @@ export const RF_APPLY_WORDS = {
   building: RT_AUDIENCE_BUILDING,
   tooSmall: RT_AUDIENCE_SMALL,
   // PENDING DESIGN
+  similarNotYet: "Cold's budget isn't at this step's amount yet, so Similar waits for the next read.",
   adUnread: (name: string) => `The ad it reuses (${name}) can't be read.`,
   budgetChanged: (name: string) => `${name}'s budget changed in Ads Manager since the plan.`,
   switchOn: "Built and paused, not switched on. A retry switches it on.",
@@ -601,4 +606,147 @@ export function funnelAudienceDraft(aud: Exclude<FunnelAudience, { kind: "list" 
   }
   const subtype = aud.kind === "followers_fb" ? "page_followers_fb" : "page_followers_ig";
   return { subtype, retentionDays: 0, sourceId: aud.pageIds.join(","), sourceMeta: { subtype, pageIds: aud.pageIds } };
+}
+
+
+// ─── Similar at the next step (Matas, 27 Nov: "Yes, at the next step") ───────
+
+/** What the read needs to add Similar to a running build: the create path's own calls, and a change to a scheduled step not yet run. */
+export type SimilarStepDeps = Pick<FunnelDeps, "db" | "env" | "meta" | "createAudience" | "scheduleChange" | "owner" | "source"> & {
+  /** A step not yet run gets new amounts (same row, same key); false when it's no longer waiting. */
+  updateScheduled(key: string, change: { amountMinor: number; expectedMinor: number; raisesSpend: boolean }): Promise<boolean>;
+};
+
+export type SimilarStepOutcome = { state: "applied" | "failed" | "skipped"; reason: string | null; progress: FunnelProgress; similarMinor?: number; coldMinor?: number; error?: string };
+
+/**
+ * A page group confirmed (or grown past Meta's minimum) after the build:
+ * at the next stretch step the read adds the Similar ad set and gives it
+ * its share back (the step's split with Similar); Cold drops to its own.
+ * The create path's gates and calls, every write on the ledger:
+ *   1. Similar's engagement audiences (made or reused), ready and big enough;
+ *   2. its ad set, paused, Advantage+ off, location expansion off (#1401's
+ *      create), the show's ads, read back;
+ *   3. Cold lowered to its own share, from the amount this step's scheduled
+ *      change set (any other amount waits for the next read);
+ *   4. Similar switched on, last. If that fails, Cold is put back and the
+ *      paused ad set is left off;
+ *   5. each later step's Cold row re-sized and a Similar row added.
+ * Money moves between two tiers only, so the show's total is unchanged and
+ * no ceiling is read. Any failure leaves the share in Cold and says why.
+ */
+export async function addSimilarAtStep(deps: SimilarStepDeps, args: { build: FunnelBuild; pageGroup: PageGroup; today: string; ledger: MetaWriteContext; plainMetaReason: (err: unknown) => string }): Promise<SimilarStepOutcome> {
+  const { build, today, ledger } = args;
+  const before = await loadFunnelProgress(deps.db, build.eventId);
+  const progress: FunnelProgress = { ...(before?.progress ?? {}) };
+  const skip = (reason: string | null): SimilarStepOutcome => ({ state: "skipped", reason, progress });
+  const step = build.plan.steps.find((row) => row.day === today);
+  if (!progress.active || progress.adSets?.similar || !build.wider || !build.spec?.twoCampaigns || !step || !args.pageGroup.confirmed) return skip(null);
+  const fullDeps = deps as unknown as FunnelDeps;
+  const fail = async (reason: string, error?: string): Promise<SimilarStepOutcome> => {
+    progress.similarRefused = { day: today, reason };
+    await saveProgress(fullDeps, build, progress, { state: "live" }).catch(() => undefined);
+    return { state: "failed", reason, progress, ...(error ? { error } : {}) };
+  };
+  const gates = funnelGates(deps.env);
+  if (!gates.create) return fail(RF_APPLY_WORDS.switchedOff);
+  if (!gates.audiences) return fail(RF_APPLY_WORDS.audiencesOff);
+  if (!gates.money) return fail(RF_APPLY_WORDS.moneyOff);
+  const adAccountId = build.adAccountId;
+  const cold = progress.adSets?.cold;
+  if (!adAccountId || !progress.campaignId || !cold) return fail(RF_APPLY_WORDS.noAccount);
+  const similar = funnelSpecs(build.sources, { ...build.spec, pageGroup: args.pageGroup, similarTooSmall: false }).find((spec) => spec.tier === "similar");
+  if (!similar) return fail(RF_APPLY_WORDS.nothingToBuild);
+  // The step's split with Similar; the other tiers' amounts are the stretch's as scheduled.
+  const buildable = FUNNEL_TIERS.filter((tier) => tier === "similar" || (progress.adSets?.[tier]?.id ?? null));
+  const split = splitTotal(step.totalMinor, SPLIT_WITH_SIMILAR[step.stretch], { buildable });
+  if (!split || !(split.tiers.similar > 0)) return fail(RF_APPLY_WORDS.nothingToBuild);
+  const keyBase = { rf: build.eventId, similar_at: today };
+  try {
+    // 1. Similar's audiences.
+    progress.audiences ??= {};
+    const stored = await storedAudiences(deps.db, build.eventId);
+    const ids: string[] = [];
+    for (const aud of similar.includes) {
+      if (aud.kind === "list") continue;
+      let id: string | undefined = progress.audiences[aud.key] ?? stored.get(aud.key);
+      if (!id) {
+        const name = funnelAudienceName(build.eventCode, aud);
+        const made = await deps.createAudience(aud, name, adAccountId);
+        if (!made) continue;
+        id = made.metaAudienceId;
+        await storeAudience(deps.db, { event_id: build.eventId, user_id: deps.owner.userId, part: aud.key, meta_audience_id: id, name });
+      }
+      progress.audiences[aud.key] = id;
+      ids.push(id);
+    }
+    if (!ids.length) return fail(RF_APPLY_WORDS.nothingToBuild);
+    let small = 0;
+    for (const id of ids) {
+      const state = await deps.meta.audienceState(id);
+      if (state === "building") return fail(RF_APPLY_WORDS.building);
+      if (state === "too_small") small += 1;
+    }
+    if (small === ids.length) return fail(RF_APPLY_WORDS.tooSmall);
+    // Cold must be at the amount this step's scheduled change set (Similar folded in); anything else waits.
+    const coldNow = await deps.meta.readDailyBudget("adset", cold.id);
+    if (coldNow !== step.tiers.cold) return fail(RF_APPLY_WORDS.similarNotYet);
+    // 2. The ad set, paused: it leaves out every other tier's audiences and buyers.
+    const similarIds = new Set(ids);
+    const excludeIds = [...new Set([...Object.values(progress.audiences).filter((id) => !similarIds.has(id)), ...similar.excludes.flatMap((aud) => (aud.kind === "list" ? [aud.metaAudienceId] : []))])];
+    const location = locationOf(build.geoFromAdsetId ? await deps.meta.readAdSetTargeting(build.geoFromAdsetId) : null);
+    const payload = tierAdSetPayload({ presale: build.presale === true, code: build.eventCode, tier: "similar" as never, campaignId: progress.campaignId, dailyMinor: split.tiers.similar, pixelId: build.pixelId, customConversionId: progress.customConversionId ?? null, endDay: build.endDay, location, includeIds: ids, excludeIds, name: funnelAdSetName(build.eventCode, "similar") });
+    const adsetId = await withMetaWriteIdempotency(ledger, "refresh_adset_create", { ...keyBase, tier: "similar" }, () => deps.meta.createAdSet(adAccountId, payload), { required: true });
+    await recordTierAdSet(fullDeps, { metaAdsetId: adsetId, campaignId: progress.campaignId, adAccountId, draftId: ledger.draftId ?? null, name: String(payload.name), dailyMinor: split.tiers.similar, tier: "similar" });
+    const adIds = new Set(progress.ads ?? []);
+    for (const ad of build.ads) {
+      const read = await deps.meta.readAd(ad.adId);
+      if (!read?.creativeId) return fail(RF_APPLY_WORDS.adUnread(ad.name));
+      adIds.add((await reuseAd(deps.meta, ledger, { lineId: `rf:${build.eventId}`, adAccountId, adsetId, creative: { name: read.name || ad.name, creativeId: read.creativeId, objectStoryId: read.objectStoryId ?? null } })).adId);
+    }
+    progress.ads = [...adIds];
+    const targeting = await deps.meta.readAdSetTargeting(adsetId).catch(() => null);
+    progress.readBack = [...(progress.readBack ?? []).filter((row) => row.adsetId !== adsetId), { adsetId, name: funnelAdSetName(build.eventCode, "similar"), geoOff: geoExpansionOff(targeting), advantageOff: advantageOff(targeting), read: targeting != null }];
+    // 3. Cold to its own share, the giving side first.
+    await withMetaWriteIdempotency(ledger, "refresh_adset_budget_update", { ...keyBase, id: cold.id, daily_budget: split.tiers.cold }, async () => {
+      await deps.meta.setDailyBudget("adset", cold.id, split.tiers.cold);
+      return cold.id;
+    }, { required: true });
+    // 4. Similar on, last; if it won't go on, Cold gets its share back and Similar stays off.
+    try {
+      await withMetaWriteIdempotency(ledger, "adset_status_update", { ...keyBase, adset_id: adsetId, status: "ACTIVE" }, async () => {
+        await deps.meta.setAdSetActive(adsetId);
+        return adsetId;
+      }, { required: true });
+    } catch (err) {
+      await withMetaWriteIdempotency(ledger, "refresh_adset_budget_update", { ...keyBase, id: cold.id, daily_budget: step.tiers.cold, put_back: true }, async () => {
+        await deps.meta.setDailyBudget("adset", cold.id, step.tiers.cold);
+        return cold.id;
+      }, { required: true }).catch(() => undefined);
+      return fail(RF_APPLY_WORDS.switchOn, err instanceof Error ? err.message : String(err));
+    }
+    progress.adSets = { ...progress.adSets, similar: { id: adsetId, dailyMinor: split.tiers.similar }, cold: { id: cold.id, dailyMinor: split.tiers.cold } };
+    progress.similarAdded = today;
+    delete progress.similarRefused;
+    delete progress.similarSkipped;
+    await saveProgress(fullDeps, build, progress, { state: "live", mode: "live" });
+  } catch (err) {
+    return fail(args.plainMetaReason(err), err instanceof Error ? err.message : String(err));
+  }
+  // 5. The later steps: Cold's row re-sized, Similar's added (both from today's amounts on).
+  let coldWas = split.tiers.cold;
+  let similarWas = split.tiers.similar;
+  for (const later of build.plan.steps.filter((row) => row.day > today)) {
+    const next = splitTotal(later.totalMinor, SPLIT_WITH_SIMILAR[later.stretch], { buildable });
+    if (!next) continue;
+    await deps.updateScheduled(`rf:${build.eventId}:${later.day}:cold`, { amountMinor: next.tiers.cold, expectedMinor: coldWas, raisesSpend: next.tiers.cold > coldWas }).catch(() => false);
+    if (next.tiers.similar !== similarWas) {
+      const row = await deps.scheduleChange({ objectKind: "adset", objectId: progress.adSets!.similar!.id, objectName: funnelAdSetName(build.eventCode, "similar"), field: "daily_budget", amountMinor: next.tiers.similar, expectedMinor: similarWas, runAt: londonAt(later.day, 5), raisesSpend: next.tiers.similar > similarWas, key: `rf:${build.eventId}:${later.day}:similar` }).catch(() => null);
+      if (row) progress.scheduled = [...new Set([...(progress.scheduled ?? []), row.id])];
+    }
+    coldWas = next.tiers.cold;
+    similarWas = next.tiers.similar;
+  }
+  await saveProgress(fullDeps, build, progress, { state: "live", mode: "live" }).catch(() => undefined);
+  return { state: "applied", reason: null, progress, similarMinor: split.tiers.similar, coldMinor: split.tiers.cold };
 }

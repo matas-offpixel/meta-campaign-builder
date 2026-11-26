@@ -10,7 +10,7 @@ import { strict as assert } from "node:assert";
 import { describe, it } from "node:test";
 
 import { memoryDb } from "../../onsale-refresh/__tests__/memory-db.ts";
-import { applyFunnel, funnelAudienceDraft, stepChanges, type FunnelBuild, type FunnelDeps, type FunnelMeta } from "../funnel-apply.ts";
+import { addSimilarAtStep, applyFunnel, funnelAudienceDraft, stepChanges, type FunnelBuild, type FunnelDeps, type FunnelMeta } from "../funnel-apply.ts";
 import { planFunnelShow } from "../funnel-plan.ts";
 import type { FunnelSources, ProspectingBudget } from "../funnel.ts";
 import { planWider, widerSpecs } from "../show-campaigns.ts";
@@ -347,5 +347,90 @@ describe("Matas, 26 Nov: Similar's audience under Meta's minimum at build", () =
     assert.equal(out.progress.adSets?.similar, undefined);
     const cold = names(calls, "createAdSet").find((call) => call[1] === "NX26-RUDIMENTAL · Retargeting · Cold")!;
     assert.equal(cold[3], plan.tiers.cold + plan.tiers.similar);
+  });
+});
+
+describe("Matas, 27 Nov (\"Yes, at the next step\"): a group confirmed after the build brings Similar back at the next stretch step", () => {
+  const GROUP = { id: "g1", genreFamily: "dnb", pageIds: ["2001", "2002", "2003", "2004"], igIds: [], confirmed: true };
+  /** Built on Thu 26 Nov with no group (Similar's share in Cold); live; the Sat 28 Nov step has run (Cold £6.00, Warm £9.60, Hot £8.40). */
+  function running() {
+    const build: FunnelBuild = { ...twoCampaignBuild(), spec: { twoCampaigns: true, pageGroup: null, genreFamily: "dnb" } };
+    const plan = planFunnelShow({ code: "NX26-RUDIMENTAL", runDay: "2026-11-26", showDay: "2026-12-12", announceDay: "2026-09-29", prospecting: PROSPECTING, sources: SOURCES, spec: build.spec });
+    build.plan = { ...build.plan, tiers: plan.tiers, steps: plan.steps, totalMinor: plan.totalMinor };
+    const t = setup({ budgets: { "a-cold": 600, "a-warm": 960, "a-hot": 840 } });
+    t.mem.tables.retargeting_builds!.push({ event_id: EVENT, user_id: OWNER, state: "live", mode: "live", build, progress: { active: true, campaignId: "c1", wider: { campaignId: "w1" }, audiences: { "rf:cold:a": "8101", "rf:warm:a": "8102", "rf:hot:a": "8103" }, adSets: { cold: { id: "a-cold", dailyMinor: 840 }, warm: { id: "a-warm", dailyMinor: 735 }, hot: { id: "a-hot", dailyMinor: 525 } } } });
+    const updated: [string, number, number][] = [];
+    const deps = { ...t.deps, updateScheduled: async (key: string, change: { amountMinor: number; expectedMinor: number }) => (updated.push([key, change.amountMinor, change.expectedMinor]), true) };
+    const args = (today = "2026-11-28") => ({ build, pageGroup: GROUP, today, ledger: { supabase: t.mem.db as never, userId: OWNER, draftId: DRAFT, eventId: EVENT }, plainMetaReason: () => "Meta didn't take this." });
+    return { ...t, build, deps, args, updated };
+  }
+
+  it("the step's folded split: Similar's share was in Cold", () => {
+    const { build } = running();
+    const step = build.plan.steps.find((row) => row.day === "2026-11-28")!;
+    assert.deepEqual(step.tiers, { similar: 0, cold: 600, warm: 960, hot: 840 });
+  });
+
+  it("at the step: Similar's audiences, its ad set paused with Advantage+ off, Cold down to its own, Similar on last, the later rows re-sized", async () => {
+    const { calls, deps, args, updated, mem } = running();
+    const out = await addSimilarAtStep(deps, args());
+    assert.equal(out.state, "applied", out.reason ?? "");
+    assert.deepEqual([out.similarMinor, out.coldMinor], [240, 360]);
+    const made = names(calls, "createAudience");
+    assert.equal(made.length, 1);
+    assert.match(String(made[0]![1]), /^rf:similar_fb:365:/);
+    assert.deepEqual(made[0]![2], ["2001", "2002", "2003", "2004"]);
+    const [set] = names(calls, "createAdSet");
+    assert.deepEqual([set![1], set![2], set![3]], ["NX26-RUDIMENTAL · Retargeting · Similar", "PAUSED", 240]);
+    const targeting = set![4] as { targeting_automation?: { advantage_audience?: number }; excluded_custom_audiences?: { id: string }[] };
+    assert.equal(targeting.targeting_automation?.advantage_audience, 0);
+    assert.deepEqual(new Set((targeting.excluded_custom_audiences ?? []).map((row) => row.id)), new Set(["8101", "8102", "8103", "9001"]));
+    // Cold first, then Similar on.
+    const lowered = calls.findIndex((call) => call[0] === "setDailyBudget");
+    const on = calls.findIndex((call) => call[0] === "setAdSetActive");
+    assert.deepEqual(calls[lowered], ["setDailyBudget", "adset", "a-cold", 360]);
+    assert.ok(lowered < on);
+    // Final week (Sat 5 Dec, £30.00): Cold's row re-sized to 10 %, Similar's added at 5 %.
+    assert.deepEqual(updated, [[`rf:${EVENT}:2026-12-05:cold`, 300, 360]]);
+    assert.deepEqual(names(calls, "scheduleChange").map((call) => [call[1], call[3]]), [[`rf:${EVENT}:2026-12-05:similar`, 150]]);
+    const progress = mem.tables.retargeting_builds![0]!.progress as { adSets: Record<string, { dailyMinor: number }>; similarAdded?: string; similarRefused?: unknown };
+    assert.deepEqual([progress.adSets.similar!.dailyMinor, progress.adSets.cold!.dailyMinor], [240, 360]);
+    assert.equal(progress.similarAdded, "2026-11-28");
+    assert.equal(progress.similarRefused, undefined);
+  });
+
+  it("not a step day, or already added: nothing happens", async () => {
+    const { calls, deps, args } = running();
+    assert.equal((await addSimilarAtStep(deps, args("2026-11-29"))).state, "skipped");
+    assert.deepEqual(calls, []);
+  });
+
+  it("refused (the group's audience under Meta's minimum): Cold keeps the share, nothing is made or moved, and the reason is kept", async () => {
+    const { calls, deps, args, mem } = running();
+    deps.meta = { ...deps.meta, audienceState: async () => "too_small" };
+    const out = await addSimilarAtStep(deps, args());
+    assert.equal(out.state, "failed");
+    assert.ok(out.reason);
+    for (const kind of ["createAdSet", "setDailyBudget", "setAdSetActive", "scheduleChange"]) assert.deepEqual(names(calls, kind), [], kind);
+    const progress = mem.tables.retargeting_builds![0]!.progress as { adSets: Record<string, unknown>; similarRefused?: { day: string; reason: string } };
+    assert.equal(progress.adSets.similar, undefined);
+    assert.deepEqual(progress.similarRefused, { day: "2026-11-28", reason: out.reason });
+  });
+
+  it("refused when Similar won't switch on: Cold gets its share back and Similar stays off", async () => {
+    const { calls, deps, args, budgets } = running();
+    deps.meta = { ...deps.meta, setAdSetActive: async () => { throw new Error("nope"); } };
+    const out = await addSimilarAtStep(deps, args());
+    assert.equal(out.state, "failed");
+    assert.deepEqual(names(calls, "setDailyBudget").map((call) => call[3]), [360, 600]);
+    assert.equal(budgets.get("a-cold"), 600);
+  });
+
+  it("the switch: with budget writes off, nothing is made and the reason says so", async () => {
+    const t = running();
+    const deps = { ...t.deps, env: { ...ENV_ON, ENABLE_OPTIMISATION_WRITES: "" } };
+    const out = await addSimilarAtStep(deps, t.args());
+    assert.equal(out.state, "failed");
+    assert.deepEqual(t.calls, []);
   });
 });

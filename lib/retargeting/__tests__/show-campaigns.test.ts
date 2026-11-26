@@ -10,8 +10,9 @@ import { describe, it } from "node:test";
 
 import { promotedObject, tierAdSetPayload, widerAdSetPayload, widerCampaignFields } from "../apply.ts";
 import { capTiers, funnelSpecs, funnelTiersMatching, RF3, SPLIT_WITH_SIMILAR, splitOf, splitTotal, stepsAfter, type FunnelSources, type PageGroup } from "../funnel.ts";
-import { planFunnelShow, similarSkipLine } from "../funnel-plan.ts";
-import { widerRow } from "../funnel-view.ts";
+import { planFunnelShow, similarReturnLine, similarSkipLine } from "../funnel-plan.ts";
+import { runningPanel, widerRow } from "../funnel-view.ts";
+import { similarStepDue } from "../runner.ts";
 import { CONFIRMED_STATUS, confirmedGenreRows, noGenreLine, parseGenreRows, planPageGroups, sourcesFromGenreRows } from "../page-groups.ts";
 import { adviseExisting, advantageOff, geoExpansionOff, geoNotReadLine, lookalikeOrigins, planWider, SHOW_CAMPAIGNS_RULED, untickLine, widerCampaignName, widerAdSetName, widerGive, widerSpecs } from "../show-campaigns.ts";
 
@@ -304,5 +305,44 @@ describe("the page genres file (Matas, 27 Nov): only rows he confirmed", () => {
     const similar = funnelSpecs(SOURCES, { twoCampaigns: true, pageGroup: GROUP, genreFamily: "dnb" }).find((spec) => spec.tier === "similar")!;
     assert.ok(similar.includes.every((aud) => "retentionDays" in aud && aud.retentionDays === 365));
     assert.deepEqual(similar.includes.filter((aud) => aud.kind === "page_fb").map((aud) => ("pageIds" in aud ? aud.pageIds.length : 0)), [5, 1]);
+  });
+});
+
+describe("Matas, 27 Nov (\"Yes, at the next step\"): the read, the panel and Claude while Similar waits for its step", () => {
+  const SHOW = "2026-12-12";
+  const confirmed = { ...GROUP, genreFamily: "dnb" };
+  const spec = { twoCampaigns: true, pageGroup: confirmed, genreFamily: "dnb" };
+  const built = { totalMinor: 2400, took: [] };
+  // Built without Similar; the final 2 weeks run (£24.00: Cold holds Similar's 10 %).
+  const tiers = { similar: 0, cold: 600, warm: 960, hot: 840 };
+
+  it("the read acts only on a live build without Similar, its group confirmed, on one of its step days, and never in a dry run", () => {
+    const row = { event_id: "e", state: "live", mode: "live" as const, meta_campaign_id: "c", progress: { active: true, adSets: { cold: { id: "a", dailyMinor: 600 } } }, build: { wider: {} as never, spec: { twoCampaigns: true }, plan: { steps: [{ day: "2026-12-05" }] } as never } };
+    const due = (over: Partial<Parameters<typeof similarStepDue>[0]> = {}) => similarStepDue({ dryRun: false, ruled: true, row: row as never, pageGroup: confirmed, day: "2026-12-05", ...over });
+    assert.equal(due(), true);
+    assert.equal(due({ day: "2026-12-04" }), false);
+    assert.equal(due({ dryRun: true }), false);
+    assert.equal(due({ pageGroup: { ...confirmed, confirmed: false } }), false);
+    assert.equal(due({ row: { ...row, progress: { ...row.progress, adSets: { ...row.progress.adSets, similar: { id: "s", dailyMinor: 1 } } } } as never }), false);
+    assert.equal(due({ row: { ...row, state: "paused" } as never }), false);
+  });
+
+  it("the panel: Similar's row says it comes back at the next step, with its £ a day; Cold shows its own plus Similar's", () => {
+    const plan = planFunnelShow({ code: "NX26-RUDIMENTAL", runDay: "2026-11-29", showDay: SHOW, announceDay: "2026-09-29", prospecting: [], sources: SOURCES, spec, existing: built, showDailyMinor: 6000 });
+    const panel = runningPanel(plan, SOURCES, { showDay: SHOW, today: "2026-11-29", built: { tiers, took: [] }, spec });
+    const similar = panel.tiers.find((row) => row.tier === "similar")!;
+    assert.equal(similar.skipped, "Similar comes back at the next step, Sat 5 Dec: its £2.40 a day moves back from Cold then.");
+    assert.equal(similar.budgetMinor, null);
+    const cold = panel.tiers.find((row) => row.tier === "cold")!;
+    assert.equal(cold.budgetMinor, 360);
+    assert.ok(cold.lines.some((line) => line.text === "Plus £2.40 a day from Similar."));
+    const refused = runningPanel(plan, SOURCES, { showDay: SHOW, today: "2026-11-29", built: { tiers, took: [], similarRefused: { day: "2026-11-28", reason: "Its audience is too small for Meta to deliver to." } }, spec });
+    assert.equal(refused.tiers.find((row) => row.tier === "similar")!.skipped, "Similar couldn't be added on Sat 28 Nov: Its audience is too small for Meta to deliver to. Its £2.40 a day stays in Cold.");
+  });
+
+  it("Claude: when Similar comes back, or why it couldn't be added", () => {
+    assert.equal(similarReturnLine({ nextDay: "2026-12-05", refused: null }), "Similar comes back at the next step, Sat 5 Dec, now its page group is confirmed.");
+    assert.equal(similarReturnLine({ nextDay: null, refused: null }), "Similar can't come back: there's no step left before the show, so its share stays in Cold.");
+    assert.equal(similarReturnLine({ nextDay: "2026-12-05", refused: { day: "2026-11-28", reason: "Its audience is too small." } }), "Similar couldn't be added on Sat 28 Nov: Its audience is too small. Its share stays in Cold.");
   });
 });

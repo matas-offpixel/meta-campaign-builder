@@ -309,6 +309,26 @@ export function similarSkipLine(reason: SimilarSkip, args: { code: string; genre
   return fill("claude.rt.plan.similar.skip", { reason: why });
 }
 
+/**
+ * PENDING DESIGN (Matas, 27 Nov: "Yes, at the next step"): a group confirmed
+ * after the build — Similar comes back at the next stretch step; or the read
+ * couldn't add it at that step (its share stays in Cold, and why).
+ */
+export const SIMILAR_RETURN = {
+  row: (date: string, x: string) => `Similar comes back at the next step, ${date}: its £${x} a day moves back from Cold then.`,
+  rowNoStep: (x: string) => `Similar can't come back: there's no step left before the show. Its £${x} a day stays in Cold.`,
+  rowRefused: (date: string, reason: string, x: string) => `Similar couldn't be added on ${date}: ${reason.replace(/\.$/, "")}. Its £${x} a day stays in Cold.`,
+  claude: (date: string) => `Similar comes back at the next step, ${date}, now its page group is confirmed.`,
+  claudeNoStep: "Similar can't come back: there's no step left before the show, so its share stays in Cold.",
+  claudeRefused: (date: string, reason: string) => `Similar couldn't be added on ${date}: ${reason.replace(/\.$/, "")}. Its share stays in Cold.`,
+} as const;
+
+/** The Similar return line for Claude: refused at a step, else the next step (or none left). */
+export function similarReturnLine(args: { nextDay: string | null; refused: { day: string; reason: string } | null }): string {
+  if (args.refused) return SIMILAR_RETURN.claudeRefused(rfDay(args.refused.day), args.refused.reason);
+  return args.nextDay ? SIMILAR_RETURN.claude(rfDay(args.nextDay)) : SIMILAR_RETURN.claudeNoStep;
+}
+
 /** TC3: the Similar row in place of its audiences (muted), with the £ a day that went to Cold. */
 export function similarSkipRow(reason: SimilarSkip, args: { code: string; genre: string | null; minor: number }): string {
   if (reason === "too_small") return `Similar skipped: its page group’s audience is under Meta’s minimum, so its £${money(args.minor)} a day goes to Cold.`;
@@ -323,7 +343,7 @@ export function similarSkipRow(reason: SimilarSkip, args: { code: string; genre:
 export function claudePlanLines(
   plan: FunnelShowPlan,
   sources: FunnelSources,
-  extra: { wider: WiderWords; pages?: MatchedPages | null; genre?: string | null; presale?: boolean; presaleSignups?: number | null; existing?: readonly { name: string; action: ExistingAction }[] },
+  extra: { wider: WiderWords; pages?: MatchedPages | null; genre?: string | null; presale?: boolean; presaleSignups?: number | null; existing?: readonly { name: string; action: ExistingAction }[]; /** A running build without Similar whose group is confirmed now: when it comes back, or why it couldn't. */ similarReturn?: { nextDay: string | null; refused: { day: string; reason: string } | null } | null },
 ): string[] {
   const lines = [
     fill("claude.rt.plan.line", {
@@ -348,6 +368,7 @@ export function claudePlanLines(
     lines.push(fill("claude.rt.plan.access", { names: missing.map((row) => fill("rt.access.name", { account: row.name, platform: row.platform === "facebook" ? "Facebook" : "Instagram" })).join(JOIN) }));
   }
   if (plan.similarSkip) lines.push(similarSkipLine(plan.similarSkip, { code: plan.code, genre: extra.genre ?? null }));
+  else if (extra.similarReturn) lines.push(similarReturnLine(extra.similarReturn));
   if (extra.presale && extra.presaleSignups != null) lines.push(fill("claude.rt.plan.presale", { n: extra.presaleSignups }));
   for (const row of extra.existing ?? []) lines.push(existingLine(row.name, row.action));
   const step = plan.steps[0];
