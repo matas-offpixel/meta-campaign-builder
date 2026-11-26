@@ -40,7 +40,7 @@ import { retargetingGates } from "@/lib/onsale-refresh/apply-gates";
 import { audienceDraftFields, type AudienceSpec, type NewAdSetDeps } from "@/lib/onsale-refresh/apply-adsets";
 import type { PurchaseMeta } from "@/lib/onsale-refresh/apply-purchase";
 import { funnelAudienceDraft, type FunnelDeps } from "@/lib/retargeting/funnel-apply";
-import { groupVideosByPage } from "@/lib/retargeting/audiences";
+import { groupVideosKeepingUnpaged } from "@/lib/retargeting/audiences";
 
 import { ownedRefreshEvent } from "../_owned";
 
@@ -280,7 +280,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       async listShowVideos(adAccountId, campaignIds) {
         // RF2: one video audience per page the videos ran from; a video with no page is left out.
         const videos = await fetchAudienceMultiCampaignVideos(adAccountId, campaignIds, token);
-        return groupVideosByPage(videos.videos);
+        return groupVideosKeepingUnpaged(videos.videos);
       },
       async readDailyBudget(_kind, id) {
         const row = await graphGetWithToken<{ daily_budget?: string | number }>(`/${id}`, { fields: "daily_budget" }, token, { maxAttempts: 1 });

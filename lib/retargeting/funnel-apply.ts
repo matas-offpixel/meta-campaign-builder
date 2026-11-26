@@ -313,7 +313,15 @@ export async function applyFunnel(deps: FunnelDeps, build: FunnelBuild, ctx: { m
     // RF2's videos: the plan knew which pages ran video; the ids are read now.
     if (sources.videos.length) {
       const read = await deps.meta.listShowVideos(adAccountId, build.videoCampaignIds.length ? build.videoCampaignIds : build.campaignIds);
-      sources = { ...sources, videos: read.map((group) => ({ pageId: group.contextId, videoIds: group.videoIds })) };
+      // A video with no Page (a dark post) goes under the show's promoter Page, with its explicit ids (READING: the ads ran from it).
+      const promoter = sources.accounts.find((row) => row.kind === "promoter" && row.platform === "facebook" && row.access !== false)?.pageId ?? sources.accounts.find((row) => row.platform === "facebook" && row.access !== false)?.pageId ?? null;
+      const groups = new Map<string, string[]>();
+      for (const group of read) {
+        const pageId = group.contextId || promoter;
+        if (!pageId) continue;
+        groups.set(pageId, [...new Set([...(groups.get(pageId) ?? []), ...group.videoIds])]);
+      }
+      sources = { ...sources, videos: [...groups].map(([pageId, videoIds]) => ({ pageId, videoIds })) };
     }
   } catch (err) {
     return fail(ctx.plainMetaReason(err), { error: err instanceof Error ? err.message : String(err), step: "videos" });

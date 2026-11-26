@@ -34,7 +34,7 @@ import { fetchAudienceMultiCampaignVideos } from "@/lib/audiences/sources";
 import { buildMetaAdsManagerCampaignUrl } from "@/lib/notify/ads-manager-url";
 import { plainMetaReason } from "@/lib/onsale-refresh/apply";
 import { runRetargetingRead } from "@/lib/retargeting/runner";
-import { groupVideosByPage } from "@/lib/retargeting/audiences";
+import { groupVideosKeepingUnpaged } from "@/lib/retargeting/audiences";
 import { applyFunnel, funnelAudienceDraft, type FunnelMeta } from "@/lib/retargeting/funnel-apply";
 import { insertScheduled } from "./live/scheduled";
 import { checkSpendCeiling } from "./meta/ceiling";
@@ -90,7 +90,7 @@ function funnelMetaFor(token: string): FunnelMeta {
       return read.ready ? "ready" : "building";
     },
     async listShowVideos(adAccountId, campaignIds) {
-      return groupVideosByPage((await fetchAudienceMultiCampaignVideos(adAccountId, campaignIds, token)).videos);
+      return groupVideosKeepingUnpaged((await fetchAudienceMultiCampaignVideos(adAccountId, campaignIds, token)).videos);
     },
     async readDailyBudget(_kind, id) {
       const row = await graphGetWithToken<{ daily_budget?: string | number }>(`/${id}`, { fields: "daily_budget" }, token, { maxAttempts: 1 });

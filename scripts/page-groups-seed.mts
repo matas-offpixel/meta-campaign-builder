@@ -2,11 +2,18 @@
  * Seed the Similar tier's genre page groups (page_groups, migration 275;
  * staged two-campaign record). A dry run unless --apply.
  *
- * Reads the audience-source listing (every Page / Instagram account each
- * client's business can build engagement audiences from, with its genre)
- * and plans one group per client and genre. SWITCH(Job 2): until PR B's
- * listing lands, the listing is a JSON file (--listing FILE), an array of
- * { clientId, pageId, igId, name, genreFamily, canBuild }.
+ * Reads PR B's per-client listing (#1400: loadClientBuildableSources in
+ * lib/mcp/audiences/client-sources.ts — every Facebook Page and Instagram
+ * account the client's business can build engagement audiences from, owned
+ * or client-shared, with its genre_family when known) and plans one group
+ * per client and genre. A source with no known genre is counted and said,
+ * never guessed; on prod today none has one, so expect no groups yet.
+ * Only clients whose Business Manager is linked are listed (4 of 9, 26 Nov).
+ *
+ * SWITCH(Job 2): until #1400 merges, the listing comes as a JSON file
+ * (--listing FILE): an array of its rows, { client_id, kind, id, name,
+ * genre_family, reach }, e.g. from PR B's audience_sources dry run. Once it
+ * merges, call loadClientBuildableSources per linked client here instead.
  *
  *   npx tsx --env-file=.env.local scripts/page-groups-seed.mts --listing FILE            # dry run: prints the plan
  *   npx tsx --env-file=.env.local scripts/page-groups-seed.mts --listing FILE --apply    # writes new and changed unconfirmed groups
@@ -18,7 +25,7 @@
 import { readFileSync } from "node:fs";
 import { createClient } from "@supabase/supabase-js";
 
-import { planPageGroups, type ListedSource, type StoredGroup } from "../lib/retargeting/page-groups.ts";
+import { noGenreLine, planPageGroups, type ClientBuildableSource, type StoredGroup } from "../lib/retargeting/page-groups.ts";
 
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(name);
@@ -35,8 +42,8 @@ const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
 if (!url || !key) throw new Error("NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required (--env-file=.env.local)");
 const db = createClient(url, key, { auth: { persistSession: false } });
 
-const listing = (JSON.parse(readFileSync(LISTING, "utf8")) as ListedSource[]).filter((row) => !CLIENT || row.clientId === CLIENT);
-const clientIds = [...new Set(listing.map((row) => row.clientId))];
+const listing = (JSON.parse(readFileSync(LISTING, "utf8")) as ClientBuildableSource[]).filter((row) => !CLIENT || row.client_id === CLIENT);
+const clientIds = [...new Set(listing.map((row) => row.client_id))];
 const stored: StoredGroup[] = [];
 for (let i = 0; i < clientIds.length; i += 100) {
   const { data, error } = await db.from("page_groups").select("id, client_id, genre_family, page_ids, ig_ids, confirmed_at").in("client_id", clientIds.slice(i, i + 100));
@@ -44,10 +51,11 @@ for (let i = 0; i < clientIds.length; i += 100) {
   stored.push(...((data ?? []) as StoredGroup[]));
 }
 
-const plan = planPageGroups(listing, stored);
+const { plan, counts } = planPageGroups(listing, stored);
+for (const count of counts) if (count.noGenre) console.log(noGenreLine(count));
 for (const row of plan) console.log(`${row.action.padEnd(15)} client=${row.clientId} genre=${row.genreFamily} pages=${row.pageIds.length} instagram=${row.igIds.length}`);
-const counts = plan.reduce<Record<string, number>>((acc, row) => ({ ...acc, [row.action]: (acc[row.action] ?? 0) + 1 }), {});
-console.log(`groups=${plan.length} ${Object.entries(counts).map(([k, v]) => `${k}=${v}`).join(" ")} ${APPLY ? "apply" : "dry run"}`);
+const actions = plan.reduce<Record<string, number>>((acc, row) => ({ ...acc, [row.action]: (acc[row.action] ?? 0) + 1 }), {});
+console.log(`groups=${plan.length} ${Object.entries(actions).map(([k, v]) => `${k}=${v}`).join(" ")} ${APPLY ? "apply" : "dry run"}`);
 
 if (APPLY) {
   for (const row of plan.filter((r) => r.action === "insert" || r.action === "update")) {

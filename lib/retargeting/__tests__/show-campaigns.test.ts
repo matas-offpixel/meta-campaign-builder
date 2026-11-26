@@ -11,7 +11,7 @@ import { describe, it } from "node:test";
 import { tierAdSetPayload, widerAdSetPayload, widerCampaignFields } from "../apply.ts";
 import { capTiers, funnelSpecs, funnelTiersMatching, RF3, SPLIT_WITH_SIMILAR, splitOf, splitTotal, stepsAfter, type FunnelSources, type PageGroup } from "../funnel.ts";
 import { planFunnelShow } from "../funnel-plan.ts";
-import { planPageGroups } from "../page-groups.ts";
+import { noGenreLine, planPageGroups } from "../page-groups.ts";
 import { adviseExisting, advantageOff, geoExpansionOff, lookalikeOrigins, SHOW_CAMPAIGNS_RULED, untickLine, widerAfterStep, widerSpecs } from "../show-campaigns.ts";
 
 const SOURCES: FunnelSources = {
@@ -166,14 +166,15 @@ describe("existing campaigns: keep, pause or fold into Wider (advice only)", () 
 });
 
 describe("page groups: the seed plan", () => {
-  it("one group per client and genre from pages the business can build from; a confirmed group is never rewritten", () => {
-    const plan = planPageGroups(
+  it("one group per client and genre, owned and client-shared alike, Pages and Instagram apart; a confirmed group is never rewritten; no genre is said, not guessed", () => {
+    const { plan, counts } = planPageGroups(
       [
-        { clientId: "c1", pageId: "2001", igId: "ig1", name: "A", genreFamily: "techno", canBuild: true },
-        { clientId: "c1", pageId: "2002", igId: null, name: "B", genreFamily: "techno", canBuild: true },
-        { clientId: "c1", pageId: "2003", igId: null, name: "C", genreFamily: "techno", canBuild: false },
-        { clientId: "c1", pageId: "2004", igId: null, name: "D", genreFamily: null, canBuild: true },
-        { clientId: "c2", pageId: "3001", igId: null, name: "E", genreFamily: "techno", canBuild: true },
+        { client_id: "c1", kind: "facebook_page", id: "2001", name: "A", genre_family: "techno", reach: "owned" },
+        { client_id: "c1", kind: "instagram_account", id: "ig1", name: "A", genre_family: "techno", reach: "owned" },
+        { client_id: "c1", kind: "facebook_page", id: "2002", name: "B", genre_family: "techno", reach: "client_shared" },
+        { client_id: "c1", kind: "facebook_page", id: "2004", name: "D", genre_family: null, reach: "owned" },
+        { client_id: "c2", kind: "facebook_page", id: "3001", name: "E", genre_family: "techno", reach: "owned" },
+        { client_id: "c3", kind: "facebook_page", id: "4001", name: "F", genre_family: null, reach: "owned" },
       ],
       [{ id: "g2", client_id: "c2", genre_family: "techno", page_ids: ["9999"], ig_ids: [], confirmed_at: "2026-11-26T10:00:00Z" }],
     );
@@ -181,6 +182,8 @@ describe("page groups: the seed plan", () => {
       { clientId: "c1", genreFamily: "techno", pageIds: ["2001", "2002"], igIds: ["ig1"], action: "insert" },
       { clientId: "c2", genreFamily: "techno", pageIds: ["3001"], igIds: [], action: "confirmed_kept" },
     ]);
+    assert.deepEqual(counts.find((row) => row.clientId === "c3"), { clientId: "c3", sources: 1, noGenre: 1, groups: 0 });
+    assert.equal(noGenreLine(counts.find((row) => row.clientId === "c3")!), "client=c3: 1 of 1 pages and Instagram accounts have no genre yet, so no group is made. Set the genres first.");
   });
 });
 

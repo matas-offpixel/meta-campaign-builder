@@ -175,7 +175,7 @@ const RETARGETING_SEAM_IMPORTS: Record<string, readonly string[]> = {
   "lib/notify/ads-manager-url.ts": ["buildMetaAdsManagerCampaignUrl"],
   "lib/onsale-refresh/apply.ts": ["plainMetaReason"],
   "lib/retargeting/runner.ts": ["runRetargetingRead"],
-  "lib/retargeting/audiences.ts": ["groupVideosByPage"],
+  "lib/retargeting/audiences.ts": ["groupVideosKeepingUnpaged"],
   "lib/retargeting/funnel-apply.ts": ["applyFunnel", "funnelAudienceDraft"],
 };
 /** The tables the funnel's create path writes (applyFunnel and its private helpers). */

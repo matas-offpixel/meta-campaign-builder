@@ -312,3 +312,14 @@ describe("two campaigns (staged): Wider folds prospecting, one CBO lifetime budg
     assert.equal(step.atFloor, true);
   });
 });
+
+describe("Job 2's finding (26 Nov): ad videos with no Page", () => {
+  it("are kept with their explicit ids, under the show's promoter Page, in both video windows", async () => {
+    const { calls, deps, ctx } = setup();
+    deps.meta.listShowVideos = async () => [{ contextId: "", videoIds: ["d1", "d2", "d3"] }];
+    const out = await applyFunnel(deps, buildFor(), ctx("paused"));
+    assert.equal(out.state, "applied", out.reason ?? "");
+    const video = names(calls, "createAudience").filter((call) => String(call[1]).startsWith("rf:video"));
+    assert.deepEqual(video.map((call) => [String(call[1]).split(":").slice(0, 4).join(":"), call[2]]), [["rf:video75:180:1001", ["1001"]], ["rf:video95:60:1001", ["1001"]]]);
+  });
+});
