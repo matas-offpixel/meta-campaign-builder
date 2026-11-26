@@ -213,7 +213,7 @@ export function dropLabel(dropS: number): string {
 }
 
 export const DROP_FOUND = "Drop found by the Lab";
-export const NO_CLEAR_DROP = "No clear drop found. Drag the marker to where it lands.";
+export const NO_CLEAR_DROP = "No clear drop found. Pick where it lands.";
 export const PREVIEW_FAILED = "Preview didn't render. Try again.";
 
 export function dropSetBy(firstName: string): string {

@@ -408,34 +408,37 @@ async function applyAdSetStatus(deps: ApplyDeps, line: LineRow, ledger: MetaWrit
   return { state: "applied", reason: appliedText(line.kind, 1), result: { adsetId, status, before: now.status ?? null, effectiveBefore: now.effectiveStatus ?? null, wrote: true } };
 }
 
-type MovePlan = { fromAdsetId: string; toAdsetId: string; deltaMinor: number; from: { before: number; after: number }; to: { before: number; after: number } };
+export type MovePlan = { fromAdsetId: string; toAdsetId: string; deltaMinor: number; from: { before: number; after: number }; to: { before: number; after: number } };
+
+/** Why a move stopped, for callers that word it themselves (the connector's move_budget, M3b). */
+export type MoveStop = "not_in_campaign" | "not_daily" | "floor" | "underfoot" | "meta_failed";
 
 /**
  * A within-campaign move through the optimisation budget write: the giving
- * ad set's daily budget down by the week's amount ÷ 7, the receiving one
- * up by the same. The giving side is written first, so spend is never
- * above plan mid-move. Each side is re-read first and written only from
- * the budget the move was planned on (the optimisation write's
- * "changed underfoot" rule). A retry reuses the stored plan, so a side
- * already written isn't moved twice.
+ * ad set's daily budget down by `deltaMinor`, the receiving one up by the
+ * same. The giving side is written first, so spend is never above plan
+ * mid-move. Each side is re-read first and written only from the budget the
+ * move was planned on (the optimisation write's "changed underfoot" rule).
+ * A retry reuses `previous`, so a side already written isn't moved twice.
+ * Each side is one `refresh_adset_budget_update` on the ledger, keyed on
+ * `key` (the refresh line id, or the connector's call key).
  */
-async function applyMove(deps: ApplyDeps, line: LineRow, ledger: MetaWriteContext, guard: Extract<Guarded, { ok: true }>): Promise<Outcome> {
-  const write = line.write ?? {};
-  const fromAdsetId = typeof write.fromAdsetId === "string" ? write.fromAdsetId : null;
-  const toAdsetId = typeof write.toAdsetId === "string" ? write.toAdsetId : null;
-  const amount = num(write.amountGbp);
-  if (!fromAdsetId || !toAdsetId || amount <= 0) return { state: "failed", reason: "The line has no ad sets or amount to move.", result: {} };
-  const [from, to] = await Promise.all([deps.meta.readAdSet(fromAdsetId), deps.meta.readAdSet(toAdsetId)]);
+export async function moveAdSetDailyBudget(
+  meta: Pick<RefreshMeta, "readAdSet" | "updateAdSetDailyBudget">,
+  ledger: MetaWriteContext,
+  input: { key: string; fromAdsetId: string; toAdsetId: string; deltaMinor: number; campaignIds: readonly string[]; previous?: MovePlan | null },
+): Promise<{ state: "applied" | "failed"; reason: string | null; stop?: MoveStop; result: Record<string, unknown> & { plan?: MovePlan; written?: string[] } }> {
+  const { fromAdsetId, toAdsetId, deltaMinor } = input;
+  const [from, to] = await Promise.all([meta.readAdSet(fromAdsetId), meta.readAdSet(toAdsetId)]);
   for (const set of [from, to]) {
-    if (!set?.campaignId || !guard.campaignIds.includes(set.campaignId)) return { state: "failed", reason: "One of the ad sets isn't in this campaign any more, so nothing was moved.", result: { fromAdsetId, toAdsetId } };
+    if (!set?.campaignId || !input.campaignIds.includes(set.campaignId)) return { state: "failed", stop: "not_in_campaign", reason: "One of the ad sets isn't in this campaign any more, so nothing was moved.", result: { fromAdsetId, toAdsetId } };
   }
-  if (from!.dailyBudget == null || to!.dailyBudget == null) return { state: "failed", reason: "The budget is set on the campaign or as a lifetime budget, so ad-set budgets can't be moved.", result: { fromAdsetId, toAdsetId } };
-  const previous = (line.applied_result?.plan ?? (line.applied_result?.previous as Record<string, unknown> | undefined)?.plan) as MovePlan | undefined;
-  const deltaMinor = moveDeltaMinor(amount);
+  if (from!.dailyBudget == null || to!.dailyBudget == null) return { state: "failed", stop: "not_daily", reason: "The budget is set on the campaign or as a lifetime budget, so ad-set budgets can't be moved.", result: { fromAdsetId, toAdsetId } };
+  const previous = input.previous;
   const plan: MovePlan = previous?.fromAdsetId === fromAdsetId && previous.toAdsetId === toAdsetId
     ? previous
     : { fromAdsetId, toAdsetId, deltaMinor, from: { before: from!.dailyBudget, after: from!.dailyBudget - deltaMinor }, to: { before: to!.dailyBudget, after: to!.dailyBudget + deltaMinor } };
-  if (plan.from.after < MIN_DAILY_BUDGET_MINOR) return { state: "failed", reason: "Moving it would take the giving ad set under £1.00 a day, the floor we keep, so nothing was moved.", result: { plan } };
+  if (plan.from.after < MIN_DAILY_BUDGET_MINOR) return { state: "failed", stop: "floor", reason: "Moving it would take the giving ad set under £1.00 a day, the floor we keep, so nothing was moved.", result: { plan } };
   const sides: [string, { before: number; after: number }, number][] = [
     [fromAdsetId, plan.from, from!.dailyBudget],
     [toAdsetId, plan.to, to!.dailyBudget],
@@ -443,18 +446,31 @@ async function applyMove(deps: ApplyDeps, line: LineRow, ledger: MetaWriteContex
   const written: string[] = [];
   for (const [adsetId, side, live] of sides) {
     if (live === side.after) continue;
-    if (live !== side.before) return { state: "failed", reason: written.length ? "The receiving ad set's budget changed in Ads Manager since the proposal, so only the giving side moved." : "The budget changed in Ads Manager since the proposal, so nothing was moved.", result: { plan, written, underfoot: { adsetId, live, expected: side.before } } };
+    if (live !== side.before) return { state: "failed", stop: "underfoot", reason: written.length ? "The receiving ad set's budget changed in Ads Manager since the proposal, so only the giving side moved." : "The budget changed in Ads Manager since the proposal, so nothing was moved.", result: { plan, written, underfoot: { adsetId, live, expected: side.before } } };
     try {
-      await withMetaWriteIdempotency(ledger, "refresh_adset_budget_update", { line_id: line.id, adset_id: adsetId, daily_budget: side.after }, async () => {
-        await deps.meta.updateAdSetDailyBudget(adsetId, side.after);
+      await withMetaWriteIdempotency(ledger, "refresh_adset_budget_update", { line_id: input.key, adset_id: adsetId, daily_budget: side.after }, async () => {
+        await meta.updateAdSetDailyBudget(adsetId, side.after);
         return adsetId;
       }, { required: true });
       written.push(adsetId);
     } catch (err) {
-      return { state: "failed", reason: written.length ? `Only the giving side moved — ${plainMetaReason(err)}` : plainMetaReason(err), result: { plan, written, error: err instanceof Error ? err.message : String(err) } };
+      return { state: "failed", stop: "meta_failed", reason: written.length ? `Only the giving side moved — ${plainMetaReason(err)}` : plainMetaReason(err), result: { plan, written, error: err instanceof Error ? err.message : String(err) } };
     }
   }
-  return { state: "applied", reason: movedText(amount), result: { plan, written, amountGbp: amount } };
+  return { state: "applied", reason: null, result: { plan, written } };
+}
+
+/** The refresh's move line: the week's amount ÷ 7 a day, through moveAdSetDailyBudget. */
+async function applyMove(deps: ApplyDeps, line: LineRow, ledger: MetaWriteContext, guard: Extract<Guarded, { ok: true }>): Promise<Outcome> {
+  const write = line.write ?? {};
+  const fromAdsetId = typeof write.fromAdsetId === "string" ? write.fromAdsetId : null;
+  const toAdsetId = typeof write.toAdsetId === "string" ? write.toAdsetId : null;
+  const amount = num(write.amountGbp);
+  if (!fromAdsetId || !toAdsetId || amount <= 0) return { state: "failed", reason: "The line has no ad sets or amount to move.", result: {} };
+  const previous = (line.applied_result?.plan ?? (line.applied_result?.previous as Record<string, unknown> | undefined)?.plan) as MovePlan | undefined;
+  const out = await moveAdSetDailyBudget(deps.meta, ledger, { key: line.id, fromAdsetId, toAdsetId, deltaMinor: moveDeltaMinor(amount), campaignIds: guard.campaignIds, previous });
+  if (out.state === "failed") return { state: "failed", reason: out.reason, result: out.result };
+  return { state: "applied", reason: movedText(amount), result: { ...out.result, amountGbp: amount } };
 }
 
 /**

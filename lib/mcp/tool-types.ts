@@ -14,9 +14,12 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { ZodRawShape } from "zod";
 import type { DriveApi } from "../drive/client.ts";
 import type { LocationSearchHit } from "../meta/location-search.ts";
-import type { AccountPage, InterestHit } from "./graph-reads.ts";
+import type { AccountPage, AdSetTargetingRead, InterestHit } from "./graph-reads.ts";
 import type { CampaignDraft } from "../types.ts";
 import type { StoredSendOutcome } from "../plan/stored-assets-meta.ts";
+import type { McpLiveDeps } from "./live/types.ts";
+import type { McpFolderDeps } from "./folder-in/place.ts";
+import type { ReleasesData } from "./shows/claims.ts";
 
 export type Db = Pick<SupabaseClient, "from">;
 
@@ -134,6 +137,60 @@ export interface McpRenderDeps {
   readLowPcm(storagePath: string): Promise<Uint8Array>;
 }
 
+/**
+ * M3d-b (scope mcp:draft): the Lab paths the Lab tools call, each the app's
+ * own. The route passes the real ones (lib/mcp/lab-deps.ts, a pinned seam);
+ * tests pass spies. App database, Storage and the show's Drive Audio folder
+ * only: nothing here reaches Meta.
+ */
+export interface McpLabDeps {
+  /**
+   * Opening the Snippet tab on one act (GET /api/creative-lab/events/[id]/snippet):
+   * scanArtistAudio with the route's intakeDeps. The act's 02 Source / Audio /
+   * {artist} folder is made on first need and every new audio file is read in
+   * (checked, copied to Storage, drop and waveform). `scanned` is false when
+   * Drive isn't configured. Counts only come back.
+   */
+  scanAudio(input: { userId: string; eventId: string; artist: { libraryArtistId: string; name: string } }): Promise<{ scanned: boolean; added: number; failed: number }>;
+  /** The Snippet tab's edit (saveAudioEdit, lib/creative-tests/audio-edits.ts): here only { kind: "drop" }. */
+  saveAudioEdit(input: { userId: string; fileId: string; edit: { kind: "drop"; dropS: number } }): Promise<{ ok: true; dropS: number | null } | { ok: false; status: number }>;
+  /** The Clips card's "Whose footage is this" (saveClipOwner, lib/creative-lab/card-write.ts). */
+  saveClipOwner(input: { userId: string; clipId: string; owner: "promoter" | "artist"; artistId: string | null; who: string; when: string }): Promise<void>;
+  /** "Drop set by {first name}": the Lab's first names for drop_set_by ids (displayName), never an email. */
+  firstNames(userIds: readonly string[]): Promise<Map<string, string>>;
+}
+
+/**
+ * M3d-d's Meta reads for the read tools (strict_audit): GETs only, through
+ * lib/mcp/graph-reads.ts with the operator's token. The route passes the
+ * real ones (lib/mcp/draft-deps.ts realGraphReads); tests pass fakes.
+ */
+export interface McpGraphReads {
+  /** Each ad set's status and Advantage+ flag, ≤ 50 ids a GET; `notRead` lists ids Meta didn't answer for. */
+  adSets(input: { userId: string; ids: readonly string[] }): Promise<{ adSets: AdSetTargetingRead[]; notRead: string[]; metaGets: number }>;
+}
+
+/**
+ * M3d-a (scope mcp:draft): the app's own create and save paths the shows
+ * tools call, for one operator. The route passes the real ones
+ * (lib/mcp/shows-deps.ts, a pinned seam); tests pass spies. App database
+ * only: nothing here reaches Meta, Drive or any other platform.
+ */
+export interface McpShowsDeps {
+  /** The event form's create (insertEventRow: the insert and its key-moments seed), as this operator. */
+  createEvent(input: { userId: string; row: Record<string, unknown> }): Promise<{ id: string; slug: string }>;
+  /** The clients form's create (insertClientRow), as this operator. */
+  createClient(input: { userId: string; row: Record<string, unknown> }): Promise<{ id: string; slug: string }>;
+  /** The Lab's "add from Spotify" (addSpotifyToLineup): a library artist from a Spotify id, then a lineup row. */
+  addSpotifyArtist(input: { userId: string; eventId: string; name: string; spotifyId: string }): Promise<{ artistId: string }>;
+  /** The Lab's lineup save (saveLabLineup): replaces the event's lab rows, in this order. */
+  saveLineup(input: { userId: string; eventId: string; slots: readonly { artistId: string; isHeadliner: boolean }[] }): Promise<{ lineup: string[]; headliners: string[] }>;
+  /** The Releases card's reads (loadEventReleases, loadClientLadder, loadSalesHistory, loadEventArtists). Null: no releases table. */
+  loadReleases(input: { eventId: string; clientId: string | null }): Promise<ReleasesData | null>;
+  /** The Releases card's save (POST /api/events/[id]/releases through postReleaseAs). */
+  postRelease(input: { userId: string; eventId: string; body: Record<string, unknown> }): Promise<{ status: number; body: Record<string, unknown> }>;
+}
+
 export interface ToolContext {
   db: Db;
   readers: McpReaders;
@@ -142,14 +199,26 @@ export interface ToolContext {
   scope?: string;
   /** M2's outside reach; absent on read-only setups. */
   draft?: McpDraftDeps;
+  /** M3d-d's Meta reads (strict_audit); absent unless the route wires it. */
+  reads?: McpGraphReads;
   /** M3a's Meta reach (launch, uploads); absent unless the route wires it. */
   meta?: McpMetaDeps;
   /** M4a's render reach (the track's low end, the kit); absent unless the route wires it. */
   render?: McpRenderDeps;
+  /** M3d-b's Lab paths (the Snippet tab's scan and drop, the Clips card's owner); absent unless the route wires it. */
+  lab?: McpLabDeps;
+  /** M3b's live reach (reads and the live writes, lib/mcp/live/types.ts); absent unless the route wires it. */
+  live?: McpLiveDeps;
+  /** M3d-c's Drive writes into a show's own folders (lib/mcp/folder-in-deps.ts); absent unless the route wires it. */
+  folderIn?: McpFolderDeps;
+  /** M3d-a's create and save paths (events, clients, the Lab lineup, releases); absent unless the route wires it. */
+  shows?: McpShowsDeps;
   /** The caller is in MATAS_USER_IDS (mcp:meta tools check it again). */
   isMatas?: boolean;
   /** Today's Undo exists; omitted means TODAY_UNDO_SHIPPED (meta/today-undo.ts). Injected so tests cover both. */
   todayUndo?: boolean;
+  /** M3b's live tools are on; omitted means LIVE_CHANGES_SHIPPED (live/shipped.ts, false until Today's rows land). Injected so tests cover both. */
+  liveShipped?: boolean;
   /** MATAS_USER_IDS sees client names on cross-client learnings; other operators don't. */
   seesClientNames: boolean;
   /** Today's London date (YYYY-MM-DD); injected so tests are stable. */

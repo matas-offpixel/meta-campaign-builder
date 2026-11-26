@@ -18,6 +18,37 @@
  *     that no other MCP file reaches it but the route wiring.
  *   - events, from lib/mcp/meta/event-write.ts only (update_event: three
  *     dates and two links).
+ *
+ * M3d-b adds the Lab seam, lib/mcp/lab-deps.ts (scope mcp:draft): the
+ * Snippet tab's scan of the act's Audio folder (scanArtistAudio with the
+ * route's intakeDeps: creative_lab_audio_files rows, the Storage copy, the
+ * folder made on first need), its drop edit (saveAudioEdit,
+ * creative_lab_audio_files) and the Clips card's owner (saveClipOwner,
+ * creative_lab_clips). Like the Meta seam it isn't walked; a test pins
+ * exactly what it imports, what each of those writes, and that only the
+ * route wiring imports it. It sends nothing to Meta.
+ * M3b adds the live changes, all through the same seam: the status writes,
+ * the budget write, the refresh's move, the name write and the ad study
+ * (each handed its Graph POST as a callback), and the campaign tree's two
+ * route handlers (bulkAttachAs, adsetAudienceAs). Its one table is
+ * scheduled_meta_changes, from lib/mcp/live/scheduled.ts only, applied by
+ * the cron route it pins too.
+ * M3d-c adds one Drive seam, lib/mcp/folder-in-deps.ts
+ * (upload_to_event_folder): the export Drive and a Storage read, its writes
+ * folderDepsFor's files.copy and upload only. The walk stops at it; a test
+ * pins what it imports, that only the route wiring imports it, and that it
+ * never reaches a permission, share, move or delete.
+ *
+ * M3d-a adds the shows seam, lib/mcp/shows-deps.ts (scope mcp:draft): the
+ * event form's create (insertEventRow: events, and its key-moments seed),
+ * the clients form's create (insertClientRow: clients), the Lab's lineup
+ * save and add-from-Spotify (saveLabLineup, addSpotifyToLineup: artists,
+ * event_artists, creative_lab_event_facts) and the Releases card's reads and
+ * save (postReleaseAs: event_releases, the derived sale dates on events, a
+ * manual tier_channel_sales count, a held ticket_warnings proposal). Like
+ * the Meta seam it isn't walked; a test pins exactly what it imports, what
+ * each of those writes, and that only the route wiring imports it. It sends
+ * nothing to Meta or Drive.
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -37,6 +68,8 @@ const ALLOWED_WRITERS: Record<string, RegExp> = {
   "lib/mcp/drafts/write.ts": /^campaign_drafts$/,
   // M3a: update_event, the event form's save for five fields.
   "lib/mcp/meta/event-write.ts": /^events$/,
+  // M3b: budget changes for later, and the cron that applies them.
+  "lib/mcp/live/scheduled.ts": /^scheduled_meta_changes$/,
 };
 
 /**
@@ -49,6 +82,80 @@ const META_SEAM_IMPORTS: Record<string, readonly string[]> = {
   "app/api/meta/launch-campaign/route.ts": ["launchCampaignAs"],
   "lib/meta/upload-asset-handler.ts": ["handleUploadAsset", "uploadAssetHooksForUser"],
   "lib/plan/creative-intake-server.ts": ["sendStoredDraftAssetsToMeta", "waitForStoredVideosAs"],
+  // M3b: the campaign tree's two route handlers, for the operator.
+  "app/api/meta/bulk-attach-ads/route.ts": ["bulkAttachAs"],
+  "app/api/meta/adset-audience/route.ts": ["adsetAudienceAs"],
+  // M3b: the reads and the POSTs handed to the ledgered writers below.
+  "lib/meta/client.ts": ["graphGetWithToken", "graphPostWithToken"],
+  "lib/meta/server-token.ts": ["resolveServerMetaToken"],
+  "lib/meta/ad-status-write.ts": ["adStatusWritesEnabled", "writeAdStatus"],
+  "lib/meta/adset-status-write.ts": ["adsetStatusWritesEnabled", "writeAdSetStatus"],
+  "lib/meta/campaign-status-write.ts": ["writeCampaignStatus"],
+  "lib/meta/budget-write.ts": ["budgetWritesEnabled", "writeBudget"],
+  "lib/meta/object-name-write.ts": ["writeObjectName"],
+  "lib/meta/ad-study.ts": ["campaignsInRunningStudies", "studyPayload", "writeAdStudy"],
+  "lib/meta/adset-targeting-write.ts": ["adsetTargetingWritesEnabled"],
+  "lib/campaign-tree/switch.ts": ["treeAddWritesEnabled"],
+  "lib/onsale-refresh/apply.ts": ["moveAdSetDailyBudget"],
+};
+
+/** Every Graph POST in the seam is the callback one ledgered writer is handed. */
+const SEAM_POSTS = [
+  /const post = \(objectId: string, s: string\) => graphPostWithToken\(`\/\$\{objectId\}`, \{ status: s \}, token\)/,
+  /postBudget: \(objectId, f, m\) => graphPostWithToken\(`\/\$\{objectId\}`, \{ \[f\]: m \}, token\)/,
+  /await graphPostWithToken\(`\/\$\{adsetId\}`, \{ daily_budget: minor \}, token\);/,
+  /postName: \(objectId, n\) => graphPostWithToken\(`\/\$\{objectId\}`, \{ name: n \}, token\)/,
+  /createAdStudy: \(b, p\) => graphPostWithToken<\{ id: string \}>\(`\/\$\{b\}\/ad_studies`, p, token\)/,
+];
+/** M3d-c's Drive seam: the export Drive, a Storage read, and folderDepsFor's two writes. */
+const FOLDER_SEAM = "lib/mcp/folder-in-deps.ts";
+const FOLDER_SEAM_IMPORTS: Record<string, readonly string[]> = {
+  "lib/drive/client.ts": ["driveFromEnv"],
+  "lib/mcp/folder-in/place.ts": ["folderDepsFor"],
+};
+
+/**
+ * M3d-b's Lab seam: the Lab's own write paths, pinned like the Meta seam
+ * (the Snippet route's scan and edit, the Clips card's owner write), and
+ * the tables each one's body may write.
+ */
+const LAB_SEAM = "lib/mcp/lab-deps.ts";
+const LAB_SEAM_IMPORTS: Record<string, readonly string[]> = {
+  "lib/creative-tests/audio-edits.ts": ["saveAudioEdit"],
+  "lib/creative-tests/audio-intake.ts": ["scanArtistAudio"],
+  "lib/creative-tests/snippet-server.ts": ["intakeDeps"],
+  "lib/creative-lab/card-write.ts": ["saveClipOwner"],
+  "lib/drive/client.ts": ["driveFromEnv"],
+  "lib/onsale-refresh/line-states.ts": ["displayName"],
+};
+const LAB_SEAM_WRITES: Record<string, Record<string, RegExp>> = {
+  "lib/creative-tests/audio-edits.ts": { saveAudioEdit: /^creative_lab_audio_files$/ },
+  "lib/creative-tests/audio-intake.ts": { scanArtistAudio: /^creative_lab_audio_files$/ },
+  "lib/creative-lab/card-write.ts": { saveClipOwner: /^creative_lab_clips$/ },
+};
+
+/**
+ * M3d-a's shows seam: the app's own create and save paths, pinned like the
+ * Meta seam, and the tables each one's body may write. regenerateAutoMoments
+ * is insertEventRow's key-moments seed (not imported by the seam itself).
+ */
+const SHOWS_SEAM = "lib/mcp/shows-deps.ts";
+const SHOWS_SEAM_IMPORTS: Record<string, readonly string[]> = {
+  "lib/db/events.ts": ["insertEventRow"],
+  "lib/db/clients.ts": ["insertClientRow"],
+  "lib/creative-lab/lineup.ts": ["addSpotifyToLineup", "saveLabLineup"],
+  "lib/db/releases.ts": ["loadClientLadder", "loadEventArtists", "loadEventReleases", "loadSalesHistory"],
+  "app/api/events/[id]/releases/route.ts": ["postReleaseAs"],
+};
+const SHOWS_SEAM_WRITES: Record<string, Record<string, RegExp>> = {
+  "lib/db/events.ts": { insertEventRow: /^events$/ },
+  "lib/db/event-key-moments.ts": { regenerateAutoMoments: /^event_key_moments$/ },
+  "lib/db/clients.ts": { insertClientRow: /^clients$/ },
+  // addSpotifyToLineup's own writes are artists (its reads go through rowsOf); its lineup step is saveLabLineup.
+  "lib/creative-lab/lineup.ts": { addSpotifyToLineup: /^artists$/, saveLabLineup: /^(event_artists|creative_lab_event_facts)$/ },
+  // The Releases card's save: the release, the derived dates, a manual count (read the channel, write the count), a held proposal.
+  "app/api/events/[id]/releases/route.ts": { postRelease: /^(events|tier_channels|tier_channel_sales)$/ },
+  "lib/db/releases.ts": { saveReleaseRow: /^event_releases$/, insertWarning: /^ticket_warnings$/ },
 };
 
 const ENTRIES = [
@@ -68,6 +175,8 @@ const ENTRIES = [
   "app/.well-known/oauth-protected-resource/route.ts",
   "app/.well-known/oauth-protected-resource/api/mcp/route.ts",
   "app/.well-known/oauth-authorization-server/route.ts",
+  // M3b: the cron that applies scheduled budget changes.
+  "app/api/cron/mcp-scheduled-changes/route.ts",
 ];
 
 function resolve(from: string, spec: string): string | null {
@@ -90,8 +199,8 @@ function walk(): Map<string, string> {
     if (seen.has(file)) continue;
     const src = readFileSync(join(ROOT, file), "utf8");
     seen.set(file, src);
-    // The Meta seam is pinned by its own test, not walked.
-    if (file === META_SEAM) continue;
+    // The Meta, Lab, Drive and shows seams are pinned by their own tests, not walked.
+    if (file === META_SEAM || file === LAB_SEAM || file === FOLDER_SEAM || file === SHOWS_SEAM) continue;
     // Value imports only: `import type` brings no code.
     for (const m of src.matchAll(/^\s*(?:import|export)\s+(?!type\b)[^'"]*?from\s+["']([^"']+)["']/gm)) {
       const next = resolve(file, m[1]!);
@@ -111,7 +220,7 @@ function walk(): Map<string, string> {
  */
 const EXTERNAL_READERS: Record<string, readonly string[]> = {
   "lib/db/paged-read.ts": ["loadAllPaged"],
-  "lib/db/client-status.ts": ["dropArchivedClientRows", "loadArchivedClientIds"],
+  "lib/db/client-status.ts": ["ARCHIVED", "dropArchivedClientRows", "loadArchivedClientIds"],
   "lib/db/event-daily-rollups.ts": ["listRollupsForEvent"],
   "lib/db/signup-source-snapshots.ts": ["loadCirqlinSnapshotsForEvent"],
   "lib/db/ticketing.ts": ["listAllSnapshotsForEvent"],
@@ -154,9 +263,12 @@ const EXTERNAL_READERS: Record<string, readonly string[]> = {
   "lib/drive/file-owner.ts": ["mayUseFor", "resolveDriveOwner"],
   // M3a: the video step's slot helpers (pure); the send step itself is behind the Meta seam.
   "lib/plan/stored-assets-meta.ts": ["failVideos", "sentVideoIds"],
-  "lib/drive/picker-model.ts": ["PICKER_WORDS", "defaultBatchFields", "folderTiles", "formatBytes"],
+  "lib/drive/picker-model.ts": ["PICKER_WORDS", "defaultBatchFields", "folderTiles", "formatBytes", "PICKER_MAX_IMAGE_BYTES", "PICKER_MAX_VIDEO_BYTES"],
   "lib/drive/picker-batch.ts": ["planPrepare"],
-  "lib/drive/client.ts": ["driveFromEnv"],
+  "lib/drive/client.ts": ["driveFromEnv", "APP_ID_KEY", "APP_TAG_KEY", "FOLDER_MIME", "SHORTCUT_MIME"],
+  // M3d-c: the show's Lab lineup (event_artists, artists reads) and the tree's cycle names (pure).
+  "lib/drive/lineup.ts": ["loadLineupArtists"],
+  "lib/drive/tree.ts": ["cycleFolderName"],
   "lib/campaign-defaults.ts": ["createDefaultAssetVariation", "createDefaultCreative", "defaultCtaForObjective"],
   "lib/clients/channel-defaults.ts": ["loadClientChannelDefaults"],
   "lib/meta/server-token.ts": ["resolveServerMetaToken"],
@@ -190,6 +302,22 @@ const EXTERNAL_READERS: Record<string, readonly string[]> = {
   "lib/render-templates/words.ts": ["RECIPES", "candidate", "m4"],
   "lib/render-templates/upload-guard.ts": ["refusedUploads"],
   "lib/render-templates/server-deps.ts": ["startDeps"],
+  // M3d-b: the Lab tools' reads (render_package's lineup, clips and track order) and the Snippet tab's words (pure).
+  "lib/render-templates/load.ts": ["compareTracks", "loadClips", "loadLineup"],
+  "lib/creative-tests/snippet.ts": ["DROP_FOUND", "NO_CLEAR_DROP", "cantUseText", "dropSetBy", "mmss"],
+  // M3b: the event's campaign tree (database reads, and Meta through the reader the live seam passes) and its pure helpers.
+  "lib/campaign-tree/load.ts": ["loadCampaignTree"],
+  "lib/campaign-tree/tree.ts": ["canWrite", "defaultSelection", "stageAccount", "stageLabel", "stageSheetCampaigns"],
+  // M3d-a: the Releases card's ladder reckoning and its words (pure), as the card runs it.
+  "lib/releases/types.ts": ["RELEASE_STATES", "stateIndex"],
+  // set_release's check before the save (Matas, 26 Nov): the route's own pure steps.
+  "lib/releases/entry.ts": ["applyCount", "applyState"],
+  "lib/releases/dates.ts": ["deriveSaleDates"],
+  "lib/releases/ladder.ts": ["completeLadder"],
+  "lib/releases/derived.ts": ["nextReleaseListAt"],
+  "lib/releases/visibility.ts": ["isBackfilled"],
+  "lib/releases/london.ts": ["londonDayMonth"],
+  "lib/ticket-warnings/next-rung.ts": ["derivedProposals", "nextRung", "sellingFastDays"],
 };
 
 /**
@@ -203,6 +331,8 @@ const EXTERNAL_WRITERS: Record<string, Record<string, RegExp>> = {
   "lib/clients/asset-queue/storage-upload.ts": { uploadFileToStorageBucket: /^$/ },
   // M4a (scope mcp:render, Matas only): a package row, its file rows and the track's beat-grid cache. Nothing renders here; the cron does.
   "lib/render-templates/start.ts": { requestPackage: /^(creative_lab_render_packages|creative_lab_renders|creative_lab_audio_files|artists|artist_assets)$/ },
+  // M3b: the cron route's run log (recordCronRun writes cron_runs; the wrapper itself has no table).
+  "lib/reporting/with-cron-run-log.ts": { withCronRunLog: /^cron_runs$/ },
 };
 
 /**
@@ -237,6 +367,15 @@ function bodyOf(src: string, name: string): string | null {
   return next < 0 ? rest : rest.slice(0, next + 1);
 }
 
+/** The body of one module-private function (to the next top-level function or export). */
+function bodyOfAsync(src: string, name: string): string | null {
+  const m = new RegExp(`\\n(?:async )?function ${name}\\b`).exec(src);
+  if (!m) return null;
+  const rest = src.slice(m.index + 1);
+  const next = rest.slice(1).search(/\n(?:export |async function |function )/);
+  return next < 0 ? rest : rest.slice(0, next + 1);
+}
+
 const strip = (src: string) => src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
 
 test("the MCP's own code writes only mcp_actions and mcp_oauth_*", () => {
@@ -264,7 +403,7 @@ test("from outside lib/mcp the MCP imports only reader functions, and none of th
   const unexpected: string[] = [];
   const used = new Map<string, Set<string>>();
   for (const [file, src] of own) {
-    if (file === META_SEAM) continue;
+    if (file === META_SEAM || file === LAB_SEAM || file === FOLDER_SEAM || file === SHOWS_SEAM) continue;
     for (const { target, names } of importsOf(file, src)) {
       if (isOwn(target)) continue;
       const allowed = EXTERNAL_READERS[target];
@@ -300,12 +439,12 @@ test("the outside writers M2 calls write only what the Drive picker's copy write
   }
 });
 
-test("the tools and the server make no network calls and import no write paths; the only requests are graph-reads' three GETs", () => {
+test("the tools and the server make no network calls and import no write paths; the only requests are graph-reads' four GETs", () => {
   const files = walk();
   const hits: string[] = [];
   const SENDERS = new Set(["lib/mcp/graph-reads.ts", "lib/mcp/draft-deps.ts"]);
   for (const [file, src] of files) {
-    if (!isOwn(file) || file === META_SEAM) continue;
+    if (!isOwn(file) || file === META_SEAM || file === LAB_SEAM || file === FOLDER_SEAM || file === SHOWS_SEAM) continue;
     const code = strip(src);
     if (!SENDERS.has(file) && (NETWORK.test(code) || /\bfetchImpl\s*\(/.test(code))) hits.push(`${file}: network`);
     for (const m of code.matchAll(/from\s+["']((?:@\/|\.\.?\/)[^"']*)["']/g)) {
@@ -318,13 +457,13 @@ test("the tools and the server make no network calls and import no write paths; 
   }
   assert.deepEqual(hits, []);
   assert.ok(!files.has("lib/meta/client.ts"), "the Graph client is never imported");
-  // graph-reads: one request site, GET only, to /search and /{act}/promote_pages.
+  // graph-reads: one request site, GET only, to /search, /{act}/promote_pages and (M3d-d strict_audit) /?ids=….
   const reads = strip(readFileSync(join(ROOT, "lib/mcp/graph-reads.ts"), "utf8"));
   assert.equal([...reads.matchAll(/\bfetchImpl\s*\(/g)].length, 1, "one request site");
   assert.match(reads, /fetchImpl\(url\.toString\(\), \{ method: "GET", cache: "no-store" \}\)/);
   assert.doesNotMatch(reads, /\bfetch\s*\(|graphPost|method:\s*"(POST|DELETE|PUT|PATCH)"/);
   const paths = [...reads.matchAll(/graphGet\(fetchImpl, version, (["`])([^"`]+)\1/g)].map((m) => m[2]);
-  assert.deepEqual(paths.sort(), ["/act_${digits}/promote_pages", "/search", "/search"]);
+  assert.deepEqual(paths.sort(), ["/", "/act_${digits}/promote_pages", "/search", "/search"]);
   // draft-deps passes the global fetch through, and sends nothing itself.
   const deps = strip(readFileSync(join(ROOT, "lib/mcp/draft-deps.ts"), "utf8"));
   assert.equal([...deps.matchAll(/\bfetch\s*\(/g)].length, 1, "one fetch: the GET-only pass-through");
@@ -343,11 +482,23 @@ test("M3a: the Meta seam imports exactly the launch route's handler, the upload 
     got[target] = [...(got[target] ?? []), ...names].sort();
   }
   assert.deepEqual(got, Object.fromEntries(Object.entries(META_SEAM_IMPORTS).map(([k, v]) => [k, [...v].sort()])));
-  // No network call of its own: everything goes through those handlers.
-  assert.doesNotMatch(strip(src), NETWORK);
-  // Only route-deps wires it; no tool imports it (tools reach Meta through ctx.meta).
-  const importers = [...files.entries()].filter(([f, s2]) => f !== META_SEAM && /from\s+["'][^"']*meta-deps["']/.test(s2)).map(([f]) => f);
-  assert.deepEqual(importers, ["lib/mcp/route-deps.ts"]);
+  // No network call of its own but the reads and the POSTs it hands to the ledgered writers (M3b).
+  const code = strip(src);
+  assert.doesNotMatch(code, /\b(fetch|graphDelete)\s*\(/);
+  const posts = code.split("\n").filter((l) => /graphPostWithToken\s*[<(]/.test(l));
+  assert.equal(posts.length, SEAM_POSTS.length, "one POST per ledgered writer");
+  for (const p of SEAM_POSTS) assert.equal(posts.filter((l) => p.test(l)).length, 1, String(p));
+  // Only route-deps and the scheduled-changes cron wire it; no tool imports it (tools reach Meta through ctx.meta / ctx.live).
+  const importers = [...files.entries()].filter(([f, s2]) => f !== META_SEAM && /from\s+["'][^"']*meta-deps["']/.test(s2)).map(([f]) => f).sort();
+  assert.deepEqual(importers, ["app/api/cron/mcp-scheduled-changes/route.ts", "lib/mcp/route-deps.ts"]);
+  // The tree's handlers are the routes' own, and bulk-attach keeps the tree switch and the paused flag.
+  const attach = readFileSync(join(ROOT, "app/api/meta/bulk-attach-ads/route.ts"), "utf8");
+  assert.match(attach, /export async function bulkAttachAs\(/);
+  assert.match(attach, /if \(!treeAddWritesEnabled\(\)\) \{/);
+  assert.match(attach, /buildAdPayload\(adName, metaCreativeId, adSetId, body\.createPaused === true \? "PAUSED" : "ACTIVE"\)/);
+  const audience = readFileSync(join(ROOT, "app/api/meta/adset-audience/route.ts"), "utf8");
+  assert.match(audience, /export async function adsetAudienceAs\(/);
+  assert.match(audience, /if \(commit && !adsetTargetingWritesEnabled\(\)\) \{/);
   // The handlers it names are the app's own, and the launch keeps the route's paused path.
   const route = readFileSync(join(ROOT, "app/api/meta/launch-campaign/route.ts"), "utf8");
   assert.match(route, /export async function launchCampaignAs\(/);
@@ -355,14 +506,105 @@ test("M3a: the Meta seam imports exactly the launch route's handler, the upload 
   assert.match(src, /body: JSON\.stringify\(\{ draft, createPaused \}\)/);
 });
 
+test("M3d-b: the Lab seam imports exactly the Snippet tab's scan and drop edit and the Clips card's owner write, each writes only its table, and only the route wiring imports it", () => {
+  const files = walk();
+  assert.ok(files.has(LAB_SEAM), "the route wires the Lab seam");
+  const src = files.get(LAB_SEAM)!;
+  const got: Record<string, string[]> = {};
+  for (const { target, names } of importsOf(LAB_SEAM, src)) {
+    if (isOwn(target) || target === "lib/supabase/server.ts") continue;
+    got[target] = [...(got[target] ?? []), ...names].sort();
+  }
+  assert.deepEqual(got, Object.fromEntries(Object.entries(LAB_SEAM_IMPORTS).map(([k, v]) => [k, [...v].sort()])));
+  const code = strip(src);
+  // No network of its own and no write of its own except through those paths (it reads events and clients only).
+  assert.doesNotMatch(code, NETWORK);
+  assert.doesNotMatch(code, WRITE);
+  WRITE.lastIndex = 0;
+  for (const m of code.matchAll(/\.from\(\s*["']([^"']+)["']\s*\)/g)) assert.match(m[1]!, /^(events|clients)$/, `lab-deps from("${m[1]}")`);
+  for (const [target, fns] of Object.entries(LAB_SEAM_WRITES)) {
+    const body = readFileSync(join(ROOT, target), "utf8");
+    for (const [n, tables] of Object.entries(fns)) {
+      const fn = bodyOf(body, n);
+      assert.ok(fn, `${n} in ${target}`);
+      for (const m of strip(fn!).matchAll(/\.from\(\s*["']([^"']+)["']\s*\)/g)) assert.match(m[1]!, tables, `${target}#${n} from("${m[1]}")`);
+    }
+  }
+  // No Meta, ever: none of the seam's imports is a lib/meta path.
+  assert.ok(Object.keys(LAB_SEAM_IMPORTS).every((t) => !t.startsWith("lib/meta/")));
+  const importers = [...files.entries()].filter(([f, s2]) => f !== LAB_SEAM && /from\s+["'][^"']*lab-deps["']/.test(s2)).map(([f]) => f);
+  assert.deepEqual(importers, ["lib/mcp/route-deps.ts"]);
+});
+
+test("M3d-c: the Drive seam imports only the export Drive and folderDepsFor, writes only by copy and upload, and only the route wiring imports it", () => {
+  const files = walk();
+  assert.ok(files.has(FOLDER_SEAM), "the route wires the seam");
+  const src = files.get(FOLDER_SEAM)!;
+  const got: Record<string, string[]> = {};
+  for (const { target, names } of importsOf(FOLDER_SEAM, src)) got[target] = [...(got[target] ?? []), ...names].sort();
+  assert.deepEqual(got, Object.fromEntries(Object.entries(FOLDER_SEAM_IMPORTS).map(([k, v]) => [k, [...v].sort()])));
+  const code = strip(src);
+  assert.doesNotMatch(code, NETWORK);
+  assert.doesNotMatch(code, WRITE);
+  WRITE.lastIndex = 0;
+  // A Storage read, nothing else of Storage.
+  assert.deepEqual([...code.matchAll(/\.storage\.from\([^)]*\)\.(\w+)\(/g)].map((m) => m[1]), ["download"]);
+  const importers = [...files.entries()].filter(([f, s2]) => f !== FOLDER_SEAM && /from\s+["'][^"']*folder-in-deps["']/.test(s2)).map(([f]) => f);
+  assert.deepEqual(importers, ["lib/mcp/route-deps.ts"]);
+  // folderDepsFor writes by copyFile and uploadFile only: no permission, share, move, rename or delete.
+  const place = strip(readFileSync(join(ROOT, "lib/mcp/folder-in/place.ts"), "utf8"));
+  const driveCalls = [...place.matchAll(/\bdrive\.(\w+)\(/g)].map((m) => m[1]).sort();
+  assert.deepEqual([...new Set(driveCalls)].sort(), ["copyFile", "getFile", "listChildren", "uploadFile"]);
+  assert.doesNotMatch(place, /shareReader|removePermission|permissions|\.update\(fileId|trash|delete/i);
+});
+
+test("M3d-a: the shows seam imports exactly the event and clients forms' create, the Lab's lineup save and the Releases card's reads and save, each writes only its tables, and only the route wiring imports it", () => {
+  const files = walk();
+  assert.ok(files.has(SHOWS_SEAM), "the route wires the shows seam");
+  const src = files.get(SHOWS_SEAM)!;
+  const got: Record<string, string[]> = {};
+  for (const { target, names } of importsOf(SHOWS_SEAM, src)) {
+    if (isOwn(target) && !target.startsWith("app/api/events/")) continue;
+    got[target] = [...(got[target] ?? []), ...names].sort();
+  }
+  assert.deepEqual(got, Object.fromEntries(Object.entries(SHOWS_SEAM_IMPORTS).map(([k, v]) => [k, [...v].sort()])));
+  const code = strip(src);
+  // No network and no write of its own (it reads one events column for the card's show date).
+  assert.doesNotMatch(code, NETWORK);
+  assert.doesNotMatch(code, WRITE);
+  WRITE.lastIndex = 0;
+  for (const m of code.matchAll(/\.from\(\s*["']([^"']+)["']\s*\)/g)) assert.match(m[1]!, /^events$/, `shows-deps from("${m[1]}")`);
+  for (const [target, fns] of Object.entries(SHOWS_SEAM_WRITES)) {
+    const body = readFileSync(join(ROOT, target), "utf8");
+    for (const [n, tables] of Object.entries(fns)) {
+      const fn = bodyOf(body, n) ?? bodyOfAsync(body, n);
+      assert.ok(fn, `${n} in ${target}`);
+      for (const m of strip(fn!).matchAll(/\.from\(\s*["']([^"']+)["']\s*\)/g)) assert.match(m[1]!, tables, `${target}#${n} from("${m[1]}")`);
+    }
+  }
+  // The seam's paths never reach Meta, Drive, Slack or D2C.
+  for (const target of Object.keys(SHOWS_SEAM_IMPORTS)) {
+    const body = strip(readFileSync(join(ROOT, target), "utf8"));
+    assert.doesNotMatch(body, /from\s+["'][^"']*(\/meta\/client|\/drive\/|\/notify\/|\/d2c\/)[^"']*["']/, `${target} imports no platform write path`);
+    assert.doesNotMatch(body, NETWORK, `${target} makes no network call`);
+  }
+  const importers = [...files.entries()].filter(([f, s2]) => f !== SHOWS_SEAM && /from\s+["'][^"']*shows-deps["']/.test(s2)).map(([f]) => f);
+  assert.deepEqual(importers, ["lib/mcp/route-deps.ts"]);
+});
+
 test("M3a: every meta tool checks the scope and the approval before anything else, and reaches Meta only through ctx.meta", async () => {
   const { META_TOOLS } = await import("../tools/index.ts");
-  for (const file of ["lib/mcp/tools/meta-launch.ts", "lib/mcp/tools/meta-event.ts"]) {
+  const files = ["lib/mcp/tools/meta-launch.ts", "lib/mcp/tools/meta-event.ts", "lib/mcp/tools/live-status.ts", "lib/mcp/tools/live-budget.ts", "lib/mcp/tools/live-rename.ts", "lib/mcp/tools/live-stage.ts", "lib/mcp/tools/live-test.ts", "lib/mcp/tools/live-read.ts"];
+  for (const file of files) {
     const code = strip(readFileSync(join(ROOT, file), "utf8"));
-    for (const m of code.matchAll(/async run\(ctx, args\) \{\n\s*(.+)\n/g)) assert.match(m[1]!, /requireMetaApproval\(ctx, args\)/, file);
-    assert.doesNotMatch(code, /from\s+["'](@\/|\.\.\/\.\.\/)(app|lib\/meta)\//, `${file}: no Meta import`);
+    // The read-only meta tools (get_live, list_scheduled) check the scope; every other one the scope and the approval.
+    for (const m of code.matchAll(/async run\(ctx, args\) \{\n\s*(.+)\n/g)) assert.match(m[1]!, /requireMetaApproval\(ctx, args\)|requireMetaScope\(ctx\)/, file);
+    assert.doesNotMatch(code, /from\s+["'](@\/|\.\.\/\.\.\/)(app\/|meta\/(?!ad-account)|lib\/meta\/)/, `${file}: no Meta import`);
   }
-  assert.deepEqual(META_TOOLS.map((t) => t.kind), ["meta", "meta", "meta"]);
+  // pause and resume share runStatus, which checks the approval first.
+  assert.match(strip(readFileSync(join(ROOT, "lib/mcp/tools/live-status.ts"), "utf8")), /async function runStatus\(ctx: ToolContext, args: Record<string, unknown>, to: "PAUSED" \| "ACTIVE", tool: "pause" \| "resume"\) \{\n\s*const \{ approval \} = requireMetaApproval\(ctx, args\);/);
+  assert.ok(META_TOOLS.length === 14 && META_TOOLS.every((t) => t.kind === "meta"));
+  for (const t of META_TOOLS.filter((x) => x.readOnly === true)) assert.ok(["get_live", "list_scheduled"].includes(t.name), t.name);
 });
 
 test("tools register with honest annotations: read tools read-only, draft tools never destructive", () => {

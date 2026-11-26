@@ -64,6 +64,12 @@ export interface DriveApi {
   createFolder(parentId: string, name: string): Promise<DriveFile>;
   uploadFile(args: { parentId: string; name: string; mimeType: string; bytes: Uint8Array; appProperties: Record<string, string> }): Promise<DriveFile>;
   createShortcut(args: { parentId: string; name: string; targetId: string; appProperties: Record<string, string> }): Promise<DriveFile>;
+  /**
+   * files.copy within the shared drive: a new file in `parentId` with its own
+   * appProperties. The source is untouched (not moved, renamed or shared).
+   * Optional: the connector's upload_to_event_folder (M3d-c) is its caller.
+   */
+  copyFile?(args: { fileId: string; parentId: string; name: string; appProperties: Record<string, string> }): Promise<DriveFile>;
   update(fileId: string, patch: { name?: string; description?: string }): Promise<DriveFile>;
   /** One file's metadata, or null when it is gone or the account can't see it. */
   getFile(fileId: string): Promise<DriveFile | null>;
@@ -313,6 +319,15 @@ export function restDriveApi(opts: { driveId: string; serviceAccount: ServiceAcc
           }),
         },
         "create shortcut",
+      );
+      return toFile((await res.json()) as Record<string, unknown>);
+    },
+
+    async copyFile(args) {
+      const res = await call(
+        `${API}/files/${encodeURIComponent(args.fileId)}/copy?supportsAllDrives=true&fields=${encodeURIComponent(FILE_FIELDS)}`,
+        { method: "POST", headers: json, body: JSON.stringify({ name: args.name, parents: [args.parentId], appProperties: args.appProperties }) },
+        "copy",
       );
       return toFile((await res.json()) as Record<string, unknown>);
     },

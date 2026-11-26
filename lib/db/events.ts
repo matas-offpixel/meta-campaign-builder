@@ -3,6 +3,7 @@ import {
   applyEventToCampaignSettings,
   type CampaignEventIdentity,
 } from "@/lib/campaign-event";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
 import type { Tables, TablesInsert, TablesUpdate } from "@/lib/db/database.types";
 import { regenerateAutoMoments } from "@/lib/db/event-key-moments";
@@ -211,7 +212,19 @@ export type CreateEventInput = Omit<
 export async function createEventRow(
   input: CreateEventInput,
 ): Promise<EventRow | null> {
-  const supabase = createClient();
+  return insertEventRow(createClient(), input);
+}
+
+/**
+ * The event form's create, on a given client: the browser client from the
+ * form (createEventRow), or a service-role client for the Off/Pixel
+ * connector's create_event (its shows seam), which names `user_id`
+ * itself. The same insert and the same key-moments seed either way.
+ */
+export async function insertEventRow(
+  supabase: Pick<SupabaseClient, "from">,
+  input: CreateEventInput,
+): Promise<EventRow | null> {
   const payload: EventInsert = {
     ...input,
     slug: input.slug || slugifyEvent(input.name),
@@ -239,6 +252,7 @@ export async function createEventRow(
         eventId: row.id,
         userId: row.user_id,
         eventDate: row.event_date,
+        supabase,
       });
     } catch (err) {
       console.warn(
