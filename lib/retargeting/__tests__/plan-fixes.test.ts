@@ -14,7 +14,8 @@ import { describe, it } from "node:test";
 
 import { fakeDb } from "../../mcp/__tests__/fake-db.ts";
 import { FUNNEL_TIERS, type FunnelSources, type ProspectingBudget } from "../funnel.ts";
-import { claudePlanLines, createLines, foldUnbuildable, planFunnelShow, skipReason, skipLine, wordsSplit } from "../funnel-plan.ts";
+import { claudePlanLines, createLines, fallbackPixelLine, foldUnbuildable, planFunnelShow, skipReason, skipLine, wordsSplit } from "../funnel-plan.ts";
+import { NO_PIXEL_PURCHASES, nothingReaches, sellsElsewhere as sellsElsewhereSentence } from "../words.ts";
 import { planRetargeting, remainingTo, type RetargetingInput } from "../plan.ts";
 import { budgetFromMeta, fallbackPixelOf } from "../runner.ts";
 import { planWider } from "../show-campaigns.ts";
@@ -141,10 +142,10 @@ describe("fix 3: Wider's lifetime is what the show has left, within its ceiling"
   it("the plan says when the ceiling caps Wider, and when the show has none", () => {
     const plan = planFunnelShow({ code: "ES27-X", runDay: "2026-11-26", showDay: SHOW, announceDay: "2026-09-29", prospecting: PROSPECTING, sources: SOURCES_NO_ACCOUNTS, spec: { twoCampaigns: true } });
     const base = { lifetimeMinor: 50000, dailyMinor: 2941, daysLeft: 17, endDay: SHOW, steps: [] };
-    assert.ok(createLines(plan, { ...base, capped: { ceilingGbp: 2500 } }, false).lines.includes("Wider is capped at £500.00 so ES27-X stays within its £2,500.00 ceiling."));
-    assert.ok(createLines(plan, { ...base, noCeiling: true }, false).lines.includes("ES27-X has no spend ceiling, so both campaigns can only be made paused until one is set."));
+    assert.ok(createLines(plan, { ...base, capped: { ceilingGbp: 2500 } }, false).lines.includes("Wider is capped at £500.00 lifetime, so ES27-X’s committed spend stays within its £2,500.00 ceiling."));
+    assert.ok(createLines(plan, { ...base, noCeiling: true }, false).lines.includes("ES27-X has no spend ceiling, so both campaigns can only be made paused until Matas sets one."));
     // The real ES27-DAVEPEARCE: £29.97 a day for 115 days passes £2,500 on its own, so Wider gets nothing and the plan says so.
-    assert.ok(createLines(plan, { ...base, lifetimeMinor: 0, capped: { ceilingGbp: 2500, over: true } }, false).lines.includes("Retargeting’s money a day to show day would pass ES27-X’s £2,500.00 ceiling on its own, so Wider gets nothing. Lower the share or raise the ceiling."));
+    assert.ok(createLines(plan, { ...base, lifetimeMinor: 0, capped: { ceilingGbp: 2500, over: true } }, false).lines.includes(`Retargeting alone, £${(plan.totalMinor / 100).toFixed(2)} a day to the show, would take ES27-X over its £2,500.00 ceiling, so Wider gets nothing and neither campaign can go live until Matas raises the ceiling.`));
   });
 });
 
@@ -198,7 +199,9 @@ describe("fix 6: the purchase read doesn't skip a show for plan_retargeting; the
     assert.equal(skipReason({ ...base, state: "sells_elsewhere" }), "ruled_out");
     assert.equal(skipReason({ ...base, state: "links_failed" }), "links_failed");
     assert.equal(skipReason({ ...base, state: "no_money" }), "no_budget");
-    assert.equal(skipLine("NX26-DOD", "links_failed"), "NX26-DOD · skipped: its links couldn’t be read from CIRQLIN this run.");
+    assert.equal(skipLine("NX26-DOD", "links_failed"), "NX26-DOD · skipped: its links couldn’t be read from CIRQLIN just now.");
+    assert.equal(skipLine("NX26-DOD", "not_read"), "NX26-DOD · skipped: its purchases couldn’t be read just now.");
+    assert.equal(skipLine("NX26-DOD", "links_no_page"), "NX26-DOD · skipped: its CIRQLIN page isn’t published.");
   });
 });
 
@@ -217,5 +220,30 @@ describe("fix 7: no optimising pixel", () => {
     assert.equal(planned.state, "proposed");
     assert.equal((planned.build as { pixelId: string }).pixelId, "333333");
     assert.equal(planRetargeting(sellsElsewhere({ connector: true, read: noPixel, fallbackPixel: null })).state, "no_pixel");
+  });
+});
+
+describe("design's verdict on #1406 (27 Nov): a ruled-out show says its own refresh-panel sentence; the fallback pixel is said", () => {
+  it("each of ruled_out's states: the panel's sentence without its opener and full stop, apostrophes curly; never \"the purchase read rules it out\"", () => {
+    assert.equal(skipLine("NX26-DOD", "ruled_out", NO_PIXEL_PURCHASES), "NX26-DOD · skipped: this pixel has had no purchases in 28 days.");
+    assert.equal(skipLine("NX26-DOD", "ruled_out", sellsElsewhereSentence({ host: "skiddle.com", pct: 99, purchases: 1539, platform: "Universe" })), "NX26-DOD · skipped: this pixel mostly sells on skiddle.com (99 % of 1,539 purchases in 28 days), not on Universe.");
+    assert.equal(skipLine("XMPL-ROOF", "ruled_out", nothingReaches("xmpl-roof.com")), "XMPL-ROOF · skipped: no purchase has reached xmpl-roof.com in 28 days, and the ticket link isn’t on a ticket platform.");
+    // no_signal: the panel is silent, so its reason is written here (PENDING DESIGN).
+    assert.equal(skipLine("XMPL-QUIET", "ruled_out", null), "XMPL-QUIET · skipped: its pixel’s purchases can’t be tied to this show’s own site or ticket link.");
+    for (const detail of [NO_PIXEL_PURCHASES, null]) assert.doesNotMatch(skipLine("X", "ruled_out", detail), /rules it out/);
+    // The 08:00 read's sells-elsewhere show, as plan_retargeting's skip would read it.
+    const plan = planRetargeting(sellsElsewhere());
+    assert.equal(skipLine("NX26-DOD", "ruled_out", plan.view.notProposed), "NX26-DOD · skipped: this pixel mostly sells on skiddle.com (99 % of 1,539 purchases in 28 days), not on Universe.");
+  });
+
+  it("the pixel line, after the plan line, whenever the fallback is used", () => {
+    assert.equal(fallbackPixelLine({ id: "333333", source: "event" }), "Pixel: 333333, the event’s pixel, as the show’s ads optimise on none.");
+    assert.equal(fallbackPixelLine({ id: "333333", source: "venue" }), "Pixel: 333333, the venue’s pixel, as the show’s ads optimise on none.");
+    assert.equal(fallbackPixelLine({ id: "333333", source: "account" }), "Pixel: 333333, the ad account’s only active pixel, as the show’s ads optimise on none.");
+    const plan = planFunnelShow({ code: "AS26-MTL", runDay: "2026-11-26", showDay: SHOW, announceDay: "2026-09-29", prospecting: PROSPECTING, sources: SOURCES_NO_ACCOUNTS, spec: { twoCampaigns: true } });
+    const wider = { lifetimeMinor: 0, dailyMinor: 0, daysLeft: 1, endDay: SHOW, steps: [] };
+    const lines = claudePlanLines(plan, SOURCES_NO_ACCOUNTS, { wider, fallbackPixel: { id: "333333", source: "account" } });
+    assert.equal(lines[1], "Pixel: 333333, the ad account’s only active pixel, as the show’s ads optimise on none.");
+    assert.ok(!claudePlanLines(plan, SOURCES_NO_ACCOUNTS, { wider }).some((line) => line.startsWith("Pixel: ")));
   });
 });

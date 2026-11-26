@@ -262,13 +262,19 @@ export function wordsSplit(plan: Pick<FunnelShowPlan, "tiers" | "similarSkip" | 
   return { ...plan.tiers, similar, cold: plan.tiers.cold - similar };
 }
 
-/** PENDING DESIGN (fix 3, 27 Nov): the ceiling set Wider's lifetime; or the show has no ceiling (no live Wider; the plan still shows the numbers). */
-export function widerCeilingLines(code: string, wider: Pick<WiderWords, "capped" | "noCeiling" | "lifetimeMinor">): string[] {
+/** Fix 3: the ceiling set Wider's lifetime, Retargeting alone would pass it, or the show has no ceiling. Design's words on #1406 (27 Nov). */
+export function widerCeilingLines(code: string, wider: Pick<WiderWords, "capped" | "noCeiling" | "lifetimeMinor">, retargetingMinor: number): string[] {
   const ceiling = wider.capped ? money(Math.round(wider.capped.ceilingGbp * 100)) : "";
-  if (wider.capped?.over) return [`Retargeting’s money a day to show day would pass ${code}’s £${ceiling} ceiling on its own, so Wider gets nothing. Lower the share or raise the ceiling.`];
-  if (wider.capped) return [`Wider is capped at £${money(wider.lifetimeMinor)} so ${code} stays within its £${ceiling} ceiling.`];
-  if (wider.noCeiling) return [`${code} has no spend ceiling, so both campaigns can only be made paused until one is set.`];
+  if (wider.capped?.over) return [`Retargeting alone, £${money(retargetingMinor)} a day to the show, would take ${code} over its £${ceiling} ceiling, so Wider gets nothing and neither campaign can go live until Matas raises the ceiling.`];
+  if (wider.capped) return [`Wider is capped at £${money(wider.lifetimeMinor)} lifetime, so ${code}’s committed spend stays within its £${ceiling} ceiling.`];
+  if (wider.noCeiling) return [`${code} has no spend ceiling, so both campaigns can only be made paused until Matas sets one.`];
   return [];
+}
+
+/** Design (27 Nov): the pixel the funnel uses when the show's ads optimise on none, said after the plan line. */
+export function fallbackPixelLine(pixel: { id: string; source: "event" | "venue" | "account" }): string {
+  const source = pixel.source === "event" ? "event’s" : pixel.source === "venue" ? "venue’s" : "ad account’s only active";
+  return `Pixel: ${pixel.id}, the ${source} pixel, as the show’s ads optimise on none.`;
 }
 
 /** PENDING DESIGN (fix 2, 27 Nov): a tier with no audiences to build, and where its share went. */
@@ -293,7 +299,7 @@ export function createLines(plan: FunnelShowPlan, wider: WiderWords, presale: bo
     ...(plan.moved ?? []).map(movedLine),
     fill("tc.create.total", { s: money(plan.showDailyMinor), d: money(wider.dailyMinor), x: money(plan.totalMinor) }),
     ...(presale ? [fill("rt.presale.note")] : []),
-    ...widerCeilingLines(plan.code, wider),
+    ...widerCeilingLines(plan.code, wider, plan.totalMinor),
   ];
   return { lines, muted: [fill("tc.create.geo")] };
 }
@@ -343,8 +349,8 @@ export type ExistingAction = "keep" | "pause" | "fold" | "pause_wider";
 
 const EXISTING_ROW = { keep: "claude.rt.plan.existing.keep", pause: "claude.rt.plan.existing.pause", fold: "claude.rt.plan.existing.fold" } as const;
 
-/** PENDING DESIGN (fix 4, Matas 27 Nov: existing prospecting is paused when Wider goes live, and Wider gets its remaining budget). */
-export const EXISTING_PAUSE_WIDER = "pause when Wider goes live, its remaining budget to Wider, once Matas says yes";
+/** Fix 4 (Matas, 27 Nov): existing prospecting is paused when Wider goes live; design's words on #1406 (Wider's lifetime already counts its remaining budget). */
+export const EXISTING_PAUSE_WIDER = "pause when Wider goes live, once Matas says yes (its remaining budget is counted in Wider’s lifetime)";
 
 export function existingLine(campaign: string, action: ExistingAction): string {
   return fill("claude.rt.plan.existing", { campaign, action: action === "pause_wider" ? EXISTING_PAUSE_WIDER : fill(EXISTING_ROW[action]) });
@@ -392,7 +398,7 @@ export function similarSkipRow(reason: SimilarSkip, args: { code: string; genre:
 export function claudePlanLines(
   plan: FunnelShowPlan,
   sources: FunnelSources,
-  extra: { wider: WiderWords; pages?: MatchedPages | null; genre?: string | null; presale?: boolean; presaleSignups?: number | null; existing?: readonly { name: string; action: ExistingAction }[]; /** A running build without Similar whose group is confirmed now: when it comes back, or why it couldn't. */ similarReturn?: { nextDay: string | null; refused: { day: string; reason: string } | null } | null },
+  extra: { wider: WiderWords; pages?: MatchedPages | null; genre?: string | null; presale?: boolean; presaleSignups?: number | null; existing?: readonly { name: string; action: ExistingAction }[]; /** Design (27 Nov): the fallback pixel, said after the plan line. */ fallbackPixel?: { id: string; source: "event" | "venue" | "account" } | null; /** A running build without Similar whose group is confirmed now: when it comes back, or why it couldn't. */ similarReturn?: { nextDay: string | null; refused: { day: string; reason: string } | null } | null },
 ): string[] {
   const lines = [
     fill("claude.rt.plan.line", {
@@ -411,8 +417,9 @@ export function claudePlanLines(
       missing: plan.audiences.missingAccess,
     }),
   ];
+  if (extra.fallbackPixel) lines.push(fallbackPixelLine(extra.fallbackPixel));
   for (const move of plan.moved ?? []) lines.push(movedLine(move));
-  lines.push(...widerCeilingLines(plan.code, extra.wider));
+  lines.push(...widerCeilingLines(plan.code, extra.wider, plan.totalMinor));
   if (extra.pages) lines.push(matchedPagesLine(extra.pages));
   const missing = missingAccess(sources.accounts);
   if (missing.length) {
@@ -430,17 +437,30 @@ export function claudePlanLines(
 export type SkipReason = "no_pixel" | "no_link" | "no_signup_link" | "soon" | "archived" | "built" | "no_budget" | "not_on_sale" | "not_read" | "links_no_page" | "links_failed" | "ruled_out";
 
 /**
- * PENDING DESIGN (fix 6, 27 Nov): the skip reasons for the read's
- * not-proposed states, which printed "it has no prospecting budget to fold
- * into Wider" before. "ruled_out" is the 08:00 read's own rule; the connector
- * no longer applies it.
+ * Fix 6: the skip reasons for the read's not-proposed states, which printed
+ * "it has no prospecting budget to fold into Wider" before. Design's words on
+ * #1406 (27 Nov); a connector call has no run, so "just now". "ruled_out" is
+ * the 08:00 read's own rule (the connector no longer applies it) and takes
+ * each state's own refresh-panel sentence (ruledOutReason).
  */
-export const SKIP_PENDING = {
-  not_read: "its purchases couldn’t be read this run",
+export const SKIP_WORDS = {
+  not_read: "its purchases couldn’t be read just now",
   links_no_page: "its CIRQLIN page isn’t published",
-  links_failed: "its links couldn’t be read from CIRQLIN this run",
-  ruled_out: "the purchase read rules it out",
+  links_failed: "its links couldn’t be read from CIRQLIN just now",
 } as const;
+
+/** PENDING DESIGN: no_signal has no refresh-panel sentence (the panel stays silent), so its reason is written here. */
+export const NO_SIGNAL_REASON = "its pixel’s purchases can’t be tied to this show’s own site or ticket link";
+
+/**
+ * Design (27 Nov): a ruled-out show's reason is its own refresh-panel
+ * sentence, without the "No Retargeting campaign: " or "Retargeting not
+ * proposed: " opener and the final full stop, apostrophes curly.
+ */
+export function ruledOutReason(panelSentence: string | null | undefined): string {
+  if (!panelSentence) return NO_SIGNAL_REASON;
+  return panelSentence.replace(/^(No Retargeting campaign|Retargeting not proposed): /, "").replace(/\.$/, "").replace(/'/g, "’");
+}
 
 const SKIP_ROW = {
   no_budget: "claude.rt.skip.no_budget",
@@ -454,12 +474,14 @@ const SKIP_ROW = {
 } as const;
 
 /** A skip reason's words, as {reason} in claude.rt.skip and claude.rt.refused.skip. */
-export function skipReasonWords(reason: SkipReason): string {
-  return reason in SKIP_PENDING ? SKIP_PENDING[reason as keyof typeof SKIP_PENDING] : fill(SKIP_ROW[reason as keyof typeof SKIP_ROW]);
+/** A skip reason's words; "ruled_out" takes its panel sentence (`detail`, the plan's not-proposed sentence). */
+export function skipReasonWords(reason: SkipReason, detail?: string | null): string {
+  if (reason === "ruled_out") return ruledOutReason(detail);
+  return reason in SKIP_WORDS ? SKIP_WORDS[reason as keyof typeof SKIP_WORDS] : fill(SKIP_ROW[reason as keyof typeof SKIP_ROW]);
 }
 
-export function skipLine(code: string, reason: SkipReason): string {
-  const why = skipReasonWords(reason);
+export function skipLine(code: string, reason: SkipReason, detail?: string | null): string {
+  const why = skipReasonWords(reason, detail);
   return fill("claude.rt.skip", { code, reason: why });
 }
 
