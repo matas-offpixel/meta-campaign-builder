@@ -18,6 +18,7 @@ import { SNIPPET_PRESS_SHOTS } from "./snippet-press-shots.mjs";
 import { MCP_CONSENT_SHOTS } from "./mcp-consent-shots.mjs";
 import { CAMPAIGN_TREE_SHOTS } from "./campaign-tree-shots.mjs";
 import { RENDER_PACKAGE_SHOTS } from "./render-package-shots.mjs";
+import { MCP_TODAY_SHOTS } from "./mcp-today-shots.mjs";
 
 export const EVENT_CONFIG_FRAME_IDS = ["EC1", "EC2", "EC3", "EC4", "EC5", "EC6", "EC7"];
 export const EVENT_CONFIG_WIDTHS = [1280, 393];
@@ -29,6 +30,8 @@ export const EVENT_CONFIG_SHOTS = [
   ...CAMPAIGN_TREE_SHOTS,
   // M4a: the render-package picker, rows, Today's log and the cost-guard / not-in-Drive frames (M4-*, 1280 and 393).
   ...RENDER_PACKAGE_SHOTS,
+  // M3b on Today: Claude's Meta changes, MB-A and MB-B, with FC-A and FC-B (M3B-*, 1280 and 393).
+  ...MCP_TODAY_SHOTS,
   ...EVENT_CONFIG_FRAME_IDS.flatMap((frame) =>
     EVENT_CONFIG_WIDTHS.map((width) => ({
       id: `${frame}-${width}`,

@@ -216,3 +216,35 @@ claude.mcp.event.refused.code	Told to Claude, update_event (MW2’s rules, ruled
 claude.mcp.attach.other_client	Told to Claude, attach_drive_creatives: the file’s folders lead to another client’s tree (MW2’s rules, 25 Nov; no record)	Refused: {name} is in {client}’s folders, and only this show’s client’s own files or the artist library can go on its drafts. Nothing was saved.
 claude.mcp.attach.other_client.unnamed	Told to Claude, the same when that client has no name (MW2’s rules, 25 Nov; no record)	Refused: {name} is in another client’s folders, and only this show’s client’s own files or the artist library can go on its drafts. Nothing was saved.
 claude.mcp.attach.owner_unknown	Told to Claude, attach_drive_creatives: not under an event tree, a client folder or 00 Artist Library (MW2’s rules, 25 Nov; no record)	Refused: {name} isn’t under an event, a client’s folder or 00 Artist Library, so whose it is can’t be told. Move it into one of those and try again. Nothing was saved.
+today.mcp.action.pause_campaign	Log row title, pause on a campaign (thing: campaign; result: changed)	Pause campaign
+today.mcp.action.resume_campaign	Log row title, resume on a campaign (thing: campaign; result: changed)	Resume campaign
+today.mcp.action.set_budget	Log row title, set_budget, now or scheduled (thing: campaign or ad set; result: changed)	Change budget
+today.mcp.action.rename	Log row title, rename (thing: campaign, ad set or ad; result: changed)	Rename
+today.mcp.action.split_test	Log row title, create_split_test (thing: test; result: created)	Start an A/B test
+today.mcp.change.budget	Log row, what changes, set_budget; {per} is today.mcp.per.*	{name}: £{x} → £{y} {per}
+today.mcp.change.budget.to	Log row, what changes, set_budget with no recorded old amount	{name}: to £{y} {per}
+today.mcp.per.day	{per}, a daily budget	a day
+today.mcp.per.lifetime	{per}, a lifetime budget	lifetime
+today.mcp.change.rename	Log row, what changes, rename	“{before}” → “{after}”
+today.mcp.change.split_test	Log row, what changes, create_split_test; {start} and {end} as “Fri 27 Nov”	{a} vs {b} · 50/50 · {start} – {end}
+today.mcp.thing.test	{thing}	test
+today.mcp.thing.test.many	{things}	tests
+today.mcp.row.failed.none	Log row, result (brick), Meta refused the whole change	Failed · Meta didn’t take it, so nothing changed
+today.mcp.undo.budget.lifetime	Log row, beside Undo, on a lifetime budget change	Undo puts it back to £{x} lifetime.
+today.mcp.undo.rename	Log row, beside Undo, on a rename	Undo puts the old name back.
+today.mcp.undo.test	Log row, in place of Undo, on a test	A test can’t be undone here. End it in Ads Manager.
+today.mcp.count.scheduled	Today, section header, after “{n} today” and “ · ”	{n} scheduled
+today.mcp.count.scheduled.one	Today, section header (1)	1 scheduled
+today.mcp.row.scheduled	Log row, state (ochre edge), waiting to run	Scheduled for {date, time}
+today.mcp.row.scheduled.note	Log row, beside Cancel	It runs only if nothing has changed by then.
+today.mcp.cancel	Log row, button, a scheduled change	Cancel
+today.mcp.row.cancelled	Log row, state (muted), cancelled on Today	Cancelled by {name} · {date, time}
+today.mcp.row.cancelled.claude	Log row, state (muted), cancel_scheduled	Cancelled in Claude · {date, time}
+today.mcp.row.ran	Log row, under the approval line, a scheduled change that ran	Ran as scheduled · {date, time}
+today.mcp.row.skipped	Log row, state (muted), a scheduled change skipped; {reason} is today.mcp.skip.*	Skipped · {reason}
+today.mcp.skip.budget_changed	{reason}	the budget changed after it was scheduled
+today.mcp.skip.paused	{reason}	it was paused after it was scheduled
+today.mcp.skip.ended	{reason}	it ended or was deleted after it was scheduled
+today.mcp.skip.ceiling	{reason}	by then it would have gone over the client’s daily ceiling, or the client had no ceiling
+today.mcp.skip.switch	{reason}	budget changes were switched off in Off/Pixel
+today.mcp.skip.unread	{reason}	Meta couldn’t be read when it was due

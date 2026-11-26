@@ -97,7 +97,7 @@ export const META_TOOLS: readonly McpTool[] = [
   launchDraftTool,
   uploadDraftAssetsTool,
   updateEventTool,
-  // M3b: live changes, switched off until Today's rows land (lib/mcp/live/shipped.ts).
+  // M3b: live changes, on with Today's rows and Undo (lib/mcp/live/shipped.ts, record 2026-11-26-mcp-m3b-today MB4).
   ...[
     getLiveTool,
     pauseTool,

@@ -1,12 +1,14 @@
 /**
- * lib/mcp/live/shipped.ts — M3b ships switched off (design's verdict, 26 Nov).
+ * lib/mcp/live/shipped.ts — whether M3b's live tools are on.
  *
- * Until Today's log rows for connector changes land, every M3b tool answers
- * the existing claude.mcp.refused.switch row ("Refused: this is switched off
- * in Off/Pixel. Nothing was sent to Meta.") before it reads or sends
- * anything, and the scheduled-changes cron applies nothing. Like
- * TODAY_UNDO_SHIPPED (lib/mcp/meta/today-undo.ts) it is a code constant, not
- * an env var: the PR that ships Today's rows sets it to true.
+ * M3b shipped switched off (design's verdict, 26 Nov) until Today's log rows
+ * for connector changes landed. Record 2026-11-26-mcp-m3b-today (MB4): the PR
+ * that builds those rows (lib/mcp/today/) sets this and TODAY_UNDO_SHIPPED
+ * (lib/mcp/meta/today-undo.ts) to true together; a test pins the two
+ * together. Off, every M3b tool answers claude.mcp.refused.switch ("Refused:
+ * this is switched off in Off/Pixel. Nothing was sent to Meta.") before it
+ * reads or sends anything, and the scheduled-changes cron applies nothing.
+ * It is a code constant, not an env var.
  *
  * Tests inject ToolContext.liveShipped to cover both states.
  *
@@ -15,7 +17,7 @@
 import { ToolInputError, type McpTool, type ToolContext } from "../tool-types.ts";
 import { LIVE_ROWS } from "./words.ts";
 
-export const LIVE_CHANGES_SHIPPED = false;
+export const LIVE_CHANGES_SHIPPED = true;
 
 /** The eleven M3b tools by name. */
 export const LIVE_TOOL_NAMES = [

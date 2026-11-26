@@ -128,7 +128,7 @@ Every tool call is one `mcp_actions` row: the tool, its arguments with secrets s
 **Scopes:**
 - `mcp:read` (M1) and `mcp:draft` (M2) are for operators.
 - `mcp:meta` (M3a: launches, uploads to Meta, event edits) is for `MATAS_USER_IDS` only. Another operator's consent is issued with read and drafts; a meta call checks `MATAS_USER_IDS` again every time. Matas reconnects the connector once to add it.
-- Meta changes run on Matas's chat yes (`approval`), per his 25 Nov ruling, which replaces TD1–TD2's Approve on Today. Today becomes the log (M3b).
+- Meta changes run on Matas's chat yes (`approval`), per his 25 Nov ruling, which replaces TD1–TD2's Approve on Today. Today is the log: "Claude's changes" lists every connector Meta change with Undo where one exists, and scheduled budget changes with Cancel (record `2026-11-26-mcp-m3b-today`, `lib/mcp/today/`). M3b's live tools are on with it.
 
 ## Running it locally
 

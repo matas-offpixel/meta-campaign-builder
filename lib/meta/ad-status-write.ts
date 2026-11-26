@@ -21,7 +21,8 @@ export const AD_STATUS_WRITES_ENV = "OFFPIXEL_META_AD_STATUS_WRITES_ENABLED";
 
 export const AD_STATUS_WRITES_DISABLED_MESSAGE = "Pausing ads is switched off on this deployment.";
 
-export type AdStatus = "PAUSED" | "ACTIVE";
+/** DELETED: Today's Undo of paused ads the connector added (the MCP's Today Undo). */
+export type AdStatus = "PAUSED" | "ACTIVE" | "DELETED";
 
 export function adStatusWritesEnabled(env: Record<string, string | undefined> = process.env): boolean {
   return env[AD_STATUS_WRITES_ENV] === "true";

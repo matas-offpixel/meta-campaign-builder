@@ -56,6 +56,11 @@ export interface ActionRow {
    */
   approval?: { asked: string; answer: string } | null;
   approved_at?: string;
+  /**
+   * M3b on Today (FC1): an Undo Matas pressed on Today is his own action,
+   * approved_by = user_id, approval_source 'today'. No chat yes rides with it.
+   */
+  approvedOnToday?: boolean;
 }
 
 export function isMissingTable(message: string | undefined): boolean {
@@ -70,7 +75,7 @@ export interface ActionLogger {
 export function createActionLogger(db: Db | null, out: (line: string) => void = (l) => console.log(l)): ActionLogger {
   return {
     async log(row) {
-      const { approval, approved_at, ...rest } = row;
+      const { approval, approved_at, approvedOnToday, ...rest } = row;
       const args = stripSecrets(row.args ?? {}) as Record<string, unknown>;
       const clean = {
         ...rest,
@@ -81,7 +86,9 @@ export function createActionLogger(db: Db | null, out: (line: string) => void = 
         error: row.error ? String(stripSecrets(row.error)).slice(0, 2000) : null,
         ...(approval
           ? { approved_by: row.user_id, approved_at: approved_at ?? new Date().toISOString(), approval_source: "claude_prompt" as const }
-          : {}),
+          : approvedOnToday
+            ? { approved_by: row.user_id, approved_at: approved_at ?? new Date().toISOString(), approval_source: "today" as const }
+            : {}),
       };
       if (db) {
         const res = await db.from("mcp_actions").insert(clean);
