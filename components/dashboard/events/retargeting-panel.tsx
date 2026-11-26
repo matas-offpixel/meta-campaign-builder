@@ -549,7 +549,7 @@ function FunnelCreate({ title, funnel, line, shadow, apply, actions, share }: { 
         <div className="min-w-0 flex-1">
           <p className="flex flex-wrap items-baseline gap-x-2">
             <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Create</span>
-            <span className="text-sm font-medium">{create.title || title}</span>
+            <span className="text-sm font-medium">{k(create.title || title)}</span>
           </p>
           {create.lines.map((text) => (
             <p key={text} className="mt-0.5 text-xs" data-create-line>
