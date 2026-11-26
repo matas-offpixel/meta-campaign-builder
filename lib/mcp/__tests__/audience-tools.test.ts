@@ -481,3 +481,65 @@ test("design's 27 Nov rows for #1400, character for character", () => {
   assert.equal(AUD_WORDS.igManual("B", "u"), "In Business Suite for B, request access to @u under Settings › Accounts › Instagram accounts.");
   assert.equal(AUD_WORDS.noMetadata, "Reconnect Facebook in Off/Pixel to allow access requests.");
 });
+
+// ── 276: one Business Manager serving several clients ───────────────────────
+
+test("request_page_access: a Business Manager linked to two clients asks for each client's shows, and the daily cap counts per business across both", async () => {
+  const CL2 = "c0000000-0000-4000-8000-000000000002";
+  const EV2 = "e0000000-0000-4000-8000-000000000009";
+  const D2 = "d0000000-0000-4000-8000-000000000009";
+  const shared = {
+    clients: [
+      { id: CL, name: "XMPL Promoter", status: "active", user_id: MATAS, default_page_ids: [PROMO_PAGE] },
+      { id: CL2, name: "XMPL Venue", status: "active", user_id: MATAS, default_page_ids: [] },
+    ],
+    // The BM's primary client is unset; both clients are link rows (migration 276).
+    client_business_managers: [{ business_id: BM, business_name: "XMPL BM", client_id: null }],
+    client_business_manager_links: [
+      { business_id: BM, client_id: CL },
+      { business_id: BM, client_id: CL2 },
+    ],
+    events: [
+      ...tables().events,
+      { id: EV2, name: "XMPL Venue Show", event_code: "XMPL26-VENUE", venue_name: null, venue_city: null, event_date: "2027-03-20", announcement_at: null, presale_at: null, general_sale_at: null, status: "on_sale", client_id: CL2, meta_campaign_id: null, client: { name: "XMPL Venue" }, user_id: MATAS, meta_ad_account_id: "111111", venue_id: null, mailchimp_tag: null, ticket_url: null, signup_url: null },
+    ],
+    campaign_drafts: [...tables().campaign_drafts, { id: D2, event_id: EV2, created_at: "2026-11-02T10:00:00Z", draft_json: {} }],
+  };
+  // Each client's show asks from the shared BM.
+  for (const [code, ev, draft] of [[CODE, EV, D1], ["XMPL26-VENUE", EV2, D2]] as const) {
+    const { deps, calls } = spyDeps();
+    await run(requestPageAccessTool, ctxOf(deps, { tables: shared }).ctx, { event: code, page_ids: [ACT_PAGE], approval: YES });
+    const sentTo = sent(calls, "requestPage").map((c) => c.input as { businessId: string; ledger: { eventId: string; draftId: string } });
+    assert.deepEqual(sentTo.map((s) => [s.businessId, s.ledger.eventId, s.ledger.draftId]), [[BM, ev, draft]], code);
+  }
+  // 3 requests on the first client's show and 2 on the second's: the business is at 5, so one more is refused for either client.
+  const row = (i: number, event_id: string, draft_id: string) => ({ id: `l${i}`, event_id, draft_id, op_kind: "page_access_request", op_status: "success", created_at: "2026-11-26T09:00:00Z" });
+  const ledger = [row(1, EV, D1), row(2, EV, D1), row(3, EV, D1), row(4, EV2, D2), row(5, EV2, D2)];
+  for (const code of [CODE, "XMPL26-VENUE"]) {
+    const { deps, calls } = spyDeps();
+    await refused(run(requestPageAccessTool, ctxOf(deps, { tables: { ...shared, meta_write_idempotency: ledger } }).ctx, { event: code, page_ids: [ACT_PAGE], approval: YES }), AUD_WORDS.overCap("XMPL BM", 5, 1));
+    assert.deepEqual(sent(calls, "requestPage"), [], code);
+  }
+});
+
+test("pending_access and the client listing read a Business Manager through its link rows", async () => {
+  const CL2 = "c0000000-0000-4000-8000-000000000002";
+  const t = {
+    clients: [
+      { id: CL, name: "XMPL Promoter", status: "active", user_id: MATAS },
+      { id: CL2, name: "XMPL Venue", status: "active", user_id: MATAS },
+    ],
+    client_business_managers: [{ business_id: BM, business_name: "XMPL BM", client_id: CL }],
+    client_business_manager_links: [{ business_id: BM, client_id: CL2 }],
+  };
+  const { deps, calls } = spyDeps({ pendingPages: async () => [{ id: "5550020", pageId: "5550020", pageName: null }] });
+  const out = await run(pendingAccessTool, ctxOf(deps, { tables: t }).ctx, { client: "XMPL Venue" });
+  assert.equal(out.data.message, "XMPL BM has 1 request waiting on the Page’s admins.");
+  noWrites(calls);
+  // Off/Pixel's businesses stay refused through a link row too.
+  for (const id of ["944651277948334", "237857750137825"]) {
+    const off = spyDeps();
+    await refused(run(pendingAccessTool, ctxOf(off.deps, { tables: { ...t, client_business_managers: [{ business_id: id, business_name: "Off/Pixel", client_id: null }], client_business_manager_links: [{ business_id: id, client_id: CL2 }] } }).ctx, { client: "XMPL Venue" }), AUD_WORDS.offPixelBusiness);
+    assert.deepEqual(sent(off.calls, "pendingPages"), [], id);
+  }
+});
