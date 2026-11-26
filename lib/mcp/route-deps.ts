@@ -15,6 +15,7 @@ import { isOperator, MATAS_USER_IDS } from "@/lib/auth/operator-allowlist";
 import { createActionLogger } from "./action-log";
 import { realDraftDeps } from "./draft-deps";
 import { realLiveDeps, realMetaDeps } from "./meta-deps";
+import { realShowsDeps } from "./shows-deps";
 import { startDeps } from "@/lib/render-templates/server-deps";
 import { realReaders } from "./readers";
 import { createSupabaseStore, devMemoryStore, type McpStore } from "./oauth/store";
@@ -47,6 +48,8 @@ export function mcpHandlerDeps(): McpHandlerDeps {
     live: realLiveDeps(db),
     // M4a: render_package starts packages; the render tick renders them.
     render: startDeps(db),
+    // M3d-a: the shows tools' paths (the event and clients forms' create, the Lab lineup, the Releases card).
+    shows: realShowsDeps(db),
   };
 }
 

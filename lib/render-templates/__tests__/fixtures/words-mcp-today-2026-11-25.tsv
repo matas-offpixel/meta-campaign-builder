@@ -39,7 +39,7 @@ settings.claude.copy	Settings, Claude, button	Copy
 settings.claude.copied	Settings, Claude, after Copy	Copied
 settings.claude.connected	Settings, Claude, connected	Connected since {date} · last used {date, time}
 settings.claude.scope.read	Settings, Claude, scope row	Read · events, spend, signup and ticket counts, drafts and learnings
-settings.claude.scope.drafts	Settings, Claude, scope row	Drafts · make, change and archive drafts that aren’t published
+settings.claude.scope.drafts	Settings, Claude, scope row	Drafts · make, change and archive drafts that aren’t published, and set up shows: events, clients, lineups, releases, Lab drops and clip owners, files in a show’s folders
 settings.claude.scope.meta	Settings › Claude, scope row	Meta · launch and change live campaigns, each after your yes in Claude
 settings.claude.scope.allowed	Settings, Claude, scope status	Allowed
 settings.claude.scope.not_allowed	Settings, Claude, scope status	Not allowed
