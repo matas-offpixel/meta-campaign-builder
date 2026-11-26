@@ -8,6 +8,7 @@ import { REJECT_REASONS, appliesNow, panelText, rejectReasonsFor, stateText, typ
 import type { PanelApply, PanelLine } from "@/lib/onsale-refresh/read";
 import { keepWhole } from "@/lib/retargeting/keep-whole";
 import type { ArmView, MissingLine, RetargetingView, TestView, TierRow } from "@/lib/retargeting/plan";
+import { cardMeta, funnelBudget, type FunnelPanel, type FunnelTierRow } from "@/lib/retargeting/funnel-view";
 import { armTierNarrow, budgetHeader, createHead, LAST_7_DAYS, POOLED_TITLE, spentText, endsLine, NO_FIGURE, pence, POOL_BEFORE_CREATE, POOL_BEFORE_CREATE_NARROW, runningLine, tierBudget } from "@/lib/retargeting/words";
 
 /**
@@ -437,6 +438,160 @@ function CallCard({ line, shadow, apply, actions }: { line: PanelLine; shadow: b
   );
 }
 
+const toneClass = (tone: "ochre" | "muted") => (tone === "ochre" ? "text-amber-700 dark:text-amber-300" : "text-muted-foreground");
+
+/** RF-B / RF-C: Tier · Audiences · Leaves out · Frequency · Budget, with the cap, plus, lift and floor lines under Budget. */
+function FunnelTable({ rows }: { rows: FunnelTierRow[] }) {
+  return (
+    <table className="mt-3 hidden w-full table-fixed border-collapse text-xs sm:table" data-tiers data-funnel>
+      <colgroup>
+        <col className="w-[9%]" />
+        <col className="w-[38%]" />
+        <col className="w-[15%]" />
+        <col className="w-[10%]" />
+        <col className="w-[28%]" />
+      </colgroup>
+      <thead>
+        <tr className="border-b border-border text-left text-[11px] uppercase tracking-wide text-muted-foreground">
+          <th className="py-1.5 pr-2 font-medium">Tier</th>
+          <th className="py-1.5 pr-2 font-medium">Audiences</th>
+          <th className="py-1.5 pr-2 font-medium">Leaves out</th>
+          <th className="py-1.5 pr-2 font-medium">Frequency</th>
+          <th className="py-1.5 font-medium">Budget</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((row) => (
+          <tr key={row.tier} className="border-b border-border/60 align-top" data-tier={row.tier}>
+            <td className="py-2 pr-2 font-medium">{row.label}</td>
+            <td className="py-2 pr-2">
+              {row.audiences.map((line) => (
+                <p key={line}>{k(line)}</p>
+              ))}
+            </td>
+            <td className="py-2 pr-2">{k(row.leavesOut)}</td>
+            <td className="py-2 pr-2 tabular-nums">{row.frequency == null ? NO_FIGURE : row.frequency.toFixed(1)}</td>
+            <td className="py-2 tabular-nums">
+              <p>{k(funnelBudget(row.budgetMinor))}</p>
+              {row.lines.map((line) => (
+                <p key={line.text} className={`mt-0.5 ${toneClass(line.tone)}`} data-tone={line.tone}>
+                  {k(line.text)}
+                </p>
+              ))}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+/** RF-B / RF-C at 393: each tier a card, its budget at the right. */
+function FunnelCards({ rows }: { rows: FunnelTierRow[] }) {
+  return (
+    <ul className="mt-3 space-y-2 sm:hidden" data-tier-cards data-funnel>
+      {rows.map((row) => (
+        <li key={row.tier} className="rounded border border-border/70 p-3 text-xs" data-tier={row.tier}>
+          <p className="flex items-baseline justify-between gap-2">
+            <span className="text-sm font-medium">{row.label}</span>
+            <span className="tabular-nums">{k(funnelBudget(row.budgetMinor))}</span>
+          </p>
+          <p className="mt-0.5 text-muted-foreground">{k(cardMeta(row))}</p>
+          {row.audiences.map((line) => (
+            <p key={line} className="mt-0.5">
+              {k(line)}
+            </p>
+          ))}
+          {row.lines.map((line) => (
+            <p key={line.text} className={`mt-0.5 ${toneClass(line.tone)}`} data-tone={line.tone}>
+              {k(line.text)}
+            </p>
+          ))}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** RF-A: the Create card — the share line, the split, where the money comes from, the next stretch, Accept and Reject. */
+function FunnelCreate({ title, funnel, line, shadow, apply, actions, share }: { title: string; funnel: FunnelPanel; line: PanelLine | null; shadow: boolean; apply?: PanelApply; actions: RetargetingActions; share: number }) {
+  const [picking, setPicking] = useState(false);
+  const create = funnel.create!;
+  const state = line?.state ?? "to_review";
+  const decidable = Boolean(apply && apply.mode === "live" && line && (state === "to_review" || state === "accepted" || state === "rejected"));
+  const busy = Boolean(actions.busy);
+  const shadowTitle = shadow ? "Shadow: nothing here can be applied yet" : undefined;
+  const blocked = line?.blockedReason ?? null;
+  return (
+    <div className="mt-2 rounded border border-border/70 p-3" data-create data-funnel data-line-state={state}>
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+        <div className="min-w-0 flex-1">
+          <p className="flex flex-wrap items-baseline gap-x-2">
+            <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Create</span>
+            <span className="text-sm font-medium">{title}</span>
+          </p>
+          <p className="mt-0.5 text-xs" data-share-line>{k(funnel.shareLine)}</p>
+          {funnel.access ? <p className="mt-0.5 text-xs text-destructive" data-access>{k(funnel.access)}</p> : null}
+          {create.noMoney ? null : <p className="mt-0.5 text-xs" data-split>{k(create.split)}</p>}
+          {create.take.map((text, index) => (
+            <p key={text} className={`mt-0.5 text-xs ${index === 0 && !create.noMoney ? "" : "text-muted-foreground"}`} data-take>
+              {k(text)}
+            </p>
+          ))}
+          {create.next ? <p className="mt-0.5 text-xs text-muted-foreground" data-next>{k(create.next)}</p> : null}
+          {blocked ? <p className="mt-0.5 text-xs text-muted-foreground">{k(blocked)}</p> : null}
+          {state !== "to_review" ? (
+            <p className={`mt-0.5 text-xs ${state === "failed" ? "text-destructive" : "text-muted-foreground"}`} data-line-state={state}>
+              <StateText state={state} reason={line?.reason ?? null} />
+            </p>
+          ) : null}
+        </div>
+        {create.noMoney || state === "applied" || state === "applying" || state === "expired" ? null : (
+          <div className="flex shrink-0 gap-2" role="group" aria-label="Accept or reject">
+            <Button type="button" size="sm" variant={state === "accepted" ? "primary" : "outline"} aria-pressed={state === "accepted"} disabled={!decidable || busy || (state !== "accepted" && Boolean(blocked))} title={shadowTitle} onClick={() => line && actions.onDecide?.(line.id, "accept", undefined, undefined, { share })}>
+              Accept
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant={state === "rejected" ? "secondary" : "ghost"}
+              aria-pressed={state === "rejected"}
+              disabled={!decidable || busy}
+              title={shadowTitle}
+              onClick={() => {
+                if (!line) return;
+                if (state === "rejected") actions.onDecide?.(line.id, "reject");
+                else setPicking(!picking);
+              }}
+            >
+              Reject
+            </Button>
+          </div>
+        )}
+      </div>
+      {picking && line ? (
+        <div className="mt-2 flex flex-wrap items-center gap-1.5" data-reasons>
+          {rejectReasonsFor(line.kind).map((reason) => (
+            <Button
+              key={reason}
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={busy}
+              onClick={() => {
+                setPicking(false);
+                actions.onDecide?.(line.id, "reject", reason);
+              }}
+            >
+              {REJECT_REASONS[reason]}
+            </Button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export type RetargetingPanelViewProps = {
   view: RetargetingView;
   /** The Create line, when one is stored. */
@@ -492,7 +647,13 @@ export function RetargetingPanelView({ view, line = null, callLine = null, clien
         </p>
       ) : null}
 
-      {create ? <CreateCard view={view} line={line} shadow={shadow} apply={apply} actions={actions} share={share} /> : null}
+      {view.funnel && !view.funnel.create ? (
+        <>
+          <p className="mt-1 text-xs text-muted-foreground" data-share-line>{k(view.funnel.shareLine)}</p>
+          {view.funnel.access ? <p className="mt-1 text-xs text-destructive" data-access>{k(view.funnel.access)}</p> : null}
+        </>
+      ) : null}
+      {view.funnel?.create ? <FunnelCreate title={view.title} funnel={view.funnel} line={line} shadow={shadow} apply={apply} actions={actions} share={share} /> : create ? <CreateCard view={view} line={line} shadow={shadow} apply={apply} actions={actions} share={share} /> : null}
 
       {view.test ? (
         <>
@@ -512,7 +673,19 @@ export function RetargetingPanelView({ view, line = null, callLine = null, clien
       ) : null}
       {callLine ? <CallCard line={callLine} shadow={shadow} apply={apply} actions={actions} /> : null}
 
-      {view.tiers.length ? (
+      {view.funnel?.tiers.length ? (
+        <>
+          <FunnelTable rows={view.funnel.tiers} />
+          <FunnelCards rows={view.funnel.tiers} />
+        </>
+      ) : null}
+      {view.funnel?.next ? (
+        <p className="mt-3 text-xs text-muted-foreground" data-next>
+          {k(view.funnel.next)}
+        </p>
+      ) : null}
+
+      {!view.funnel && view.tiers.length ? (
         <>
           <TierTable rows={view.tiers} budgets={budgets} clientId={clientId} eventId={eventId} created={created} />
           <TierCards rows={view.tiers} budgets={budgets} clientId={clientId} eventId={eventId} created={created} />

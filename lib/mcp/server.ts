@@ -34,6 +34,7 @@ import { MCP_TOOLS } from "./tools/index.ts";
 import type { McpLiveDeps } from "./live/types.ts";
 import type { McpFolderDeps } from "./folder-in/place.ts";
 import { ToolInputError, type Db, type McpDraftDeps, type McpGraphReads, type McpLabDeps, type McpMetaDeps, type McpReaders, type McpRenderDeps, type McpShowsDeps, type McpTool, type ToolContext } from "./tool-types.ts";
+import type { McpRetargetingDeps } from "./retargeting/types.ts";
 
 /** Claude's result limit is about 150,000 characters; stay under it. */
 export const MAX_RESULT_CHARS = 140_000;
@@ -64,6 +65,8 @@ export interface McpHandlerDeps extends FlowDeps {
   folderIn?: McpFolderDeps;
   /** M3d-a's create and save paths (lib/mcp/shows-deps.ts). */
   shows?: McpShowsDeps;
+  /** M3c's retargeting reach: the 08:00 read as a dry run and the funnel's create path (lib/mcp/retargeting-deps.ts). */
+  retargeting?: McpRetargetingDeps;
 }
 
 const ALLOWED_ORIGINS = new Set(["https://claude.ai", "https://claude.com"]);
@@ -86,6 +89,8 @@ const INSTRUCTIONS = [
   "upload_to_event_folder puts one file into a show's own Drive folder (01 Open files, 3 On sale, 02 Source / Artist clips or Audio / {artist}, w/c {d Mon} / {owner} / Videos or Statics): a shared-drive file is copied, or a Storage file on one of the show's drafts uploaded. It never shares, moves or deletes, and only takes the show's client's own files or the artist library.",
   "strict_audit lists live ad sets that run strict (Advantage+ audience off) while their drafts asked for Advantage+ suggestions, for a client, an event or all; it only reads.",
   "The shows tools change the app only, never Meta: create_client (a sub-brand is its own client under parent_client) and create_event make a client and a show; set_lineup sets the show's Lab lineup in billing order; get_releases reads the Releases card and the claims its ladder gives now (use a claim only when it is met); set_release sets a release's state or count as the card does.",
+  // PENDING DESIGN: M3c's line.
+  "plan_retargeting reads what each show's Retargeting campaign would be today (one code, a list, or \"live\" for every on-sale show) and changes nothing; create_retargeting makes one show's, paused or live, only after Matas says yes in this chat, as the other Meta tools do.",
   "Before a draft tool, call get_draft and pass its updatedAt as updated_at; every draft tool answers with the new updated_at and the launch checks. get_draft gives the ids the draft tools take (ads, ad sets, audience groups).",
 ].join(" ");
 
@@ -257,6 +262,7 @@ export async function handleMcpRequest(req: Request, deps: McpHandlerDeps): Prom
     live: deps.live,
     folderIn: deps.folderIn,
     shows: deps.shows,
+    retargeting: deps.retargeting,
     isMatas,
     seesClientNames: isMatas,
     today: londonToday(now),

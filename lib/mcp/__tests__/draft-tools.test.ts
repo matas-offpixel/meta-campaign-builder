@@ -70,8 +70,8 @@ async function refused(p: Promise<unknown>, re: RegExp): Promise<ToolInputError>
 
 const draftWrites = (db: { writes: Array<{ table: string; op: string }> }) => db.writes.filter((w) => w.table === "campaign_drafts");
 
-test("fifty-four tools: eleven read (M4a's get_render_package, M3d-d's strict_audit), twenty-eight draft (M2 + M2b + set_draft_name + M3d-a's five shows tools + M3d-b's four Lab tools + M3d-c's upload_to_event_folder), fourteen meta (M3a's three, M3b's eleven), one render (M4a); each says what it changes, one example each", async () => {
-  assert.equal(MCP_TOOLS.length, 54);
+test("fifty-six tools: eleven read (M4a's get_render_package, M3d-d's strict_audit), twenty-eight draft (M2 + M2b + set_draft_name + M3d-a's five shows tools + M3d-b's four Lab tools + M3d-c's upload_to_event_folder), sixteen meta (M3a's three, M3b's eleven, M3c's two), one render (M4a); each says what it changes, one example each", async () => {
+  assert.equal(MCP_TOOLS.length, 56);
   assert.deepEqual(DRAFT_TOOLS.map((t) => t.name).sort(), [
     "apply_audience_template",
     "archive_draft",

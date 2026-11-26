@@ -158,6 +158,30 @@ const SHOWS_SEAM_WRITES: Record<string, Record<string, RegExp>> = {
   "lib/db/releases.ts": { saveReleaseRow: /^event_releases$/, insertWarning: /^ticket_warnings$/ },
 };
 
+/**
+ * M3c's retargeting seam (scope mcp:meta, Matas only): the Retargeting
+ * campaign's 08:00 read as a dry run, and the funnel's create path with the
+ * on-sale refresh Apply's own Meta calls, the audience builder and M3b's
+ * scheduled changes. Pinned like the Meta seam; not walked.
+ */
+const RETARGETING_SEAM = "lib/mcp/retargeting-deps.ts";
+const RETARGETING_SEAM_IMPORTS: Record<string, readonly string[]> = {
+  "lib/meta/client.ts": ["checkAudienceReadiness", "createMetaAd", "createMetaAdSet", "graphGetWithToken", "graphPostWithToken"],
+  "lib/meta/graph-multi-get.ts": ["graphMultiGetByIds"],
+  "lib/meta/server-token.ts": ["resolveServerMetaToken"],
+  "lib/meta/audience-write.ts": ["createMetaCustomAudience"],
+  "lib/db/meta-custom-audiences.ts": ["createAudienceDraftWith"],
+  "lib/audiences/sources.ts": ["fetchAudienceMultiCampaignVideos"],
+  "lib/notify/ads-manager-url.ts": ["buildMetaAdsManagerCampaignUrl"],
+  "lib/onsale-refresh/apply.ts": ["plainMetaReason"],
+  "lib/retargeting/runner.ts": ["runRetargetingRead"],
+  "lib/retargeting/audiences.ts": ["groupVideosByPage"],
+  "lib/retargeting/funnel-apply.ts": ["applyFunnel", "funnelAudienceDraft"],
+};
+/** The tables the funnel's create path writes (applyFunnel and its private helpers). */
+const FUNNEL_WRITES = /^(retargeting_builds|onsale_refresh_audiences|launched_ad_sets)$/;
+const SEAMS = new Set(["lib/mcp/meta-deps.ts", "lib/mcp/lab-deps.ts", "lib/mcp/folder-in-deps.ts", "lib/mcp/shows-deps.ts", RETARGETING_SEAM]);
+
 const ENTRIES = [
   "lib/mcp/server.ts",
   "lib/mcp/tools/index.ts",
@@ -200,7 +224,7 @@ function walk(): Map<string, string> {
     const src = readFileSync(join(ROOT, file), "utf8");
     seen.set(file, src);
     // The Meta, Lab, Drive and shows seams are pinned by their own tests, not walked.
-    if (file === META_SEAM || file === LAB_SEAM || file === FOLDER_SEAM || file === SHOWS_SEAM) continue;
+    if (SEAMS.has(file)) continue;
     // Value imports only: `import type` brings no code.
     for (const m of src.matchAll(/^\s*(?:import|export)\s+(?!type\b)[^'"]*?from\s+["']([^"']+)["']/gm)) {
       const next = resolve(file, m[1]!);
@@ -318,6 +342,9 @@ const EXTERNAL_READERS: Record<string, readonly string[]> = {
   "lib/releases/visibility.ts": ["isBackfilled"],
   "lib/releases/london.ts": ["londonDayMonth"],
   "lib/ticket-warnings/next-rung.ts": ["derivedProposals", "nextRung", "sellingFastDays"],
+  // M3c: the retargeting funnel's words and plan lines, and its sources from the read (pure).
+  "lib/retargeting/funnel-plan.ts": ["claudePlanLines", "doneLine", "planHead", "skipLine", "skipReason"],
+  "lib/retargeting/funnel-view.ts": ["funnelSourcesOf"],
 };
 
 /**
@@ -403,7 +430,7 @@ test("from outside lib/mcp the MCP imports only reader functions, and none of th
   const unexpected: string[] = [];
   const used = new Map<string, Set<string>>();
   for (const [file, src] of own) {
-    if (file === META_SEAM || file === LAB_SEAM || file === FOLDER_SEAM || file === SHOWS_SEAM) continue;
+    if (SEAMS.has(file)) continue;
     for (const { target, names } of importsOf(file, src)) {
       if (isOwn(target)) continue;
       const allowed = EXTERNAL_READERS[target];
@@ -444,7 +471,7 @@ test("the tools and the server make no network calls and import no write paths; 
   const hits: string[] = [];
   const SENDERS = new Set(["lib/mcp/graph-reads.ts", "lib/mcp/draft-deps.ts"]);
   for (const [file, src] of files) {
-    if (!isOwn(file) || file === META_SEAM || file === LAB_SEAM || file === FOLDER_SEAM || file === SHOWS_SEAM) continue;
+    if (!isOwn(file) || SEAMS.has(file)) continue;
     const code = strip(src);
     if (!SENDERS.has(file) && (NETWORK.test(code) || /\bfetchImpl\s*\(/.test(code))) hits.push(`${file}: network`);
     for (const m of code.matchAll(/from\s+["']((?:@\/|\.\.?\/)[^"']*)["']/g)) {
@@ -592,9 +619,42 @@ test("M3d-a: the shows seam imports exactly the event and clients forms' create,
   assert.deepEqual(importers, ["lib/mcp/route-deps.ts"]);
 });
 
+test("M3c: the retargeting seam imports exactly the 08:00 read, the funnel's create path and its Meta calls, writes only through them, and only the route wiring imports it", () => {
+  const files = walk();
+  assert.ok(files.has(RETARGETING_SEAM), "the route wires the retargeting seam");
+  const src = files.get(RETARGETING_SEAM)!;
+  const got: Record<string, string[]> = {};
+  for (const { target, names } of importsOf(RETARGETING_SEAM, src)) {
+    if (isOwn(target)) continue;
+    got[target] = [...(got[target] ?? []), ...names].sort();
+  }
+  assert.deepEqual(got, Object.fromEntries(Object.entries(RETARGETING_SEAM_IMPORTS).map(([k, v]) => [k, [...v].sort()])));
+  // Its own MCP imports: M3b's scheduled-change writer, the ceiling read, the types.
+  const own = importsOf(RETARGETING_SEAM, src).filter(({ target }) => isOwn(target)).map(({ target, names }) => `${target}#${names.join(",")}`).sort();
+  assert.deepEqual(own, ["lib/mcp/live/scheduled.ts#insertScheduled", "lib/mcp/meta/ceiling.ts#checkSpendCeiling"]);
+  const code = strip(src);
+  assert.doesNotMatch(code, WRITE, "the seam writes nothing itself");
+  WRITE.lastIndex = 0;
+  assert.doesNotMatch(code, /\.from\(/, "the seam reads no table itself");
+  // The read is a dry run, always.
+  assert.match(code, /runRetargetingRead\(\{[\s\S]*?dryRun: true,[\s\S]*?force: true,/);
+  // Every Graph POST is one the funnel's create path hands it (a campaign, a creative from a post, an ad set's or ad's create through the client, a budget, a status, a custom conversion).
+  const posts = [...code.matchAll(/graphPostWithToken(?:<[^>]*>)?\(\s*`([^`]+)`/g)].map((m) => m[1]).sort();
+  assert.deepEqual(posts, ["/${act(adAccountId)}/adcreatives", "/${act(adAccountId)}/campaigns", "/${act(adAccountId)}/customconversions", "/${adsetId}", "/${campaignId}", "/${id}"]);
+  // applyFunnel writes only its build record, the stored audiences and launched_ad_sets.
+  const funnel = strip(readFileSync(join(ROOT, "lib/retargeting/funnel-apply.ts"), "utf8"));
+  for (const m of funnel.matchAll(/\.from\(\s*(?:["']([^"']+)["']|BUILDS_TABLE)\s*\)/g)) assert.match(m[1] ?? "retargeting_builds", FUNNEL_WRITES, `funnel-apply from("${m[1] ?? "BUILDS_TABLE"}")`);
+  // Every Meta write in it is on the ledger.
+  const meta = [...funnel.matchAll(/deps\.meta\.(createCampaign|createAdSet|setDailyBudget|setAdSetActive|updateCampaign|createCustomConversion)\(/g)].length;
+  const ledgered = [...funnel.matchAll(/withMetaWriteIdempotency\(/g)].length;
+  assert.ok(meta > 0 && ledgered >= meta, `${ledgered} ledgered writes for ${meta} Meta writes`);
+  const importers = [...files.entries()].filter(([f, s2]) => f !== RETARGETING_SEAM && /from\s+["'][^"']*retargeting-deps["']/.test(s2)).map(([f]) => f);
+  assert.deepEqual(importers, ["lib/mcp/route-deps.ts"]);
+});
+
 test("M3a: every meta tool checks the scope and the approval before anything else, and reaches Meta only through ctx.meta", async () => {
   const { META_TOOLS } = await import("../tools/index.ts");
-  const files = ["lib/mcp/tools/meta-launch.ts", "lib/mcp/tools/meta-event.ts", "lib/mcp/tools/live-status.ts", "lib/mcp/tools/live-budget.ts", "lib/mcp/tools/live-rename.ts", "lib/mcp/tools/live-stage.ts", "lib/mcp/tools/live-test.ts", "lib/mcp/tools/live-read.ts"];
+  const files = ["lib/mcp/tools/meta-launch.ts", "lib/mcp/tools/meta-event.ts", "lib/mcp/tools/live-status.ts", "lib/mcp/tools/live-budget.ts", "lib/mcp/tools/live-rename.ts", "lib/mcp/tools/live-stage.ts", "lib/mcp/tools/live-test.ts", "lib/mcp/tools/live-read.ts", "lib/mcp/tools/retargeting.ts"];
   for (const file of files) {
     const code = strip(readFileSync(join(ROOT, file), "utf8"));
     // The read-only meta tools (get_live, list_scheduled) check the scope; every other one the scope and the approval.
@@ -603,8 +663,8 @@ test("M3a: every meta tool checks the scope and the approval before anything els
   }
   // pause and resume share runStatus, which checks the approval first.
   assert.match(strip(readFileSync(join(ROOT, "lib/mcp/tools/live-status.ts"), "utf8")), /async function runStatus\(ctx: ToolContext, args: Record<string, unknown>, to: "PAUSED" \| "ACTIVE", tool: "pause" \| "resume"\) \{\n\s*const \{ approval \} = requireMetaApproval\(ctx, args\);/);
-  assert.ok(META_TOOLS.length === 14 && META_TOOLS.every((t) => t.kind === "meta"));
-  for (const t of META_TOOLS.filter((x) => x.readOnly === true)) assert.ok(["get_live", "list_scheduled"].includes(t.name), t.name);
+  assert.ok(META_TOOLS.length === 16 && META_TOOLS.every((t) => t.kind === "meta"));
+  for (const t of META_TOOLS.filter((x) => x.readOnly === true)) assert.ok(["get_live", "list_scheduled", "plan_retargeting"].includes(t.name), t.name);
 });
 
 test("tools register with honest annotations: read tools read-only, draft tools never destructive", () => {

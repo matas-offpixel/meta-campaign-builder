@@ -39,8 +39,8 @@ import { APPLY_SHADOW, applyAccepted, type DriveCopy, type RefreshMeta } from "@
 import { retargetingGates } from "@/lib/onsale-refresh/apply-gates";
 import { audienceDraftFields, type AudienceSpec, type NewAdSetDeps } from "@/lib/onsale-refresh/apply-adsets";
 import type { PurchaseMeta } from "@/lib/onsale-refresh/apply-purchase";
-import type { RetargetingDeps } from "@/lib/retargeting/apply";
-import { groupVideosByPage, retargetingAudienceDraft } from "@/lib/retargeting/audiences";
+import { funnelAudienceDraft, type FunnelDeps } from "@/lib/retargeting/funnel-apply";
+import { groupVideosByPage } from "@/lib/retargeting/audiences";
 
 import { ownedRefreshEvent } from "../_owned";
 
@@ -270,26 +270,31 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     },
   };
 
-  // RT1 (docs/design-record/2026-11-17-retargeting-campaign.html): the Retargeting campaign's create path — the Purchase create's
-  // calls, the audience builder for the tier audiences, and the show's videos (gated inside applyRetargetingCampaign).
-  const retargeting: Pick<RetargetingDeps, "meta" | "ensureAudience"> = {
+  // RF1–RF5 (docs/design-record/2026-11-26-retargeting-funnel.html): the funnel's create path — the Purchase create's
+  // calls, the refresh's budget write for prospecting, the audience builder for RF2's audiences, and the show's videos.
+  const retargeting: Pick<FunnelDeps, "meta" | "createAudience"> = {
     meta: {
       ...purchase,
       readAdSetTargeting: (adsetId) => graphGetWithToken<{ targeting?: Record<string, unknown> }>(`/${adsetId}`, { fields: "targeting" }, token, { maxAttempts: 1 }).then((row) => row?.targeting ?? null),
       audienceState: (audienceId) => adsets.meta.audienceState(audienceId),
       async listShowVideos(adAccountId, campaignIds) {
-        // RT2: one video audience per page the videos ran from; a video with no page is left out.
+        // RF2: one video audience per page the videos ran from; a video with no page is left out.
         const videos = await fetchAudienceMultiCampaignVideos(adAccountId, campaignIds, token);
         return groupVideosByPage(videos.videos);
       },
-      // RT17: the account's timezone and business (GET), and the Meta A/B test (POST /{business_id}/ad_studies).
-      accountInfo: (adAccountId) =>
-        graphGetWithToken<{ timezone_name?: string; business?: { id?: string } }>(`/${adAccountId}`, { fields: "timezone_name,business" }, token, { maxAttempts: 1 }).then((row) => ({ timezone: row?.timezone_name ?? null, businessId: row?.business?.id ?? null })),
-      createAdStudy: (businessId, payload) => graphPostWithToken<{ id: string }>(`/${businessId}/ad_studies`, payload, token).then((row) => row.id),
+      async readDailyBudget(_kind, id) {
+        const row = await graphGetWithToken<{ daily_budget?: string | number }>(`/${id}`, { fields: "daily_budget" }, token, { maxAttempts: 1 });
+        const daily = Number(row?.daily_budget);
+        return Number.isFinite(daily) && daily > 0 ? daily : null;
+      },
+      async setDailyBudget(kind, id, minor) {
+        if (kind === "adset") await meta.updateAdSetDailyBudget(id, minor);
+        else await graphPostWithToken(`/${id}`, { daily_budget: minor }, token);
+      },
     },
-    async ensureAudience(aud, name, adAccountId) {
+    async createAudience(aud, name, adAccountId) {
       if (!who.event.client_id) throw new Error("This event has no client, so the audience builder can't file the audience.");
-      const spec = retargetingAudienceDraft(aud);
+      const spec = funnelAudienceDraft(aud);
       const draft = await createAudienceDraft({
         userId: who.userId,
         clientId: who.event.client_id,

@@ -12,6 +12,8 @@
  * the shows tools (scope mcp:draft): create_event, create_client,
  * set_lineup, get_releases, set_release. M3d-b adds the Lab tools (scope
  * mcp:draft): list_tracks, set_track_drop, list_clips, set_clip_owner.
+ * M3c adds plan_retargeting (reads) and create_retargeting (scope mcp:meta,
+ * Matas only, on his chat yes), switched off with M3b until it ships.
  */
 import type { McpTool } from "../tool-types.ts";
 import { getArtistTool } from "./artist.ts";
@@ -39,6 +41,7 @@ import { getLearningsTool } from "./learnings.ts";
 import { getCampaignTreeTool, runLaunchChecksTool } from "./pending.ts";
 import { morningToplineTool } from "./topline.ts";
 import { strictAuditTool } from "./strict-audit.ts";
+import { createRetargetingTool, planRetargetingTool } from "./retargeting.ts";
 
 export const READ_TOOLS: readonly McpTool[] = [
   morningToplineTool,
@@ -110,6 +113,9 @@ export const META_TOOLS: readonly McpTool[] = [
     addCreativesToStageTool,
     addAudienceToStageTool,
     createSplitTestTool,
+    // M3c: retargeting from the connector (RF1–RF9); its steps are M3b's scheduled changes, so it ships with them.
+    planRetargetingTool,
+    createRetargetingTool,
   ].map(switchedOffUntilShipped),
 ];
 

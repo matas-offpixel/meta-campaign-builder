@@ -112,7 +112,14 @@ export async function listSplitChildAudiences(
 export async function createAudienceDraft(
   input: MetaCustomAudienceInsert,
 ): Promise<MetaCustomAudience> {
-  const supabase = await createClient();
+  return createAudienceDraftWith(await createClient(), input);
+}
+
+/** The same draft insert with the client it writes with (the connector has no cookie session: a service-role client). */
+export async function createAudienceDraftWith(
+  supabase: Pick<Awaited<ReturnType<typeof createClient>>, "from">,
+  input: MetaCustomAudienceInsert,
+): Promise<MetaCustomAudience> {
   const payload: MetaCustomAudiencePayload = {
     ...audienceInsertToRow(input),
     status: "draft",
