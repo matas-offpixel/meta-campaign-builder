@@ -23,7 +23,7 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAudienceDraft } from "@/lib/db/meta-custom-audiences";
-import { createMetaCustomAudience, metaAudienceWritesEnabled } from "@/lib/meta/audience-write";
+import { createMetaCustomAudience, EXISTING_LOOKUP_UNAVAILABLE, metaAudienceWritesEnabled } from "@/lib/meta/audience-write";
 import { graphGetWithToken, graphPostWithToken } from "@/lib/meta/client";
 import { graphMultiGetByIds } from "@/lib/meta/graph-multi-get";
 import { resolveServerMetaToken } from "@/lib/meta/server-token";
@@ -223,10 +223,11 @@ export function realAudienceDeps(db: SupabaseClient): McpAudienceDeps {
       const res = await raceAbort(fetchAudienceMultiCampaignVideos(act(adAccountId), [...campaignIds], await opToken(userId)), signal);
       return groupVideosByPage(res.videos as { id: string; pageId?: string | null }[]);
     },
-    async createAudience({ userId, insert }) {
+    async createAudience({ userId, insert, onLookupFailed }) {
       const draft = await createAudienceDraft(insert, db);
-      const made = await createMetaCustomAudience(draft.id, { userId, supabase: db as never, rows: db, remediateSeeds: noSeedGrants });
-      return { rowId: made.id, metaAudienceId: made.metaAudienceId, reused: made.reused === true, failed: made.status === "failed" };
+      const made = await createMetaCustomAudience(draft.id, { userId, supabase: db as never, rows: db, remediateSeeds: noSeedGrants, ...(onLookupFailed ? { onLookupFailed } : {}) });
+      const failed = made.status === "failed";
+      return { rowId: made.id, metaAudienceId: made.metaAudienceId, reused: made.reused === true, failed, error: failed ? (made.statusError ?? null) : null, lookupUnavailable: failed && (made.statusError ?? "").startsWith(EXISTING_LOOKUP_UNAVAILABLE) };
     },
     async accountBusiness(userId, adAccountId, signal) {
       const r = await graphGetWithToken<{ business?: { id?: string; name?: string } }>(`/${act(adAccountId)}`, { fields: "business{id,name}" }, await opToken(userId), { maxAttempts: 1, signal: reqSignal(signal) });

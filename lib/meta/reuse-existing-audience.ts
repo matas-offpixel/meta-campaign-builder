@@ -21,7 +21,17 @@ export const META_CUSTOM_AUDIENCE_LIST_FIELDS = [
 
 const API_VERSION = process.env.META_API_VERSION ?? "v21.0";
 const BASE = `https://graph.facebook.com/${API_VERSION}`;
-const MAX_LIST_PAGES = 25;
+/**
+ * The reuse lookup's own fields: only what matching reads (no size fields).
+ * The full list (rule and lookalike_spec on every audience, 200 a page) made
+ * Meta answer "Please reduce the amount of data you're asking for" on a large
+ * account (27 Nov), so the lookup never found an existing audience.
+ */
+export const META_CUSTOM_AUDIENCE_REUSE_FIELDS = ["id", "name", "subtype", "rule", "lookalike_spec"].join(",");
+/** First page size, then halved on Meta's "reduce the amount of data" down to the floor. */
+export const REUSE_LIST_LIMIT = 50;
+export const REUSE_LIST_MIN_LIMIT = 5;
+const MAX_LIST_PAGES = 200;
 
 export interface ListedMetaCustomAudience {
   id: string;
@@ -103,7 +113,8 @@ export function matchExistingCustomAudience(
 }
 
 /**
- * GET /{adAccountId}/customaudiences with {@link META_CUSTOM_AUDIENCE_LIST_FIELDS}.
+ * GET /{adAccountId}/customaudiences with {@link META_CUSTOM_AUDIENCE_REUSE_FIELDS},
+ * {@link REUSE_LIST_LIMIT} a page, halved when Meta asks for less data.
  * `fetchImpl` is injected so tests never call Graph. The access token is a query
  * param and is not logged.
  */
@@ -114,6 +125,7 @@ export async function listAccountCustomAudiences(
 ): Promise<ListedMetaCustomAudience[]> {
   const collected: ListedMetaCustomAudience[] = [];
   let nextUrl: string | null = customAudiencesUrl(adAccountId, token);
+  let limit = REUSE_LIST_LIMIT;
 
   for (let page = 0; page < MAX_LIST_PAGES && nextUrl; page++) {
     const response = await fetchImpl(nextUrl, { cache: "no-store" });
@@ -124,21 +136,36 @@ export async function listAccountCustomAudiences(
     } | null;
     if (!json || !response.ok || json.error) {
       const message = json?.error?.message ?? `HTTP ${response.status}`;
+      // Meta's "reduce the amount of data": the same page again, smaller (the cursor is kept).
+      if (/reduce the amount of data/i.test(message) && limit > REUSE_LIST_MIN_LIMIT) {
+        limit = Math.max(REUSE_LIST_MIN_LIMIT, Math.floor(limit / 2));
+        nextUrl = withLimit(nextUrl, limit);
+        continue;
+      }
       throw new Error(message);
     }
     for (const item of json.data ?? []) {
       if (item?.id) collected.push(item);
     }
-    nextUrl = json.paging?.next ?? null;
+    const next = json.paging?.next ?? null;
+    nextUrl = next ? withLimit(next, limit) : null;
   }
+  // Pages left unread: the list isn't whole, so it can't say an audience isn't there.
+  if (nextUrl) throw new Error(`custom audience list longer than ${MAX_LIST_PAGES} pages`);
   return collected;
+}
+
+function withLimit(url: string, limit: number): string {
+  const next = new URL(url);
+  next.searchParams.set("limit", String(limit));
+  return next.toString();
 }
 
 function customAudiencesUrl(adAccountId: string, token: string): string {
   const url = new URL(`${BASE}/${withActPrefix(adAccountId)}/customaudiences`);
   url.searchParams.set("access_token", token);
-  url.searchParams.set("fields", META_CUSTOM_AUDIENCE_LIST_FIELDS);
-  url.searchParams.set("limit", "200");
+  url.searchParams.set("fields", META_CUSTOM_AUDIENCE_REUSE_FIELDS);
+  url.searchParams.set("limit", String(REUSE_LIST_LIMIT));
   return url.toString();
 }
 

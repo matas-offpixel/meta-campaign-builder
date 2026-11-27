@@ -164,21 +164,36 @@ export function assertMetaAudienceWritesEnabled() {
   }
 }
 
-/** A failed list is not a match. Create continues as today. Never log the token. */
+/**
+ * The status_error of an audience not made because the existing-audience
+ * lookup failed and the caller asked not to create blind (`onLookupFailed:
+ * "refuse"`). Nothing was posted to Meta.
+ */
+export const EXISTING_LOOKUP_UNAVAILABLE = "Not made: Meta's audience list couldn't be read to check for an existing copy";
+
+/** Thrown before any POST when the lookup failed and the caller refuses to create blind. */
+export class ExistingLookupUnavailableError extends Error {
+  constructor(reason: string) {
+    super(`${EXISTING_LOOKUP_UNAVAILABLE} (${reason})`);
+    this.name = "ExistingLookupUnavailableError";
+  }
+}
+
+/** A failed list is not a match (null). Create continues as today unless the caller refuses. Never log the token. */
 async function listExistingForReuse(
   adAccountId: string,
   token: string,
   fetchImpl: MetaGraphFetch,
-): Promise<ListedMetaCustomAudience[]> {
+): Promise<{ existing: ListedMetaCustomAudience[]; failed: string | null }> {
   try {
-    return await listAccountCustomAudiences(adAccountId, token, fetchImpl);
+    return { existing: await listAccountCustomAudiences(adAccountId, token, fetchImpl), failed: null };
   } catch (err) {
     const message = (err instanceof Error ? err.message : String(err)).replace(
       /access_token=[^&\s]+/gi,
       "access_token=REDACTED",
     );
     console.warn(`[audience-write] existing audience lookup failed: ${message}`);
-    return [];
+    return { existing: [], failed: message };
   }
 }
 
@@ -199,6 +214,13 @@ export async function createMetaCustomAudience(
      * Omitted = the session client, as before.
      */
     rows?: AudienceRowsClient;
+    /**
+     * When the existing-audience lookup fails: "create" (the default, as
+     * before) posts anyway; "refuse" posts nothing and marks the row failed
+     * with EXISTING_LOOKUP_UNAVAILABLE, so a caller that can't tell whether
+     * the audience exists never makes a second copy (the retargeting build).
+     */
+    onLookupFailed?: "create" | "refuse";
   },
 ): Promise<MetaCustomAudience> {
   assertMetaAudienceWritesEnabled();
@@ -230,11 +252,12 @@ export async function createMetaCustomAudience(
     // Payload after the prefilter, so the rule is what a create would post.
     // The lookup runs before split and before any POST. A hit skips both.
     const payload = buildMetaCustomAudiencePayload(audienceForWrite);
-    const existing = await listExistingForReuse(
+    const { existing, failed: lookupFailed } = await listExistingForReuse(
       audience.metaAdAccountId,
       token,
       options.fetchExistingAudiences ?? fetch,
     );
+    if (lookupFailed && options.onLookupFailed === "refuse") throw new ExistingLookupUnavailableError(lookupFailed);
     const notes: { recovery: string | null } = { recovery: null };
     const split: { row: MetaCustomAudience | null } = { row: null };
     const outcome = await reuseOrCreateCustomAudience({
@@ -922,6 +945,7 @@ function formatMetaWriteError(err: unknown): string {
     const suffix = [
       err.code ? `code ${err.code}` : null,
       err.subcode ? `subcode ${err.subcode}` : null,
+      err.fbtraceId ? `fbtrace_id ${err.fbtraceId}` : null,
     ]
       .filter(Boolean)
       .join(", ");

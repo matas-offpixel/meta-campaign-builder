@@ -192,9 +192,10 @@ describe("RF6: missing access builds without that source", () => {
     assert.ok(!pages.includes("1003"), "no audience uses the account without access");
     assert.ok(pages.includes("1001") && pages.includes("1002"));
     assert.deepEqual(Object.keys(out.progress.adSets ?? {}).sort(), ["cold", "hot", "warm"]);
-    // Followers are made by the builder's own subtype (Meta requires no window).
+    // Followers are made by the builder's own subtype. Meta gets no window (the payload sends 0); the row stores 365,
+    // the table's CHECK (1–365): a 0 made NX26-RUDIMENTAL's 4th audience throw at the draft insert on 27 Nov.
     const followers = funnelAudienceDraft({ key: "k", source: "followers", kind: "followers_ig", pageIds: ["1001"] });
-    assert.deepEqual([followers.subtype, followers.retentionDays], ["page_followers_ig", 0]);
+    assert.deepEqual([followers.subtype, followers.retentionDays], ["page_followers_ig", 365]);
   });
 });
 
