@@ -22,23 +22,23 @@ import { sanitizeCreativeForStrictMode, type MetaCreativePayload } from "../meta
 export type Destination = { link: string; urlTags: string | null };
 type Json = Record<string, unknown>;
 
-/** PENDING DESIGN: what's refused about a destination, before anything is made. */
+/** Design's words (27 Nov, on #1409), word for word: what's refused about a destination, and the plan line. */
 export const DESTINATION_WORDS = {
   badLink: "Refused: the destination link must be a full https:// web address. Nothing was changed.",
   badTags: "Refused: url_tags must be URL parameters like utm_source=meta&utm_medium=paid, with no “?” in front. Nothing was changed.",
   /** plan_retargeting: a destination goes with one show. */
-  oneShow: "Refused: a destination is for one show at a time, so give one event code.",
-  /** The plan line, after the show's lines. */
-  line: (destination: Destination) => `Destination: ${hostOf(destination.link)}${destination.urlTags ? " · with URL parameters" : ""}`,
+  oneShow: "Refused: a destination is for one show at a time, so give one event code. Nothing was changed.",
+  /** The plan line, after the show's lines: the full link and url_tags as they'll run (design, 27 Nov: Matas approves on this line). */
+  line: (destination: Destination) => `Destination: ${destination.link}${destination.urlTags ? ` · URL parameters ${destination.urlTags}` : ""}`,
   /** A copied ad Meta built from a post: its link is the post's. A bare reason: claude.rt.failed adds ". Nothing was changed." */
-  fromPost: (ad: string) => `${ad} runs from a post, so its link can’t be changed`,
+  fromPost: (ad: string) => `${ad} runs from a post, so its link is the post’s and can’t be changed`,
   /** A carousel: its cards can't be rebuilt in the app's strict set (a bare reason, as fromPost). */
-  carousel: (ad: string) => `${ad} is a carousel, so its link can’t be changed here`,
+  carousel: (ad: string) => `${ad} is a carousel, so its link can’t be changed without losing its cards`,
   /** A copied ad's creative that couldn't be read for the new link (a bare reason, as fromPost). */
   unread: (ad: string) => `${ad}’s creative couldn’t be read for the new link`,
   /** create_show_campaigns, asked again with another destination once ads are made. */
   madeWithOther: (code: string, made: Destination | null) =>
-    `Refused: ${code}’s ads are already made ${made ? `with ${hostOf(made.link)} as their destination` : "with the copied ads’ own links"}, and changing ads that are made is a separate change. Nothing was changed.`,
+    `Refused: ${code}’s ads are already made ${made ? `with ${made.link} as their destination` : "with the copied ads’ own links"}, and create_show_campaigns doesn’t change ads that are made. Nothing was changed.`,
 } as const;
 
 export function hostOf(link: string): string {

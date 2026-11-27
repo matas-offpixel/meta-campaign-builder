@@ -74,7 +74,15 @@ test("a creative built from a post can't take a new link; one with nothing to re
   assert.throws(() => creativeWithDestination({}, dest, "Nothing"), (err: unknown) => err instanceof DestinationRefused && err.kind === "unknown");
 });
 
-test("the plan line shows the destination (PENDING DESIGN)", () => {
-  assert.equal(DESTINATION_WORDS.line(dest), "Destination: rudimental-newcastle.com · with URL parameters");
-  assert.equal(DESTINATION_WORDS.line({ link: dest.link, urlTags: null }), "Destination: rudimental-newcastle.com");
+test("design's words (27 Nov, on #1409): the plan line shows the full link and url_tags as they'll run, never cut or encoded; the refusals and reasons", () => {
+  assert.equal(DESTINATION_WORDS.line(dest), "Destination: https://www.rudimental-newcastle.com/ · URL parameters ref=meta&utm_source=meta&utm_medium=paid&utm_campaign={{campaign.name}}&utm_content={{adset.name}}&utm_term={{ad.name}}");
+  assert.equal(DESTINATION_WORDS.line({ link: dest.link, urlTags: null }), "Destination: https://www.rudimental-newcastle.com/");
+  assert.equal(DESTINATION_WORDS.oneShow, "Refused: a destination is for one show at a time, so give one event code. Nothing was changed.");
+  assert.equal(DESTINATION_WORDS.madeWithOther("NX26-RUDIMENTAL", dest), "Refused: NX26-RUDIMENTAL’s ads are already made with https://www.rudimental-newcastle.com/ as their destination, and create_show_campaigns doesn’t change ads that are made. Nothing was changed.");
+  assert.equal(DESTINATION_WORDS.madeWithOther("NX26-RUDIMENTAL", null), "Refused: NX26-RUDIMENTAL’s ads are already made with the copied ads’ own links, and create_show_campaigns doesn’t change ads that are made. Nothing was changed.");
+  assert.equal(DESTINATION_WORDS.fromPost("Rudimental · announce"), "Rudimental · announce runs from a post, so its link is the post’s and can’t be changed");
+  assert.equal(DESTINATION_WORDS.carousel("Lineup"), "Lineup is a carousel, so its link can’t be changed without losing its cards");
+  assert.equal(DESTINATION_WORDS.unread("Lineup"), "Lineup’s creative couldn’t be read for the new link");
+  assert.equal(DESTINATION_WORDS.badLink, "Refused: the destination link must be a full https:// web address. Nothing was changed.");
+  assert.equal(DESTINATION_WORDS.badTags, "Refused: url_tags must be URL parameters like utm_source=meta&utm_medium=paid, with no “?” in front. Nothing was changed.");
 });

@@ -43,14 +43,14 @@ import { requireMetaScope } from "./live-read.ts";
 
 const MAX_CODES = 60;
 
-/** Matas, 27 Nov: every ad's website URL and URL parameters (PENDING DESIGN: the descriptions). */
+/** Matas, 27 Nov: every ad's website URL and URL parameters. Design's words (27 Nov), word for word; straight marks, as tool descriptions keep them. */
 const destinationInput = z
   .object({
-    link: z.string().min(8).max(2000).describe("The website URL every ad in both campaigns uses, https://…"),
-    url_tags: z.string().max(2000).optional().describe("Meta's URL parameters for every ad, e.g. utm_source=meta&utm_campaign={{campaign.name}}, no leading ?"),
+    link: z.string().min(8).max(2000).describe("The https:// web address every ad in both campaigns links to."),
+    url_tags: z.string().max(2000).optional().describe("Meta's URL parameters for every ad, with no leading ?, e.g. utm_source=meta&utm_campaign={{campaign.name}}. Kept exactly as written: Meta fills in {{campaign.name}}, {{adset.name}} and {{ad.name}}."),
   })
   .optional()
-  .describe("Optional: one destination for every ad in both campaigns, replacing the copied ads' links. Copy and creative stay as they are.");
+  .describe("Optional, one show only: one destination for every ad in both campaigns, replacing the copied ads' links. Copy, media and identity stay as they are. Once ads are made it can't be changed.");
 
 /** The destination checked, or its refusal (nothing read, nothing made). */
 function destinationOf(args: Record<string, unknown>, extra: Record<string, unknown> = {}): Destination | null {

@@ -549,7 +549,7 @@ describe("Matas, 27 Nov: one destination for every ad in both campaigns", () => 
     withCreatives(t, { name: "A post", object_story_id: "1001_555" });
     const out = await applyFunnel(t.deps, { ...twoCampaignBuild(), destination: DEST }, t.ctx("paused"));
     assert.equal(out.state, "failed");
-    assert.equal(out.reason, "Rudimental · announce runs from a post, so its link can’t be changed");
+    assert.equal(out.reason, "Rudimental · announce runs from a post, so its link is the post’s and can’t be changed");
     for (const kind of ["createCampaign", "createAdSet", "createAd", "createAudience", "createCreative"]) assert.deepEqual(names(t.calls, kind), [], kind);
   });
 
