@@ -21,11 +21,15 @@
  *       checkCeiling → the per-show ceiling (#1397, checkShowCeiling, migration
  *         274): Retargeting's daily budgets and Wider's lifetime as new spend,
  *         lowered prospecting as it would be after.
+ *   - Creatives from Drive (Matas, 27 Nov): the files are already on Meta
+ *     (the tool sends them through ctx.meta.sendAssets after the yes); each
+ *     ad's creative is buildCreativePayload's, as bulk-attach builds it.
  */
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { checkAudienceReadiness, createMetaAd, createMetaAdSet, graphGetWithToken, graphPostWithToken } from "@/lib/meta/client";
 import { graphMultiGetByIds } from "@/lib/meta/graph-multi-get";
+import { buildCreativePayload } from "@/lib/meta/creative";
 import type { MetaAdSetPayload } from "@/lib/meta/adset";
 import { resolveServerMetaToken } from "@/lib/meta/server-token";
 import { fetchAudienceMultiCampaignVideos } from "@/lib/audiences/sources";
@@ -69,6 +73,13 @@ function funnelMetaFor(token: string): FunnelMeta {
     },
     async createCreative(adAccountId, payload) {
       return (await graphPostWithToken<{ id: string }>(`/${act(adAccountId)}/adcreatives`, payload, token)).id;
+    },
+    // Creatives from Drive (Matas, 27 Nov): the app's own creative build (bulk-attach's, per-placement for a pair), the Instagram
+    // account as the tool checked it against the ad account's Page list, and the destination's url_tags as written.
+    async createDraftCreative(adAccountId, creative, opts) {
+      const payload = await buildCreativePayload(creative, { validatedIgActorId: creative.identity.instagramActorId || undefined, metaAccessToken: token });
+      const body = opts.urlTags ? { ...payload, url_tags: opts.urlTags } : payload;
+      return (await graphPostWithToken<{ id: string }>(`/${act(adAccountId)}/adcreatives`, body as unknown as Record<string, unknown>, token)).id;
     },
     async createAdSet(adAccountId, payload) {
       return (await createMetaAdSet(adAccountId, payload as unknown as MetaAdSetPayload, token)).id;

@@ -82,7 +82,7 @@ function tileOut(t: Tile) {
 // ─── Opening a folder: the event's tree, else anywhere in the shared drive (M3a) ──
 
 /** A folder as the tools see it: the picker's view inside the event's tree, a plain one elsewhere in the Shared Drive. */
-interface OpenFolder {
+export interface OpenFolder {
   inTree: boolean;
   folder: { id: string; name: string };
   files: PickerFile[];
@@ -202,7 +202,7 @@ const FEED_RATIOS: readonly string[] = ["4:5", "1:1"];
 /** A single file that isn't 9:16, refused with its aspect (M3a). */
 export const notNineSixteenSingle = ATTACH_WORDS.singleRatio;
 
-type Planned = {
+export type Planned = {
   name: string;
   fromRecipe: boolean;
   kind: "video" | "image";
@@ -235,6 +235,8 @@ export async function buildDriveAds(
     primaryText: string | null;
     headline: string | null;
     cta: CTAType | null;
+    /** Reads and refusals only, nothing copied (plan_retargeting, Matas 27 Nov): returns once every file is checked. */
+    checkOnly?: boolean;
   },
 ): Promise<{ ads: AdCreativeDraft[]; added: DriveAdAdded[]; skipped: string[]; failed: Array<{ fileId: string; reason: string }>; unparsed: string[]; planned: Planned[]; fields: ReturnType<typeof defaultBatchFields> }> {
   const { event, draft, fileIds, pairs, pageId, igId, primaryText, headline, cta } = input;
@@ -393,6 +395,7 @@ export async function buildDriveAds(
     existingDriveIds.add(pair.vertical);
   }
 
+  if (input.checkOnly) return { ads: [], added: [], skipped, failed: [], unparsed: [], planned, fields };
   const ads: AdCreativeDraft[] = [];
   const added: DriveAdAdded[] = [];
   const failed: Array<{ fileId: string; reason: string }> = [];

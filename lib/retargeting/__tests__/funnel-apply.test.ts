@@ -562,3 +562,105 @@ describe("Matas, 27 Nov: one destination for every ad in both campaigns", () => 
     assert.deepEqual([...new Set(ads.map((row) => row.creativeId))], ["6001"]);
   });
 });
+
+describe("Matas, 27 Nov: the Electric group's new Drive ads, run from the city's Page", () => {
+  const DEST = { link: "https://www.rudimental-newcastle.com/", urlTags: "utm_source=meta&utm_campaign={{campaign.name}}&utm_content={{adset.name}}&utm_term={{ad.name}}" };
+  const NX_LOVES = { pageId: "259905047197071", igId: "17841460869627228", pageName: "NX LOVES", igUsername: "nxloves", source: "electric" as const };
+  const driveAd = (key: string, ratio: "9:16" | "4:5") =>
+    ({
+      key,
+      name: `Final tickets pack ${key}`,
+      creative: {
+        id: `cr-${key}`,
+        name: `Final tickets pack ${key}`,
+        identity: { pageId: "1001", instagramAccountId: "ig1" },
+        captions: [{ id: "c1", text: "Last tickets for Rudimental" }],
+        headline: "Rudimental · Newcastle",
+        destinationUrl: "https://www.skiddle.com/e/1",
+        cta: "book_now",
+        mediaType: "video",
+        assetMode: ratio === "4:5" ? "dual" : "single",
+        assetVariations: [{ id: "v1", name: "Variation 1", assets: [{ id: `a-${key}`, aspectRatio: "9:16", uploadStatus: "uploaded", videoId: `vid-${key}` }] }],
+      } as never,
+    });
+  const CREATIVES = { key: "k1", input: { fileIds: ["f1"], pairs: [{ feed: "f2", vertical: "f3" }], primaryText: null, headline: null, cta: null }, folders: ["Final tickets pack › Statics · Videos"], ads: [driveAd("f1", "9:16"), driveAd("f2+f3", "4:5")] };
+
+  function withDrive(t: ReturnType<typeof setup>) {
+    const made: { creative: Record<string, unknown>; urlTags: string | null }[] = [];
+    const ads: { adsetId: string; creativeId: string }[] = [];
+    const createAd = t.deps.meta.createAd;
+    t.deps.meta = {
+      ...t.deps.meta,
+      readCreative: async (id) => (t.calls.push(["readCreative", id]), { name: "Rudimental · announce", object_story_spec: { page_id: "1001", instagram_user_id: "ig1", video_data: { video_id: "v1", image_hash: "h1", message: "Rudimental live", call_to_action: { type: "BOOK_TRAVEL", value: { link: "https://www.skiddle.com/e/1" } } } } }),
+      createCreative: async (_a, payload) => (t.calls.push(["createCreative", payload]), `copy-${t.calls.length}`),
+      createDraftCreative: async (_a, creative, opts) => (made.push({ creative: creative as never, urlTags: opts.urlTags }), `drive-${made.length}`),
+      createAd: async (a, ad) => (ads.push({ adsetId: ad.adset_id, creativeId: String((ad.creative as { creative_id?: string }).creative_id) }), createAd(a, ad)),
+    };
+    return { made, ads };
+  }
+
+  it("Drive ads replace the copies: every ad set in Retargeting and Wider gets the Drive ads, no live ad is read or copied", async () => {
+    const t = setup();
+    const { made, ads } = withDrive(t);
+    const out = await applyFunnel(t.deps, { ...twoCampaignBuild(), creatives: CREATIVES, identity: NX_LOVES }, t.ctx("paused"));
+    assert.equal(out.state, "applied", out.reason ?? "");
+    assert.equal(made.length, 2, "one creative per Drive ad, shared by every ad set");
+    for (const kind of ["readAd", "readCreative", "createCreative", "createCreativeFromPost"]) assert.deepEqual(names(t.calls, kind), [], kind);
+    const adSets = names(t.calls, "createAdSet").length;
+    assert.ok(adSets >= 5);
+    assert.equal(ads.length, adSets * 2);
+    assert.deepEqual([...new Set(ads.map((row) => row.creativeId))].sort(), ["drive-1", "drive-2"]);
+    // Each runs from NX Loves and its Instagram.
+    for (const row of made) assert.deepEqual((row.creative as { identity: unknown }).identity, { pageId: NX_LOVES.pageId, instagramAccountId: NX_LOVES.igId, instagramActorId: NX_LOVES.igId });
+  });
+
+  it("the destination and url_tags go on the Drive ads as written", async () => {
+    const t = setup();
+    const { made } = withDrive(t);
+    await applyFunnel(t.deps, { ...twoCampaignBuild(), creatives: CREATIVES, identity: NX_LOVES, destination: DEST }, t.ctx("paused"));
+    assert.deepEqual(made.map((row) => [(row.creative as { destinationUrl: string }).destinationUrl, row.urlTags]), [[DEST.link, DEST.urlTags], [DEST.link, DEST.urlTags]]);
+    assert.match(made[0]!.urlTags!, /\{\{campaign\.name\}\}.*\{\{adset\.name\}\}.*\{\{ad\.name\}\}/);
+  });
+
+  it("asked again, no second creative and no second ad", async () => {
+    const t = setup();
+    const { made, ads } = withDrive(t);
+    const build = { ...twoCampaignBuild(), creatives: CREATIVES, identity: NX_LOVES };
+    await applyFunnel(t.deps, build, t.ctx("paused"));
+    const first = { creatives: made.length, ads: ads.length };
+    await applyFunnel(t.deps, build, t.ctx("paused"));
+    assert.deepEqual({ creatives: made.length, ads: ads.length }, first);
+  });
+
+  it("copied ads with another identity: each is a new creative on the city's Page, its link, copy and media kept", async () => {
+    const t = setup();
+    const { ads } = withDrive(t);
+    const out = await applyFunnel(t.deps, { ...twoCampaignBuild(), identity: NX_LOVES }, t.ctx("paused"));
+    assert.equal(out.state, "applied", out.reason ?? "");
+    const payload = names(t.calls, "createCreative")[0]![1] as { object_story_spec: { page_id: string; instagram_user_id: string; video_data: { call_to_action: unknown; message: string } } };
+    assert.equal(names(t.calls, "createCreative").length, 1);
+    assert.equal(payload.object_story_spec.page_id, NX_LOVES.pageId);
+    assert.equal(payload.object_story_spec.instagram_user_id, NX_LOVES.igId);
+    assert.deepEqual(payload.object_story_spec.video_data.call_to_action, { type: "BOOK_TRAVEL", value: { link: "https://www.skiddle.com/e/1" } });
+    assert.equal(payload.object_story_spec.video_data.message, "Rudimental live");
+    assert.ok(!ads.some((row) => row.creativeId === "6001"), "no ad runs the old creative");
+  });
+
+  it("a copied ad that already runs from the Page keeps its own creative", async () => {
+    const t = setup();
+    const { ads } = withDrive(t);
+    await applyFunnel(t.deps, { ...twoCampaignBuild(), identity: { ...NX_LOVES, pageId: "1001", igId: "ig1" } }, t.ctx("paused"));
+    assert.deepEqual(names(t.calls, "createCreative"), []);
+    assert.deepEqual([...new Set(ads.map((row) => row.creativeId))], ["6001"]);
+  });
+
+  it("a copied ad built from a post can't move Page: refused before anything is made", async () => {
+    const t = setup();
+    withDrive(t);
+    t.deps.meta.readCreative = async () => ({ name: "A post", object_story_id: "1001_555" });
+    const out = await applyFunnel(t.deps, { ...twoCampaignBuild(), identity: NX_LOVES }, t.ctx("paused"));
+    assert.equal(out.state, "failed");
+    assert.equal(out.reason, "Rudimental · announce runs from a post, so it can’t be moved to another Page; give creatives from Drive instead");
+    for (const kind of ["createCampaign", "createAdSet", "createAd", "createAudience"]) assert.deepEqual(names(t.calls, kind), [], kind);
+  });
+});
