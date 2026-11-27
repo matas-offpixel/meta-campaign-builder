@@ -12,6 +12,12 @@
  * configured. Prints the folders it would create and the files it would
  * copy. Nothing is written to Supabase, Storage or Drive. --apply writes and
  * needs migration 218. --event CODE (repeatable) scopes it.
+ *
+ * An event folder that was already in Drive under its name, not made by the
+ * app (no tree tag), is adopted as a linked folder: drive_folder_linked is
+ * set, as linking it on the event page does (S24), so a rename or re-date
+ * never renames a folder someone made by hand. A folder the backfill makes
+ * is not linked.
  */
 
 import { createClient } from "@supabase/supabase-js";
@@ -23,7 +29,7 @@ import { isArchivedClientStatus } from "../lib/db/client-status.ts";
 import { FOLDER_MIME, driveFromEnv, type DriveApi, type DriveFile } from "../lib/drive/client.ts";
 import { fileRender, loadFilingContext, planFiling, wantsFiling } from "../lib/drive/filing.ts";
 import { allRows, type DriveDb, type RowOf, type TableName } from "../lib/drive/db.ts";
-import { emptyLog, ensureCycleFolder, ensureEventTree } from "../lib/drive/folders.ts";
+import { emptyLog, ensureCycleFolder, ensureEventTree, linkAdoptedEventFolder } from "../lib/drive/folders.ts";
 import { isPast, onSaleFrom } from "../lib/drive/tick.ts";
 import { cycleDue, isCancelled, londonToday } from "../lib/drive/tree.ts";
 
@@ -172,6 +178,7 @@ for (const event of dbEvents) {
       console.log(`  skipped: ${tree.skipped}\n`);
       continue;
     }
+    if (await linkAdoptedEventFolder(db, event, tree)) console.log(`  linked: the event folder was already in Drive, so it keeps its name (drive_folder_linked)`);
     const monday = cycleDue({ today, onSale: event.status === "on_sale", onSaleFrom: onSaleFrom(event), eventDate: event.event_date ?? null });
     if (monday) await ensureCycleFolder(db, drive, event, client, monday, log);
     console.log(`  folders to create: ${log.created.length}${log.found.length ? ` · already there: ${log.found.length}` : ""}`);

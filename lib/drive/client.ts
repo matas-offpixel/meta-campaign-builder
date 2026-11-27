@@ -35,6 +35,8 @@ export type DriveFile = {
   shortcutTargetId?: string | null;
   trashed?: boolean;
   size?: number | null;
+  /** RFC 3339, as Drive gives it. */
+  createdTime?: string;
 };
 
 /** A media file with Drive's own measurements (files.list thumbnailLink, video/imageMediaMetadata). */
@@ -61,7 +63,8 @@ export interface DriveApi {
   readonly driveId: string;
   /** Children of a folder (not trashed). `name` filters to that exact name. */
   listChildren(parentId: string, opts?: { name?: string; foldersOnly?: boolean }): Promise<DriveFile[]>;
-  createFolder(parentId: string, name: string): Promise<DriveFile>;
+  /** A folder, tagged with `appProperties` (every folder the app makes carries APP_TAG_KEY). */
+  createFolder(parentId: string, name: string, appProperties?: Record<string, string>): Promise<DriveFile>;
   uploadFile(args: { parentId: string; name: string; mimeType: string; bytes: Uint8Array; appProperties: Record<string, string> }): Promise<DriveFile>;
   createShortcut(args: { parentId: string; name: string; targetId: string; appProperties: Record<string, string> }): Promise<DriveFile>;
   /**
@@ -172,7 +175,7 @@ function tokenSource(sa: ServiceAccount, fetchImpl: typeof fetch): () => Promise
 
 const API = "https://www.googleapis.com/drive/v3";
 const UPLOAD = "https://www.googleapis.com/upload/drive/v3";
-const FILE_FIELDS = "id,name,mimeType,parents,appProperties,shortcutDetails(targetId),trashed,size";
+const FILE_FIELDS = "id,name,mimeType,parents,appProperties,shortcutDetails(targetId),trashed,size,createdTime";
 const MEDIA_FIELDS = `${FILE_FIELDS},thumbnailLink,videoMediaMetadata(width,height,durationMillis),imageMediaMetadata(width,height,rotation)`;
 
 /** Thumbnail links are Google-hosted; anything else is refused (no fetching arbitrary URLs as the account). */
@@ -221,6 +224,7 @@ function toFile(raw: Record<string, unknown>): DriveFile {
     shortcutTargetId: shortcut?.targetId ?? null,
     trashed: raw.trashed === true,
     size: raw.size == null ? null : Number(raw.size),
+    createdTime: typeof raw.createdTime === "string" ? raw.createdTime : undefined,
   };
 }
 
@@ -273,10 +277,10 @@ export function restDriveApi(opts: { driveId: string; serviceAccount: ServiceAcc
       return out;
     },
 
-    async createFolder(parentId, name) {
+    async createFolder(parentId, name, appProperties) {
       const res = await call(
         `${API}/files?supportsAllDrives=true&fields=${encodeURIComponent(FILE_FIELDS)}`,
-        { method: "POST", headers: json, body: JSON.stringify({ name, mimeType: FOLDER_MIME, parents: [parentId] }) },
+        { method: "POST", headers: json, body: JSON.stringify({ name, mimeType: FOLDER_MIME, parents: [parentId], ...(appProperties ? { appProperties } : {}) }) },
         "create folder",
       );
       return toFile((await res.json()) as Record<string, unknown>);

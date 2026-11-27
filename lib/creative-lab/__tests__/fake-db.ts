@@ -2,6 +2,9 @@
  * In-memory stand-in for the supabase-js query builder: the chain methods
  * lib/creative-lab uses (select, eq, in, not is null, lte, order, limit,
  * range, maybeSingle, single, insert, upsert with onConflict).
+ *
+ * `unique` (optional) gives a table a unique key, nulls not distinct: an
+ * insert that repeats one fails with Postgres's 23505, as a real one does.
  */
 
 type Row = Record<string, unknown>;
@@ -13,7 +16,7 @@ export type FakeDb = {
   writes: { table: string; op: "insert" | "upsert" | "update" | "delete"; rows: Row[] }[];
 };
 
-export function fakeDb(seed: Record<string, Row[]>): FakeDb {
+export function fakeDb(seed: Record<string, Row[]>, opts: { unique?: Record<string, string[]> } = {}): FakeDb {
   const tables: Record<string, Row[]> = Object.fromEntries(Object.entries(seed).map(([k, v]) => [k, v.map((r) => ({ ...r }))]));
   const writes: FakeDb["writes"] = [];
   let nextId = 1;
@@ -26,6 +29,7 @@ export function fakeDb(seed: Record<string, Row[]>): FakeDb {
     let written: Row[] | null = null;
     let updatePayload: Row | null = null;
     let deleteMode = false;
+    let failure: { code: string; message: string } | null = null;
 
     const rows = (): Row[] => {
       if (written) return written;
@@ -46,6 +50,12 @@ export function fakeDb(seed: Record<string, Row[]>): FakeDb {
       const list = Array.isArray(payload) ? payload : [payload];
       const keys = conflict?.split(",").map((k) => k.trim()) ?? [];
       tables[table] ??= [];
+      const unique = opts.unique?.[table];
+      if (op === "insert" && unique && list.some((p) => tables[table].some((r) => unique.every((k) => (r[k] ?? null) === (p[k] ?? null))))) {
+        failure = { code: "23505", message: `duplicate key value violates unique constraint on ${table}` };
+        written = [];
+        return;
+      }
       written = list.map((p) => {
         const existing = keys.length ? tables[table].find((r) => keys.every((k) => r[k] === p[k])) : undefined;
         if (existing) {
@@ -82,7 +92,8 @@ export function fakeDb(seed: Record<string, Row[]>): FakeDb {
         const first = rows()[0];
         return first ? { data: first, error: null } : { data: null, error: { message: "no rows" } };
       },
-      then: (resolve: (value: { data: Row[]; error: null }) => unknown) => {
+      then: (resolve: (value: { data: Row[] | null; error: { code: string; message: string } | null }) => unknown) => {
+        if (failure) return resolve({ data: null, error: failure });
         if (deleteMode) {
           const matched = (tables[table] ?? []).filter((r) => filters.every((f) => f(r)));
           tables[table] = (tables[table] ?? []).filter((r) => !filters.every((f) => f(r)));

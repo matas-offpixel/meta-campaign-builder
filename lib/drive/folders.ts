@@ -6,10 +6,23 @@
  * up in Drive by exact name under its parent before anything is created, so
  * a rerun or a half-finished run never makes a second folder. Archived
  * clients get nothing new (S27). A cancelled event is marked, never deleted.
+ *
+ * One builder per key (27 Nov): find-before-create alone isn't safe against
+ * a second run walking the same tree at the same time, because Drive's list
+ * can miss a folder made under a second before. So a run claims the key in
+ * drive_folder_claims (migration 278) before it looks the folder up; only the
+ * run holding the claim may create it, and it writes drive_folders before it
+ * lets the claim go. A run that loses waits and re-reads the map. A claim
+ * older than claimTiming.ttlMs is a crashed run's and is taken over.
+ *
+ * Every folder the app makes is tagged (appProperties): the tree's with
+ * offpixel_kind = tree and offpixel_id = {event or client id}:{key}.
  */
 
+import { randomUUID } from "node:crypto";
+
 import { isArchivedClientStatus } from "../db/client-status.ts";
-import type { DriveApi } from "./client.ts";
+import { APP_ID_KEY, APP_TAG_KEY, type DriveApi, type DriveFile } from "./client.ts";
 import type { DriveDb, RowOf } from "./db.ts";
 import {
   ARTIST_CLIPS_KEY,
@@ -57,16 +70,105 @@ async function remember(db: DriveDb, row: MapRow): Promise<void> {
   if (res.error) throw new Error(`drive_folders upsert: ${res.error.message}`);
 }
 
-/** Find a folder by exact name under the parent, else create it. */
-export async function findOrCreateFolder(drive: DriveApi, parentId: string, name: string, log: TreeLog, label: string): Promise<string> {
+/** offpixel_kind of a tree folder. */
+export const TREE_TAG = "tree";
+
+/** The tag on a tree folder: offpixel_kind = tree, offpixel_id = {event or client id}:{key}. */
+export function treeTag(ownerId: string, key: FolderKey): Record<string, string> {
+  return { [APP_TAG_KEY]: TREE_TAG, [APP_ID_KEY]: `${ownerId}:${key}` };
+}
+
+/** The tag on a folder made outside the map (an upload's artist folder, the artist library). */
+export const FOLDER_TAG: Readonly<Record<string, string>> = { [APP_TAG_KEY]: "folder" };
+
+/** A claim older than this is a crashed run's (migration 278). pollMs is a loser's wait between map reads. */
+export const claimTiming = { ttlMs: 60_000, pollMs: 250 };
+
+/**
+ * When a claim never clears. Ruled by design 27 Nov: it reaches the event
+ * page's Drive panel error slot, and Claude through upload_to_event_folder /
+ * render_package. Pinned in lib/drive/__tests__/tree-lock.test.ts.
+ */
+export const TREE_BUSY = "Off/Pixel is already making this event’s Drive folders. Try again in a minute.";
+
+type ClaimKey = { client_id: string; event_id: string | null; key: FolderKey };
+
+async function readMapRow(db: DriveDb, k: ClaimKey): Promise<MapRow | null> {
+  const query = db.from("drive_folders").select("client_id, event_id, key, name, drive_folder_id").eq("client_id", k.client_id).eq("key", k.key);
+  const res = await (k.event_id ? query.eq("event_id", k.event_id) : query.is("event_id", null)).maybeSingle();
+  if (res.error) throw new Error(`drive_folders: ${res.error.message}`);
+  return (res.data as MapRow | null) ?? null;
+}
+
+/** Migration 278 not applied yet: PostgREST's missing-table answer (PGRST205) or Postgres's (42P01). */
+function isMissingTable(error: { code?: string; message: string }): boolean {
+  return error.code === "PGRST205" || error.code === "42P01" || /could not find the table|does not exist/i.test(error.message);
+}
+
+/**
+ * Claim the key: insert, or take over a claim older than the TTL by its
+ * token (so of two runs taking over the same stale claim, one wins).
+ * "unclaimed": the claims table isn't there (before migration 278), so the
+ * run goes on as before it existed, find-before-create only.
+ */
+async function tryClaim(db: DriveDb, k: ClaimKey, token: string): Promise<boolean | "unclaimed"> {
+  const now = Date.now();
+  const claimedAt = new Date(now).toISOString();
+  const ins = await db.from("drive_folder_claims").insert({ ...k, claim_token: token, claimed_at: claimedAt });
+  if (!ins.error) return true;
+  if (isMissingTable(ins.error)) return "unclaimed";
+  if (ins.error.code !== "23505") throw new Error(`drive_folder_claims insert: ${ins.error.message}`);
+  const read = db.from("drive_folder_claims").select("claim_token, claimed_at").eq("client_id", k.client_id).eq("key", k.key);
+  const held = await (k.event_id ? read.eq("event_id", k.event_id) : read.is("event_id", null)).maybeSingle();
+  if (held.error) throw new Error(`drive_folder_claims: ${held.error.message}`);
+  // Gone since the insert (released): the caller re-reads the map and tries again.
+  if (!held.data) return false;
+  if (Date.parse(held.data.claimed_at) > now - claimTiming.ttlMs) return false;
+  const take = db
+    .from("drive_folder_claims")
+    .update({ claim_token: token, claimed_at: claimedAt })
+    .eq("client_id", k.client_id)
+    .eq("key", k.key)
+    .eq("claim_token", held.data.claim_token);
+  const res = await (k.event_id ? take.eq("event_id", k.event_id) : take.is("event_id", null)).select("claim_token");
+  if (res.error) throw new Error(`drive_folder_claims takeover: ${res.error.message}`);
+  return (res.data ?? []).length === 1;
+}
+
+async function releaseClaim(db: DriveDb, k: ClaimKey, token: string): Promise<void> {
+  const del = db.from("drive_folder_claims").delete().eq("client_id", k.client_id).eq("key", k.key).eq("claim_token", token);
+  const res = await (k.event_id ? del.eq("event_id", k.event_id) : del.is("event_id", null));
+  if (res.error) throw new Error(`drive_folder_claims delete: ${res.error.message}`);
+}
+
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+type Looked = { id: string; created: boolean; file: DriveFile };
+
+async function lookUpOrCreate(drive: DriveApi, parentId: string, name: string, log: TreeLog, label: string, tag: Readonly<Record<string, string>>): Promise<Looked> {
   const existing = await drive.listChildren(parentId, { name, foldersOnly: true });
   if (existing[0]) {
     log.found.push(label);
-    return existing[0].id;
+    return { id: existing[0].id, created: false, file: existing[0] };
   }
-  const made = await drive.createFolder(parentId, name);
+  const made = await drive.createFolder(parentId, name, { ...tag });
   log.created.push(label);
-  return made.id;
+  return { id: made.id, created: true, file: made };
+}
+
+/**
+ * Find a folder by exact name under the parent, else create it (tagged).
+ * No claim: for folders outside the map. A tree key goes through ensureSpec.
+ */
+export async function findOrCreateFolder(
+  drive: DriveApi,
+  parentId: string,
+  name: string,
+  log: TreeLog,
+  label: string,
+  tag: Readonly<Record<string, string>> = FOLDER_TAG,
+): Promise<string> {
+  return (await lookUpOrCreate(drive, parentId, name, log, label, tag)).id;
 }
 
 type Scope = {
@@ -81,7 +183,50 @@ type Scope = {
   label: (spec: FolderSpec) => string;
   /** Keys whose Drive name is never changed: a linked event folder (S24). */
   keepName?: ReadonlySet<FolderKey>;
+  /** Keys whose folder was found in Drive by name, untagged: made by hand, now adopted. */
+  adopted?: Set<FolderKey>;
 };
+
+/**
+ * A key the map doesn't have: claim it, then (holding the claim) re-read the
+ * map, look the folder up by name, create it if it isn't there, and write the
+ * map before the claim goes. A run that loses waits and re-reads the map.
+ */
+async function createUnderClaim(scope: Scope, spec: FolderSpec, parentId: string): Promise<string> {
+  const k: ClaimKey = { client_id: scope.clientId, event_id: scope.eventId, key: spec.key };
+  const token = randomUUID();
+  const deadline = Date.now() + 2 * claimTiming.ttlMs;
+  const takeMapped = (row: MapRow) => {
+    scope.map.set(spec.key, row);
+    scope.log.found.push(scope.label(spec));
+    return row.drive_folder_id;
+  };
+  for (let first = true; ; first = false) {
+    if (!first) {
+      const row = await readMapRow(scope.db, k);
+      if (row) return takeMapped(row);
+    }
+    const claim = await tryClaim(scope.db, k, token);
+    if (claim) {
+      try {
+        // Another run may have made it and let its claim go since this run read the map.
+        const again = await readMapRow(scope.db, k);
+        if (again) return takeMapped(again);
+        const got = await lookUpOrCreate(scope.drive, parentId, spec.name, scope.log, scope.label(spec), treeTag(scope.eventId ?? scope.clientId, spec.key));
+        if (!got.created && got.file.appProperties?.[APP_TAG_KEY] !== TREE_TAG) scope.adopted?.add(spec.key);
+        const row: MapRow = { client_id: scope.clientId, event_id: scope.eventId, key: spec.key, name: spec.name, drive_folder_id: got.id };
+        await remember(scope.db, row);
+        scope.map.set(spec.key, row);
+        return got.id;
+      } finally {
+        // A release that fails leaves the claim to expire (claimTiming.ttlMs); the folder is made and mapped.
+        if (claim === true) await releaseClaim(scope.db, k, token).catch(() => undefined);
+      }
+    }
+    if (Date.now() > deadline) throw new Error(TREE_BUSY);
+    await sleep(claimTiming.pollMs);
+  }
+}
 
 async function ensureSpec(scope: Scope, spec: FolderSpec, parentId: string): Promise<string> {
   const known = scope.map.get(spec.key);
@@ -95,11 +240,7 @@ async function ensureSpec(scope: Scope, spec: FolderSpec, parentId: string): Pro
     }
     return known.drive_folder_id;
   }
-  const id = await findOrCreateFolder(scope.drive, parentId, spec.name, scope.log, scope.label(spec));
-  const row: MapRow = { client_id: scope.clientId, event_id: scope.eventId, key: spec.key, name: spec.name, drive_folder_id: id };
-  await remember(scope.db, row);
-  scope.map.set(spec.key, row);
-  return id;
+  return createUnderClaim(scope, spec, parentId);
 }
 
 async function ensureSpecs(scope: Scope, specs: readonly FolderSpec[], rootKey: FolderKey, rootSpec: FolderSpec): Promise<Map<FolderKey, string>> {
@@ -147,7 +288,16 @@ function labelFor(prefix: string[], spec: FolderSpec): string {
   return [...prefix, ...names].join(" / ");
 }
 
-export type EnsureEventResult = { folderId: string | null; skipped: "archived_client" | "cancelled" | "no_client" | null };
+export type EnsureEventResult = {
+  folderId: string | null;
+  skipped: "archived_client" | "cancelled" | "no_client" | null;
+  /**
+   * The event folder was found in Drive by name, untagged (made by hand), not
+   * made here or already known. The backfill links it (drive_folder_linked)
+   * so a rename or re-date never renames it (S24).
+   */
+  adopted?: boolean;
+};
 
 /**
  * The event folder and every folder but the w/c ones (S19). A linked folder
@@ -185,6 +335,7 @@ export async function ensureEventTree(
     rootParentId: clientFolder,
     label: (spec) => labelFor(spec.key === EVENT_KEY ? [client.name] : [client.name, name], spec),
     keepName: event.drive_folder_linked ? new Set([EVENT_KEY]) : undefined,
+    adopted: new Set(),
   };
   const ids = await ensureSpecs(scope, EVENT_TREE, EVENT_KEY, rootSpec);
   const folderId = ids.get(EVENT_KEY)!;
@@ -193,7 +344,21 @@ export async function ensureEventTree(
     if (res.error) throw new Error(`events update: ${res.error.message}`);
     event.drive_folder_id = folderId;
   }
-  return { folderId, skipped: null };
+  return { folderId, skipped: null, adopted: scope.adopted!.has(EVENT_KEY) };
+}
+
+/**
+ * The backfill's adopt (S24): an event folder ensureEventTree found in Drive
+ * by name, untagged, becomes a linked folder (drive_folder_linked), as
+ * linkEventFolder does, so a rename or re-date never renames it. Returns true
+ * when it set the flag. Nothing for a folder the run made or already knew.
+ */
+export async function linkAdoptedEventFolder(db: DriveDb, event: Pick<EventRow, "id" | "drive_folder_linked">, made: EnsureEventResult): Promise<boolean> {
+  if (!made.adopted || !made.folderId || event.drive_folder_linked) return false;
+  const res = await db.from("events").update({ drive_folder_linked: true }).eq("id", event.id);
+  if (res.error) throw new Error(`events update: ${res.error.message}`);
+  event.drive_folder_linked = true;
+  return true;
 }
 
 /** The folder id for a key, creating it (and its w/c parent) when the tree has none. */

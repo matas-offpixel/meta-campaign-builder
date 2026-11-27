@@ -143,9 +143,9 @@ export function fakeDrive(driveId = "ROOT"): FakeDrive {
         .filter((file) => !opts.foldersOnly || file.mimeType === FOLDER_MIME)
         .map((file) => ({ ...file }));
     },
-    async createFolder(parentId, name) {
+    async createFolder(parentId, name, appProperties) {
       calls.push(`createFolder ${name}`);
-      return add({ id: `f${next++}`, name, mimeType: FOLDER_MIME, parents: [parentId] });
+      return add({ id: `f${next++}`, name, mimeType: FOLDER_MIME, parents: [parentId], appProperties, createdTime: new Date().toISOString() });
     },
     async uploadFile(args) {
       calls.push(`upload ${args.name}`);

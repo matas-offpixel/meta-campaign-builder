@@ -5100,6 +5100,45 @@ export type Database = {
         }
         Relationships: []
       }
+      drive_folder_claims: {
+        Row: {
+          claim_token: string
+          claimed_at: string
+          client_id: string
+          event_id: string | null
+          key: string
+        }
+        Insert: {
+          claim_token: string
+          claimed_at?: string
+          client_id: string
+          event_id?: string | null
+          key: string
+        }
+        Update: {
+          claim_token?: string
+          claimed_at?: string
+          client_id?: string
+          event_id?: string | null
+          key?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "drive_folder_claims_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "drive_folder_claims_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       drive_folders: {
         Row: {
           client_id: string
