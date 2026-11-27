@@ -84,8 +84,12 @@ export const FOLDER_TAG: Readonly<Record<string, string>> = { [APP_TAG_KEY]: "fo
 /** A claim older than this is a crashed run's (migration 278). pollMs is a loser's wait between map reads. */
 export const claimTiming = { ttlMs: 60_000, pollMs: 250 };
 
-/** PENDING DESIGN — reaches the event page's Drive panel through the route's error when a claim never clears. */
-export const TREE_BUSY = "Another run is making this event's Drive folders. Try again in a minute.";
+/**
+ * When a claim never clears. Ruled by design 27 Nov: it reaches the event
+ * page's Drive panel error slot, and Claude through upload_to_event_folder /
+ * render_package. Pinned in lib/drive/__tests__/tree-lock.test.ts.
+ */
+export const TREE_BUSY = "Off/Pixel is already making this event’s Drive folders. Try again in a minute.";
 
 type ClaimKey = { client_id: string; event_id: string | null; key: FolderKey };
 

@@ -5,7 +5,7 @@ import { fakeDb, type FakeDb } from "../../creative-lab/__tests__/fake-db.ts";
 import { APP_TAG_KEY, FOLDER_MIME, type DriveFile } from "../client.ts";
 import type { DriveDb } from "../db.ts";
 import { findTreeDuplicates, readOnlyDrive } from "../duplicates.ts";
-import { claimTiming, ensureClientTree, ensureEventTree, linkAdoptedEventFolder, treeTag, type ClientRow, type EventRow } from "../folders.ts";
+import { TREE_BUSY, claimTiming, ensureClientTree, ensureEventTree, linkAdoptedEventFolder, treeTag, type ClientRow, type EventRow } from "../folders.ts";
 import { skipReason } from "../pickup.ts";
 import { EVENT_TREE, eventFolderName } from "../tree.ts";
 import { fakeDrive, type FakeDrive } from "./fake-drive.ts";
@@ -139,6 +139,27 @@ describe("one builder per key (27 Nov duplicates)", () => {
     const id = await ensureClientTree(db, drive, { ...CLIENT });
     assert.equal(id, theirs.id);
     assert.equal(drive.calls.filter((call) => call === "createFolder NX").length, 1, "only the other run made it");
+  });
+
+  it("a claim that never clears ends in the ruled sentence (design, 27 Nov)", async () => {
+    assert.equal(TREE_BUSY, "Off/Pixel is already making this event’s Drive folders. Try again in a minute.");
+    claimTiming.ttlMs = 20;
+    const db = seed();
+    // Every claim insert collides and the held claim is renewed each read, so it never goes stale.
+    const busy: DriveDb = {
+      from: ((table: string) => {
+        if (table !== "drive_folder_claims") return db.from(table);
+        const fresh = { data: { claim_token: "other-run", claimed_at: new Date().toISOString() }, error: null };
+        const chain: Record<string, unknown> = {};
+        let inserting = false;
+        for (const method of ["select", "update", "delete", "eq", "is"]) chain[method] = () => chain;
+        chain.insert = () => ((inserting = true), chain);
+        chain.maybeSingle = async () => ({ ...fresh, data: { ...fresh.data, claimed_at: new Date().toISOString() } });
+        chain.then = (resolve: (value: unknown) => unknown) => resolve(inserting ? { data: null, error: { code: "23505", message: "duplicate key" } } : { data: [], error: null });
+        return chain;
+      }) as DriveDb["from"],
+    };
+    await assert.rejects(ensureClientTree(busy, fakeDrive(), { ...CLIENT }), (err: Error) => err.message === TREE_BUSY);
   });
 
   it("before migration 278 the run goes on unclaimed, as it did", async () => {
