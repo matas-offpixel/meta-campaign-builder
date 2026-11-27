@@ -15,12 +15,12 @@ export const HELD_CLIENTS: readonly { id: string; name: string }[] = [{ id: "9d4
 
 export const HELD_CLIENT_IDS: ReadonlySet<string> = new Set(HELD_CLIENTS.map((row) => row.id));
 
-/** PENDING DESIGN: plan_retargeting on one held show, and create_show_campaigns. */
+/** Design, 27 Nov: plan_retargeting on one held show, and create_show_campaigns. */
 export function heldRefusal(client: string): string {
-  return `${client} is held for now. Nothing was changed.`;
+  return `Refused: ${client} is held for now. Nothing was changed.`;
 }
 
-/** PENDING DESIGN: the line at the top of plan_retargeting("live") while a client is held. */
+/** Design, 27 Nov: the line at the top of plan_retargeting("live") while a client is held. */
 export function heldLine(clients: readonly string[]): string {
   return `${clients.join(", ")} ${clients.length === 1 ? "is" : "are"} held for now, so ${clients.length === 1 ? "its" : "their"} shows are left out.`;
 }

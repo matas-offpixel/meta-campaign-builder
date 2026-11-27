@@ -285,8 +285,8 @@ test("design's two tool descriptions (27 Nov), word for word, and plan_retargeti
 
 test("Louder / Parable is held (Matas, 27 Nov): one held show is refused by plan_retargeting and by create_show_campaigns, before any read", async () => {
   const { ctx, calls } = ctxWith([record()], { held: ["20261204CSA"] });
-  await refused(run(planRetargetingTool, ctx, { events: "20261204CSA" }), /^Louder \/ Parable is held for now\. Nothing was changed\.$/);
-  await refused(run(createShowCampaignsTool, ctx, { event: "20261204CSA", mode: "paused", approval: YES }), /^Louder \/ Parable is held for now\. Nothing was changed\.$/);
+  await refused(run(planRetargetingTool, ctx, { events: "20261204CSA" }), /^Refused: Louder \/ Parable is held for now\. Nothing was changed\.$/);
+  await refused(run(createShowCampaignsTool, ctx, { event: "20261204CSA", mode: "paused", approval: YES }), /^Refused: Louder \/ Parable is held for now\. Nothing was changed\.$/);
   assert.deepEqual(calls.read, []);
   assert.deepEqual(calls.create, []);
 });
