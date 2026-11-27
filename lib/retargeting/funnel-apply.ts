@@ -299,7 +299,7 @@ export async function readyAudienceFor(db: Db, eventId: string, adAccountId: str
   }
 }
 
-/** The build's current place, for the log and the mcp_actions summary when a write throws. */
+/** The build's current place, for the log and the tool's summary when a write throws. */
 type At = { step: string; key: string | null };
 
 /**
@@ -386,7 +386,7 @@ export type FunnelOutcome = {
   step?: string;
   /** The spec (audience key, tier, ad set or creative) the failing step was on; null when the step has none. */
   specKey?: string | null;
-  /** Meta's error fields for the mcp_actions summary (no token). */
+  /** Meta's error fields for the tool's summary (no token). */
   metaError?: MetaErrorDetail | null;
 };
 
@@ -895,7 +895,7 @@ async function recordTierAdSet(deps: FunnelDeps, row: { metaAdsetId: string; cam
   }
 }
 
-/** A followers audience's stored retention: the table's CHECK (1–365); the payload sends Meta 0. The same as lib/mcp/audiences/specs.ts's. */
+/** A followers audience's stored retention: the table's CHECK (1–365); the payload sends Meta 0. The same as the audience tools' specs. */
 export const FOLLOWER_STORED_RETENTION_DAYS = 365;
 
 /**
