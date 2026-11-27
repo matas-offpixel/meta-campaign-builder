@@ -60,6 +60,8 @@ export interface McpRetargetingDeps {
     build: FunnelBuild;
     mode: "paused" | "live";
     today: string;
+    /** Epoch ms the build must finish by (it stops cleanly, progress saved, "ask again to carry on"). */
+    deadlineAt?: number;
   }): Promise<{ outcome: FunnelOutcome; adsManager: string | null }>;
 }
 

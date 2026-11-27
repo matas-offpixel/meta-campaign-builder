@@ -26,6 +26,8 @@
  */
 import { z } from "zod";
 import type { AudienceSkip, FunnelBuild, FunnelProgress } from "../../retargeting/funnel-apply.ts";
+import { buildRunning, RF_STOP_WORDS } from "../../retargeting/build-lock.ts";
+import { FUNNEL_TIER_LABEL } from "../../retargeting/funnel.ts";
 import { claudePlanLines, doneLine, isPresale, planHead, similarReturnLine, similarSkipLine, skipLine, skipReason, skipReasonWords, type SkipReason } from "../../retargeting/funnel-plan.ts";
 import { fill } from "../../retargeting/funnel-words.ts";
 import { funnelSourcesOf, genreWords } from "../../retargeting/funnel-view.ts";
@@ -325,10 +327,13 @@ export const planRetargetingTool: McpTool = {
   },
 };
 
-type BuildRow = { build: FunnelBuild | null; mode: "paused" | "live" | null; state: string; progress: FunnelProgress | null; meta_campaign_id: string | null; ad_account_id: string | null };
+type BuildRow = { build: FunnelBuild | null; mode: "paused" | "live" | null; state: string; progress: FunnelProgress | null; meta_campaign_id: string | null; ad_account_id: string | null; updated_at?: string | null };
+
+/** The whole call fits well inside the client's wait (~230 s): the build is given until 190 s after the call started, and starts no step in its last 25 s. */
+export const CREATE_DEADLINE_MS = 190_000;
 
 async function buildRowOf(ctx: ToolContext, eventId: string): Promise<BuildRow | null> {
-  const res = await ctx.db.from("retargeting_builds").select("build, mode, state, progress, meta_campaign_id, ad_account_id").eq("event_id", eventId).maybeSingle();
+  const res = await ctx.db.from("retargeting_builds").select("build, mode, state, progress, meta_campaign_id, ad_account_id, updated_at").eq("event_id", eventId).maybeSingle();
   if (res.error) throw new ToolInputError(RT_CLAUDE_WORDS.readFailed, { refused: "build_unreadable" });
   return (res.data as BuildRow | null) ?? null;
 }
@@ -355,6 +360,7 @@ export const createShowCampaignsTool: McpTool = {
   },
   async run(ctx, args) {
     const { approval } = requireMetaApproval(ctx, args);
+    const startedAt = Date.now();
     const deps = requireRetargeting(ctx);
     const [code] = codesOf(args.event)!;
     const live = args.mode === "live";
@@ -385,6 +391,8 @@ export const createShowCampaignsTool: McpTool = {
 
     // A build already started: carry on from it (paused → live, or a failed try).
     const row = await buildRowOf(ctx, eventId);
+    // One build per event: while one runs, a second is refused before anything is sent (applyFunnel checks again as it starts writing).
+    if (row && buildRunning({ state: row.state, updatedAt: row.updated_at ?? null }, Date.now())) throw new ToolInputError(RF_STOP_WORDS.busy(code!), { ...base, refused: "already_building" });
     let build: FunnelBuild;
     const storedBuild: FunnelBuild | null = row?.build && row.build.kind === "retargeting_funnel_create" ? row.build : null;
     const adsMade = (row?.progress?.ads?.length ?? 0) > 0 || (row?.progress?.wider?.ads?.length ?? 0) > 0;
@@ -473,7 +481,7 @@ export const createShowCampaignsTool: McpTool = {
 
     let created: Awaited<ReturnType<McpRetargetingDeps["create"]>>;
     try {
-      created = await deps.create({ userId: ctx.userId, eventId, clientId: ownerRow.client_id, clientName, approval, build, mode: live ? "live" : "paused", today: ctx.today });
+      created = await deps.create({ userId: ctx.userId, eventId, clientId: ownerRow.client_id, clientName, approval, build, mode: live ? "live" : "paused", today: ctx.today, deadlineAt: startedAt + CREATE_DEADLINE_MS });
     } catch {
       throw new ToolInputError(RT_CLAUDE_WORDS.failed(RT_CLAUDE_WORDS.metaRefused), { ...base, refused: "create_threw" });
     }
@@ -488,11 +496,17 @@ export const createShowCampaignsTool: McpTool = {
     };
     const link = created.adsManager;
     const summary = { ...base, ...ids, ...(identity ? { pageId: identity.pageId, igId: identity.igId, identitySource: identity.source } : {}), ...(build.creatives ? { driveAds: build.creatives.ads.length } : {}), ...(build.copyAds ? { copiedAds: build.copyAds.map((ad) => ad.adId) } : {}), step: out.step ?? null, specKey: out.specKey ?? null, ...(progress.skipped?.length ? { skipped: progress.skipped.map((row) => ({ key: row.key, reason: row.reason })) } : {}), ...(out.error ? { error: "meta_or_store", reason: out.reason, ...(out.metaError ? { metaError: { code: out.metaError.code, subcode: out.metaError.subcode, type: out.metaError.type, fbtraceId: out.metaError.fbtraceId, message: out.metaError.message.slice(0, 300) } } : {}) } : {}) };
+    const sourcesSkipped = (progress.skipped ?? []).map((row) => RT_CLAUDE_WORDS.sourceSkipped(row.name, row.reason));
+    const tiersNotMade = (progress.tiersNotMade ?? []).map((tier) => RF_STOP_WORDS.tierNotMade(code!, FUNNEL_TIER_LABEL[tier]));
+    // Stopped before the client's wait ran out: what's made is kept, and asking again carries on.
+    if (out.state === "failed" && out.step === "time") {
+      return { data: { message: [out.reason ?? RF_STOP_WORDS.time(code!), ...sourcesSkipped, ...tiersNotMade].join("\n"), finished: false, ...ids, ads_manager: link }, eventId, clientId: ownerRow.client_id, summary: { ...summary, stopped: "time" } };
+    }
     if (out.state === "failed") {
       const reason = out.reason ?? RT_CLAUDE_WORDS.readFailed;
-      // The ceiling's own refusal is the MCP's (it ends "Nothing was sent to Meta.").
-      const said = out.step === "ceiling" ? reason : progress.campaignId ? RT_CLAUDE_WORDS.failedPartly(reason) : RT_CLAUDE_WORDS.failed(reason);
-      throw new ToolInputError(said, { ...summary, refused: out.step ?? "failed" }, { ...ids, ads_manager: link });
+      // The ceiling's own refusal is the MCP's (it ends "Nothing was sent to Meta."); busy and no-tier are said as they are.
+      const said = out.step === "ceiling" || out.step === "busy" || out.step === "tiers" ? reason : progress.campaignId ? RT_CLAUDE_WORDS.failedPartly(reason) : RT_CLAUDE_WORDS.failed(reason);
+      throw new ToolInputError([said, ...sourcesSkipped, ...tiersNotMade].join("\n"), { ...summary, refused: out.step ?? "failed" }, { ...ids, ads_manager: link });
     }
     const taken = build.plan.take.reduce((sum, line) => sum + (line.beforeMinor - line.afterMinor), 0);
     // Matas, 26 Nov item 2: every ad set's settings as Meta holds them; anything still on is said per ad set.
@@ -506,8 +520,7 @@ export const createShowCampaignsTool: McpTool = {
     const adSets = Object.values(progress.adSets ?? {}).filter(Boolean).length + Object.values(progress.wider?.adSets ?? {}).filter(Boolean).length;
     const copiedCount = build.copyAds?.length ?? (build.creatives ? 0 : (copies?.ads.length || build.ads.length));
     const adsWords = identity ? [SHOW_CREATIVE_WORDS.line({ code: code!, newAds: build.creatives?.ads.length ?? null, copied: copiedCount, folders: build.creatives?.folders ?? [], identity, withLive: Boolean(build.copyAds?.length && build.creatives), kept: copies?.kept ?? [] })] : [];
-    const sourcesSkipped = (progress.skipped ?? []).map((row) => RT_CLAUDE_WORDS.sourceSkipped(row.name, row.reason));
-    const message = [doneLine({ code: code!, live, adSets, made: ids.audiences_made }), ...adsWords, ...sourcesSkipped, ...similarSkipped, ...(live && out.step === "schedule" ? [RT_CLAUDE_WORDS.stepsNotScheduled] : []), ...settings].join("\n");
+    const message = [doneLine({ code: code!, live, adSets, made: ids.audiences_made }), ...adsWords, ...sourcesSkipped, ...tiersNotMade, ...similarSkipped, ...(live && out.step === "schedule" ? [RT_CLAUDE_WORDS.stepsNotScheduled] : []), ...settings].join("\n");
     return { data: { message, ...ids, ads_manager: link }, eventId, clientId: ownerRow.client_id, summary: { ...summary, takenMinor: taken } };
   },
 };

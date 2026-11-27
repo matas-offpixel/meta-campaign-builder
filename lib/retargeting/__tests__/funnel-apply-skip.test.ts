@@ -259,11 +259,76 @@ describe("a failing step says where, with Meta's error and no token", () => {
 describe("never a second copy when Meta's list can't be read", () => {
   it("the audience write refuses before any POST under onLookupFailed: refuse, and the retargeting seam asks for it", () => {
     const write = readFileSync("lib/meta/audience-write.ts", "utf8");
-    const refuse = write.indexOf('if (lookupFailed && options.onLookupFailed === "refuse") throw new ExistingLookupUnavailableError');
-    const create = write.indexOf("const outcome = await reuseOrCreateCustomAudience(");
+    const refuse = write.indexOf('if (listed.failed && options.onLookupFailed === "refuse") throw new ExistingLookupUnavailableError');
+    const create = write.indexOf(": await reuseOrCreateCustomAudience(");
     assert.ok(refuse > 0 && refuse < create, "the refusal comes before the reuse-or-create (no POST)");
     const seam = readFileSync("lib/mcp/retargeting-deps.ts", "utf8");
-    assert.match(seam, /audiences\.createAudience\(\{ userId, insert: insert as never, onLookupFailed: "refuse" \}\)/);
+    assert.match(seam, /audiences\.createAudience\(\{ userId, insert: insert as never, onLookupFailed: "refuse", nameLookup: \{ code: build\.eventCode \} \}\)/);
     assert.match(seam, /skipped: made\.lookupUnavailable \? "unsure" : "refused"/);
+  });
+});
+
+describe("one build per event, within the client's wait (27 Nov, after #1412)", () => {
+  const NOW = Date.parse("2026-11-27T17:00:00Z");
+
+  it("a second build while one is building (saved 10 s ago) is refused before anything is sent", async () => {
+    const { calls, deps, ctx, mem } = setup();
+    mem.tables.retargeting_builds!.push({ event_id: EVENT, user_id: OWNER, state: "building", progress: { campaignId: CAMPAIGN }, updated_at: new Date(NOW - 10_000).toISOString() });
+    const out = await quiet(() => applyFunnel(deps, buildFor(), { ...ctx, nowMs: () => NOW }));
+    assert.equal(out.state, "failed");
+    assert.equal(out.step, "busy");
+    assert.equal(out.reason, "Refused: NX26-RUDIMENTAL is already being built. Nothing was changed. Ask again in a few minutes.");
+    assert.deepEqual(calls, []);
+    assert.equal(mem.tables.retargeting_builds![0]!.state, "building", "the running build's row is left alone");
+  });
+
+  it("a build left building for over 4 minutes (its call died) is taken over and carries on", async () => {
+    const { deps, ctx, mem } = setup();
+    mem.tables.retargeting_builds!.push({ event_id: EVENT, user_id: OWNER, state: "building", progress: { campaignId: CAMPAIGN }, updated_at: new Date(NOW - 300_000).toISOString() });
+    const out = await quiet(() => applyFunnel(deps, buildFor(), { ...ctx, nowMs: () => NOW }));
+    assert.equal(out.state, "applied", out.reason ?? "");
+    assert.equal(out.progress.campaignId, CAMPAIGN);
+    assert.equal(mem.tables.retargeting_builds![0]!.state, "paused");
+  });
+
+  it("near the deadline it stops cleanly with what's made saved, lets the build go, and the next ask carries on making nothing twice", async () => {
+    let clock = NOW;
+    const { calls, deps, ctx, mem } = setup({ audience: async (aud) => ((clock += 20_000), { metaAudienceId: `m-${aud.key}` }) });
+    const out = await quiet(() => applyFunnel(deps, buildFor(), { ...ctx, nowMs: () => clock, deadlineAt: NOW + 70_000 }));
+    assert.equal(out.state, "failed");
+    assert.equal(out.step, "time");
+    assert.equal(out.reason, "NX26-RUDIMENTAL isn’t finished yet: what’s made so far is kept. Ask again to carry on.");
+    const madeFirst = Object.keys(out.progress.audiences ?? {});
+    // 70 s deadline, 25 s margin, 20 s an audience: starts at 0, 20 and 40 s; at 60 s it stops.
+    assert.equal(madeFirst.length, 3, "three audiences start before the margin");
+    assert.deepEqual(named(calls, "createAdSet"), []);
+    assert.equal(mem.tables.retargeting_builds![0]!.state, "failed", "the build is let go");
+    assert.deepEqual(Object.keys((mem.tables.retargeting_builds![0]!.progress as { audiences?: object }).audiences ?? {}), madeFirst, "progress saved");
+    calls.length = 0;
+    const again = await quiet(() => applyFunnel(deps, buildFor(), { ...ctx, nowMs: () => clock }));
+    assert.equal(again.state, "applied", again.reason ?? "");
+    const asked = named(calls, "createAudience").map((call) => call[1]);
+    for (const key of madeFirst) assert.ok(!asked.includes(key), `${key} not made again`);
+    assert.equal(named(calls, "createCampaign").length, 0, "the campaign made in the first try is reused");
+  });
+
+  it("a tier left with no audience isn't made (never a broad ad set), and the others are", async () => {
+    const coldKeys = new Set(funnelSpecs({ ...SOURCES, videos: [{ pageId: "665240903339433", videoIds: VIDEOS }] }).find((spec) => spec.tier === "cold")!.includes.map((aud) => aud.key));
+    const { calls, deps, ctx } = setup({ audience: async (aud) => (coldKeys.has(aud.key) ? { metaAudienceId: `m-${aud.key}` } : { skipped: "refused" }) });
+    const out = await quiet(() => applyFunnel(deps, buildFor(), ctx));
+    assert.equal(out.state, "applied", out.reason ?? "");
+    assert.deepEqual(Object.keys(out.progress.adSets ?? {}), ["cold"]);
+    assert.deepEqual(out.progress.tiersNotMade, ["warm", "hot"]);
+    for (const call of named(calls, "createAdSet")) assert.ok(((call[2] as { custom_audiences?: unknown[] }).custom_audiences ?? []).length > 0, "every ad set has audiences");
+  });
+
+  it("no tier can be made: nothing after the audiences is made, and it says so", async () => {
+    const { calls, deps, ctx } = setup({ audience: async () => ({ skipped: "unsure" }) });
+    const out = await quiet(() => applyFunnel(deps, buildFor(), ctx));
+    assert.equal(out.state, "failed");
+    assert.equal(out.step, "tiers");
+    assert.match(out.reason ?? "", /no tier had an audience to build from/);
+    assert.deepEqual(named(calls, "createAdSet"), []);
+    assert.deepEqual(named(calls, "createAd"), []);
   });
 });

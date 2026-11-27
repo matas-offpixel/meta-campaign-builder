@@ -22,6 +22,7 @@ import {
   MAX_VIDEO_VIEWS_VIDEOS,
   pageEngagementPageIds,
   partAudienceName,
+  sanitizeAudienceName,
   stripPartSuffix,
 } from "@/lib/meta/audience-payload";
 import { withActPrefix } from "@/lib/meta/ad-account-id";
@@ -34,7 +35,9 @@ import {
 } from "@/lib/meta/page-access";
 import { createWithEventSourceRecovery } from "@/lib/audiences/event-source-recovery";
 import {
+  findAudiencesByName,
   listAccountCustomAudiences,
+  resolveByShowName,
   reuseOrCreateCustomAudience,
   type ListedMetaCustomAudience,
   type MetaGraphFetch,
@@ -197,6 +200,38 @@ async function listExistingForReuse(
   }
 }
 
+/**
+ * The name lookup (options.nameLookup): the id of the account's audience with
+ * exactly this name, or null. A failed read is null only for the app's own
+ * name for the show ("{CODE}_…"); any other name throws
+ * ExistingLookupUnavailableError (nothing is posted).
+ */
+async function findByShowName(
+  adAccountId: string,
+  token: string,
+  name: string,
+  lookup: { code: string; timeoutMs?: number },
+  fetchImpl: MetaGraphFetch,
+): Promise<string | null> {
+  const code = sanitizeAudienceName(lookup.code);
+  let failure: string | null = null;
+  const found = await resolveByShowName({
+    name,
+    code,
+    read: () =>
+      findAudiencesByName(adAccountId, token, code, fetchImpl, { timeoutMs: lookup.timeoutMs ?? NAME_LOOKUP_TIMEOUT_MS }).catch((err: unknown) => {
+        failure = (err instanceof Error ? err.message : String(err)).replace(/access_token=[^&\s]+/gi, "access_token=REDACTED");
+        throw err;
+      }),
+  });
+  if (failure) console.warn(`[audience-write] name lookup failed (${code}): ${failure}`);
+  if ("unsure" in found) throw new ExistingLookupUnavailableError(found.unsure);
+  return found.id;
+}
+
+/** Each name lookup's limit (27 Nov: the build must fit inside the client's wait). */
+export const NAME_LOOKUP_TIMEOUT_MS = 8_000;
+
 export async function createMetaCustomAudience(
   audienceId: string,
   options: {
@@ -221,6 +256,16 @@ export async function createMetaCustomAudience(
      * the audience exists never makes a second copy (the retargeting build).
      */
     onLookupFailed?: "create" | "refuse";
+    /**
+     * The retargeting build's lookup (27 Nov): instead of the account's whole
+     * list, the audiences whose name contains the show's code as Meta keeps
+     * it, id,name,subtype only, within `timeoutMs` (default 8 s); a hit is the
+     * exact name this create would post. If that read fails, an audience with
+     * the app's own name for the show ("{CODE}_…") is made (a copy of our own
+     * named audience is the only risk, and the build's own rows are checked
+     * first); any other name is refused as with onLookupFailed "refuse".
+     */
+    nameLookup?: { code: string; timeoutMs?: number };
   },
 ): Promise<MetaCustomAudience> {
   assertMetaAudienceWritesEnabled();
@@ -252,15 +297,22 @@ export async function createMetaCustomAudience(
     // Payload after the prefilter, so the rule is what a create would post.
     // The lookup runs before split and before any POST. A hit skips both.
     const payload = buildMetaCustomAudiencePayload(audienceForWrite);
-    const { existing, failed: lookupFailed } = await listExistingForReuse(
-      audience.metaAdAccountId,
-      token,
-      options.fetchExistingAudiences ?? fetch,
-    );
-    if (lookupFailed && options.onLookupFailed === "refuse") throw new ExistingLookupUnavailableError(lookupFailed);
+    let existing: ListedMetaCustomAudience[] = [];
+    let nameHit: string | null = null;
+    if (options.nameLookup) {
+      nameHit = await findByShowName(audience.metaAdAccountId, token, String(payload.name ?? ""), options.nameLookup, options.fetchExistingAudiences ?? fetch);
+    } else {
+      const listed = await listExistingForReuse(
+        audience.metaAdAccountId,
+        token,
+        options.fetchExistingAudiences ?? fetch,
+      );
+      if (listed.failed && options.onLookupFailed === "refuse") throw new ExistingLookupUnavailableError(listed.failed);
+      existing = listed.existing;
+    }
     const notes: { recovery: string | null } = { recovery: null };
     const split: { row: MetaCustomAudience | null } = { row: null };
-    const outcome = await reuseOrCreateCustomAudience({
+    const outcome = nameHit ? { metaAudienceId: nameHit, reused: true } : await reuseOrCreateCustomAudience({
       payload,
       existing,
       create: async () => {
