@@ -59,7 +59,7 @@ function record(over: Partial<RetargetingInput> = {}): RetargetingRecord {
   return { eventId: i.eventId, eventCode: i.eventCode, plan: planRetargeting(i), input: i, proposalId: null };
 }
 
-function ctxWith(records: RetargetingRecord[], opts: { scope?: string; isMatas?: boolean; build?: Record<string, unknown> | null; owner?: string; archived?: string[]; outcome?: Partial<FunnelOutcome>; statuses?: Record<string, string> } = {}) {
+function ctxWith(records: RetargetingRecord[], opts: { scope?: string; isMatas?: boolean; build?: Record<string, unknown> | null; owner?: string; archived?: string[]; outcome?: Partial<FunnelOutcome>; statuses?: Record<string, string>; held?: string[] } = {}) {
   const calls: { read: unknown[]; create: { build: FunnelBuild; mode: string; approval: unknown }[] } = { read: [], create: [] };
   const deps: McpRetargetingDeps = {
     async campaignStatuses({ ids }) {
@@ -76,6 +76,7 @@ function ctxWith(records: RetargetingRecord[], opts: { scope?: string; isMatas?:
     },
   };
   const events = records.map((r) => ({ id: r.eventId, event_code: r.eventCode, user_id: opts.owner ?? OPERATOR, client_id: "c1", client: { name: "NX", status: "active" } }));
+  for (const code of opts.held ?? []) events.push({ id: `held-${code}`, event_code: code, user_id: OPERATOR, client_id: "9d4ebdfe-f062-4e4d-8982-1947829667b8", client: { name: "Louder / Parable", status: "active" } });
   for (const code of opts.archived ?? []) events.push({ id: `arch-${code}`, event_code: code, user_id: OPERATOR, client_id: "c2", client: { name: "4theFans", status: "archived" } });
   const db = fakeDb({ events, retargeting_builds: opts.build ? [{ event_id: EVENT, ...opts.build }] : [] });
   const ctx = { db, readers: {} as never, userId: OPERATOR, scope: opts.scope ?? SCOPE, isMatas: opts.isMatas ?? true, retargeting: deps, seesClientNames: true, today: "2026-11-26", now: new Date("2026-11-26T10:00:00Z") } as unknown as ToolContext;
@@ -100,7 +101,7 @@ test("plan_retargeting(code): TC8's line with both campaigns, the matched Pages 
   const out = await run(planRetargetingTool, ctx, { events: "NX26-RUDIMENTAL" });
   const message = String((out.data as { message: string }).message).split("\n");
   assert.deepEqual(message, [
-    "NX26-RUDIMENTAL · final month · 35 %: Wider £663.00 lifetime (£39.00 a day) · Retargeting £21.00 a day: Similar £3.15 · Cold £5.25 · Warm £7.35 · Hot £5.25 · audiences 1 made, 10 to make, 2 missing access",
+    "NX26-RUDIMENTAL · final month · 35 %: Wider £663.00 lifetime (£39.00 a day) · Retargeting £21.00 a day: Similar £0.00 · Cold £8.40 · Warm £7.35 · Hot £5.25 · audiences 1 made, 10 to make, 2 missing access",
     "Matched Pages · venue not matched · promoter NX Newcastle · lineup MC Fenn. If one is wrong, Matas corrects it before the build.",
     "Needs advertiser access: MC Fenn (Facebook) · MC Fenn (Instagram).",
     "Similar skipped: NX26-RUDIMENTAL has no genre, so its share goes to Cold.",
@@ -119,8 +120,9 @@ test("plan_retargeting(\"live\"): the counts first, then each show, then the ski
   const { ctx } = ctxWith([record(), built, noLink, soon, short]);
   const out = await run(planRetargetingTool, ctx, { events: "live" });
   const lines = String((out.data as { message: string }).message).split("\n");
-  assert.equal(lines[0], "5 shows on sale: 1 to build, 4 skipped.");
-  assert.match(lines[1]!, /^NX26-RUDIMENTAL · final month · 35 %/);
+  assert.equal(lines[0], "Louder / Parable is held for now, so its shows are left out.");
+  assert.equal(lines[1], "5 shows on sale: 1 to build, 4 skipped.");
+  assert.match(lines[2]!, /^NX26-RUDIMENTAL · final month · 35 %/);
   assert.deepEqual(lines.slice(-4), [
     "XMPL-ROOF · skipped: it already has a Wider or Retargeting campaign.",
     "XMPL-ATTIC · skipped: it has no ticket link.",
@@ -279,4 +281,21 @@ test("design's two tool descriptions (27 Nov), word for word, and plan_retargeti
   assert.equal(planRetargetingTool.title, "Plan each show's two campaigns");
   assert.equal(planRetargetingTool.description, "Read only. For one event code, a list of codes, or \"live\" (every show on sale or in presale, of a non-archived client): what each show's two campaigns, \"{code} · Wider\" and \"{code} · Retargeting\", would be today. Per show: the stretch and share; Wider's lifetime, end date and £ a day; Retargeting's £ a day and its split (Similar, Cold, Warm, Hot); audiences made, to make and missing advertiser access; the venue, promoter and lineup Pages it matched. Then, when they apply: Similar skipped and why, presale sign-ups left out, each existing prospecting campaign as keep, pause or fold into Wider, and the next stretch as a scheduled change. A show that can't be built is one skipped line with the reason. Nothing is sent to Meta or saved.");
   assert.equal(createShowCampaignsTool.description, "Makes one show's two campaigns as plan_retargeting plans them: \"{code} · Wider\" (Advantage+ audience, lifetime budget) and \"{code} · Retargeting\" (Similar, Cold, Warm and Hot, daily budgets), the missing audiences, and the show's live ads with its current copy. mode paused makes both paused and moves nothing. mode live checks the show's ceiling, switches both on and schedules each later stretch step (Retargeting up, Wider's remaining lifetime down). It's refused while the show's existing prospecting still runs; pausing or folding that is Matas's yes, and this tool never does it. Asked again, it carries on from what's made; a paused build asked as live goes live. Needs Matas's yes in this chat: ask him the show, paused or live, Wider's lifetime and Retargeting's £ a day, then pass approval with your question (asked) and his reply word for word (answer).");
+});
+
+test("Louder / Parable is held (Matas, 27 Nov): one held show is refused by plan_retargeting and by create_show_campaigns, before any read", async () => {
+  const { ctx, calls } = ctxWith([record()], { held: ["20261204CSA"] });
+  await refused(run(planRetargetingTool, ctx, { events: "20261204CSA" }), /^Refused: Louder \/ Parable is held for now\. Nothing was changed\.$/);
+  await refused(run(createShowCampaignsTool, ctx, { event: "20261204CSA", mode: "paused", approval: YES }), /^Refused: Louder \/ Parable is held for now\. Nothing was changed\.$/);
+  assert.deepEqual(calls.read, []);
+  assert.deepEqual(calls.create, []);
+});
+
+test("Louder / Parable is held: in a list its show is left out with the line at the top; the rest are planned", async () => {
+  const { ctx, calls } = ctxWith([record()], { held: ["20261204CSA"] });
+  const lines = String(((await run(planRetargetingTool, ctx, { events: ["NX26-RUDIMENTAL", "20261204CSA"] })).data as { message: string }).message).split("\n");
+  assert.equal(lines[0], "Louder / Parable is held for now, so its shows are left out.");
+  assert.match(lines[1]!, /^NX26-RUDIMENTAL · final month/);
+  assert.ok(!lines.some((line) => line.startsWith("20261204CSA")));
+  assert.deepEqual((calls.read[0] as { codes: string[] }).codes, ["NX26-RUDIMENTAL"]);
 });

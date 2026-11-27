@@ -399,6 +399,7 @@ const EXTERNAL_READERS: Record<string, readonly string[]> = {
   "lib/retargeting/funnel.ts": ["SPLIT_WITH_SIMILAR"],
   "lib/retargeting/funnel-view.ts": ["funnelSourcesOf", "genreWords"],
   "lib/retargeting/funnel-words.ts": ["fill"],
+  "lib/retargeting/held.ts": ["HELD_CLIENTS", "HELD_CLIENT_IDS", "heldLine", "heldRefusal"],
   // Staged two-campaign record: the keep / pause / fold advice, the settings read-back's words and the flag (pure).
   "lib/retargeting/show-campaigns.ts": ["adviceLine", "adviseExisting", "foldFirstLine", "geoNotReadLine", "SHOW_CAMPAIGNS_RULED", "untickLine", "widerPlanLine"],
 };

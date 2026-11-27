@@ -31,6 +31,7 @@ import { fill } from "../../retargeting/funnel-words.ts";
 import { funnelSourcesOf, genreWords } from "../../retargeting/funnel-view.ts";
 import { adviseExisting, foldFirstLine, geoNotReadLine, untickLine } from "../../retargeting/show-campaigns.ts";
 import type { RetargetingRecord } from "../../retargeting/runner.ts";
+import { HELD_CLIENTS, HELD_CLIENT_IDS, heldLine, heldRefusal } from "../../retargeting/held.ts";
 import { approvalInput, requireMetaApproval } from "../meta/approval.ts";
 import { EVENT_WORDS } from "../meta/words.ts";
 import { ToolInputError, type McpTool, type ToolContext } from "../tool-types.ts";
@@ -90,6 +91,17 @@ function codesOf(value: unknown): string[] | null {
   } catch {
     throw new ToolInputError(EVENT_WORDS.refusedCode, { refused: "bad_code" });
   }
+}
+
+/** Explicit codes whose client is held (Matas, 27 Nov; lib/retargeting/held.ts): code (upper case) → the client's name. */
+async function heldCodes(ctx: ToolContext, codes: readonly string[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  if (!HELD_CLIENT_IDS.size || !codes.length) return out;
+  const res = await ctx.db.from("events").select("event_code, client_id").in("event_code", [...codes]);
+  for (const row of (res.error ? [] : (res.data ?? [])) as { event_code: string | null; client_id: string | null }[]) {
+    if (row.event_code && row.client_id && HELD_CLIENT_IDS.has(row.client_id)) out.set(row.event_code.toUpperCase(), HELD_CLIENTS.find((c) => c.id === row.client_id)!.name);
+  }
+  return out;
 }
 
 /** Explicit codes whose client is archived (the read leaves them out, as every cron does). */
@@ -155,7 +167,11 @@ export const planRetargetingTool: McpTool = {
   async run(ctx, args) {
     requireMetaScope(ctx);
     const deps = requireRetargeting(ctx);
-    const codes = codesOf(args.events);
+    let codes = codesOf(args.events);
+    // Held clients (Matas, 27 Nov): one held show is refused; in a list, held shows are left out with the line at the top.
+    const held = codes ? await heldCodes(ctx, codes) : new Map<string, string>();
+    if (codes && held.size && held.size === codes.length) throw new ToolInputError(heldRefusal([...held.values()][0]!), { refused: "held" });
+    if (codes) codes = codes.filter((code) => !held.has(code.toUpperCase()));
     const archived = codes ? await archivedCodes(ctx, codes) : new Set<string>();
     let read: Awaited<ReturnType<McpRetargetingDeps["read"]>>;
     try {
@@ -171,7 +187,8 @@ export const planRetargetingTool: McpTool = {
     const build = shows.filter((row) => !row.skipped);
     const skipped = shows.filter((row) => row.skipped);
     const ordered = [...build, ...skipped];
-    const lines = [...(codes ? [] : [planHead({ shows: shows.length, build: build.length, skipped: skipped.length })]), ...ordered.flatMap((row) => row.lines)];
+    const heldNames = codes ? [...new Set(held.values())] : HELD_CLIENTS.map((row) => row.name);
+    const lines = [...(heldNames.length ? [heldLine(heldNames)] : []), ...(codes ? [] : [planHead({ shows: shows.length, build: build.length, skipped: skipped.length })]), ...ordered.flatMap((row) => row.lines)];
     return {
       data: { message: lines.join("\n"), shows: ordered.map((row) => ({ code: row.code, skipped: row.skipped, lines: row.lines })) },
       summary: { scope: codes ? "codes" : "live", shows: shows.length, toBuild: build.length, skipped: skipped.length, reasons: Object.fromEntries([...new Set(skipped.map((row) => row.skipped))].map((reason) => [reason, skipped.filter((row) => row.skipped === reason).length])), metaGets: read.metaGets },
@@ -208,6 +225,8 @@ export const createShowCampaignsTool: McpTool = {
     const deps = requireRetargeting(ctx);
     const [code] = codesOf(args.event)!;
     const live = args.mode === "live";
+    const held = await heldCodes(ctx, [code!]);
+    if (held.size) throw new ToolInputError(heldRefusal([...held.values()][0]!), { code, refused: "held" });
     const archived = await archivedCodes(ctx, [code!]);
     if (archived.size) throw new ToolInputError(RT_CLAUDE_WORDS.refusedSkip(code!, "archived"), { code, refused: "archived" });
     let read: Awaited<ReturnType<McpRetargetingDeps["read"]>>;
