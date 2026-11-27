@@ -14,6 +14,8 @@
 import { ADVANTAGE_AUDIENCE_AGE_MAX, advantageAudienceAgeTargeting } from "../meta/adset.ts";
 import { showEndTime, type PurchaseMeta } from "../onsale-refresh/apply-purchase.ts";
 import { tierAdSetName, type Tier } from "./words.ts";
+import { META_INITIATE_CHECKOUT_EVENT } from "../meta/campaign.ts";
+import type { OptimisationEvent } from "./optimise-on.ts";
 
 export type RetargetingMeta = Pick<PurchaseMeta, "readCampaignBudget" | "readAd" | "createCreativeFromPost" | "createCampaign" | "createAdSet" | "createAd" | "updateCampaign" | "setAdSetActive" | "findCustomConversion" | "createCustomConversion"> & {
   /** GET /{adset}: its targeting (the tiers copy the location only). */
@@ -47,14 +49,17 @@ export function locationOf(targeting: Record<string, unknown> | null): Record<st
 /**
  * What the ad set optimises on: the show's purchase (its custom conversion
  * on an own domain), or for a presale show (TC7: "signing up is the goal")
- * the pixel's CompleteRegistration.
+ * the pixel's CompleteRegistration. `event` is the build's (optimise-on.ts):
+ * INITIATED_CHECKOUT is the pixel's own event, never a custom conversion
+ * (the Electric group's on-sale default, Matas 27 Nov).
  */
-export function promotedObject(args: { pixelId: string; customConversionId: string | null; presale?: boolean }): Record<string, string> {
-  if (args.presale) return { pixel_id: args.pixelId, custom_event_type: "COMPLETE_REGISTRATION" };
+export function promotedObject(args: { pixelId: string; customConversionId: string | null; presale?: boolean; event?: OptimisationEvent }): Record<string, string> {
+  if (args.presale || args.event === "COMPLETE_REGISTRATION") return { pixel_id: args.pixelId, custom_event_type: "COMPLETE_REGISTRATION" };
+  if (args.event === "INITIATED_CHECKOUT") return { pixel_id: args.pixelId, custom_event_type: META_INITIATE_CHECKOUT_EVENT };
   return args.customConversionId ? { pixel_id: args.pixelId, custom_conversion_id: args.customConversionId } : { pixel_id: args.pixelId, custom_event_type: "PURCHASE" };
 }
 
-export function tierAdSetPayload(args: { presale?: boolean; code: string; tier: Tier | string; campaignId: string; dailyMinor: number; pixelId: string; customConversionId: string | null; endDay: string; location: Record<string, unknown>; includeIds: string[]; excludeIds: string[]; name?: string; startTime?: string }): Record<string, unknown> {
+export function tierAdSetPayload(args: { presale?: boolean; event?: OptimisationEvent; code: string; tier: Tier | string; campaignId: string; dailyMinor: number; pixelId: string; customConversionId: string | null; endDay: string; location: Record<string, unknown>; includeIds: string[]; excludeIds: string[]; name?: string; startTime?: string }): Record<string, unknown> {
   return {
     name: args.name ?? tierAdSetName(args.code, args.tier as Tier),
     // RT17 (ops' option (c)): an arm's ad sets start with the Meta A/B test, so nothing delivers before the split.
@@ -99,7 +104,7 @@ export function tierAdSetPayload(args: { presale?: boolean; code: string; tier: 
  * lifetime budget, so the ad set carries none. Location expansion off is the
  * shared create's (createMetaAdSet → withGeoExpansionOff, #1401); it isn't set here.
  */
-export function widerAdSetPayload(args: { presale?: boolean; name: string; campaignId: string; pixelId: string; customConversionId: string | null; endDay: string; location: Record<string, unknown>; interests: { id: string; name: string }[]; suggestionIds: string[]; excludeIds: string[] }): Record<string, unknown> {
+export function widerAdSetPayload(args: { presale?: boolean; event?: OptimisationEvent; name: string; campaignId: string; pixelId: string; customConversionId: string | null; endDay: string; location: Record<string, unknown>; interests: { id: string; name: string }[]; suggestionIds: string[]; excludeIds: string[] }): Record<string, unknown> {
   return {
     name: args.name,
     campaign_id: args.campaignId,

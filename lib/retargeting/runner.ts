@@ -30,6 +30,7 @@ import { addDaysIso, planRun, todayLondon } from "../onsale-refresh/schedule.ts"
 import { CIRQLIN_HASHES_SECRET_ENV } from "../customer-lists/cirqlin-hashed.ts";
 import { customerListWritesEnabled, listTriggerAt, londonDate } from "../customer-lists/rules.ts";
 import { pixelRules, ruleChanges, tierSpecs, type SourceList, type SourcePage, type SourceSet } from "./audiences.ts";
+import { adSetsMadeOf } from "./optimise-on.ts";
 import { linksFallback, linksFromPages, otherLandingHosts, type PixelHosts, type ShowLink } from "./links.ts";
 import { refreshTokenFor, rewriteRules, ruleRewriteGates } from "./rule-rewrite.ts";
 import { localDay, pooled, type PooledRead } from "./test.ts";
@@ -343,7 +344,7 @@ export function funnelBuiltOf(row: FunnelBuildRow | undefined, wider: { remainin
   const runningWider = made && row.progress?.wider?.campaignId
     ? { lifetimeMinor: made.lifetimeMinor, dailyMinor: made.dailyMinor, daysLeft: made.daysLeft, endDay: made.endDay, steps: made.steps, adSets: made.adSets.length, remainingMinor: wider?.remainingMinor ?? null, doneDays: wider?.doneDays ?? [], showDailyMinor: row.build?.plan?.showDailyMinor }
     : null;
-  return { state: row.state, mode: row.mode, campaignId: row.meta_campaign_id ?? row.progress?.campaignId ?? null, tiers, took, wider: runningWider, similarRefused: row.progress?.similarRefused ?? null };
+  return { state: row.state, mode: row.mode, campaignId: row.meta_campaign_id ?? row.progress?.campaignId ?? null, tiers, took, wider: runningWider, similarRefused: row.progress?.similarRefused ?? null, optimisedOn: row.progress?.optimisedOn ?? null, adSetsMade: adSetsMadeOf(row.progress), optimiseOn: row.build?.optimiseOn ?? null };
 }
 
 /** The Wider steps whose scheduled change ran (funnel-apply's stepChanges key: rf:{event}:{day}:wider). */

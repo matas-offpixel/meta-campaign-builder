@@ -60,6 +60,8 @@ function input(over: Partial<RetargetingInput> = {}): RetargetingInput {
     where: { draftId: D_DRAFT, adAccountId: "act_123", campaignIds: ["4001"] },
     prospecting: [{ id: "5001", kind: "adset", name: "Broad · Advantage+", dailyMinor: 3600, adSets: 1 }, { id: "5002", kind: "adset", name: "Interests", dailyMinor: 2400, adSets: 1 }],
     madeAudiences: [],
+    // An Electric show optimises on InitiateCheckout: the pixel had it on the ticket site in 28 days.
+    pixelHosts: { any: ["skiddle.com"], pageView: ["skiddle.com"], checkout: ["skiddle.com"], registration: [] },
     ...over,
   };
 }
@@ -325,7 +327,7 @@ test("Drive ads and live ads in one build: one ad per creative, the artist ads k
   // The same creative in two ad sets is one ad.
   assert.deepEqual(build.copyAds!.map((ad) => ad.adId), ["120252046313640755", "120252046313720755", "120252593411570755"]);
   assert.equal(build.creatives!.ads.length, 2);
-  assert.equal(String((out.data as { message: string }).message).split("\n")[1], "Ads: 2 new ads from Drive (00 Artist Library › Ada North and NX Live (promoter)) and 3 of the show’s live ads (5 ads, 30 at most), the same in both campaigns, run from NX LOVES and Instagram nxloves (the Electric group’s Page for Newcastle). Motion - Text and Static: kept on Rudimental’s Page.");
+  assert.equal(String((out.data as { message: string }).message).split("\n")[2], "Ads: 2 new ads from Drive (00 Artist Library › Ada North and NX Live (promoter)) and 3 of the show’s live ads (5 ads, 30 at most), the same in both campaigns, run from NX LOVES and Instagram nxloves (the Electric group’s Page for Newcastle). Motion - Text and Static: kept on Rudimental’s Page.");
   assert.deepEqual((out.summary as { copiedAds: string[] }).copiedAds, build.copyAds!.map((ad) => ad.adId));
 });
 
@@ -378,7 +380,7 @@ test("over 10 live ads: the ruled refusal, not the input check's own error; one 
   assert.deepEqual(calls.create, []);
   const one = await setup();
   const out = await run(createShowCampaignsTool, one.ctx, { event: CODE, mode: "paused", approval: YES, creatives: CREATIVES, live_ad_ids: ["120252593411570755"] });
-  assert.equal(String((out.data as { message: string }).message).split("\n")[1], "Ads: 2 new ads from Drive (00 Artist Library › Ada North and NX Live (promoter)) and 1 of the show’s live ads (3 ads, 30 at most), the same in both campaigns, run from NX LOVES and Instagram nxloves (the Electric group’s Page for Newcastle).");
+  assert.equal(String((out.data as { message: string }).message).split("\n")[2], "Ads: 2 new ads from Drive (00 Artist Library › Ada North and NX Live (promoter)) and 1 of the show’s live ads (3 ads, 30 at most), the same in both campaigns, run from NX LOVES and Instagram nxloves (the Electric group’s Page for Newcastle).");
   const row = { build: one.calls.create[0]!.build, mode: "paused", state: "failed", progress: { campaignId: "1", ads: ["141"] }, meta_campaign_id: "1" };
   const again = await setup({ build: row });
   await refused(run(createShowCampaignsTool, again.ctx, { event: CODE, mode: "paused", approval: YES, live_ad_ids: ARTIST_ADS }), /already made from 2 Drive ads in 00 Artist Library › Ada North and NX Live \(promoter\) and 1 live ad, and/);

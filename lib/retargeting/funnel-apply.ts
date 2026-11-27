@@ -48,6 +48,7 @@ import { widerAdSetPayload, widerCampaignFields, locationOf, RT_AUDIENCE_BUILDIN
 import { type FunnelSpec, type SpecOptions, audiencesToMake, funnelAdSetName, funnelSpecs, FUNNEL_TIERS, FUNNEL_TIER_LABEL, SPLIT_WITH_SIMILAR, splitTotal, type FunnelAudience, type PageGroup, type FunnelSources, type FunnelStretch, type FunnelTier, type TakeLine, type TierMinor } from "./funnel.ts";
 import type { FunnelStepPlan } from "./funnel-plan.ts";
 import { fill } from "./funnel-words.ts";
+import { adSetsMadeOf, checkoutRefusal, resolveOptimisation, type CheckoutSeen, type OptimisationEvent, type OptimiseOn } from "./optimise-on.ts";
 import { BUILD_LOCK_MS, buildRunning, RF_STOP_WORDS, STEP_MARGIN_MS, type BuildRowState } from "./build-lock.ts";
 
 export { BUILD_LOCK_MS, buildRunning, RF_STOP_WORDS, STEP_MARGIN_MS };
@@ -91,6 +92,10 @@ export type FunnelBuild = {
   spec?: SpecOptions;
   /** TC7: a presale show — both campaigns optimise on sign-ups (CompleteRegistration). */
   presale?: boolean;
+  /** Matas, 27 Nov: what an on-sale show's ad sets optimise on (optimise-on.ts). Absent = the code's default: InitiateCheckout for the Electric group, else Purchase. */
+  optimiseOn?: OptimiseOn | null;
+  /** Whether the pixel had InitiateCheckout in 28 days, from the read the build was planned on. Absent = not checked (a line stored before 27 Nov). */
+  checkout?: CheckoutSeen | null;
   /** Matas, 27 Nov: every ad's website URL and URL parameters (destination.ts). Absent = the copied ads' own links. */
   destination?: Destination | null;
   /** Matas, 27 Nov: the ads made from Drive files instead of copying the show's live ads (show-creatives.ts). Absent = copied. */
@@ -355,6 +360,8 @@ export type FunnelDeps = FunnelSeams & {
 
 export type FunnelProgress = {
   customConversionId?: string;
+  /** The event the ad sets are made on (optimise-on.ts); once one exists the build keeps it. Absent on a build made before 27 Nov (Purchase, or CompleteRegistration in presale). */
+  optimisedOn?: OptimisationEvent;
   campaignId?: string;
   audiences?: Record<string, string>;
   /** Audiences the builder couldn't make yet (their tier built without them). */
@@ -634,7 +641,13 @@ async function applyFunnelOnce(deps: FunnelDeps, build: FunnelBuild, ctx: Funnel
   if (!gates.create) return fail(RF_APPLY_WORDS.switchedOff);
   if (!gates.audiences) return fail(RF_APPLY_WORDS.audiencesOff);
   if (live && !gates.money && !progress.active) return fail(RF_APPLY_WORDS.moneyOff);
-  if (build.customConversion && !progress.customConversionId && !customConversionCreateEnabled(deps.env)) return fail(RF_APPLY_WORDS.conversionOff);
+  // Matas, 27 Nov: the event the ad sets optimise on; ad sets already made keep theirs. InitiateCheckout needs the pixel to have it.
+  const optimisation = resolveOptimisation({ code: build.eventCode, presale: build.presale === true, stored: build.optimiseOn ?? null, madeOn: progress.optimisedOn ?? null, adSetsMade: adSetsMadeOf(progress) });
+  const noCheckout = checkoutRefusal(build.eventCode, optimisation, build.checkout);
+  if (noCheckout) return fail(noCheckout, { step: "checkout" });
+  // The custom conversion is the Purchase path's only (an own domain); InitiateCheckout and CompleteRegistration make none.
+  const conversionWanted = Boolean(build.customConversion) && optimisation.event === "PURCHASE";
+  if (conversionWanted && !progress.customConversionId && !customConversionCreateEnabled(deps.env)) return fail(RF_APPLY_WORDS.conversionOff);
   if (!build.adAccountId) return fail(RF_APPLY_WORDS.noAccount);
   if (build.endDay < ctx.today) return fail(RF_APPLY_WORDS.passed);
   const adAccountId = build.adAccountId;
@@ -712,8 +725,9 @@ async function applyFunnelOnce(deps: FunnelDeps, build: FunnelBuild, ctx: Funnel
   lock.prev = claimed.prev;
 
   try {
-    // 1. The custom conversion (own-domain path), reused by name.
-    if (build.customConversion && !progress.customConversionId) {
+    progress.optimisedOn = optimisation.event;
+    // 1. The custom conversion (own-domain path, Purchase only), reused by name.
+    if (conversionWanted && build.customConversion && !progress.customConversionId) {
       const spec = build.customConversion;
       Object.assign(at, { step: "custom_conversion", key: spec.name });
       progress.customConversionId = await withMetaWriteIdempotency(ctx.ledger, "refresh_custom_conversion_create", keyBase, async () => (await deps.meta.findCustomConversion(adAccountId, spec.name)) ?? deps.meta.createCustomConversion(adAccountId, { name: spec.name, pixelId: build.pixelId, domain: spec.domain }), { required: true });
@@ -793,7 +807,7 @@ async function applyFunnelOnce(deps: FunnelDeps, build: FunnelBuild, ctx: Funnel
       }
       const excludeIds = spec.excludes.map(idOf).filter((id): id is string => Boolean(id));
       Object.assign(at, { step: "adset", key: spec.tier });
-      const payload = tierAdSetPayload({ presale: build.presale === true, code: build.eventCode, tier: spec.tier as never, campaignId: progress.campaignId!, dailyMinor, pixelId: build.pixelId, customConversionId: progress.customConversionId ?? null, endDay: build.endDay, location, includeIds, excludeIds, name: funnelAdSetName(build.eventCode, spec.tier) });
+      const payload = tierAdSetPayload({ presale: build.presale === true, event: optimisation.event, code: build.eventCode, tier: spec.tier as never, campaignId: progress.campaignId!, dailyMinor, pixelId: build.pixelId, customConversionId: progress.customConversionId ?? null, endDay: build.endDay, location, includeIds, excludeIds, name: funnelAdSetName(build.eventCode, spec.tier) });
       const id = await withMetaWriteIdempotency(ctx.ledger, "refresh_adset_create", { ...keyBase, tier: spec.tier }, () => deps.meta.createAdSet(adAccountId, payload), { required: true });
       progress.adSets[spec.tier] = { id, dailyMinor };
       await saveProgress(deps, build, progress, { state: "building" });
@@ -831,7 +845,7 @@ async function applyFunnelOnce(deps: FunnelDeps, build: FunnelBuild, ctx: Funnel
       Object.assign(at, { step: "wider", key: null });
       return await stopped();
     }
-    if (build.wider) await buildWider(deps, build, progress, { ctx, adAccountId, location, creatives, keyBase, at, skipped, timeUp });
+    if (build.wider) await buildWider(deps, build, progress, { event: optimisation.event, ctx, adAccountId, location, creatives, keyBase, at, skipped, timeUp });
     progress.skipped = skipped;
     await saveProgress(deps, build, progress, { state: live ? "building" : "paused", ...(live ? {} : { mode: "paused" as const }) });
   } catch (err) {
@@ -921,7 +935,7 @@ class BuildTimeUp extends Error {
   }
 }
 
-async function buildWider(deps: FunnelDeps, build: FunnelBuild, progress: FunnelProgress, args: { ctx: { ledger: MetaWriteContext }; adAccountId: string; location: Record<string, unknown>; creatives: ReusedCreative[]; keyBase: Record<string, unknown>; at: At; skipped: NonNullable<FunnelProgress["skipped"]>; timeUp: () => boolean }): Promise<void> {
+async function buildWider(deps: FunnelDeps, build: FunnelBuild, progress: FunnelProgress, args: { event: OptimisationEvent; ctx: { ledger: MetaWriteContext }; adAccountId: string; location: Record<string, unknown>; creatives: ReusedCreative[]; keyBase: Record<string, unknown>; at: At; skipped: NonNullable<FunnelProgress["skipped"]>; timeUp: () => boolean }): Promise<void> {
   const wider = build.wider!;
   const { ctx, adAccountId, keyBase, at } = args;
   progress.wider ??= {};
@@ -964,7 +978,7 @@ async function buildWider(deps: FunnelDeps, build: FunnelBuild, progress: Funnel
     const excludeIds = set.excludeKeys.map(idOf).filter((id): id is string => Boolean(id));
     Object.assign(at, { step: "wider_adset", key: set.key });
     if (args.timeUp()) throw new BuildTimeUp();
-    const payload = widerAdSetPayload({ presale: build.presale === true, name: widerAdSetName(build.eventCode, set.key), campaignId: progress.wider.campaignId!, pixelId: build.pixelId, customConversionId: progress.customConversionId ?? null, endDay: build.wider?.endDay ?? build.endDay, location: args.location, interests: set.interests, suggestionIds, excludeIds });
+    const payload = widerAdSetPayload({ presale: build.presale === true, event: args.event, name: widerAdSetName(build.eventCode, set.key), campaignId: progress.wider.campaignId!, pixelId: build.pixelId, customConversionId: progress.customConversionId ?? null, endDay: build.wider?.endDay ?? build.endDay, location: args.location, interests: set.interests, suggestionIds, excludeIds });
     const id = await withMetaWriteIdempotency(ctx.ledger, "refresh_adset_create", { ...keyBase, wider: set.key }, () => deps.meta.createAdSet(adAccountId, payload), { required: true });
     progress.wider.adSets[set.key] = { id };
     await saveProgress(deps, build, progress, { state: "building" });
@@ -1125,7 +1139,9 @@ export async function addSimilarAtStep(deps: SimilarStepDeps, args: { build: Fun
     const similarIds = new Set(ids);
     const excludeIds = [...new Set([...Object.values(progress.audiences).filter((id) => !similarIds.has(id)), ...similar.excludes.flatMap((aud) => (aud.kind === "list" ? [aud.metaAudienceId] : []))])];
     const location = locationOf(build.geoFromAdsetId ? await deps.meta.readAdSetTargeting(build.geoFromAdsetId) : null);
-    const payload = tierAdSetPayload({ presale: build.presale === true, code: build.eventCode, tier: "similar" as never, campaignId: progress.campaignId, dailyMinor: split.tiers.similar, pixelId: build.pixelId, customConversionId: progress.customConversionId ?? null, endDay: build.endDay, location, includeIds: ids, excludeIds, name: funnelAdSetName(build.eventCode, "similar") });
+    // Similar joins a built campaign: it optimises on what the build's ad sets were made on.
+    const event = resolveOptimisation({ code: build.eventCode, presale: build.presale === true, stored: build.optimiseOn ?? null, madeOn: progress.optimisedOn ?? null, adSetsMade: true }).event;
+    const payload = tierAdSetPayload({ presale: build.presale === true, event, code: build.eventCode, tier: "similar" as never, campaignId: progress.campaignId, dailyMinor: split.tiers.similar, pixelId: build.pixelId, customConversionId: progress.customConversionId ?? null, endDay: build.endDay, location, includeIds: ids, excludeIds, name: funnelAdSetName(build.eventCode, "similar") });
     const adsetId = await withMetaWriteIdempotency(ledger, "refresh_adset_create", { ...keyBase, tier: "similar" }, () => deps.meta.createAdSet(adAccountId, payload), { required: true });
     await recordTierAdSet(fullDeps, { metaAdsetId: adsetId, campaignId: progress.campaignId, adAccountId, draftId: ledger.draftId ?? null, name: String(payload.name), dailyMinor: split.tiers.similar, tier: "similar" });
     const adIds = new Set(progress.ads ?? []);
