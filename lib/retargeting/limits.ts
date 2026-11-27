@@ -51,14 +51,21 @@ function aborted(signal: AbortSignal, what: string): { promise: Promise<never>; 
  * longer waited for. Rejects with TimedOut.
  */
 export async function within<T>(what: string, ms: number, run: (signal: AbortSignal) => Promise<T>, outer?: AbortSignal): Promise<T> {
-  const own = AbortSignal.timeout(ms);
-  const signal = outer ? AbortSignal.any([outer, own]) : own;
+  // A plain timer, not AbortSignal.timeout: that one doesn't hold the event loop open, so a read that never settles
+  // could end the process before its limit fires. Cleared once the read settles.
+  const own = new AbortController();
+  const timer = setTimeout(() => own.abort(), ms);
+  const signal = outer ? AbortSignal.any([outer, own.signal]) : own.signal;
   // A budget already spent starts nothing.
-  if (signal.aborted) throw new TimedOut(what);
+  if (signal.aborted) {
+    clearTimeout(timer);
+    throw new TimedOut(what);
+  }
   const stop = aborted(signal, what);
   try {
     return await Promise.race([run(signal), stop.promise]);
   } finally {
+    clearTimeout(timer);
     stop.done();
   }
 }

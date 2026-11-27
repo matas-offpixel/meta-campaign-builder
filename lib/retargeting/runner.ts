@@ -760,8 +760,10 @@ export async function runRetargetingRead(input: {
   const notRead = new Set<FrontUnread>();
   const unfinished: { eventId: string; eventCode: string | null; why: "show" | "total" }[] = [];
   const allUnfinished = () => events.map((event) => ({ eventId: event.id, eventCode: event.event_code, why: "total" as const }));
+  let frontTimer: ReturnType<typeof setTimeout> | null = null;
   const done = (records: RetargetingRecord[], metaCalls: number) => {
     if (totalTimer) clearTimeout(totalTimer);
+    if (frontTimer) clearTimeout(frontTimer);
     console.log(`[retargeting-read] done ok=${errors.length === 0} dry_run=${dryRun} day=${day} events=${events.length} proposed=${records.filter((row) => row.plan.state === "proposed").length} meta_calls=${metaCalls} errors=${errors.length}${limits ? ` ms=${ms(startedAt)} steps=${Object.entries(steps).map(([name, took]) => `${name}:${took}`).join(",")} unfinished=${unfinished.length} not_read=${[...notRead].join(",") || "none"}` : ""}`);
     return { ok: errors.length === 0, dryRun, day, events: events.length, records, skipped, metaCalls, errors, ...(limits ? { unfinished, notRead: [...notRead] } : {}) };
   };
@@ -777,7 +779,10 @@ export async function runRetargetingRead(input: {
   }
   const [raw, aux, sourceRows] = loaded;
   // The reads before the shows, side by side; the connector's Graph reads each within requestMs and all within frontMs.
-  const frontSignal = limits ? AbortSignal.any([total.signal, AbortSignal.timeout(limits.frontMs)]) : null;
+  // Plain timers (limits.ts within): AbortSignal.timeout doesn't hold the event loop open.
+  const front = new AbortController();
+  frontTimer = limits ? setTimeout(() => front.abort(), limits.frontMs) : null;
+  const frontSignal = limits ? AbortSignal.any([total.signal, front.signal]) : null;
   const frontGraph = input.graph && limits && frontSignal ? boundGraph(input.graph, { signal: frontSignal, requestMs: limits.requestMs }) : (input.graph ?? null);
   const emptyPurchases = { reads: new Map(), metaCalls: 0, cirqlinReads: 0, notes: [] as string[], budgets: { campaigns: new Map(), adSets: new Map() } };
   const purchasesRun = () =>
