@@ -202,6 +202,8 @@ const RETARGETING_SEAM_IMPORTS: Record<string, readonly string[]> = {
   "lib/meta/creative.ts": ["buildCreativePayload"],
   "lib/meta/server-token.ts": ["resolveServerMetaToken"],
   "lib/audiences/sources.ts": ["fetchAudienceMultiCampaignVideos"],
+  // A pure classifier of checkAudienceReadiness's read (populating is targetable; #1415): no read or write of its own.
+  "lib/audiences/ca-availability-recovery.ts": ["audienceTargetState"],
   "lib/notify/ads-manager-url.ts": ["buildMetaAdsManagerCampaignUrl"],
   "lib/onsale-refresh/apply.ts": ["plainMetaReason"],
   "lib/retargeting/runner.ts": ["runRetargetingRead"],
