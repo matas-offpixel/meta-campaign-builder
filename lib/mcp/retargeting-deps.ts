@@ -28,6 +28,7 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { checkAudienceReadiness, createMetaAd, createMetaAdSet, graphGetWithToken, graphPostWithToken } from "@/lib/meta/client";
+import { audienceTargetState } from "@/lib/audiences/ca-availability-recovery";
 import { graphMultiGetByIds } from "@/lib/meta/graph-multi-get";
 import { buildCreativePayload } from "@/lib/meta/creative";
 import type { MetaAdSetPayload } from "@/lib/meta/adset";
@@ -104,10 +105,8 @@ function funnelMetaFor(token: string): FunnelMeta {
     readAdSetTargeting: (adsetId) => graphGetWithToken<{ targeting?: Record<string, unknown> }>(`/${adsetId}`, { fields: "targeting" }, token, { maxAttempts: 1 }).then((row) => row?.targeting ?? null),
     async audienceState(audienceId) {
       const read = await checkAudienceReadiness(audienceId, token);
-      if (!read) return "ready";
-      if (read.populating) return "building";
-      if (!read.ready && /small/i.test(read.description)) return "too_small";
-      return read.ready ? "ready" : "building";
+      // Populating / processing are targetable (Meta); only deleted, unavailable or unreadable block.
+      return audienceTargetState(audienceId, read);
     },
     async listShowVideos(adAccountId, campaignIds) {
       return groupVideosKeepingUnpaged((await fetchAudienceMultiCampaignVideos(adAccountId, campaignIds, token)).videos);

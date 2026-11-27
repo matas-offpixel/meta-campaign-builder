@@ -157,6 +157,47 @@ export const CA_OP_POPULATING = 441;
 /** Meta operation_status: processing — short-lived; also valid for targeting. */
 export const CA_OP_PROCESSING = 400;
 
+/**
+ * One audience's state for putting it in a new ad set's targeting.
+ *   ready       — 200, or anything Meta returned that isn't one of the below
+ *   populating  — 441 / 400: targetable now (Meta: "You can start running ads
+ *                 with this audience straight away"), but no lookalike can be
+ *                 made from it yet
+ *   too_small   — Meta says it's too small to deliver to
+ *   unavailable — 411 (deleted) / 412 (unavailable)
+ *   unreadable  — the read failed
+ *   building    — not returned by `audienceTargetState`; kept for callers that wait
+ */
+export type AudienceTargetState = "ready" | "populating" | "building" | "too_small" | "unavailable" | "unreadable";
+
+/** True for the states an ad set may target. */
+export function targetable(state: AudienceTargetState): boolean {
+  return state === "ready" || state === "populating";
+}
+
+/**
+ * `checkAudienceReadiness`'s read as an `AudienceTargetState`: the same rule
+ * as `classifyCustomAudienceAvailability` (only 411 / 412 are dead), plus
+ * too small and an unreadable audience. Populating / processing are logged
+ * with the id and code.
+ */
+export function audienceTargetState(
+  audienceId: string,
+  read: { code: number; description: string } | null,
+  log: (line: string) => void = console.info,
+): AudienceTargetState {
+  if (!read) return "unreadable";
+  if (read.code === 200) return "ready";
+  if (read.code === CA_OP_DELETED || read.code === CA_OP_UNAVAILABLE) return "unavailable";
+  if (/small/i.test(read.description)) return "too_small";
+  if (read.code === CA_OP_POPULATING || read.code === CA_OP_PROCESSING) {
+    log(`[audienceTargetState] ${audienceId} operation_status ${read.code} (${read.description}): targetable, not a lookalike source yet`);
+    return "populating";
+  }
+  log(`[audienceTargetState] ${audienceId} operation_status ${read.code} (${read.description}): targetable`);
+  return "ready";
+}
+
 export interface CustomAudienceStatusFields {
   id?: string;
   delivery_status?: { code: number; description?: string };

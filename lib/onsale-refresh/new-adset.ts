@@ -231,6 +231,8 @@ export function partialNewAdSet(k: number, n: number, reason: string): string {
 
 export const AUDIENCE_BUILDING = "Meta didn't take this — the audience is still being built. Retry in a few hours.";
 export const AUDIENCE_TOO_SMALL = "Meta didn't take this — the audience is too small to deliver.";
+// PENDING DESIGN (27 Nov): an audience Meta says is deleted or unavailable, or one that can't be read.
+export const AUDIENCE_UNAVAILABLE = "Meta didn't take this — an audience is deleted or unavailable on Meta, or couldn't be read. Retry later.";
 export const ALL_INTERESTS_RETIRED = "Meta didn't take this — none of the cluster's interests are offered any more.";
 
 // ── Targeting (never an edit: these build the new ad set's from the copied one) ──

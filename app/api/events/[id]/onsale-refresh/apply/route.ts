@@ -29,6 +29,7 @@ import { PICKER_BUCKET, copyPickedFile } from "@/lib/drive/picker";
 import { fetchAudienceMultiCampaignVideos } from "@/lib/audiences/sources";
 import { createAudienceDraft } from "@/lib/db/meta-custom-audiences";
 import { checkAudienceReadiness, createMetaAd, createMetaAdSet, createMetaCreative, getAdSetTargetingByIds, graphGetWithToken, graphPostWithToken } from "@/lib/meta/client";
+import { audienceTargetState } from "@/lib/audiences/ca-availability-recovery";
 import { checkLocationExpansion } from "@/lib/meta/geo-expansion";
 import { sanitiseInterests, type MetaAdSetPayload } from "@/lib/meta/adset";
 import { createMetaCustomAudience } from "@/lib/meta/audience-write";
@@ -204,10 +205,8 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       },
       async audienceState(audienceId) {
         const read = await checkAudienceReadiness(audienceId, token);
-        if (!read) return "ready";
-        if (read.populating) return "building";
-        if (!read.ready && /small/i.test(read.description)) return "too_small";
-        return read.ready ? "ready" : "building";
+        // Populating / processing are targetable (Meta); only deleted, unavailable or unreadable block.
+        return audienceTargetState(audienceId, read);
       },
     },
     async ensureAudience(spec: AudienceSpec, adAccountId: string) {

@@ -16,6 +16,7 @@ import {
   ALL_INTERESTS_RETIRED,
   AUDIENCE_BUILDING,
   AUDIENCE_TOO_SMALL,
+  AUDIENCE_UNAVAILABLE,
   NO_BUDGET_TO_START,
   SIGNUP_NOT_READ,
   appliedNewAdSet,
@@ -388,6 +389,26 @@ describe("P3 new ad sets: a missing standing default", () => {
     assert.equal(fake.meta.calls.filter((call) => call === "adset").length, 1, "one ad set");
     assert.equal(fake.meta.specs.length, 2, "seed and lookalike built once each");
   });
+
+  it("populating (441 / 400) is targetable: the ad set is made on it", async () => {
+    const mem = seed([defaultLine("registrations_lookalike")]);
+    const fake = fakes();
+    fake.meta.states.set("aud-lookalike", "populating");
+    await apply(mem, fake);
+    assert.equal(lineOf(mem, "registrations_lookalike").state, "applied");
+    assert.equal(fake.meta.calls.filter((call) => call === "adset").length, 1);
+  });
+
+  for (const state of ["unavailable", "unreadable"] as const) {
+    it(`${state}: fails before any ad set, and the audience is kept`, async () => {
+      const mem = seed([defaultLine("registrations_lookalike")]);
+      const fake = fakes();
+      fake.meta.states.set("aud-lookalike", state);
+      await apply(mem, fake);
+      assert.equal(lineOf(mem, "registrations_lookalike").reason, AUDIENCE_UNAVAILABLE);
+      assert.ok(!fake.meta.calls.includes("adset"));
+    });
+  }
 
   it("too small after creation: fails with the ruled sentence, and the audience is kept", async () => {
     const mem = seed([defaultLine("registrations_lookalike")]);
