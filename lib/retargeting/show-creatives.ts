@@ -148,15 +148,15 @@ export const MAX_LIVE_ADS = 10;
 export const MAX_BUILD_ADS = 30;
 
 /**
- * PENDING DESIGN (#1410 addendum, 27 Nov): the rows of
- * scratch/retargeting/words-show-creatives-2026-11-27-r2.tsv by key. The 36
- * ruled rows above stay as they are.
+ * Design's ruled words for the #1410 addendum (27 Nov), word for word: the rows of
+ * scratch/retargeting/words-show-creatives-2026-11-27-r2-ruled.tsv by key (a test
+ * pins every one against the list and its sha256). The 36 above stay as they are.
  */
 export const SHOW_CREATIVE_R2 = {
-  "claude.rt.ads.line.with_live": "Ads: {n} new ads from Drive ({folders}) and {m} of the show’s live ads, {total} of 30, the same in both campaigns, run from {identity}{why}.",
-  "claude.rt.ads.line.with_live.one": "Ads: {n} new ads from Drive ({folders}) and 1 of the show’s live ads, {total} of 30, the same in both campaigns, run from {identity}{why}.",
-  "claude.rt.ads.line.copied.one": "Ads: the show’s 1 live ad, copied into both campaigns, run from {identity}{why}.",
-  "claude.rt.ads.line.one.with_live": "Ads: 1 new ad from Drive ({folders}) and {m} of the show’s live ads, {total} of 30, the same in both campaigns, run from {identity}{why}.",
+  "claude.rt.ads.line.with_live": "Ads: {n} new ads from Drive ({folders}) and {m} of the show’s live ads ({total} ads, 30 at most), the same in both campaigns, run from {identity}{why}.",
+  "claude.rt.ads.line.with_live.one": "Ads: {n} new ads from Drive ({folders}) and 1 of the show’s live ads ({total} ads, 30 at most), the same in both campaigns, run from {identity}{why}.",
+  "claude.rt.ads.line.copied.one": "Ads: the show’s one live ad, copied into both campaigns, run from {identity}{why}.",
+  "claude.rt.ads.line.one.with_live": "Ads: 1 new ad from Drive ({folders}) and {m} of the show’s live ads ({total} ads, 30 at most), the same in both campaigns, run from {identity}{why}.",
   "claude.rt.ads.kept": " {ads}: kept on {artist}’s Page.",
   "claude.rt.ads.too_many_total": "Refused: up to 30 ads in a build (Drive and live ads together), and this asks for {n}. Nothing was changed.",
   "claude.rt.ads.live_not_show": "Refused: ad {id} isn’t one of {code}’s ads on its ad account. Give ids from get_live. Nothing was changed.",
@@ -166,7 +166,9 @@ export const SHOW_CREATIVE_R2 = {
   "claude.rt.ads.upload_failed.one": "1 Drive file couldn’t be uploaded to Meta, so no campaign, ad set or ad was made",
   "claude.rt.ads.video_not_ready.one": "1 video from Drive wasn’t ready on Meta in time, so no campaign, ad set or ad was made; ask again in a few minutes",
   "claude.rt.ads.not_read.live": "Not read in time, so not shown: the show’s live ads. Try again.",
-  "claude.rt.ads.input.live_ad_ids": "Optional, one show only: up to 10 of the show's live ads (ids from get_live) to copy into both campaigns, one ad per creative. With creatives they run beside the Drive ads, up to 30 ads in all. An ad on a lineup artist's Page keeps that Page; every other one runs from identity's Page. Without creatives or live_ad_ids, every live ad is copied.",
+  "claude.rt.ads.input.live_ad_ids": "Optional, one show only: up to 10 of the show's live ads to copy into both campaigns (ids from get_live). With creatives they run beside the Drive ads, 30 ads at most in all. An ad on a lineup artist's Page keeps that Page; every other ad runs from identity's Page. Give neither creatives nor live_ad_ids and every live ad is copied.",
+  "claude.rt.ads.made_from.live.one": "{n} Drive ads in {folders} and 1 live ad",
+  "claude.rt.ads.live_too_many": "Refused: up to 10 live ads in live_ad_ids, and this asks for {n}. Nothing was changed.",
 } as const;
 
 const R2 = SHOW_CREATIVE_R2;
@@ -211,6 +213,7 @@ export const SHOW_CREATIVE_WORDS = {
     return fillWords(input.newAds === 1 ? R["claude.rt.ads.line.one"] : R["claude.rt.ads.line"], { ...vars, n: input.newAds }) + kept;
   },
   tooManyTotal: (n: number) => fillWords(R2["claude.rt.ads.too_many_total"], { n }),
+  liveTooMany: (n: number) => fillWords(R2["claude.rt.ads.live_too_many"], { n }),
   liveNotShow: (id: string, code: string) => fillWords(R2["claude.rt.ads.live_not_show"], { id, code }),
   liveUnread: (code: string) => fillWords(R2["claude.rt.ads.live_unread"], { code }),
   oneShow: R["claude.rt.ads.one_show"],
@@ -227,6 +230,7 @@ export const SHOW_CREATIVE_WORDS = {
   madeFrom: (creatives: ShowCreatives | null, live = 0) => {
     if (!creatives) return R["claude.rt.ads.made_from"][1];
     const vars = { n: creatives.ads.length, m: live, folders: list(creatives.folders) };
+    if (live === 1) return fillWords(R2["claude.rt.ads.made_from.live.one"], vars);
     if (live > 0) return fillWords(R2["claude.rt.ads.made_from.live"], vars);
     return fillWords(creatives.ads.length === 1 ? R2["claude.rt.ads.made_from.one"] : R["claude.rt.ads.made_from"][0], vars);
   },

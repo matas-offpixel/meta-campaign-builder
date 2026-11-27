@@ -72,8 +72,11 @@ export const identityInput = z
   .optional()
   .describe("Optional, one show only: the Page (and Instagram account) every ad in both campaigns runs from. Electric shows default to their city's Page: NX to NX LOVES (Newcastle), ES to Electric Studios (Sheffield), EBR to Electric Bristol (Bristol). Other shows run copied ads from each ad's own Page, and ads from Drive from the client's default Page. Once ads are made it can't be changed.");
 
-/** PENDING DESIGN: claude.rt.ads.input.live_ad_ids (straight marks, as input descriptions keep them). */
-export const liveAdIdsInput = z.array(z.string().regex(/^\d{5,32}$/)).max(MAX_LIVE_ADS).optional().describe(SHOW_CREATIVE_R2["claude.rt.ads.input.live_ad_ids"]);
+/**
+ * Ruled 27 Nov: claude.rt.ads.input.live_ad_ids (straight marks, as input descriptions keep them). The schema
+ * takes up to 100 so that more than 10 reaches claude.rt.ads.live_too_many, not the input check's own error.
+ */
+export const liveAdIdsInput = z.array(z.string().regex(/^\d{5,32}$/)).max(100).optional().describe(SHOW_CREATIVE_R2["claude.rt.ads.input.live_ad_ids"]);
 
 export type ParsedShowAds = { creatives: ShowCreativesInput | null; identity: { pageId: string; igId: string | null } | null; liveAdIds: string[] | null };
 
@@ -81,6 +84,11 @@ export type ParsedShowAds = { creatives: ShowCreativesInput | null; identity: { 
 export function parseShowAds(args: Record<string, unknown>): ParsedShowAds {
   const raw = (args.creatives ?? null) as Record<string, unknown> | null;
   let creatives: ShowCreativesInput | null = null;
+  const ids = Array.isArray(args.live_ad_ids) ? [...new Set(args.live_ad_ids.map((v) => String(v).trim()).filter(Boolean))] : [];
+  // The build's total first (Drive and live together, 30 at most), then each list's own cap (20 Drive ads, 10 live ads).
+  const asked = raw ? (Array.isArray(raw.file_ids) ? raw.file_ids.length : 0) + (Array.isArray(raw.pairs) ? raw.pairs.length : 0) : 0;
+  if (asked + ids.length > MAX_BUILD_ADS) throw new ToolInputError(SHOW_CREATIVE_WORDS.tooManyTotal(asked + ids.length), { refused: "too_many_ads" });
+  if (ids.length > MAX_LIVE_ADS) throw new ToolInputError(SHOW_CREATIVE_WORDS.liveTooMany(ids.length), { refused: "too_many_live_ads" });
   if (raw) {
     const fileIds = [...new Set((Array.isArray(raw.file_ids) ? raw.file_ids : []).map((f) => String(f).trim()).filter(Boolean))];
     const pairs = (Array.isArray(raw.pairs) ? raw.pairs : [])
@@ -100,9 +108,6 @@ export function parseShowAds(args: Record<string, unknown>): ParsedShowAds {
   }
   const id = (args.identity ?? null) as Record<string, unknown> | null;
   const identity = id && typeof id.page_id === "string" ? { pageId: id.page_id, igId: typeof id.ig_account_id === "string" ? id.ig_account_id : null } : null;
-  const ids = Array.isArray(args.live_ad_ids) ? [...new Set(args.live_ad_ids.map((v) => String(v).trim()).filter(Boolean))] : [];
-  const total = (creatives ? creatives.fileIds.length + creatives.pairs.length : 0) + ids.length;
-  if (total > MAX_BUILD_ADS) throw new ToolInputError(SHOW_CREATIVE_WORDS.tooManyTotal(total), { refused: "too_many_ads" });
   return { creatives, identity, liveAdIds: ids.length ? ids : null };
 }
 

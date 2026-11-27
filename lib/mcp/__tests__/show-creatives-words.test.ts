@@ -90,21 +90,30 @@ test("straight marks in tool and input descriptions; curly in everything else Cl
   }
 });
 
-// ── The addendum's new rows (PENDING DESIGN): scratch/retargeting/words-show-creatives-2026-11-27-r2.tsv ──
+// ── The addendum's rows, ruled 27 Nov: scratch/retargeting/words-show-creatives-2026-11-27-r2-ruled.tsv ──
 
-const R2_FILE = new URL("../../../scratch/retargeting/words-show-creatives-2026-11-27-r2.tsv", import.meta.url);
+const R2_FILE = new URL("../../../scratch/retargeting/words-show-creatives-2026-11-27-r2-ruled.tsv", import.meta.url);
+const R2_SHA256 = "40b05e1c4a86badbc7324a92d7dfcff2c692f60a71a36e96b02a69a5ee413332";
 
-test("r2: every new row is in code word for word, none of them a ruled key, the ruled 36 untouched", () => {
-  const r2 = new Map(readFileSync(R2_FILE, "utf8").split("\n").slice(1).filter(Boolean).map((line) => line.split("\t")).map((cols) => [cols[0]!, cols[2]!] as const));
+test("r2: the second ruled list is the one design ruled (sha256), 16 rows, every one in code word for word; the first 36 untouched", () => {
+  const raw2 = readFileSync(R2_FILE);
+  assert.equal(createHash("sha256").update(raw2).digest("hex"), R2_SHA256);
+  const r2 = new Map(raw2.toString("utf8").split("\n").slice(1).filter(Boolean).map((line) => line.split("\t")).map((cols) => [cols[0]!, cols[2]!] as const));
+  assert.equal(r2.size, 16);
   assert.deepEqual([...r2.keys()].sort(), Object.keys(SHOW_CREATIVE_R2).sort());
   for (const [key, words] of r2) {
     assert.equal((SHOW_CREATIVE_R2 as Record<string, string>)[key], words, key);
-    assert.ok(!rows.has(key), `${key} is a ruled key`);
+    assert.ok(!rows.has(key), `${key} is a key of the first list`);
     if (key.includes(".input.")) assert.doesNotMatch(words, /[‘’“”]/, key);
     else assert.doesNotMatch(words, /'/, key);
   }
   assert.equal((liveAdIdsInput as unknown as { description?: string }).description, r2.get("claude.rt.ads.input.live_ad_ids"));
   for (const tool of [planRetargetingTool, createShowCampaignsTool]) assert.equal(((tool.inputSchema as unknown as Record<string, { description?: string }>).live_ad_ids)?.description, r2.get("claude.rt.ads.input.live_ad_ids"));
+});
+
+test("no PENDING list is left beside the ruled ones", () => {
+  assert.throws(() => readFileSync(new URL("../../../scratch/retargeting/words-show-creatives-2026-11-27-r2.tsv", import.meta.url)));
+  assert.throws(() => readFileSync(new URL("../../../scratch/retargeting/words-show-creatives-2026-11-27.tsv", import.meta.url)));
 });
 
 test("NX26-RUDIMENTAL's line, as the tools render it (curly marks, as the list has them)", async () => {
@@ -118,6 +127,6 @@ test("NX26-RUDIMENTAL's line, as the tools render it (curly marks, as the list h
   // The addendum: Final tickets pack + Xmas ads (7 × 9:16, the BOARD preview left out) = 20, and the 4 artist ads (one per creative) = 24.
   assert.equal(
     SHOW_CREATIVE_WORDS.line({ code: "NX26-RUDIMENTAL", newAds: 20, copied: 4, folders: ["Final tickets pack › Statics · Videos", "2026-12-12 Rudimental [NX26-RUDIMENTAL] › Xmas ads"], identity, withLive: true, kept: [{ artist: "Rudimental", ads: ["Motion - Text", "Static", "Motion - No Text"] }] }),
-    "Ads: 20 new ads from Drive (Final tickets pack › Statics · Videos and 2026-12-12 Rudimental [NX26-RUDIMENTAL] › Xmas ads) and 4 of the show’s live ads, 24 of 30, the same in both campaigns, run from NX LOVES and Instagram nxloves (the Electric group’s Page for Newcastle). Motion - Text, Static and Motion - No Text: kept on Rudimental’s Page.",
+    "Ads: 20 new ads from Drive (Final tickets pack › Statics · Videos and 2026-12-12 Rudimental [NX26-RUDIMENTAL] › Xmas ads) and 4 of the show’s live ads (24 ads, 30 at most), the same in both campaigns, run from NX LOVES and Instagram nxloves (the Electric group’s Page for Newcastle). Motion - Text, Static and Motion - No Text: kept on Rudimental’s Page.",
   );
 });
