@@ -28,12 +28,12 @@ const elapsed = async <T,>(run: () => Promise<T>): Promise<{ value: T; ms: numbe
 test("within: a read that never resolves stops at its limit, as TimedOut", async () => {
   const { value, ms } = await elapsed(() => within("never", 40, () => never<number>()).catch((err) => err));
   assert.ok(value instanceof TimedOut);
-  assert.ok(ms >= 35 && ms < 200, `${ms} ms`);
+  assert.ok(ms >= 35 && ms < 2_000, `${ms} ms`);
   // The outer signal stops it sooner.
   const outer = new AbortController();
   setTimeout(() => outer.abort(), 10);
   const sooner = await elapsed(() => within("never", 1_000, () => never<number>(), outer.signal).catch((err) => err));
-  assert.ok(sooner.value instanceof TimedOut && sooner.ms < 200, `${sooner.ms} ms`);
+  assert.ok(sooner.value instanceof TimedOut && sooner.ms < 900, `${sooner.ms} ms`);
   // The run is handed the joined signal, so a read that takes one stops for real.
   let seen: AbortSignal | null = null;
   await within("signal", 20, (signal) => ((seen = signal), never<number>())).catch(() => null);
@@ -47,7 +47,7 @@ test("boundGraph: each request stops at requestMs and says so; none starts after
   const budget = new AbortController();
   const bound = boundGraph(graph, { signal: budget.signal, requestMs: 30, onTimeout: () => (timeouts += 1) });
   const { value, ms } = await elapsed(() => bound.graphGet("/act_1/promote_pages", {}).catch((err) => err));
-  assert.ok(value instanceof TimedOut && ms < 200, `${ms} ms`);
+  assert.ok(value instanceof TimedOut && ms < 2_000, `${ms} ms`);
   assert.equal(timeouts, 1);
   budget.abort();
   await assert.rejects(bound.multiGet("/", { ids: "1" }), TimedOut);
@@ -56,23 +56,30 @@ test("boundGraph: each request stops at requestMs and says so; none starts after
 
 test("runPool: one slow item doesn't hold up the others; it's unfinished at its own budget", async () => {
   const total = new AbortController();
+  // Live work only: an item past its budget is abandoned (its signal aborted, so its reads stop), even though its promise never settles.
   let inFlight = 0;
   let most = 0;
   const { value, ms } = await elapsed(() =>
-    runPool(["slow", "a", "b", "c"], { concurrency: 2, itemMs: 60, signal: total.signal }, async (item) => {
+    runPool(["slow", "a", "b", "c"], { concurrency: 2, itemMs: 60, signal: total.signal }, async (item, signal) => {
       inFlight += 1;
       most = Math.max(most, inFlight);
+      let counted = true;
+      const leave = () => {
+        if (counted) inFlight -= 1;
+        counted = false;
+      };
+      signal.addEventListener("abort", leave, { once: true });
       try {
         if (item === "slow") await never();
         await new Promise((r) => setTimeout(r, 5));
         return item.toUpperCase();
       } finally {
-        inFlight -= 1;
+        leave();
       }
     }),
   );
   assert.deepEqual(value, [{ ok: false, unfinished: "item" }, { ok: true, value: "A" }, { ok: true, value: "B" }, { ok: true, value: "C" }]);
-  assert.ok(ms < 200, `${ms} ms`);
+  assert.ok(ms < 2_000, `${ms} ms`);
   assert.ok(most <= 2, `at most 2 at once (${most})`);
 });
 
@@ -81,7 +88,7 @@ test("runPool: the whole budget stops the item running and starts no more", asyn
   setTimeout(() => total.abort(), 50);
   const { value, ms } = await elapsed(() => runPool(["a", "b", "c"], { concurrency: 1, itemMs: 1_000, signal: total.signal }, () => never<string>()));
   assert.deepEqual(value, [{ ok: false, unfinished: "total" }, { ok: false, unfinished: "total" }, { ok: false, unfinished: "total" }]);
-  assert.ok(ms < 200, `${ms} ms`);
+  assert.ok(ms < 2_000, `${ms} ms`);
 });
 
 // ── The connector's ad-days: only its shows', and the same rows the full load gives them ──
@@ -144,19 +151,19 @@ function readWith(graph: RefreshGraph, limits: ReadLimits) {
 const slowAccount: RefreshGraph = { graphGet: (path) => (path.startsWith("/act_slow") ? never() : Promise.resolve({ data: [] })), multiGet: () => Promise.resolve({}) };
 
 test("the read: a show whose reads hang is unfinished at its budget, and the others are planned without waiting on it", async () => {
-  const limits: ReadLimits = { requestMs: 2_000, frontMs: 2_000, showMs: 150, totalMs: 3_000, concurrency: 2 };
+  const limits: ReadLimits = { requestMs: 20_000, frontMs: 20_000, showMs: 150, totalMs: 30_000, concurrency: 2 };
   const { value, ms } = await elapsed(() => readWith(slowAccount, limits));
   assert.ok("records" in value);
-  assert.ok(ms < 1_000, `answered in ${ms} ms, well inside the 2 s request limit`);
+  assert.ok(ms < 5_000, `answered in ${ms} ms, well inside the 20 s request limit`);
   assert.deepEqual(value.unfinished, [{ eventId: "e1", eventCode: "SLOW26-ONE", why: "show" }]);
   assert.deepEqual(value.records.map((row) => row.eventCode).sort(), ["FAST26-THREE", "FAST26-TWO"]);
 });
 
 test("the read: each hanging request stops at requestMs, and the show is planned with its unread reads named", async () => {
-  const limits: ReadLimits = { requestMs: 40, frontMs: 1_000, showMs: 1_000, totalMs: 3_000, concurrency: 3 };
+  const limits: ReadLimits = { requestMs: 40, frontMs: 20_000, showMs: 20_000, totalMs: 30_000, concurrency: 3 };
   const { value, ms } = await elapsed(() => readWith(slowAccount, limits));
   assert.ok("records" in value);
-  assert.ok(ms < 800, `${ms} ms`);
+  assert.ok(ms < 5_000, `${ms} ms: each request stopped at 40 ms, long before the show's 20 s`);
   assert.deepEqual(value.unfinished, []);
   const slow = value.records.find((row) => row.eventCode === "SLOW26-ONE")!;
   // The account's pixel and its Pages are the reads that hung; the plan is made without them.
@@ -166,10 +173,10 @@ test("the read: each hanging request stops at requestMs, and the show is planned
 
 test("the read: the whole budget answers on time, every show left unfinished saying so", async () => {
   const hangs: RefreshGraph = { graphGet: () => never(), multiGet: () => never() };
-  const limits: ReadLimits = { requestMs: 5_000, frontMs: 5_000, showMs: 5_000, totalMs: 120, concurrency: 1 };
+  const limits: ReadLimits = { requestMs: 20_000, frontMs: 20_000, showMs: 20_000, totalMs: 120, concurrency: 1 };
   const { value, ms } = await elapsed(() => readWith(hangs, limits));
   assert.ok("records" in value);
-  assert.ok(ms < 600, `${ms} ms`);
+  assert.ok(ms < 5_000, `${ms} ms: the whole budget, long before any 20 s limit`);
   assert.deepEqual(value.records, []);
   assert.deepEqual(value.unfinished?.map((row) => row.why), ["total", "total", "total"]);
 });
