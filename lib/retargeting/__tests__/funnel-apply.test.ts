@@ -664,3 +664,69 @@ describe("Matas, 27 Nov: the Electric group's new Drive ads, run from the city's
     for (const kind of ["createCampaign", "createAdSet", "createAd", "createAudience"]) assert.deepEqual(names(t.calls, kind), [], kind);
   });
 });
+
+describe("#1410 addendum (Matas, 27 Nov): Drive ads and the show's live ads together, artist ads kept on their Page", () => {
+  const NX_LOVES = { pageId: "259905047197071", igId: "17841460869627228", pageName: "NX LOVES", igUsername: "nxloves", source: "electric" as const };
+  const DEST = { link: "https://www.rudimental-newcastle.com/", urlTags: "utm_source=meta&utm_campaign={{campaign.name}}" };
+  // 1002 is Rudimental's Page in SOURCES (a lineup account); 1001 is NX Newcastle (the promoter's).
+  const ADS: Record<string, { name: string; creativeId: string }> = {
+    "8001": { name: "Motion - Text", creativeId: "cr-artist" },
+    "8002": { name: "Motion - Text", creativeId: "cr-artist" },
+    "8003": { name: "Announce", creativeId: "cr-nx" },
+  };
+  const CREATIVES: Record<string, Record<string, unknown>> = {
+    "cr-artist": { name: "Motion - Text", object_story_spec: { page_id: "1002", instagram_user_id: "ig-rudi", video_data: { video_id: "v1", image_hash: "h1", message: "Rudimental", call_to_action: { type: "BUY_TICKETS", value: { link: "https://www.skiddle.com/e/1" } } } } },
+    "cr-nx": { name: "Announce", object_story_spec: { page_id: "1001", instagram_user_id: "ig1", link_data: { image_hash: "h2", message: "NX", link: "https://www.skiddle.com/e/1", call_to_action: { type: "BOOK_TRAVEL", value: { link: "https://www.skiddle.com/e/1" } } } } },
+  };
+  const DRIVE = { key: "k1", input: { fileIds: ["f1"], pairs: [], primaryText: null, headline: null, cta: null }, folders: ["Final tickets pack › Videos"], ads: [{ key: "f1", name: "final-push", creative: { id: "d1", name: "final-push", identity: { pageId: "1001", instagramAccountId: "" }, destinationUrl: "https://www.skiddle.com/e/1", assetVariations: [] } as never }] };
+
+  function withLive(t: ReturnType<typeof setup>) {
+    const made: Record<string, unknown>[] = [];
+    const ads: string[] = [];
+    const createAd = t.deps.meta.createAd;
+    t.deps.meta = {
+      ...t.deps.meta,
+      readAd: async (adId) => (t.calls.push(["readAd", adId]), { id: adId, name: ADS[adId]!.name, creativeId: ADS[adId]!.creativeId, effectiveStatus: "ACTIVE", objectStoryId: null }),
+      readCreative: async (id) => structuredClone(CREATIVES[id]!),
+      createCreative: async (_a, payload) => (made.push(payload), `new-${made.length}`),
+      createDraftCreative: async () => "drive-1",
+      createAd: async (a, ad) => (ads.push(String((ad.creative as { creative_id?: string }).creative_id)), createAd(a, ad)),
+    };
+    return { made, ads };
+  }
+  const copyAds = Object.entries(ADS).map(([adId, row]) => ({ adId, name: row.name }));
+
+  it("Drive and live ads in one build; the artist ad keeps Rudimental's Page (its own creative), the NX ad moves to NX Loves; one ad per creative", async () => {
+    const t = setup();
+    const { made, ads } = withLive(t);
+    const out = await applyFunnel(t.deps, { ...twoCampaignBuild(), creatives: DRIVE, identity: NX_LOVES, copyAds }, t.ctx("paused"));
+    assert.equal(out.state, "applied", out.reason ?? "");
+    // The artist creative is used as it is (no rebuild); the NX one is rebuilt once on NX Loves.
+    assert.equal(made.length, 1);
+    assert.deepEqual((made[0] as { object_story_spec: { page_id: string; instagram_user_id: string } }).object_story_spec.page_id, NX_LOVES.pageId);
+    const adSets = names(t.calls, "createAdSet").length;
+    // Three creatives in every ad set: the Drive ad, the artist ad (once, though two ads share it) and the moved NX ad.
+    assert.equal(ads.length, adSets * 3);
+    assert.deepEqual([...new Set(ads)].sort(), ["cr-artist", "drive-1", "new-1"]);
+  });
+
+  it("the destination goes on the copied ads too: the artist ad rebuilt on its own Page, the NX ad on NX Loves, both with the link and url_tags", async () => {
+    const t = setup();
+    const { made } = withLive(t);
+    await applyFunnel(t.deps, { ...twoCampaignBuild(), creatives: DRIVE, identity: NX_LOVES, copyAds, destination: DEST }, t.ctx("paused"));
+    assert.equal(made.length, 2);
+    const byPage = Object.fromEntries(made.map((p) => [(p as { object_story_spec: { page_id: string } }).object_story_spec.page_id, p as { url_tags: string; object_story_spec: Record<string, { call_to_action?: { value: { link: string } }; link?: string }> }]));
+    assert.deepEqual(Object.keys(byPage).sort(), ["1002", NX_LOVES.pageId].sort());
+    assert.equal(byPage["1002"]!.object_story_spec.video_data!.call_to_action!.value.link, DEST.link);
+    assert.equal(byPage[NX_LOVES.pageId]!.object_story_spec.link_data!.link, DEST.link);
+    for (const p of Object.values(byPage)) assert.equal(p.url_tags, DEST.urlTags);
+  });
+
+  it("creatives without copyAds: the Drive ads alone, no live ad read", async () => {
+    const t = setup();
+    const { ads } = withLive(t);
+    await applyFunnel(t.deps, { ...twoCampaignBuild(), creatives: DRIVE, identity: NX_LOVES }, t.ctx("paused"));
+    assert.deepEqual(names(t.calls, "readAd"), []);
+    assert.deepEqual([...new Set(ads)], ["drive-1"]);
+  });
+});

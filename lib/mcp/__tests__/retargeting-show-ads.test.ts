@@ -25,6 +25,16 @@ const CODE = "NX27-GLITTERBOX";
 const YES = { asked: "Make NX27-GLITTERBOX · Wider and · Retargeting paused, with 2 ads from Drive run from NX Loves?", answer: "yes, paused" };
 const NX_LOVES = { id: "259905047197071", name: "NX LOVES ", igId: "17841460869627228", igUsername: "nxloves" };
 const OTHER_PAGE = { id: "1001", name: "NX Newcastle", igId: "ig1", igUsername: "nxnewcastle" };
+const RUDIMENTAL_PAGE = "156873374377231";
+/** The show's live ads as readAds reads them: three artist ads (one creative in two ad sets), one on the city Page, one another show's. */
+const LIVE = {
+  "120252046313640755": { name: "Motion - Text", accountId: "act_123", campaignId: "4001", campaignName: "[NX27-GLITTERBOX] On Sale – Lifetime", creativeId: "c1", pageId: RUDIMENTAL_PAGE, fromPost: false },
+  "120252046313640756": { name: "Motion - Text", accountId: "act_123", campaignId: "4001", campaignName: "[NX27-GLITTERBOX] On Sale – Lifetime", creativeId: "c1", pageId: RUDIMENTAL_PAGE, fromPost: false },
+  "120252046313720755": { name: "Static", accountId: "act_123", campaignId: "4001", campaignName: "[NX27-GLITTERBOX] On Sale – Lifetime", creativeId: "c2", pageId: RUDIMENTAL_PAGE, fromPost: true },
+  "120252593411570755": { name: "Press shot", accountId: "act_123", campaignId: "4999", campaignName: "[NX27-GLITTERBOX] Lineup", creativeId: "c3", pageId: "259905047197071", fromPost: false },
+  "120252593411579999": { name: "Old post", accountId: "act_123", campaignId: "4001", campaignName: "[NX27-GLITTERBOX] On Sale – Lifetime", creativeId: "c4", pageId: "1001", fromPost: true },
+  "120299999999999999": { name: "Someone else's", accountId: "act_999", campaignId: "9001", campaignName: "[NX26-OTHER] Lineup", creativeId: "c9", pageId: RUDIMENTAL_PAGE, fromPost: false },
+} as const;
 const CREATIVES = { file_ids: ["file-lib-916"], pairs: [{ feed: "file-client-45", vertical: "file-client-916" }], headline: "Glitterbox Newcastle", cta: "book_now" as const };
 
 function input(over: Partial<RetargetingInput> = {}): RetargetingInput {
@@ -38,7 +48,7 @@ function input(over: Partial<RetargetingInput> = {}): RetargetingInput {
     read: { state: "platform_proposed", pixel: { id: "px1" }, pixelName: "NX Skiddle", platform: "Skiddle", domain: null } as never,
     last7SpendGbp: 420,
     minDailyMinor: null,
-    sources: { pixelId: "px1", links: [{ kind: "ticket", rule: "skiddle.com/e/1", host: "skiddle.com", name: "Skiddle", platform: "skiddle" }], videos: [], pages: [{ id: "1001", name: "NX Newcastle", igId: "ig1", kind: "promoter", hasRole: true }], lists: [] },
+    sources: { pixelId: "px1", links: [{ kind: "ticket", rule: "skiddle.com/e/1", host: "skiddle.com", name: "Skiddle", platform: "skiddle" }], videos: [], pages: [{ id: "1001", name: "NX Newcastle", igId: "ig1", kind: "promoter", hasRole: true }, { id: RUDIMENTAL_PAGE, name: "Rudimental", igId: "17841401779330825", kind: "lineup", hasRole: true }], lists: [] },
     existing: null,
     legacy: [],
     budgetGbp: null,
@@ -84,9 +94,13 @@ async function setup(opts: { code?: string; pages?: (typeof NX_LOVES)[]; build?:
   if (code !== CODE) await made.db.from("events").update({ event_code: code }).eq("id", EV_TGT);
   const drive = withBigFile(ctx.draft!.drive()!);
   ctx.draft = { ...ctx.draft!, drive: () => drive };
-  const calls = { create: [] as { build: FunnelBuild; mode: string }[], pages: [] as string[], sends: [] as CampaignDraft[], waited: [] as string[][] };
+  const calls = { create: [] as { build: FunnelBuild; mode: string }[], pages: [] as string[], sends: [] as CampaignDraft[], waited: [] as string[][], adReads: [] as string[][] };
   const records = [record({ eventCode: code })];
   const retargeting: McpRetargetingDeps = {
+    async readAds({ adIds }) {
+      calls.adReads.push([...adIds]);
+      return Object.fromEntries(adIds.map((id) => [id, (LIVE as Record<string, (typeof LIVE)[keyof typeof LIVE]>)[id] ?? null]));
+    },
     async campaignStatuses() {
       return {};
     },
@@ -166,7 +180,7 @@ test("create_show_campaigns, an NX show with no identity: every ad runs from NX 
   // No creatives: the live ads are copied (the funnel rebuilds them on the Page), nothing goes to Meta first.
   assert.equal(calls.create[0]!.build.creatives, null);
   assert.deepEqual(calls.sends, []);
-  assert.match(String((out.data as { message: string }).message), /\nAds: the show’s 1 live ads, copied into both campaigns, run from NX LOVES and Instagram nxloves \(the Electric group’s Page for Newcastle\)\.$/);
+  assert.match(String((out.data as { message: string }).message), /\nAds: the show’s 1 live ad, copied into both campaigns, run from NX LOVES and Instagram nxloves \(the Electric group’s Page for Newcastle\)\.$/);
 });
 
 test("create_show_campaigns: an explicit identity overrides the Electric default", async () => {
@@ -232,7 +246,7 @@ test("refused before any read: no files, over 20, a pair of one file; creatives 
 
 test("a file Meta doesn't take stops it before any campaign is made", async () => {
   const { ctx, calls } = await setup({ failSend: true });
-  await refused(run(createShowCampaignsTool, ctx, { event: CODE, mode: "paused", approval: YES, creatives: CREATIVES }), /^1 Drive files couldn’t be uploaded to Meta, so no campaign, ad set or ad was made\. Nothing was changed\.$/);
+  await refused(run(createShowCampaignsTool, ctx, { event: CODE, mode: "paused", approval: YES, creatives: CREATIVES }), /^1 Drive file couldn’t be uploaded to Meta, so no campaign, ad set or ad was made\. Nothing was changed\.$/);
   assert.deepEqual(calls.create, []);
 });
 
@@ -297,4 +311,59 @@ test("the ad account's Page list unread: plan_retargeting says so on the ads lin
   assert.equal(lines.at(-1), "Not read in time, so not shown: the ad account’s Pages. Try again.");
   await refused(run(createShowCampaignsTool, ctx, { event: CODE, mode: "paused", approval: YES, creatives: CREATIVES }), /^Refused: ad account act_123’s Pages couldn’t be read, so the Page can’t be checked\. Try again\. Nothing was changed\.$/);
   assert.deepEqual([calls.create, calls.sends], [[], []]);
+});
+
+
+// ── #1410 addendum (Matas, 27 Nov): "also include the existing artist ads" ──
+
+const ARTIST_ADS = ["120252046313640755", "120252046313640756", "120252046313720755", "120252593411570755"];
+
+test("Drive ads and live ads in one build: one ad per creative, the artist ads kept on the lineup artist's Page, the line says it (PENDING DESIGN)", async () => {
+  const { ctx, calls } = await setup();
+  const out = await run(createShowCampaignsTool, ctx, { event: CODE, mode: "paused", approval: YES, creatives: CREATIVES, live_ad_ids: ARTIST_ADS });
+  const build = calls.create[0]!.build;
+  // The same creative in two ad sets is one ad.
+  assert.deepEqual(build.copyAds!.map((ad) => ad.adId), ["120252046313640755", "120252046313720755", "120252593411570755"]);
+  assert.equal(build.creatives!.ads.length, 2);
+  assert.equal(String((out.data as { message: string }).message).split("\n")[1], "Ads: 2 new ads from Drive (00 Artist Library › Ada North and NX Live (promoter)) and 3 of the show’s live ads, 5 of 30, the same in both campaigns, run from NX LOVES and Instagram nxloves (the Electric group’s Page for Newcastle). Motion - Text and Static: kept on Rudimental’s Page.");
+  assert.deepEqual((out.summary as { copiedAds: string[] }).copiedAds, build.copyAds!.map((ad) => ad.adId));
+});
+
+test("plan_retargeting with creatives and live_ad_ids: the same line, reads only", async () => {
+  const { ctx, calls } = await setup();
+  const lines = String(((await run(planRetargetingTool, ctx, { events: CODE, creatives: CREATIVES, live_ad_ids: ARTIST_ADS })).data as { message: string }).message).split("\n");
+  assert.equal(lines.at(-1), "Ads: 2 new ads from Drive (00 Artist Library › Ada North and NX Live (promoter)) and 3 of the show’s live ads, 5 of 30, the same in both campaigns, run from NX LOVES and Instagram nxloves (the Electric group’s Page for Newcastle). Motion - Text and Static: kept on Rudimental’s Page.");
+  assert.deepEqual([calls.sends, calls.create], [[], []]);
+  assert.deepEqual(calls.adReads, [ARTIST_ADS]);
+});
+
+test("refused, nothing made: over 30 ads in a build; an ad that isn't the show's; a post-built ad that would have to move Page", async () => {
+  const { ctx, calls } = await setup();
+  const many = { file_ids: Array.from({ length: 20 }, (_, i) => `file-many-${i}x`) };
+  const live = Array.from({ length: 11 }, (_, i) => `1202525934115${String(i).padStart(5, "0")}`);
+  await refused(run(createShowCampaignsTool, ctx, { event: CODE, mode: "paused", approval: YES, creatives: many, live_ad_ids: live }), /^Refused: up to 30 ads in a build \(Drive and live ads together\), and this asks for 31\. Nothing was changed\.$/);
+  await refused(run(createShowCampaignsTool, ctx, { event: CODE, mode: "paused", approval: YES, creatives: CREATIVES, live_ad_ids: ["120299999999999999"] }), /^Refused: ad 120299999999999999 isn’t one of NX27-GLITTERBOX’s ads on its ad account\. Give ids from get_live\. Nothing was changed\.$/);
+  await refused(run(createShowCampaignsTool, ctx, { event: CODE, mode: "paused", approval: YES, creatives: CREATIVES, live_ad_ids: ["120252593411579999"] }), /^Old post runs from a post, so it can’t be moved to another Page; give creatives from Drive instead\. Nothing was changed\.$/);
+  assert.deepEqual([calls.create, calls.sends], [[], []]);
+});
+
+test("a post-built artist ad keeps its Page, so it's fine without a destination and refused with one (its link is the post's)", async () => {
+  const ok = await setup();
+  await run(createShowCampaignsTool, ok.ctx, { event: CODE, mode: "paused", approval: YES, live_ad_ids: ["120252046313720755"] });
+  assert.deepEqual(ok.calls.create[0]!.build.copyAds, [{ adId: "120252046313720755", name: "Static" }]);
+  const dest = await setup();
+  await refused(run(createShowCampaignsTool, dest.ctx, { event: CODE, mode: "paused", approval: YES, live_ad_ids: ["120252046313720755"], destination: { link: "https://glitterbox-newcastle.com/" } }), /^Static runs from a post, so its link is the post’s and can’t be changed\. Nothing was changed\.$/);
+  assert.deepEqual(dest.calls.create, []);
+});
+
+test("asked again with other live ads once ads exist: refused; the same ones carry on", async () => {
+  const first = await setup();
+  await run(createShowCampaignsTool, first.ctx, { event: CODE, mode: "paused", approval: YES, creatives: CREATIVES, live_ad_ids: ARTIST_ADS });
+  const row = { build: first.calls.create[0]!.build, mode: "paused", state: "failed", progress: { campaignId: "1", ads: ["141"] }, meta_campaign_id: "1" };
+  const same = await setup({ build: row });
+  await run(createShowCampaignsTool, same.ctx, { event: CODE, mode: "paused", approval: YES });
+  assert.deepEqual(same.calls.create[0]!.build.copyAds, row.build.copyAds);
+  assert.deepEqual(same.calls.sends, []);
+  const other = await setup({ build: row });
+  await refused(run(createShowCampaignsTool, other.ctx, { event: CODE, mode: "paused", approval: YES, live_ad_ids: ["120252593411570755"] }), /^Refused: NX27-GLITTERBOX’s ads are already made from 2 Drive ads in 00 Artist Library › Ada North and NX Live \(promoter\) and 3 live ads, and create_show_campaigns/);
 });

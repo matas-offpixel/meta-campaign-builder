@@ -143,6 +143,37 @@ export const SHOW_CREATIVE_RULED = {
 
 const R = SHOW_CREATIVE_RULED;
 
+/** At most 10 of the show's live ads beside the Drive ads, and 30 ads in a build, Drive and copied together (Matas, 27 Nov). */
+export const MAX_LIVE_ADS = 10;
+export const MAX_BUILD_ADS = 30;
+
+/**
+ * PENDING DESIGN (#1410 addendum, 27 Nov): the rows of
+ * scratch/retargeting/words-show-creatives-2026-11-27-r2.tsv by key. The 36
+ * ruled rows above stay as they are.
+ */
+export const SHOW_CREATIVE_R2 = {
+  "claude.rt.ads.line.with_live": "Ads: {n} new ads from Drive ({folders}) and {m} of the show’s live ads, {total} of 30, the same in both campaigns, run from {identity}{why}.",
+  "claude.rt.ads.line.with_live.one": "Ads: {n} new ads from Drive ({folders}) and 1 of the show’s live ads, {total} of 30, the same in both campaigns, run from {identity}{why}.",
+  "claude.rt.ads.line.copied.one": "Ads: the show’s 1 live ad, copied into both campaigns, run from {identity}{why}.",
+  "claude.rt.ads.line.one.with_live": "Ads: 1 new ad from Drive ({folders}) and {m} of the show’s live ads, {total} of 30, the same in both campaigns, run from {identity}{why}.",
+  "claude.rt.ads.kept": " {ads}: kept on {artist}’s Page.",
+  "claude.rt.ads.too_many_total": "Refused: up to 30 ads in a build (Drive and live ads together), and this asks for {n}. Nothing was changed.",
+  "claude.rt.ads.live_not_show": "Refused: ad {id} isn’t one of {code}’s ads on its ad account. Give ids from get_live. Nothing was changed.",
+  "claude.rt.ads.live_unread": "Refused: {code}’s live ads couldn’t be read, so their Pages can’t be checked. Try again. Nothing was changed.",
+  "claude.rt.ads.made_from.live": "{n} Drive ads in {folders} and {m} live ads",
+  "claude.rt.ads.made_from.one": "1 Drive ad in {folders}",
+  "claude.rt.ads.upload_failed.one": "1 Drive file couldn’t be uploaded to Meta, so no campaign, ad set or ad was made",
+  "claude.rt.ads.video_not_ready.one": "1 video from Drive wasn’t ready on Meta in time, so no campaign, ad set or ad was made; ask again in a few minutes",
+  "claude.rt.ads.not_read.live": "Not read in time, so not shown: the show’s live ads. Try again.",
+  "claude.rt.ads.input.live_ad_ids": "Optional, one show only: up to 10 of the show's live ads (ids from get_live) to copy into both campaigns, one ad per creative. With creatives they run beside the Drive ads, up to 30 ads in all. An ad on a lineup artist's Page keeps that Page; every other one runs from identity's Page. Without creatives or live_ad_ids, every live ad is copied.",
+} as const;
+
+const R2 = SHOW_CREATIVE_R2;
+
+/** The copied ads that keep a lineup artist's Page, by artist (the plan line's "kept on {artist}'s Page"). */
+export type KeptOnArtist = { artist: string; ads: string[] };
+
 /** {name} → value. */
 export function fillWords(template: string, vars: Record<string, string | number> = {}): string {
   return template.replace(/\{(\w+)\}/g, (all, key: string) => (key in vars ? String(vars[key]) : all));
@@ -169,11 +200,19 @@ export function whyWords(identity: ShowIdentity, code: string | null | undefined
 
 export const SHOW_CREATIVE_WORDS = {
   /** claude.rt.ads.line (.one, .copied): plan_retargeting's line after the destination line, and create's after the done line. */
-  line: (input: { code: string; newAds: number | null; copied: number; folders: readonly string[]; identity: ShowIdentity }) => {
+  line: (input: { code: string; newAds: number | null; copied: number; folders: readonly string[]; identity: ShowIdentity; withLive?: boolean; kept?: readonly KeptOnArtist[] }) => {
     const vars = { identity: identityWords(input.identity), why: whyWords(input.identity, input.code), folders: list(input.folders) };
-    if (input.newAds == null) return fillWords(R["claude.rt.ads.line.copied"], { ...vars, n: input.copied });
-    return fillWords(input.newAds === 1 ? R["claude.rt.ads.line.one"] : R["claude.rt.ads.line"], { ...vars, n: input.newAds });
+    const kept = (input.kept ?? []).map((row) => fillWords(R2["claude.rt.ads.kept"], { ads: list(row.ads), artist: row.artist })).join("");
+    if (input.newAds == null) return fillWords(input.copied === 1 ? R2["claude.rt.ads.line.copied.one"] : R["claude.rt.ads.line.copied"], { ...vars, n: input.copied }) + kept;
+    if (input.withLive && input.copied > 0) {
+      const template = input.newAds === 1 ? R2["claude.rt.ads.line.one.with_live"] : input.copied === 1 ? R2["claude.rt.ads.line.with_live.one"] : R2["claude.rt.ads.line.with_live"];
+      return fillWords(template, { ...vars, n: input.newAds, m: input.copied, total: input.newAds + input.copied }) + kept;
+    }
+    return fillWords(input.newAds === 1 ? R["claude.rt.ads.line.one"] : R["claude.rt.ads.line"], { ...vars, n: input.newAds }) + kept;
   },
+  tooManyTotal: (n: number) => fillWords(R2["claude.rt.ads.too_many_total"], { n }),
+  liveNotShow: (id: string, code: string) => fillWords(R2["claude.rt.ads.live_not_show"], { id, code }),
+  liveUnread: (code: string) => fillWords(R2["claude.rt.ads.live_unread"], { code }),
   oneShow: R["claude.rt.ads.one_show"],
   empty: R["claude.rt.ads.empty"],
   tooMany: (n: number) => fillWords(R["claude.rt.ads.too_many"], { n }),
@@ -185,11 +224,16 @@ export const SHOW_CREATIVE_WORDS = {
   notWired: R["claude.rt.ads.not_wired"],
   madeWithOther: (code: string, what: "creatives" | "identity", made: string) => fillWords(R[what === "creatives" ? "claude.rt.ads.made_with_other.creatives" : "claude.rt.ads.made_with_other.identity"], { code, made }),
   /** {made} for the creatives refusal: the Drive ads it was made from, or the live ads. */
-  madeFrom: (creatives: ShowCreatives | null) => (creatives ? fillWords(R["claude.rt.ads.made_from"][0], { n: creatives.ads.length, folders: list(creatives.folders) }) : R["claude.rt.ads.made_from"][1]),
+  madeFrom: (creatives: ShowCreatives | null, live = 0) => {
+    if (!creatives) return R["claude.rt.ads.made_from"][1];
+    const vars = { n: creatives.ads.length, m: live, folders: list(creatives.folders) };
+    if (live > 0) return fillWords(R2["claude.rt.ads.made_from.live"], vars);
+    return fillWords(creatives.ads.length === 1 ? R2["claude.rt.ads.made_from.one"] : R["claude.rt.ads.made_from"][0], vars);
+  },
   /** {made} for the identity refusal: the Page it runs from, or each copied ad's own. */
   madeOnPage: (identity: ShowIdentity | null) => (identity ? fillWords(R["claude.rt.ads.made_from"][2], { page: identity.pageName ?? identity.pageId }) : R["claude.rt.ads.made_from"][3]),
-  uploadFailed: (n: number) => fillWords(R["claude.rt.ads.upload_failed"], { n }),
-  videoNotReady: (n: number) => fillWords(R["claude.rt.ads.video_not_ready"], { n }),
+  uploadFailed: (n: number) => (n === 1 ? R2["claude.rt.ads.upload_failed.one"] : fillWords(R["claude.rt.ads.upload_failed"], { n })),
+  videoNotReady: (n: number) => (n === 1 ? R2["claude.rt.ads.video_not_ready.one"] : fillWords(R["claude.rt.ads.video_not_ready"], { n })),
   fromPost: (ad: string) => fillWords(R["claude.rt.ads.from_post"], { ad }),
   notRead: (what: "drive" | "pages") => fillWords(R["claude.rt.ads.not_read"].template, { source: R["claude.rt.ads.not_read"].sources[what === "drive" ? 0 : 1] }),
 } as const;

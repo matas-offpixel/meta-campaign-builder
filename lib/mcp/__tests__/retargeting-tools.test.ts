@@ -110,7 +110,7 @@ test("plan_retargeting(code): TC8's line with both campaigns, the matched Pages 
     "Similar skipped: NX26-RUDIMENTAL has no genre, so its share goes to Cold.",
     "Then final 2 weeks from Sat 28 Nov at 40 %, as a scheduled change.",
     // Matas, 27 Nov: an NX show's ads run from NX Loves (claude.rt.ads.line.copied, ruled 27 Nov).
-    "Ads: the show’s 1 live ads, copied into both campaigns, run from NX LOVES and Instagram nxloves (the Electric group’s Page for Newcastle).",
+    "Ads: the show’s 1 live ad, copied into both campaigns, run from NX LOVES and Instagram nxloves (the Electric group’s Page for Newcastle).",
   ]);
   assert.equal(planRetargetingTool.readOnly, true);
   assert.deepEqual((db as unknown as { writes: unknown[] }).writes, []);
@@ -174,7 +174,7 @@ test("create_show_campaigns paused: the plan's build (both campaigns), paused, t
   assert.equal(calls.create[0]!.build.wider?.campaignName, "NX26-RUDIMENTAL · Wider");
   assert.equal(calls.create[0]!.build.wider?.lifetimeMinor, 66300);
   const data = out.data as Record<string, unknown>;
-  assert.equal(data.message, "Done: NX26-RUDIMENTAL · Wider and Retargeting created paused · 3 ad sets · 6 audiences made.\nAds: the show’s 1 live ads, copied into both campaigns, run from NX LOVES and Instagram nxloves (the Electric group’s Page for Newcastle).");
+  assert.equal(data.message, "Done: NX26-RUDIMENTAL · Wider and Retargeting created paused · 3 ad sets · 6 audiences made.\nAds: the show’s 1 live ad, copied into both campaigns, run from NX LOVES and Instagram nxloves (the Electric group’s Page for Newcastle).");
   assert.equal(data.campaign_id, "120000000000001");
   assert.deepEqual(data.ad_set_ids, { cold: "131", warm: "132", hot: "133" });
   assert.match(String(data.ads_manager), /^https:\/\/business\.facebook\.com\/adsmanager\/manage\/campaigns\?act=123&selected_campaign_ids=120000000000001$/);
@@ -183,13 +183,13 @@ test("create_show_campaigns paused: the plan's build (both campaigns), paused, t
 test("create_show_campaigns live: the done line, and a paused build asked as live goes live from its stored build", async () => {
   const fresh = ctxWith([record()]);
   const out = await run(createShowCampaignsTool, fresh.ctx, { event: "NX26-RUDIMENTAL", mode: "live", approval: YES });
-  assert.equal((out.data as { message: string }).message, "Done: NX26-RUDIMENTAL · Wider and Retargeting created live · 3 ad sets · 6 audiences made.\nAds: the show’s 1 live ads, copied into both campaigns, run from NX LOVES and Instagram nxloves (the Electric group’s Page for Newcastle).");
+  assert.equal((out.data as { message: string }).message, "Done: NX26-RUDIMENTAL · Wider and Retargeting created live · 3 ad sets · 6 audiences made.\nAds: the show’s 1 live ad, copied into both campaigns, run from NX LOVES and Instagram nxloves (the Electric group’s Page for Newcastle).");
   const stored = record().plan.build as FunnelBuild;
   const paused = ctxWith([record({ funnelBuilt: { state: "paused", mode: "paused", campaignId: "1", tiers: { similar: 0, cold: 630, warm: 945, hot: 525 }, took: [] } })], { build: { build: stored, mode: "paused", state: "paused", progress: { campaignId: "1", ads: ["141"] }, meta_campaign_id: "1" } });
   await run(createShowCampaignsTool, paused.ctx, { event: "NX26-RUDIMENTAL", mode: "live", approval: YES });
   assert.equal(paused.calls.create[0]!.mode, "live");
   // A build whose ads were made before the Electric default keeps its copied ads' own Page (nothing read for it).
-  assert.deepEqual(paused.calls.create[0]!.build, { ...stored, identity: null, creatives: null });
+  assert.deepEqual(paused.calls.create[0]!.build, { ...stored, identity: null, creatives: null, copyAds: null });
   assert.deepEqual(paused.calls.pages, []);
 });
 
@@ -356,7 +356,7 @@ const STORED_DEST = { link: RUDIMENTAL_DEST.link, urlTags: RUDIMENTAL_DEST.url_t
 test("plan_retargeting(one code, destination): the plan line shows it; with 'live' it's refused before any read", async () => {
   const { ctx, calls } = ctxWith([record()]);
   const lines = String(((await run(planRetargetingTool, ctx, { events: "NX26-RUDIMENTAL", destination: RUDIMENTAL_DEST })).data as { message: string }).message).split("\n");
-  assert.equal(lines.at(-1), "Ads: the show’s 1 live ads, copied into both campaigns, run from NX LOVES and Instagram nxloves (the Electric group’s Page for Newcastle).");
+  assert.equal(lines.at(-1), "Ads: the show’s 1 live ad, copied into both campaigns, run from NX LOVES and Instagram nxloves (the Electric group’s Page for Newcastle).");
   assert.equal(lines.at(-2), "Destination: https://www.rudimental-newcastle.com/ · URL parameters ref=meta&utm_source=meta&utm_medium=paid&utm_campaign={{campaign.name}}&utm_content={{adset.name}}&utm_term={{ad.name}}");
   const again = ctxWith([record()]);
   await refused(run(planRetargetingTool, again.ctx, { events: "live", destination: RUDIMENTAL_DEST }), /^Refused: a destination is for one show at a time, so give one event code\. Nothing was changed\.$/);

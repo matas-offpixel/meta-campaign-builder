@@ -22,13 +22,18 @@ import { z } from "zod";
 import { loadClientChannelDefaults } from "../../clients/channel-defaults.ts";
 import { sentVideoIds } from "../../plan/stored-assets-meta.ts";
 import { within } from "../../retargeting/limits.ts";
+import { DESTINATION_WORDS } from "../../retargeting/destination.ts";
 import {
   changedEnding,
   creativesKey,
   driveAdKey,
   electricIdentityOf,
+  MAX_BUILD_ADS,
+  MAX_LIVE_ADS,
   MAX_SHOW_CREATIVES,
+  SHOW_CREATIVE_R2,
   SHOW_CREATIVE_WORDS,
+  type KeptOnArtist,
   type ShowCreatives,
   type ShowCreativesInput,
   type ShowIdentity,
@@ -67,7 +72,10 @@ export const identityInput = z
   .optional()
   .describe("Optional, one show only: the Page (and Instagram account) every ad in both campaigns runs from. Electric shows default to their city's Page: NX to NX LOVES (Newcastle), ES to Electric Studios (Sheffield), EBR to Electric Bristol (Bristol). Other shows run copied ads from each ad's own Page, and ads from Drive from the client's default Page. Once ads are made it can't be changed.");
 
-export type ParsedShowAds = { creatives: ShowCreativesInput | null; identity: { pageId: string; igId: string | null } | null };
+/** PENDING DESIGN: claude.rt.ads.input.live_ad_ids (straight marks, as input descriptions keep them). */
+export const liveAdIdsInput = z.array(z.string().regex(/^\d{5,32}$/)).max(MAX_LIVE_ADS).optional().describe(SHOW_CREATIVE_R2["claude.rt.ads.input.live_ad_ids"]);
+
+export type ParsedShowAds = { creatives: ShowCreativesInput | null; identity: { pageId: string; igId: string | null } | null; liveAdIds: string[] | null };
 
 /** The inputs checked before anything is read. */
 export function parseShowAds(args: Record<string, unknown>): ParsedShowAds {
@@ -92,10 +100,73 @@ export function parseShowAds(args: Record<string, unknown>): ParsedShowAds {
   }
   const id = (args.identity ?? null) as Record<string, unknown> | null;
   const identity = id && typeof id.page_id === "string" ? { pageId: id.page_id, igId: typeof id.ig_account_id === "string" ? id.ig_account_id : null } : null;
-  return { creatives, identity };
+  const ids = Array.isArray(args.live_ad_ids) ? [...new Set(args.live_ad_ids.map((v) => String(v).trim()).filter(Boolean))] : [];
+  const total = (creatives ? creatives.fileIds.length + creatives.pairs.length : 0) + ids.length;
+  if (total > MAX_BUILD_ADS) throw new ToolInputError(SHOW_CREATIVE_WORDS.tooManyTotal(total), { refused: "too_many_ads" });
+  return { creatives, identity, liveAdIds: ids.length ? ids : null };
 }
 
-export const wantsShowAds = (parsed: ParsedShowAds) => Boolean(parsed.creatives || parsed.identity);
+export const wantsShowAds = (parsed: ParsedShowAds) => Boolean(parsed.creatives || parsed.identity || parsed.liveAdIds);
+
+/** The copied ads a build makes, read from Meta: deduped by creative, each artist ad (on a lineup Page) kept on its Page. */
+export type LiveAdsChoice = { ads: { adId: string; name: string }[]; kept: KeptOnArtist[] };
+
+/**
+ * The show's live ads to copy (Matas, 27 Nov), read within 10 s: the ids
+ * given (each on the show's ad account, in one of its campaigns or named with
+ * its code), else every live ad the read found. One ad per creative. An ad on
+ * a lineup artist's Page keeps it; any other moves to identity's Page, so one
+ * Meta built from a post on another Page is refused (it can't move). Throws
+ * limits.ts's TimedOut, or a refusal.
+ */
+export async function selectLiveAds(
+  ctx: ToolContext,
+  input: { code: string; adAccountId: string; given: string[] | null; liveAds: readonly { adId: string; name: string }[]; campaignIds: readonly string[]; lineup: ReadonlyMap<string, string>; identity: ShowIdentity | null; destination: boolean },
+): Promise<LiveAdsChoice> {
+  const ids = input.given ?? input.liveAds.map((ad) => ad.adId);
+  if (!ids.length) return { ads: [], kept: [] };
+  const deps = ctx.retargeting;
+  if (!deps?.readAds) {
+    // No reader: the given ids can't be checked; every live ad as the read found it, kept or moved at the build.
+    if (input.given) throw new ToolInputError(SHOW_CREATIVE_WORDS.liveUnread(input.code), { refused: "live_unread" });
+    return { ads: [...input.liveAds], kept: [] };
+  }
+  let read: Awaited<ReturnType<NonNullable<typeof deps.readAds>>>;
+  try {
+    read = await within("live_ads", SHOW_ADS_READ_MS, (signal) => deps.readAds!({ userId: ctx.userId, adIds: ids, signal }));
+  } catch (err) {
+    if (isTimedOut(err)) throw err;
+    throw new ToolInputError(SHOW_CREATIVE_WORDS.liveUnread(input.code), { refused: "live_unread" });
+  }
+  const account = input.adAccountId.replace(/^act_/, "");
+  const campaigns = new Set(input.campaignIds);
+  const seen = new Set<string>();
+  const ads: LiveAdsChoice["ads"] = [];
+  const kept = new Map<string, string[]>();
+  for (const id of ids) {
+    const ad = read[id];
+    if (!ad) {
+      if (input.given) throw new ToolInputError(SHOW_CREATIVE_WORDS.liveUnread(input.code), { refused: "live_unread", adId: id });
+      continue;
+    }
+    if (input.given) {
+      const ownAccount = (ad.accountId ?? "").replace(/^act_/, "") === account;
+      const ownShow = (ad.campaignId && campaigns.has(ad.campaignId)) || (ad.campaignName ?? "").toUpperCase().includes(input.code.toUpperCase());
+      if (!ownAccount || !ownShow) throw new ToolInputError(SHOW_CREATIVE_WORDS.liveNotShow(id, input.code), { refused: "live_not_show", adId: id });
+    }
+    // One ad per creative.
+    const key = ad.creativeId ?? id;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const artist = ad.pageId ? input.lineup.get(ad.pageId) : undefined;
+    // A post's link is the post's (#1409), artist ad or not; a post on another Page can't move to identity's.
+    if (input.destination && ad.fromPost) throw new ToolInputError(`${DESTINATION_WORDS.fromPost(ad.name)}. Nothing was changed.`, { refused: "from_post_destination", adId: id });
+    if (artist) kept.set(artist, [...(kept.get(artist) ?? []), ad.name]);
+    else if (input.identity && ad.fromPost && ad.pageId !== input.identity.pageId) throw new ToolInputError(`${SHOW_CREATIVE_WORDS.fromPost(ad.name)}. Nothing was changed.`, { refused: "from_post", adId: id });
+    ads.push({ adId: id, name: ad.name });
+  }
+  return { ads, kept: [...kept].map(([artist, names]) => ({ artist, ads: names })) };
+}
 
 type PageRow = { id: string; name: string | null; igId: string | null; igUsername: string | null };
 

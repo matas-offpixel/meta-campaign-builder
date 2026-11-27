@@ -407,7 +407,7 @@ const EXTERNAL_READERS: Record<string, readonly string[]> = {
   // Matas, 27 Nov: the destination's check, its words and its key (pure; the creative it rebuilds is made in funnel-apply.ts).
   "lib/retargeting/destination.ts": ["destinationKey", "DESTINATION_WORDS", "validateDestination"],
   // Matas, 27 Nov: the show's ads from Drive and the city's Page (pure), and #1409's time limit for their reads.
-  "lib/retargeting/show-creatives.ts": ["changedEnding", "creativesKey", "driveAdKey", "electricIdentityOf", "identityKey", "MAX_SHOW_CREATIVES", "SHOW_CREATIVE_WORDS"],
+  "lib/retargeting/show-creatives.ts": ["changedEnding", "creativesKey", "driveAdKey", "electricIdentityOf", "identityKey", "MAX_BUILD_ADS", "MAX_LIVE_ADS", "MAX_SHOW_CREATIVES", "SHOW_CREATIVE_R2", "SHOW_CREATIVE_WORDS"],
   "lib/retargeting/limits.ts": ["within"],
   // Staged two-campaign record: the keep / pause / fold advice, the settings read-back's words and the flag (pure).
   "lib/retargeting/show-campaigns.ts": ["adviceLine", "adviseExisting", "foldFirstLine", "geoNotReadLine", "SHOW_CAMPAIGNS_RULED", "untickLine", "widerPlanLine"],

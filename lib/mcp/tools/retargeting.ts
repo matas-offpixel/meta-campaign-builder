@@ -40,7 +40,8 @@ import { TIME_WORDS } from "../retargeting/time-words.ts";
 import { destinationKey, DESTINATION_WORDS, validateDestination, type Destination } from "../../retargeting/destination.ts";
 import { normaliseCode } from "./shared.ts";
 import { creativesKey, identityKey, SHOW_CREATIVE_WORDS, type ShowCreatives, type ShowIdentity } from "../../retargeting/show-creatives.ts";
-import { checkDriveAds, creativesInput, isTimedOut, identityInput, parseShowAds, resolveIdentity, uploadDriveAds, wantsShowAds, type ParsedShowAds } from "../retargeting/show-ads.ts";
+import { checkDriveAds, creativesInput, isTimedOut, identityInput, liveAdIdsInput, parseShowAds, resolveIdentity, selectLiveAds, uploadDriveAds, wantsShowAds, type LiveAdsChoice, type ParsedShowAds } from "../retargeting/show-ads.ts";
+import { SHOW_CREATIVE_R2 } from "../../retargeting/show-creatives.ts";
 import { requireMetaScope } from "./live-read.ts";
 
 const MAX_CODES = 60;
@@ -179,6 +180,14 @@ function adsTarget(record: RetargetingRecord): { adAccountId: string | null; dra
   return { adAccountId: build?.adAccountId ?? record.input?.where?.adAccountId ?? null, draftId: build?.draftId ?? record.input?.where?.draftId ?? null, copied: build?.ads.length ?? record.input?.ads.length ?? 0 };
 }
 
+/** The lineup artists' Facebook Pages (id → name) and every campaign id the read knows for the show (for live_ad_ids). */
+function showAdsContext(build: FunnelBuild | null, record: RetargetingRecord): { lineup: Map<string, string>; campaignIds: string[] } {
+  const accounts = build?.sources.accounts ?? [];
+  const lineup = new Map(accounts.filter((row) => row.kind === "lineup" && row.platform === "facebook").map((row) => [row.pageId, row.name] as const));
+  const campaignIds = [...new Set([...(build?.campaignIds ?? []), ...(build?.videoCampaignIds ?? []), ...(record.input?.where?.campaignIds ?? []), ...(record.input?.campaigns ?? []).map((row) => row.id)])];
+  return { lineup, campaignIds };
+}
+
 async function clientIdOf(ctx: ToolContext, eventId: string): Promise<string | null> {
   const res = await ctx.db.from("events").select("client_id").eq("id", eventId).maybeSingle();
   return ((res.data as { client_id: string | null } | null)?.client_id ?? null) as string | null;
@@ -202,11 +211,23 @@ async function adsLine(ctx: ToolContext, record: RetargetingRecord, parsed: Pars
     if (isTimedOut(err) || (err instanceof ToolInputError && err.summary?.refused === "pages_unread")) return SHOW_CREATIVE_WORDS.notRead("pages");
     throw err;
   }
-  if (!identity && !parsed.creatives) return null;
-  if (!parsed.creatives) return SHOW_CREATIVE_WORDS.line({ code, newAds: null, copied: target.copied, folders: [], identity: identity! });
+  if (!identity) return null;
+  // The copied ads (Matas, 27 Nov): the ids given, else every live ad without creatives; one per creative, artist ads kept on their Page.
+  const build = record.plan.build && record.plan.build.kind === "retargeting_funnel_create" ? record.plan.build : null;
+  let copies: LiveAdsChoice = { ads: [], kept: [] };
+  if (parsed.liveAdIds || !parsed.creatives) {
+    const { lineup, campaignIds } = showAdsContext(build, record);
+    try {
+      copies = await selectLiveAds(ctx, { code, adAccountId: target.adAccountId, given: parsed.liveAdIds, liveAds: build?.ads ?? record.input?.ads ?? [], campaignIds, lineup, identity, destination: false });
+    } catch (err) {
+      if (isTimedOut(err) || (err instanceof ToolInputError && err.summary?.refused === "live_unread" && !parsed.liveAdIds)) return SHOW_CREATIVE_R2["claude.rt.ads.not_read.live"];
+      throw err;
+    }
+  }
+  if (!parsed.creatives) return SHOW_CREATIVE_WORDS.line({ code, newAds: null, copied: copies.ads.length || target.copied, folders: [], identity, kept: copies.kept });
   try {
-    const check = await checkDriveAds(ctx, { eventId: record.eventId, draftId: target.draftId, creatives: parsed.creatives, identity: identity! });
-    return SHOW_CREATIVE_WORDS.line({ code, newAds: check.planned.length, copied: target.copied, folders: check.folders, identity: identity! });
+    const check = await checkDriveAds(ctx, { eventId: record.eventId, draftId: target.draftId, creatives: parsed.creatives, identity });
+    return SHOW_CREATIVE_WORDS.line({ code, newAds: check.planned.length, copied: copies.ads.length, folders: check.folders, identity, withLive: Boolean(parsed.liveAdIds), kept: copies.kept });
   } catch (err) {
     if (isTimedOut(err)) return SHOW_CREATIVE_WORDS.notRead("drive");
     throw err;
@@ -232,6 +253,7 @@ export const planRetargetingTool: McpTool = {
     destination: destinationInput,
     creatives: creativesInput,
     identity: identityInput,
+    live_ad_ids: liveAdIdsInput,
   },
   async run(ctx, args) {
     requireMetaScope(ctx);
@@ -319,6 +341,7 @@ export const createShowCampaignsTool: McpTool = {
     destination: destinationInput,
     creatives: creativesInput,
     identity: identityInput,
+    live_ad_ids: liveAdIdsInput,
   },
   async run(ctx, args) {
     const { approval } = requireMetaApproval(ctx, args);
@@ -359,7 +382,10 @@ export const createShowCampaignsTool: McpTool = {
     const storedCreatives: ShowCreatives | null = storedBuild?.creatives ?? null;
     const storedIdentity: ShowIdentity | null = storedBuild?.identity ?? null;
     const wantCreatives = showAds.creatives ?? storedCreatives?.input ?? null;
-    if (storedBuild && adsMade && creativesKey(wantCreatives) !== (storedCreatives?.key ?? "")) throw new ToolInputError(SHOW_CREATIVE_WORDS.madeWithOther(code!, "creatives", SHOW_CREATIVE_WORDS.madeFrom(storedCreatives)), { ...base, refused: "creatives_differ" });
+    const storedCopy = storedBuild?.copyAds ?? null;
+    if (storedBuild && adsMade && creativesKey(wantCreatives) !== (storedCreatives?.key ?? "")) throw new ToolInputError(SHOW_CREATIVE_WORDS.madeWithOther(code!, "creatives", SHOW_CREATIVE_WORDS.madeFrom(storedCreatives, storedCopy?.length ?? 0)), { ...base, refused: "creatives_differ" });
+    const wantLive = showAds.liveAdIds ?? storedCopy?.map((ad) => ad.adId) ?? null;
+    if (storedBuild && adsMade && (wantLive ?? []).join(",") !== (storedCopy ?? []).map((ad) => ad.adId).join(",")) throw new ToolInputError(SHOW_CREATIVE_WORDS.madeWithOther(code!, "creatives", SHOW_CREATIVE_WORDS.madeFrom(storedCreatives, storedCopy?.length ?? 0)), { ...base, refused: "live_ads_differ" });
     if (storedBuild && adsMade && showAds.identity && identityKey(showAds.identity) !== identityKey(storedIdentity)) throw new ToolInputError(SHOW_CREATIVE_WORDS.madeWithOther(code!, "identity", SHOW_CREATIVE_WORDS.madeOnPage(storedIdentity)), { ...base, refused: "identity_differs" });
     if (row && storedBuild) {
       // Asked again: the destination it was made with carries on. Another one is taken only while no ad is made; ads that are made stay as they are.
@@ -389,18 +415,24 @@ export const createShowCampaignsTool: McpTool = {
     const carried = storedBuild && (adsMade || storedIdentity) ? storedIdentity : null;
     let identity: ShowIdentity | null = null;
     let driveFolders: string[] = [];
+    let copies: LiveAdsChoice | null = null;
     let reuseCreatives = Boolean(storedCreatives && wantCreatives && storedCreatives.key === creativesKey(wantCreatives));
     if (adAccountForAds && !(storedBuild && adsMade && !carried && !showAds.identity)) {
       try {
         identity = await resolveIdentity(ctx, { code: code!, adAccountId: adAccountForAds, clientId: ownerRow.client_id, given: showAds.identity, carried, drive: Boolean(wantCreatives) });
         if (wantCreatives && !reuseCreatives) driveFolders = (await checkDriveAds(ctx, { eventId, draftId: build.draftId, creatives: wantCreatives, identity: identity! })).folders;
+        // The copied ads (Matas, 27 Nov): the ids given (or carried on), else every live ad without creatives, read once; one per creative.
+        if (wantLive || (identity && !wantCreatives)) {
+          const { lineup, campaignIds } = showAdsContext(build, record);
+          copies = await selectLiveAds(ctx, { code: code!, adAccountId: adAccountForAds, given: wantLive, liveAds: build.ads, campaignIds, lineup, identity, destination: Boolean(build.destination) });
+        }
       } catch (err) {
         if (isTimedOut(err)) throw new ToolInputError(TIME_WORDS.refused(code!), { ...base, refused: "not_read_in_time", what: (err as Error).message });
         if (err instanceof ToolInputError) throw new ToolInputError(err.message, { ...base, ...(err.summary ?? {}) });
         throw err;
       }
     }
-    build = { ...build, identity, creatives: reuseCreatives ? storedCreatives : null };
+    build = { ...build, identity, creatives: reuseCreatives ? storedCreatives : null, copyAds: wantLive && copies ? copies.ads : (storedCopy ?? null) };
     // Two campaigns (staged): Wider folds the show's prospecting, so it goes live only once that's folded or paused (Matas's yes, through pause).
     if (live && build.wider && !row?.progress?.active) {
       const advice = adviseExisting(record.input.campaigns ?? []).filter((one) => one.advice !== "keep");
@@ -445,7 +477,7 @@ export const createShowCampaignsTool: McpTool = {
       scheduled: progress.scheduled ?? [],
     };
     const link = created.adsManager;
-    const summary = { ...base, ...ids, ...(identity ? { pageId: identity.pageId, igId: identity.igId, identitySource: identity.source } : {}), ...(build.creatives ? { driveAds: build.creatives.ads.length } : {}), step: out.step ?? null, ...(out.error ? { error: "meta_or_store", reason: out.reason } : {}) };
+    const summary = { ...base, ...ids, ...(identity ? { pageId: identity.pageId, igId: identity.igId, identitySource: identity.source } : {}), ...(build.creatives ? { driveAds: build.creatives.ads.length } : {}), ...(build.copyAds ? { copiedAds: build.copyAds.map((ad) => ad.adId) } : {}), step: out.step ?? null, ...(out.error ? { error: "meta_or_store", reason: out.reason } : {}) };
     if (out.state === "failed") {
       const reason = out.reason ?? RT_CLAUDE_WORDS.readFailed;
       // The ceiling's own refusal is the MCP's (it ends "Nothing was sent to Meta.").
@@ -462,7 +494,8 @@ export const createShowCampaignsTool: McpTool = {
     ];
     const similarSkipped = progress.similarSkipped ? [similarSkipLine(progress.similarSkipped, { code: code!, genre: genreWords(build.spec?.genreFamily ?? null) })] : [];
     const adSets = Object.values(progress.adSets ?? {}).filter(Boolean).length + Object.values(progress.wider?.adSets ?? {}).filter(Boolean).length;
-    const adsWords = identity ? [SHOW_CREATIVE_WORDS.line({ code: code!, newAds: build.creatives?.ads.length ?? null, copied: build.ads.length, folders: build.creatives?.folders ?? [], identity })] : [];
+    const copiedCount = build.copyAds?.length ?? (build.creatives ? 0 : (copies?.ads.length || build.ads.length));
+    const adsWords = identity ? [SHOW_CREATIVE_WORDS.line({ code: code!, newAds: build.creatives?.ads.length ?? null, copied: copiedCount, folders: build.creatives?.folders ?? [], identity, withLive: Boolean(build.copyAds?.length && build.creatives), kept: copies?.kept ?? [] })] : [];
     const message = [doneLine({ code: code!, live, adSets, made: ids.audiences_made }), ...adsWords, ...similarSkipped, ...(live && out.step === "schedule" ? [RT_CLAUDE_WORDS.stepsNotScheduled] : []), ...settings].join("\n");
     return { data: { message, ...ids, ads_manager: link }, eventId, clientId: ownerRow.client_id, summary: { ...summary, takenMinor: taken } };
   },

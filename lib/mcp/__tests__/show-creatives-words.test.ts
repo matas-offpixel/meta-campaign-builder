@@ -9,8 +9,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { changedEnding, SHOW_CREATIVE_RULED } from "../../retargeting/show-creatives.ts";
-import { creativesInput, identityInput } from "../retargeting/show-ads.ts";
+import { changedEnding, SHOW_CREATIVE_R2, SHOW_CREATIVE_RULED } from "../../retargeting/show-creatives.ts";
+import { creativesInput, identityInput, liveAdIdsInput } from "../retargeting/show-ads.ts";
 import { createShowCampaignsTool, planRetargetingTool } from "../tools/retargeting.ts";
 
 const FILE = new URL("../../../scratch/retargeting/words-show-creatives-2026-11-27-ruled.tsv", import.meta.url);
@@ -88,4 +88,36 @@ test("straight marks in tool and input descriptions; curly in everything else Cl
     if (description) assert.doesNotMatch(words, /[‘’“”]/, key);
     else if (/'/.test(words) && key !== "claude.rt.ads.picker_refusals") assert.fail(`${key} has a straight mark`);
   }
+});
+
+// ── The addendum's new rows (PENDING DESIGN): scratch/retargeting/words-show-creatives-2026-11-27-r2.tsv ──
+
+const R2_FILE = new URL("../../../scratch/retargeting/words-show-creatives-2026-11-27-r2.tsv", import.meta.url);
+
+test("r2: every new row is in code word for word, none of them a ruled key, the ruled 36 untouched", () => {
+  const r2 = new Map(readFileSync(R2_FILE, "utf8").split("\n").slice(1).filter(Boolean).map((line) => line.split("\t")).map((cols) => [cols[0]!, cols[2]!] as const));
+  assert.deepEqual([...r2.keys()].sort(), Object.keys(SHOW_CREATIVE_R2).sort());
+  for (const [key, words] of r2) {
+    assert.equal((SHOW_CREATIVE_R2 as Record<string, string>)[key], words, key);
+    assert.ok(!rows.has(key), `${key} is a ruled key`);
+    if (key.includes(".input.")) assert.doesNotMatch(words, /[‘’“”]/, key);
+    else assert.doesNotMatch(words, /'/, key);
+  }
+  assert.equal((liveAdIdsInput as unknown as { description?: string }).description, r2.get("claude.rt.ads.input.live_ad_ids"));
+  for (const tool of [planRetargetingTool, createShowCampaignsTool]) assert.equal(((tool.inputSchema as unknown as Record<string, { description?: string }>).live_ad_ids)?.description, r2.get("claude.rt.ads.input.live_ad_ids"));
+});
+
+test("NX26-RUDIMENTAL's line, as the tools render it (curly marks, as the list has them)", async () => {
+  const { SHOW_CREATIVE_WORDS } = await import("../../retargeting/show-creatives.ts");
+  const identity = { pageId: "259905047197071", igId: "17841460869627228", pageName: "NX LOVES", igUsername: "nxloves", source: "electric" as const };
+  // The Final tickets pack alone (4 static pairs + 9 videos), the ruled line.
+  assert.equal(
+    SHOW_CREATIVE_WORDS.line({ code: "NX26-RUDIMENTAL", newAds: 13, copied: 0, folders: ["Final tickets pack › Statics · Videos"], identity }),
+    "Ads: 13 new ads from Drive (Final tickets pack › Statics · Videos), the same in both campaigns, run from NX LOVES and Instagram nxloves (the Electric group’s Page for Newcastle).",
+  );
+  // The addendum: Final tickets pack + Xmas ads (7 × 9:16, the BOARD preview left out) = 20, and the 4 artist ads (one per creative) = 24.
+  assert.equal(
+    SHOW_CREATIVE_WORDS.line({ code: "NX26-RUDIMENTAL", newAds: 20, copied: 4, folders: ["Final tickets pack › Statics · Videos", "2026-12-12 Rudimental [NX26-RUDIMENTAL] › Xmas ads"], identity, withLive: true, kept: [{ artist: "Rudimental", ads: ["Motion - Text", "Static", "Motion - No Text"] }] }),
+    "Ads: 20 new ads from Drive (Final tickets pack › Statics · Videos and 2026-12-12 Rudimental [NX26-RUDIMENTAL] › Xmas ads) and 4 of the show’s live ads, 24 of 30, the same in both campaigns, run from NX LOVES and Instagram nxloves (the Electric group’s Page for Newcastle). Motion - Text, Static and Motion - No Text: kept on Rudimental’s Page.",
+  );
 });
