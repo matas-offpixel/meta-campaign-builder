@@ -36,6 +36,7 @@ import { approvalInput, requireMetaApproval } from "../meta/approval.ts";
 import { EVENT_WORDS } from "../meta/words.ts";
 import { ToolInputError, type McpTool, type ToolContext } from "../tool-types.ts";
 import type { McpRetargetingDeps } from "../retargeting/types.ts";
+import { TIME_WORDS } from "../retargeting/time-words.ts";
 import { normaliseCode } from "./shared.ts";
 import { requireMetaScope } from "./live-read.ts";
 
@@ -113,7 +114,7 @@ async function archivedCodes(ctx: ToolContext, codes: readonly string[]): Promis
   return new Set(rows.filter((row) => row.event_code && status(row) === "archived").map((row) => row.event_code!.toUpperCase()));
 }
 
-type ShowLines = { code: string; skipped: SkipReason | "not_on_sale" | null; lines: string[] };
+type ShowLines = { code: string; skipped: SkipReason | "not_on_sale" | "not_finished" | null; lines: string[] };
 
 /** TC8: the plan's lines for one show — both campaigns, matched Pages, access, Similar skipped, presale sign-ups, existing prospecting, the next stretch. */
 function linesFor(record: RetargetingRecord): ShowLines {
@@ -143,6 +144,12 @@ function linesFor(record: RetargetingRecord): ShowLines {
 }
 
 /** claude.rt.untick: "Use as a suggestion" still on after create. */
+/** A show's lines, then its reads that ran out of time (the connector's limits, Matas 27 Nov). */
+function showLinesOf(record: RetargetingRecord): ShowLines {
+  const show = linesFor(record);
+  return record.notRead?.length ? { ...show, lines: [...show.lines, TIME_WORDS.notRead(record.notRead)] } : show;
+}
+
 export function suggestionOnLine(adSetName: string): string {
   return fill("claude.rt.untick", { adset: adSetName });
 }
@@ -179,19 +186,30 @@ export const planRetargetingTool: McpTool = {
     } catch {
       throw new ToolInputError(RT_CLAUDE_WORDS.readFailed, { refused: "read_failed" });
     }
-    const shows: ShowLines[] = read.records.map(linesFor);
+    const shows: ShowLines[] = read.records.map(showLinesOf);
+    // The connector's limits: a show not finished in time is said, never waited for; one asked for alone says so on its own line.
+    const unfinished = (read.unfinished ?? []).map((row) => row.eventCode ?? row.eventId);
+    const alone = codes?.length === 1;
+    for (const code of unfinished) shows.push({ code, skipped: "not_finished", lines: alone ? [TIME_WORDS.unfinishedOne(code)] : [] });
     for (const code of codes ?? []) {
       if (archived.has(code.toUpperCase())) shows.push({ code, skipped: "archived", lines: [skipLine(code, "archived")] });
       else if (!shows.some((row) => row.code.toUpperCase() === code.toUpperCase())) shows.push({ code, skipped: "not_on_sale", lines: [skipLine(code, "not_on_sale")] });
     }
     const build = shows.filter((row) => !row.skipped);
-    const skipped = shows.filter((row) => row.skipped);
-    const ordered = [...build, ...skipped];
+    const skipped = shows.filter((row) => row.skipped && row.skipped !== "not_finished");
+    const left = shows.filter((row) => row.skipped === "not_finished");
+    const ordered = [...build, ...skipped, ...left];
     const heldNames = codes ? [...new Set(held.values())] : HELD_CLIENTS.map((row) => row.name);
-    const lines = [...(heldNames.length ? [heldLine(heldNames)] : []), ...(codes ? [] : [planHead({ shows: shows.length, build: build.length, skipped: skipped.length })]), ...ordered.flatMap((row) => row.lines)];
+    const lines = [
+      ...(heldNames.length ? [heldLine(heldNames)] : []),
+      ...(codes ? [] : [planHead({ shows: shows.length, build: build.length, skipped: skipped.length })]),
+      ...(left.length && !alone ? [TIME_WORDS.unfinishedMany(left.map((row) => row.code))] : []),
+      ...(read.notRead?.length ? [TIME_WORDS.notRead(read.notRead)] : []),
+      ...ordered.flatMap((row) => row.lines),
+    ];
     return {
       data: { message: lines.join("\n"), shows: ordered.map((row) => ({ code: row.code, skipped: row.skipped, lines: row.lines })) },
-      summary: { scope: codes ? "codes" : "live", shows: shows.length, toBuild: build.length, skipped: skipped.length, reasons: Object.fromEntries([...new Set(skipped.map((row) => row.skipped))].map((reason) => [reason, skipped.filter((row) => row.skipped === reason).length])), metaGets: read.metaGets },
+      summary: { scope: codes ? "codes" : "live", shows: shows.length, toBuild: build.length, skipped: skipped.length, unfinished: left.length, notRead: read.notRead ?? [], reasons: Object.fromEntries([...new Set(skipped.map((row) => row.skipped))].map((reason) => [reason, skipped.filter((row) => row.skipped === reason).length])), metaGets: read.metaGets },
     };
   },
 };
@@ -235,7 +253,10 @@ export const createShowCampaignsTool: McpTool = {
     } catch {
       throw new ToolInputError(RT_CLAUDE_WORDS.readFailed, { code, refused: "read_failed" });
     }
+    // The connector's limits: a show not read in full in time makes nothing (its build would be planned on partial reads).
+    if ((read.unfinished ?? []).some((row) => (row.eventCode ?? "").toUpperCase() === code!.toUpperCase())) throw new ToolInputError(TIME_WORDS.refused(code!), { code, refused: "not_read_in_time", unfinished: true });
     const record = read.records.find((row) => (row.eventCode ?? "").toUpperCase() === code!.toUpperCase());
+    if (record && (record.notRead?.length || read.notRead?.length)) throw new ToolInputError(TIME_WORDS.refused(code!), { code, refused: "not_read_in_time", notRead: [...(read.notRead ?? []), ...(record.notRead ?? [])] });
     if (!record?.input) throw new ToolInputError(RT_CLAUDE_WORDS.refusedSkip(code!, "not_on_sale"), { code, refused: "not_on_sale" });
     const eventId = record.eventId;
     const owner = await ctx.db.from("events").select("user_id, client_id, client:clients(name)").eq("id", eventId).maybeSingle();

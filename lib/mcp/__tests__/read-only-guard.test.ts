@@ -203,6 +203,8 @@ const RETARGETING_SEAM_IMPORTS: Record<string, readonly string[]> = {
   "lib/notify/ads-manager-url.ts": ["buildMetaAdsManagerCampaignUrl"],
   "lib/onsale-refresh/apply.ts": ["plainMetaReason"],
   "lib/retargeting/runner.ts": ["runRetargetingRead"],
+  // The connector's time limits (Matas, 27 Nov: plan_retargeting timed out on prod).
+  "lib/retargeting/limits.ts": ["CONNECTOR_LIMITS"],
   "lib/retargeting/audiences.ts": ["groupVideosKeepingUnpaged"],
   "lib/retargeting/funnel-apply.ts": ["applyFunnel", "funnelAudienceDraft"],
 };

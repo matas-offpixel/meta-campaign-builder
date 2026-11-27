@@ -59,7 +59,7 @@ function record(over: Partial<RetargetingInput> = {}): RetargetingRecord {
   return { eventId: i.eventId, eventCode: i.eventCode, plan: planRetargeting(i), input: i, proposalId: null };
 }
 
-function ctxWith(records: RetargetingRecord[], opts: { scope?: string; isMatas?: boolean; build?: Record<string, unknown> | null; owner?: string; archived?: string[]; outcome?: Partial<FunnelOutcome>; statuses?: Record<string, string>; held?: string[] } = {}) {
+function ctxWith(records: RetargetingRecord[], opts: { scope?: string; isMatas?: boolean; build?: Record<string, unknown> | null; owner?: string; archived?: string[]; outcome?: Partial<FunnelOutcome>; statuses?: Record<string, string>; held?: string[]; unfinished?: { eventId: string; eventCode: string; why: "show" | "total" }[]; notRead?: "purchases"[] } = {}) {
   const calls: { read: unknown[]; create: { build: FunnelBuild; mode: string; approval: unknown }[] } = { read: [], create: [] };
   const deps: McpRetargetingDeps = {
     async campaignStatuses({ ids }) {
@@ -67,7 +67,8 @@ function ctxWith(records: RetargetingRecord[], opts: { scope?: string; isMatas?:
     },
     async read(args) {
       calls.read.push(args);
-      return { records: args.codes ? records.filter((r) => args.codes!.some((c) => c.toUpperCase() === (r.eventCode ?? "").toUpperCase())) : records, metaGets: 3, skipped: [] };
+      const want = (code: string | null) => !args.codes || args.codes.some((c) => c.toUpperCase() === (code ?? "").toUpperCase());
+      return { records: records.filter((r) => want(r.eventCode)), metaGets: 3, skipped: [], unfinished: (opts.unfinished ?? []).filter((row) => want(row.eventCode)), notRead: opts.notRead ?? [] };
     },
     async create(args) {
       calls.create.push({ build: args.build, mode: args.mode, approval: args.approval });
@@ -298,4 +299,45 @@ test("Louder / Parable is held: in a list its show is left out with the line at 
   assert.match(lines[1]!, /^NX26-RUDIMENTAL · final month/);
   assert.ok(!lines.some((line) => line.startsWith("20261204CSA")));
   assert.deepEqual((calls.read[0] as { codes: string[] }).codes, ["NX26-RUDIMENTAL"]);
+});
+
+// ── The connector's limits (Matas, 27 Nov: plan_retargeting timed out on prod) ──
+
+const notFinished = (code: string, why: "show" | "total" = "show") => ({ eventId: `id-${code}`, eventCode: code, why });
+
+test("plan_retargeting(live): shows not finished in time are counted, named after the head line, and never waited for", async () => {
+  const { ctx } = ctxWith([record()], { unfinished: [notFinished("NX26-SLOW"), notFinished("NX26-LATE", "total")] });
+  const out = await run(planRetargetingTool, ctx, { events: "live" });
+  const data = out.data as { message: string; shows: { code: string; skipped: string | null; lines: string[] }[] };
+  const lines = data.message.split("\n");
+  assert.equal(lines[1], "3 shows on sale: 1 to build, 0 skipped.");
+  assert.equal(lines[2], "2 shows weren’t finished in time, so they aren’t shown: NX26-SLOW, NX26-LATE. Ask again with their codes.");
+  assert.deepEqual(data.shows.filter((row) => row.skipped === "not_finished").map((row) => row.code), ["NX26-SLOW", "NX26-LATE"]);
+  assert.equal((out.summary as { unfinished: number }).unfinished, 2);
+});
+
+test("plan_retargeting(one code): a show not finished in time says so on its own line, not 'not on sale'", async () => {
+  const { ctx } = ctxWith([], { unfinished: [notFinished("NX26-RUDIMENTAL")] });
+  const out = await run(planRetargetingTool, ctx, { events: "NX26-RUDIMENTAL" });
+  assert.equal((out.data as { message: string }).message, "NX26-RUDIMENTAL: not finished in time, so not shown. Try again.");
+});
+
+test("plan_retargeting: a show's reads that ran out close its lines; the purchase read running out opens the answer", async () => {
+  const partial = { ...record(), notRead: ["pages", "hosts"] as ("pages" | "hosts")[] };
+  const { ctx } = ctxWith([partial], { notRead: ["purchases"] });
+  const lines = String(((await run(planRetargetingTool, ctx, { events: "NX26-RUDIMENTAL" })).data as { message: string }).message).split("\n");
+  assert.equal(lines[0], "Not read in time, so not shown: the pixel each show’s ads optimise on. Try again.");
+  assert.equal(lines.at(-1), "Not read in time, so not shown: the venue, promoter and lineup Pages and the pixel’s sites. Try again.");
+});
+
+test("create_show_campaigns: refused when its show wasn't read in full in time, before anything is made", async () => {
+  const late = ctxWith([], { unfinished: [notFinished("NX26-RUDIMENTAL")] });
+  await refused(run(createShowCampaignsTool, late.ctx, { event: "NX26-RUDIMENTAL", mode: "paused", approval: YES }), /^Refused: NX26-RUDIMENTAL couldn’t be read in time, so nothing was made\. Try again\.$/);
+  assert.deepEqual(late.calls.create, []);
+  const partial = ctxWith([{ ...record(), notRead: ["prospecting"] }]);
+  await refused(run(createShowCampaignsTool, partial.ctx, { event: "NX26-RUDIMENTAL", mode: "paused", approval: YES }), /^Refused: NX26-RUDIMENTAL couldn’t be read in time/);
+  assert.deepEqual(partial.calls.create, []);
+  const front = ctxWith([record()], { notRead: ["purchases"] });
+  await refused(run(createShowCampaignsTool, front.ctx, { event: "NX26-RUDIMENTAL", mode: "paused", approval: YES }), /couldn’t be read in time/);
+  assert.deepEqual(front.calls.create, []);
 });

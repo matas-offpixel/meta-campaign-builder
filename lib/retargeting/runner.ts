@@ -49,6 +49,8 @@ import { loadPageGroup } from "./page-groups.ts";
 import { SHOW_CAMPAIGNS_RULED } from "./show-campaigns.ts";
 import { newShowPagesCache, readShowPages } from "./show-pages.ts";
 import { HELD_CLIENT_IDS } from "./held.ts";
+import { boundGraph, runPool, SHOW_UNREAD, TimedOut, within, type FrontUnread, type ReadLimits, type ShowUnread } from "./limits.ts";
+import { loadShowInsights } from "./show-insights.ts";
 import { resolveShowCeiling, spentToDate } from "../mcp/meta/show-ceiling.ts";
 import { businessClientLinks } from "../bm/client-links.ts";
 import { isOnSale } from "../onsale-refresh/on-sale.ts";
@@ -406,11 +408,26 @@ export type RetargetingRecord = {
   similarStep?: { state: "applied" | "failed"; reason: string | null };
   /** RT13: those rewritten on Meta (the refresh's token and write path, behind its gates). */
   rulesRewritten?: string[];
+  /** The connector's limits: this show's reads that ran out of time (the plan is made without them). */
+  notRead?: ShowUnread[];
 };
 
 export type RetargetingReadResult =
   | { ok: true; skippedReason: "killswitch" | "not_08_london" }
-  | { ok: boolean; dryRun: boolean; day: string; events: number; records: RetargetingRecord[]; skipped: { eventCode: string | null; reason: string }[]; metaCalls: number; errors: string[] };
+  | {
+      ok: boolean;
+      dryRun: boolean;
+      day: string;
+      events: number;
+      records: RetargetingRecord[];
+      skipped: { eventCode: string | null; reason: string }[];
+      metaCalls: number;
+      errors: string[];
+      /** The connector's limits: shows not finished in their own budget ("show") or the whole read's ("total"). */
+      unfinished?: { eventId: string; eventCode: string | null; why: "show" | "total" }[];
+      /** The connector's limits: reads before the shows that ran out of time. */
+      notRead?: FrontUnread[];
+    };
 
 /** The show's inputs for planRetargeting, from what the on-sale refresh's loaders gathered. Pure. */
 export function retargetingInput(args: {
@@ -695,6 +712,8 @@ export async function runRetargetingRead(input: {
    * 08:00 read and the on-sale refresh keep their own rules (false).
    */
   connector?: boolean;
+  /** The connector's time limits (limits.ts CONNECTOR_LIMITS). Absent (the 08:00 read) = no limits, as before. */
+  limits?: ReadLimits;
 }): Promise<RetargetingReadResult> {
   const dryRun = input.dryRun === true;
   if (!dryRun && !isRetargetingReadEnabled(input.env)) return { ok: true, skippedReason: "killswitch" };
@@ -720,31 +739,123 @@ export async function runRetargetingRead(input: {
   });
   if (!events.length) return { ok: true, dryRun, day, events: 0, records: [], skipped, metaCalls: 0, errors };
   const clientIds = [...new Set(events.map((event) => event.client_id).filter((id): id is string => Boolean(id)))];
-  const [raw, aux, sourceRows] = await Promise.all([loadInsights(input.db), loadAux(input.db, events.map((event) => event.id), clientIds), loadSourceRows(input.db, events.map((event) => event.id), clientIds)]);
-  // SU1: each show's Signups list into Meta. A failed read draws RT15's line, as before SU1.
-  const syncRows = await loadAll<SignupsSyncRow & { id: string }>(input.db, "customer_list_syncs", "id, event_id, enabled, meta_audience_id, sent_total, removed_total, last_sent_at, last_replaced_at, created_at, updated_at", ["id"], (q) => q.in("event_id", events.map((event) => event.id)).eq("enabled", true)).catch(() => [] as (SignupsSyncRow & { id: string })[]);
-  const purchases = await loadPurchaseReads({
-    db: input.db,
-    events: events.map((event) => ({ id: event.id, event_code: event.event_code, client_id: event.client_id, event_date: event.event_date, signup_url: event.signup_url ?? null, ticket_url: event.ticket_url ?? null, presale_at: event.presale_at ?? null, general_sale_at: event.general_sale_at })),
-    raw,
-    day,
-    shadow: true,
-    config,
-    graph: input.graph ?? null,
-    graphReason: input.graphReason,
-    now,
-  }).catch((err) => {
-    skipped.push({ eventCode: null, reason: `Purchase read failed: ${err instanceof Error ? err.message : String(err)}` });
-    return { reads: new Map(), metaCalls: 0, cirqlinReads: 0, notes: [] as string[], budgets: { campaigns: new Map(), adSets: new Map() } };
+  const eventIds = events.map((event) => event.id);
+  // The connector's limits (limits.ts, Matas 27 Nov): each outside read ≤ requestMs, each show ≤ showMs, the whole read ≤ totalMs.
+  // The 08:00 read passes none and runs as before.
+  const limits = input.limits ?? null;
+  const startedAt = Date.now();
+  const total = new AbortController();
+  const totalTimer = limits ? setTimeout(() => total.abort(), limits.totalMs) : null;
+  const ms = (from: number) => Date.now() - from;
+  const steps: Record<string, number> = {};
+  const timed = async <T,>(name: string, run: Promise<T>): Promise<T> => {
+    const from = Date.now();
+    try {
+      return await run;
+    } finally {
+      steps[name] = ms(from);
+    }
+  };
+  /** The reads before the shows that ran out of time (plan_retargeting says so). */
+  const notRead = new Set<FrontUnread>();
+  const unfinished: { eventId: string; eventCode: string | null; why: "show" | "total" }[] = [];
+  const allUnfinished = () => events.map((event) => ({ eventId: event.id, eventCode: event.event_code, why: "total" as const }));
+  const done = (records: RetargetingRecord[], metaCalls: number) => {
+    if (totalTimer) clearTimeout(totalTimer);
+    console.log(`[retargeting-read] done ok=${errors.length === 0} dry_run=${dryRun} day=${day} events=${events.length} proposed=${records.filter((row) => row.plan.state === "proposed").length} meta_calls=${metaCalls} errors=${errors.length}${limits ? ` ms=${ms(startedAt)} steps=${Object.entries(steps).map(([name, took]) => `${name}:${took}`).join(",")} unfinished=${unfinished.length} not_read=${[...notRead].join(",") || "none"}` : ""}`);
+    return { ok: errors.length === 0, dryRun, day, events: events.length, records, skipped, metaCalls, errors, ...(limits ? { unfinished, notRead: [...notRead] } : {}) };
+  };
+  // The connector reads only its shows' ad-days (show-insights.ts); the 08:00 read every ad-day, as the on-sale refresh does.
+  const database = Promise.all([timed("insights", input.connector ? loadShowInsights(input.db, events) : loadInsights(input.db)), timed("aux", loadAux(input.db, eventIds, clientIds)), timed("sources", loadSourceRows(input.db, eventIds, clientIds))]);
+  const loaded = await (limits ? within("database", limits.totalMs, () => database, total.signal) : database).catch((err) => {
+    if (err instanceof TimedOut) return null;
+    throw err;
   });
-  const roles = await pagesWithRole(input.graph ?? null);
+  if (!loaded) {
+    unfinished.push(...allUnfinished());
+    return done([], 0);
+  }
+  const [raw, aux, sourceRows] = loaded;
+  // The reads before the shows, side by side; the connector's Graph reads each within requestMs and all within frontMs.
+  const frontSignal = limits ? AbortSignal.any([total.signal, AbortSignal.timeout(limits.frontMs)]) : null;
+  const frontGraph = input.graph && limits && frontSignal ? boundGraph(input.graph, { signal: frontSignal, requestMs: limits.requestMs }) : (input.graph ?? null);
+  const emptyPurchases = { reads: new Map(), metaCalls: 0, cirqlinReads: 0, notes: [] as string[], budgets: { campaigns: new Map(), adSets: new Map() } };
+  const purchasesRun = () =>
+    loadPurchaseReads({
+      db: input.db,
+      events: events.map((event) => ({ id: event.id, event_code: event.event_code, client_id: event.client_id, event_date: event.event_date, signup_url: event.signup_url ?? null, ticket_url: event.ticket_url ?? null, presale_at: event.presale_at ?? null, general_sale_at: event.general_sale_at })),
+      raw,
+      day,
+      shadow: true,
+      config,
+      graph: frontGraph,
+      graphReason: input.graphReason,
+      now,
+    });
+  const purchasesP = timed("purchases", limits && frontSignal ? within("purchase read", limits.frontMs, () => purchasesRun(), total.signal) : purchasesRun()).catch((err) => {
+    if (err instanceof TimedOut) notRead.add("purchases");
+    else skipped.push({ eventCode: null, reason: `Purchase read failed: ${err instanceof Error ? err.message : String(err)}` });
+    return emptyPurchases;
+  });
+  // /me/accounts: the Pages with a role. The connector needs it only when a show's own Pages read fails (show-pages.ts), so it reads it then.
+  let rolesP: Promise<Awaited<ReturnType<typeof pagesWithRole>>> | null = null;
+  const rolesOf = () =>
+    (rolesP ??= timed("roles", limits ? within("pages with a role", limits.requestMs, () => pagesWithRole(frontGraph), total.signal).catch(() => null) : pagesWithRole(input.graph ?? null)));
+  if (!input.connector) void rolesOf();
+  const readLinks = input.pageLinks ?? ((tag: string) => fetchCirqlinPageLinks(tag, limits ? { timeoutMs: limits.requestMs } : undefined));
+  // A CIRQLIN read that runs out is a failed read (RT13 keeps a running campaign's last rules) and its own "not read in time" line.
+  const linksTimedOut = new Set<string>();
+  const linksOf = (event: EventRow) => {
+    const tagged = { ...event, mailchimp_tag: sourceRows.events.find((row) => row.id === event.id)?.mailchimp_tag ?? null };
+    if (!limits) return showLinks(tagged, readLinks);
+    return showLinks(tagged, (tag) =>
+      within("page links", limits.requestMs, () => readLinks(tag), total.signal).catch((err): PageLinksResult => {
+        linksTimedOut.add(event.id);
+        return { ok: false, reason: "network", message: err instanceof Error ? err.message : String(err) };
+      }),
+    );
+  };
+  // RT13: every show's links first, so a landing host another show uses gets no pixel line.
+  const linksP = timed(
+    "links",
+    (async () => {
+      const out = new Map<string, Awaited<ReturnType<typeof showLinks>>>();
+      if (!limits) {
+        for (const event of events) out.set(event.id, await linksOf(event));
+        return out;
+      }
+      const read = await runPool(events, { concurrency: 6, itemMs: limits.frontMs, signal: total.signal }, (event) => linksOf(event));
+      events.forEach((event, i) => {
+        const got = read[i]!;
+        if (got.ok) out.set(event.id, got.value);
+        else {
+          linksTimedOut.add(event.id);
+          out.set(event.id, { links: [], linksRead: "failed", reason: "network" });
+        }
+      });
+      return out;
+    })(),
+  );
+  const [syncRows, purchases, lines, appliedCreates, calls, builds, madeRows, businessLinks, linksByShow] = await Promise.all([
+    // SU1: each show's Signups list into Meta. A failed read draws RT15's line, as before SU1.
+    loadAll<SignupsSyncRow & { id: string }>(input.db, "customer_list_syncs", "id, event_id, enabled, meta_audience_id, sent_total, removed_total, last_sent_at, last_replaced_at, created_at, updated_at", ["id"], (q) => q.in("event_id", eventIds).eq("enabled", true)).catch(() => [] as (SignupsSyncRow & { id: string })[]),
+    purchasesP,
+    loadAll<{ id: string; state: string; write: Record<string, unknown> | null; applied_result: Record<string, unknown> | null; onsale_refresh_proposals: { event_id: string | null } | null }>(input.db, "onsale_refresh_lines", "id, state, write, applied_result, onsale_refresh_proposals!inner(event_id)", ["id"], (q) => q.eq("kind", "retargeting_campaign").in("onsale_refresh_proposals.event_id", eventIds)).catch(() => []),
+    // RT17: every show in the layout test (an applied Create line with a Meta A/B test), the pooled read, and the winner once called.
+    loadAll<{ id: string; write: Record<string, unknown> | null; applied_result: Record<string, unknown> | null; onsale_refresh_proposals: { event_id: string | null; campaign_key: string | null } | null }>(input.db, "onsale_refresh_lines", "id, write, applied_result, onsale_refresh_proposals!inner(event_id, campaign_key)", ["id"], (q) => q.eq("kind", "retargeting_campaign").eq("state", "applied")).catch(() => []),
+    loadAll<{ id: string; write: Record<string, unknown> | null; applied_at: string | null }>(input.db, "onsale_refresh_lines", "id, write, applied_at", ["id"], (q) => q.eq("kind", "retargeting_test_call").eq("state", "applied")).catch(() => []),
+    // RF: each show's funnel build and the audiences already made for it.
+    loadAll<FunnelBuildRow & { id: string }>(input.db, BUILDS_TABLE, "id, event_id, state, mode, meta_campaign_id, progress, build", ["id"], (q) => q.in("event_id", eventIds)).catch(() => [] as (FunnelBuildRow & { id: string })[]),
+    loadAll<{ id: string; event_id: string; part: string; meta_audience_id: string | null }>(input.db, "onsale_refresh_audiences", "id, event_id, part, meta_audience_id", ["id"], (q) => q.in("event_id", eventIds).eq("kind", "retargeting_campaign")).catch(() => []),
+    // Fix 1: each client's Business Managers (#1403's links), for the Pages' access check.
+    SHOW_CAMPAIGNS_RULED ? businessClientLinks(input.db, { clientIds }).catch(() => []) : Promise.resolve([]),
+    linksP,
+  ]);
+  const roles = input.connector ? null : await rolesOf();
   let metaCalls = purchases.metaCalls + (roles?.calls ?? 0);
-  const arms = dryRun ? new Map<string, ArmMode>() : await loadArms(input.db, events.map((event) => event.id));
-  const lines = await loadAll<{ id: string; state: string; write: Record<string, unknown> | null; applied_result: Record<string, unknown> | null; onsale_refresh_proposals: { event_id: string | null } | null }>(input.db, "onsale_refresh_lines", "id, state, write, applied_result, onsale_refresh_proposals!inner(event_id)", ["id"], (q) => q.eq("kind", "retargeting_campaign").in("onsale_refresh_proposals.event_id", events.map((event) => event.id))).catch(() => []);
+  const arms = dryRun ? new Map<string, ArmMode>() : await loadArms(input.db, eventIds);
   const minDaily = new Map<string, number | null>();
   const timeZones = new Map<string, string | null>();
-  // RT17: every show in the layout test (an applied Create line with a Meta A/B test), the pooled read, and the winner once called.
-  const appliedCreates = await loadAll<{ id: string; write: Record<string, unknown> | null; applied_result: Record<string, unknown> | null; onsale_refresh_proposals: { event_id: string | null; campaign_key: string | null } | null }>(input.db, "onsale_refresh_lines", "id, write, applied_result, onsale_refresh_proposals!inner(event_id, campaign_key)", ["id"], (q) => q.eq("kind", "retargeting_campaign").eq("state", "applied")).catch(() => []);
   const testShows = appliedCreates.flatMap((row) => {
     const test = (row.applied_result?.retargeting as { test?: TestProgress } | undefined)?.test;
     const eventId = row.onsale_refresh_proposals?.event_id;
@@ -752,35 +863,36 @@ export async function runRetargetingRead(input: {
     const code = (row.onsale_refresh_proposals?.campaign_key ?? "").replace(/ · Retargeting$/, "");
     return [{ eventId, code, draftId: (row.write?.draftId as string | null | undefined) ?? null, test }];
   });
-  const calls = await loadAll<{ id: string; write: Record<string, unknown> | null; applied_at: string | null }>(input.db, "onsale_refresh_lines", "id, write, applied_at", ["id"], (q) => q.eq("kind", "retargeting_test_call").eq("state", "applied")).catch(() => []);
   const testWinner = (calls.sort((a, b) => ((a.applied_at ?? "") < (b.applied_at ?? "") ? 1 : -1))[0]?.write?.winner as Arm | undefined) ?? null;
   // The first show's test start, as a London day (Apply starts every test at 00:00 Europe/London).
   const testFrom = testShows.flatMap(({ test }) => (test.startAt ? [localDay("Europe/London", new Date(test.startAt))] : [])).sort()[0] ?? null;
   const pooledRead = testShows.length ? pooledFromRows(raw.rows, addDaysIso(day, -1), testFrom) : null;
   const call = !testWinner && pooledRead ? callLine(pooledRead) : null;
-  // RF: each show's funnel build and the audiences already made for it.
-  const builds = await loadAll<FunnelBuildRow & { id: string }>(input.db, BUILDS_TABLE, "id, event_id, state, mode, meta_campaign_id, progress, build", ["id"], (q) => q.in("event_id", events.map((event) => event.id))).catch(() => [] as (FunnelBuildRow & { id: string })[]);
   // TC6: the Wider steps that ran (scheduled_meta_changes, migration 271).
   const stepRows = SHOW_CAMPAIGNS_RULED && builds.some((row) => row.progress?.wider?.campaignId)
-    ? await loadAll<{ id: string; call_key: string; status: string }>(input.db, "scheduled_meta_changes", "id, call_key, status", ["id"], (q) => q.in("event_id", events.map((event) => event.id)).like("call_key", "rf:%:wider")).catch(() => [])
+    ? await loadAll<{ id: string; call_key: string; status: string }>(input.db, "scheduled_meta_changes", "id, call_key, status", ["id"], (q) => q.in("event_id", eventIds).like("call_key", "rf:%:wider")).catch(() => [])
     : [];
-  const madeRows = await loadAll<{ id: string; event_id: string; part: string; meta_audience_id: string | null }>(input.db, "onsale_refresh_audiences", "id, event_id, part, meta_audience_id", ["id"], (q) => q.in("event_id", events.map((event) => event.id)).eq("kind", "retargeting_campaign")).catch(() => []);
-  const hostsByPixel = new Map<string, PixelHosts>();
+  const hostsByPixel = new Map<string, Promise<{ hosts: PixelHosts; calls: number } | null>>();
   const accountPixels = new Map<string, string[] | null>();
   const pagesCache = newShowPagesCache();
-  // Fix 1: each client's Business Managers (#1403's links), for the Pages' access check.
   const businessesOf = new Map<string, string[]>();
-  if (SHOW_CAMPAIGNS_RULED) for (const link of await businessClientLinks(input.db, { clientIds }).catch(() => [])) businessesOf.set(link.client_id, [...(businessesOf.get(link.client_id) ?? []), link.business_id]);
-  const readLinks = input.pageLinks ?? ((tag: string) => fetchCirqlinPageLinks(tag));
-  // RT13: every show's links first, so a landing host another show uses gets no pixel line.
-  const linksByShow = new Map<string, Awaited<ReturnType<typeof showLinks>>>();
-  for (const event of events) {
-    const tagged = { ...event, mailchimp_tag: sourceRows.events.find((row) => row.id === event.id)?.mailchimp_tag ?? null };
-    linksByShow.set(event.id, await showLinks(tagged, readLinks));
-  }
+  for (const link of businessLinks) businessesOf.set(link.client_id, [...(businessesOf.get(link.client_id) ?? []), link.business_id]);
   const landingByShow = new Map([...linksByShow].map(([id, row]) => [id, row.links]));
-  const records: RetargetingRecord[] = [];
-  for (const event of events) {
+
+  /**
+   * One show's plan. With a signal (the connector), its Graph reads go through
+   * a bound graph per read (each request ≤ requestMs, none after the show's
+   * budget), and a read that ran out is named on the record (notRead). Its
+   * notes and errors are its own until it finishes, so a show left unfinished
+   * adds nothing.
+   */
+  const planShow = async (event: EventRow, signal: AbortSignal | null): Promise<{ record: RetargetingRecord | null; skipped: { eventCode: string | null; reason: string }[]; errors: string[]; calls: number }> => {
+    const mySkipped: { eventCode: string | null; reason: string }[] = [];
+    const myErrors: string[] = [];
+    let calls = 0;
+    const showNotRead = new Set<ShowUnread>();
+    const graphFor = (source: ShowUnread): RefreshGraph | null => (input.graph && signal && limits ? boundGraph(input.graph, { signal, requestMs: limits.requestMs, onTimeout: () => showNotRead.add(source) }) : (input.graph ?? null));
+    const meta = graphFor("meta");
     try {
       const read = purchases.reads.get(event.id);
       const inputs = await buildEventInputs({ event, day, shadow: true, config, raw, aux, drive: null, purchases: read, purchaseBudgets: purchases.budgets });
@@ -788,73 +900,83 @@ export async function runRetargetingRead(input: {
       const code = event.event_code!;
       const hasVideo = rows.some((row) => !isRetargetingCampaignName(row.campaign_name, code) && num(row.video_plays_3s) > 0);
       const links = linksByShow.get(event.id)!;
-      if (links.reason) skipped.push({ eventCode: code, reason: `CIRQLIN links: ${links.reason}` });
+      if (linksTimedOut.has(event.id)) showNotRead.add("links");
+      if (links.reason) mySkipped.push({ eventCode: code, reason: `CIRQLIN links: ${links.reason}` });
       const eventRow = sourceRows.events.find((row) => row.id === event.id);
       const venueRow = sourceRows.venues.find((row) => row.id === eventRow?.venue_id) ?? null;
       // The account the show's ads run on, for the Page and pixel reads: its draft's, else its ad-days', else the event's.
       const readAccount = inputs.campaigns.find((campaign) => campaign.draft)?.draft?.adAccountId ?? inputs.campaigns.find((campaign) => campaign.adAccountId)?.adAccountId ?? eventRow?.meta_ad_account_id ?? null;
-      // Fix 7: no pixel the ads optimise on — the event's pixel, else the venue's, else the ad account's one active pixel.
-      let fallbackPixel: RetargetingInput["fallbackPixel"] = null;
-      if (!read?.pixel?.id) {
-        const fb = await fallbackPixelOf({ event: eventRow?.meta_pixel_id ?? null, venue: venueRow?.meta_pixel_id ?? null, account: readAccount, graph: input.graph ?? null, cache: accountPixels });
-        metaCalls += fb.calls;
-        fallbackPixel = fb.pixel;
-      }
-      const pixelId = read?.pixel?.id ?? fallbackPixel?.id ?? null;
-      // Fix 1: the show's Pages as audience_sources matches them.
-      let showPages: Awaited<ReturnType<typeof readShowPages>> | null = null;
-      if (SHOW_CAMPAIGNS_RULED) {
-        showPages = await readShowPages({ db: input.db as never, graph: input.graph ?? null, event: { id: event.id, client_id: event.client_id, clientName: sourceRows.clients.find((row) => row.id === event.client_id)?.name ?? null, code: event.event_code }, venue: venueRow, adAccountId: readAccount, businessIds: businessesOf.get(event.client_id ?? "") ?? [], cache: pagesCache }).catch(() => null);
-        metaCalls += showPages?.calls ?? 0;
-      }
-      const sources = sourceSetFor({ event, rows: sourceRows, pixelId, roles: roles?.roles ?? null, hasVideo, links: links.links, pages: showPages?.pages ?? null });
-      if (pixelId && input.graph && !hostsByPixel.has(pixelId)) {
-        const hosts = await pixelHostsOf(input.graph, pixelId, now);
-        metaCalls += hosts.calls;
-        hostsByPixel.set(pixelId, hosts.hosts);
-      }
       const mine = lines.filter((line) => line.onsale_refresh_proposals?.event_id === event.id);
       const appliedLine = mine.find((line) => (line.applied_result?.retargeting as { campaignId?: string } | undefined)?.campaignId) ?? null;
       const account = inputs.campaigns.find((campaign) => campaign.draft)?.draft?.adAccountId ?? null;
-      if (account && input.graph && !minDaily.has(account)) {
-        metaCalls += 1;
-        const body = (await input.graph.graphGet(`/${account}`, { fields: "min_daily_budget,timezone_name" }).catch(() => null)) as { min_daily_budget?: unknown; timezone_name?: unknown } | null;
-        minDaily.set(account, body ? num(body.min_daily_budget) || null : null);
-        timeZones.set(account, typeof body?.timezone_name === "string" && body.timezone_name ? body.timezone_name : null);
-      }
       // RT9: a running campaign's status, so an off one says so (a running campaign keeps its last rules when the links read fails, RT13).
       const campaignId = (appliedLine?.applied_result?.retargeting as { campaignId?: string } | undefined)?.campaignId ?? rows.find((row) => isRetargetingCampaignName(row.campaign_name, code) && row.meta_campaign_id)?.meta_campaign_id ?? null;
-      let campaignStatus: string | null = null;
-      if (campaignId && input.graph) {
-        metaCalls += 1;
-        campaignStatus = await input.graph.graphGet(`/${campaignId}`, { fields: "effective_status" }).then((body) => (body as { effective_status?: string }).effective_status ?? null).catch(() => null);
-      }
-      // RT18: a running campaign's per-link audience sizes.
       const storedAudiences = ((appliedLine?.applied_result?.retargeting ?? null) as { audiences?: Record<string, string> } | null)?.audiences ?? null;
-      let linkSizes: RetargetingInput["linkSizes"];
-      if (campaignId && storedAudiences && input.graph) {
-        const sized = await linkSizesOf(input.graph, storedAudiences);
-        metaCalls += sized.calls;
-        linkSizes = sized.sizes;
-      }
       const buildRow = builds.find((row) => row.event_id === event.id);
       const widerId = buildRow?.progress?.wider?.campaignId ?? null;
-      let remainingMinor: number | null = null;
-      if (SHOW_CAMPAIGNS_RULED && widerId && input.graph) {
-        metaCalls += 1;
-        const body = (await input.graph.graphGet(`/${widerId}`, { fields: "budget_remaining" }).catch(() => null)) as { budget_remaining?: unknown } | null;
-        remainingMinor = body && body.budget_remaining != null && Number.isFinite(Number(body.budget_remaining)) ? Number(body.budget_remaining) : null;
-      }
+      const genre = eventRow?.genre_family ?? null;
+      const similarStored = madeRows.filter((row) => row.event_id === event.id && row.meta_audience_id && /^rf:similar_/.test(row.part));
+
+      // The show's reads that don't wait on one another, side by side.
+      const pixelP = (async () => {
+        // Fix 7: no pixel the ads optimise on — the event's pixel, else the venue's, else the ad account's one active pixel.
+        if (read?.pixel?.id) return { pixelId: read.pixel.id, fallbackPixel: null as RetargetingInput["fallbackPixel"] };
+        const fb = await fallbackPixelOf({ event: eventRow?.meta_pixel_id ?? null, venue: venueRow?.meta_pixel_id ?? null, account: readAccount, graph: graphFor("pixel"), cache: accountPixels });
+        calls += fb.calls;
+        return { pixelId: fb.pixel?.id ?? null, fallbackPixel: fb.pixel as RetargetingInput["fallbackPixel"] };
+      })();
+      // Fix 1: the show's Pages as audience_sources matches them.
+      const pagesP = SHOW_CAMPAIGNS_RULED
+        ? readShowPages({ db: input.db as never, graph: graphFor("pages"), event: { id: event.id, client_id: event.client_id, clientName: sourceRows.clients.find((row) => row.id === event.client_id)?.name ?? null, code: event.event_code }, venue: venueRow, adAccountId: readAccount, businessIds: businessesOf.get(event.client_id ?? "") ?? [], cache: pagesCache })
+            .then((got) => ((calls += got.calls), got))
+            .catch(() => null)
+        : Promise.resolve(null);
+      const hostsP = pixelP.then(({ pixelId }) => {
+        const graph = graphFor("hosts");
+        if (!pixelId || !graph) return null;
+        if (!hostsByPixel.has(pixelId)) hostsByPixel.set(pixelId, pixelHostsOf(graph, pixelId, now).then((got) => ((calls += got.calls), got)).catch(() => null));
+        return hostsByPixel.get(pixelId)!.then((got) => got?.hosts ?? null);
+      });
+      const accountP = (async () => {
+        if (!account || !meta || minDaily.has(account)) return;
+        calls += 1;
+        const body = (await meta.graphGet(`/${account}`, { fields: "min_daily_budget,timezone_name" }).catch(() => null)) as { min_daily_budget?: unknown; timezone_name?: unknown } | null;
+        minDaily.set(account, body ? num(body.min_daily_budget) || null : null);
+        timeZones.set(account, typeof body?.timezone_name === "string" && body.timezone_name ? body.timezone_name : null);
+      })();
+      const statusP = campaignId && meta ? ((calls += 1), meta.graphGet(`/${campaignId}`, { fields: "effective_status" }).then((body) => (body as { effective_status?: string }).effective_status ?? null).catch(() => null)) : Promise.resolve(null);
+      // RT18: a running campaign's per-link audience sizes.
+      const sizesP = campaignId && storedAudiences && meta ? linkSizesOf(meta, storedAudiences).then((got) => ((calls += got.calls), got.sizes)) : Promise.resolve(undefined);
+      const remainingP = SHOW_CAMPAIGNS_RULED && widerId && meta
+        ? ((calls += 1),
+          meta
+            .graphGet(`/${widerId}`, { fields: "budget_remaining" })
+            .catch(() => null)
+            .then((body) => {
+              const left = (body as { budget_remaining?: unknown } | null)?.budget_remaining;
+              return left != null && Number.isFinite(Number(left)) ? Number(left) : null;
+            }))
+        : Promise.resolve(null);
+      const pageGroupP = SHOW_CAMPAIGNS_RULED ? loadPageGroup(input.db, event.client_id, genre) : Promise.resolve(null);
+      // Matas, 26 Nov: rechecked on every read — Similar's stored audiences sized under Meta's minimum skip it (its share goes to Cold).
+      const similarP = SHOW_CAMPAIGNS_RULED && similarStored.length && meta ? similarSizesOf(meta, similarStored.map((row) => row.meta_audience_id!)).then((got) => ((calls += got.calls), got.allUnderMinimum)) : Promise.resolve(false);
+      const ceilingP = SHOW_CAMPAIGNS_RULED ? showCeilingOf(input.db, { id: event.id, code }, inputs.campaigns.flatMap((campaign) => campaign.campaignIds)) : Promise.resolve(null);
+      const prospectingGraph = graphFor("prospecting");
+      const prospectingP = SHOW_CAMPAIGNS_RULED && prospectingGraph && event.event_date ? readProspecting(prospectingGraph, inputs.campaigns, code, day, event.event_date).then((got) => ((calls += got.calls), got.budgets)).catch(() => null) : Promise.resolve(null);
+
+      const [{ pixelId, fallbackPixel }, showPages, pixelHosts, , campaignStatus, linkSizes, remainingMinor, pageGroup, similarTooSmall, ceiling, prospectingRead] = await Promise.all([pixelP, pagesP, hostsP, accountP, statusP, sizesP, remainingP, pageGroupP, similarP, ceilingP, prospectingP]);
+      // A show whose own Pages read failed falls back to the client's default Pages, with /me/accounts' roles.
+      const roles = input.connector ? (showPages ? null : await rolesOf()) : await rolesOf();
+      if (input.connector && !showPages && roles) calls += roles.calls;
+      const sources = sourceSetFor({ event, rows: sourceRows, pixelId, roles: roles?.roles ?? null, hasVideo, links: links.links, pages: showPages?.pages ?? null });
       let funnelBuilt = funnelBuiltOf(buildRow, widerId ? { remainingMinor, doneDays: widerDoneDays(stepRows, event.id) } : null);
       let funnelWeek: RetargetingInput["funnelWeek"];
-      if (funnelBuilt?.campaignId && buildRow?.progress?.active && input.graph) {
-        metaCalls += 1;
-        funnelWeek = await funnelWeekOf(input.graph, funnelBuilt.campaignId, buildRow.progress.adSets ?? {});
+      if (funnelBuilt?.campaignId && buildRow?.progress?.active && meta) {
+        calls += 1;
+        funnelWeek = await funnelWeekOf(meta, funnelBuilt.campaignId, buildRow.progress.adSets ?? {});
       }
-      const announcementAt = sourceRows.events.find((row) => row.id === event.id)?.announcement_at ?? null;
+      const announcementAt = eventRow?.announcement_at ?? null;
       const madeAudiences = madeRows.filter((row) => row.event_id === event.id && row.meta_audience_id).map((row) => row.part);
-      const genre = sourceRows.events.find((row) => row.id === event.id)?.genre_family ?? null;
-      const pageGroup = SHOW_CAMPAIGNS_RULED ? await loadPageGroup(input.db, event.client_id, genre) : null;
       // Matas, 27 Nov: a group confirmed after the build brings Similar back at the next stretch step.
       let similarOutcome: SimilarStepOutcome | null = null;
       if (similarStepDue({ dryRun, ruled: SHOW_CAMPAIGNS_RULED, row: buildRow, pageGroup, day }) && input.similarStep) {
@@ -864,17 +986,9 @@ export async function runRetargetingRead(input: {
           buildRow!.progress = { ...(buildRow!.progress ?? {}), ...similarOutcome.progress };
           funnelBuilt = funnelBuiltOf(buildRow, widerId ? { remainingMinor, doneDays: widerDoneDays(stepRows, event.id) } : null);
         }
-        if (similarOutcome.state === "failed") skipped.push({ eventCode: code, reason: `Similar not added at this step: ${similarOutcome.reason ?? "unknown"}${similarOutcome.error ? ` (${similarOutcome.error})` : ""}` });
+        if (similarOutcome.state === "failed") mySkipped.push({ eventCode: code, reason: `Similar not added at this step: ${similarOutcome.reason ?? "unknown"}${similarOutcome.error ? ` (${similarOutcome.error})` : ""}` });
       }
-      // Matas, 26 Nov: rechecked on every read — Similar's stored audiences sized under Meta's minimum skip it (its share goes to Cold).
-      let similarTooSmall = false;
-      const similarStored = madeRows.filter((row) => row.event_id === event.id && row.meta_audience_id && /^rf:similar_/.test(row.part));
-      if (SHOW_CAMPAIGNS_RULED && similarStored.length && input.graph) {
-        const sized = await similarSizesOf(input.graph, similarStored.map((row) => row.meta_audience_id!));
-        metaCalls += sized.calls;
-        similarTooSmall = sized.allUnderMinimum;
-      }
-      const planInput = retargetingInput({ matchedPages: SHOW_CAMPAIGNS_RULED ? (showPages?.matched ?? matchedPagesOf(sources.pages, roles?.names)) : null, fallbackPixel, ceiling: SHOW_CAMPAIGNS_RULED ? await showCeilingOf(input.db, { id: event.id, code }, inputs.campaigns.flatMap((campaign) => campaign.campaignIds)) : null, connector: input.connector === true, prospectingRead: SHOW_CAMPAIGNS_RULED && input.graph && event.event_date ? (await readProspecting(input.graph, inputs.campaigns, code, day, event.event_date).then((r) => ((metaCalls += r.calls), r.budgets)).catch(() => null)) : null, twoCampaigns: SHOW_CAMPAIGNS_RULED, pageGroup, genreFamily: genre, similarTooSmall, announcementAt, funnelBuilt, funnelWeek, madeAudiences, event, day, rows, campaigns: inputs.campaigns, read, budgets: purchases.budgets, sources, appliedLine, minDailyMinor: account ? (minDaily.get(account) ?? null) : null, linksRead: links.linksRead, pixelHosts: pixelId ? (hostsByPixel.get(pixelId) ?? null) : null, campaignStatus, otherLandingHosts: [...otherLandingHosts(landingByShow, event.id)], linkSizes, testWinner, pooledRead, signups: signupsSyncOf(syncRows.filter((row) => row.event_id === event.id), event), accountTimeZone: account ? (timeZones.get(account) ?? null) : null });
+      const planInput = retargetingInput({ matchedPages: SHOW_CAMPAIGNS_RULED ? (showPages?.matched ?? matchedPagesOf(sources.pages, roles?.names)) : null, fallbackPixel, ceiling, connector: input.connector === true, prospectingRead, twoCampaigns: SHOW_CAMPAIGNS_RULED, pageGroup, genreFamily: genre, similarTooSmall, announcementAt, funnelBuilt, funnelWeek, madeAudiences, event, day, rows, campaigns: inputs.campaigns, read, budgets: purchases.budgets, sources, appliedLine, minDailyMinor: account ? (minDaily.get(account) ?? null) : null, linksRead: links.linksRead, pixelHosts, campaignStatus, otherLandingHosts: [...otherLandingHosts(landingByShow, event.id)], linkSizes, testWinner, pooledRead, signups: signupsSyncOf(syncRows.filter((row) => row.event_id === event.id), event), accountTimeZone: account ? (timeZones.get(account) ?? null) : null });
       const plan = planRetargeting(planInput);
       const record: RetargetingRecord = { eventId: event.id, eventCode: event.event_code, plan, input: planInput, proposalId: null, ...(similarOutcome && similarOutcome.state !== "skipped" ? { similarStep: { state: similarOutcome.state, reason: similarOutcome.reason } } : {}) };
       // RT13: a running campaign's rules against today's links. A failed read keeps the last rules, so nothing is compared.
@@ -889,25 +1003,25 @@ export async function runRetargetingRead(input: {
           const audienceIds = ((appliedLine?.applied_result?.retargeting ?? null) as { audiences?: Record<string, string> } | null)?.audiences ?? {};
           const gates = ruleRewriteGates(input.env);
           if (dryRun || !input.graphPost || !gates.ok || !appliedLine || !createWrite?.draftId || !createWrite.adAccountId) {
-            skipped.push({ eventCode: code, reason: `Retargeting links changed for ${changed.length} audience${changed.length === 1 ? "" : "s"}; not rewritten (${dryRun ? "dry run" : !gates.ok ? gates.reason : "no applied Create line or writer"})` });
+            mySkipped.push({ eventCode: code, reason: `Retargeting links changed for ${changed.length} audience${changed.length === 1 ? "" : "s"}; not rewritten (${dryRun ? "dry run" : !gates.ok ? gates.reason : "no applied Create line or writer"})` });
           } else {
             const owner = await ownerOf(input.db, event.id);
             const token = await refreshTokenFor(input.db as never, owner);
-            if (!token) skipped.push({ eventCode: code, reason: "Retargeting links changed; no Facebook token for the event's owner, so not rewritten" });
+            if (!token) mySkipped.push({ eventCode: code, reason: "Retargeting links changed; no Facebook token for the event's owner, so not rewritten" });
             else {
               const post = input.graphPost;
-              const done = await rewriteRules(
+              const rewritten = await rewriteRules(
                 { post: (path, body) => post(path, body, token), ledger: { supabase: input.db as never, userId: owner, draftId: createWrite.draftId, eventId: event.id } },
                 { code, adAccountId: createWrite.adAccountId, lineId: appliedLine.id, specs, audienceIds, changed, stored: storedRules },
               );
-              metaCalls += done.written.length + done.failed.length;
-              record.rulesRewritten = done.written;
-              for (const row of done.failed) skipped.push({ eventCode: code, reason: `Retargeting rule rewrite ${row.key}: ${row.reason}` });
-              if (done.rebuild.length) skipped.push({ eventCode: code, reason: `Retargeting: ${done.rebuild.length} per-link audience${done.rebuild.length === 1 ? "" : "s"} added or dropped; a rebuild, not a rule rewrite` });
-              if (done.written.length) {
+              calls += rewritten.written.length + rewritten.failed.length;
+              record.rulesRewritten = rewritten.written;
+              for (const row of rewritten.failed) mySkipped.push({ eventCode: code, reason: `Retargeting rule rewrite ${row.key}: ${row.reason}` });
+              if (rewritten.rebuild.length) mySkipped.push({ eventCode: code, reason: `Retargeting: ${rewritten.rebuild.length} per-link audience${rewritten.rebuild.length === 1 ? "" : "s"} added or dropped; a rebuild, not a rule rewrite` });
+              if (rewritten.written.length) {
                 const progress = (appliedLine.applied_result?.retargeting ?? {}) as Record<string, unknown>;
-                const stored = await input.db.from("onsale_refresh_lines").update({ applied_result: { ...appliedLine.applied_result, retargeting: { ...progress, rules: done.rules } } }).eq("id", appliedLine.id);
-                if (stored.error) errors.push(`${code}: storing the rewritten rules: ${stored.error.message}`);
+                const stored = await input.db.from("onsale_refresh_lines").update({ applied_result: { ...appliedLine.applied_result, retargeting: { ...progress, rules: rewritten.rules } } }).eq("id", appliedLine.id);
+                if (stored.error) myErrors.push(`${code}: storing the rewritten rules: ${stored.error.message}`);
               }
             }
           }
@@ -921,13 +1035,43 @@ export async function runRetargetingRead(input: {
           : null;
         record.proposalId = await writeRetargetingProposal(input.db, { event, day, plan, mode: retargetingGates(applyGates(input.env, arms.get(event.id))).mode, userId: input.userId, call: callForShow });
       }
-      records.push(record);
+      if (showNotRead.size) record.notRead = SHOW_UNREAD.filter((source) => showNotRead.has(source));
+      return { record, skipped: mySkipped, errors: myErrors, calls };
     } catch (err) {
-      errors.push(`${event.event_code ?? event.id}: ${err instanceof Error ? err.message : String(err)}`);
+      myErrors.push(`${event.event_code ?? event.id}: ${err instanceof Error ? err.message : String(err)}`);
+      return { record: null, skipped: mySkipped, errors: myErrors, calls };
     }
+  };
+
+  const records: RetargetingRecord[] = [];
+  const take = (got: Awaited<ReturnType<typeof planShow>>) => {
+    skipped.push(...got.skipped);
+    errors.push(...got.errors);
+    metaCalls += got.calls;
+    if (got.record) records.push(got.record);
+  };
+  const showsFrom = Date.now();
+  if (!limits) {
+    for (const event of events) take(await planShow(event, null));
+  } else {
+    // A few shows at a time, each within showMs, none started after the whole read's budget; one slow show holds up no other.
+    const results = await runPool(events, { concurrency: limits.concurrency, itemMs: limits.showMs, signal: total.signal }, async (event, signal) => {
+      const from = Date.now();
+      const got = await planShow(event, signal);
+      console.log(`[retargeting-read] show ${event.event_code ?? event.id} ms=${ms(from)} meta_calls=${got.calls}${got.record?.notRead?.length ? ` not_read=${got.record.notRead.join(",")}` : ""}`);
+      return got;
+    });
+    events.forEach((event, i) => {
+      const got = results[i]!;
+      if (got.ok) take(got.value);
+      else {
+        unfinished.push({ eventId: event.id, eventCode: event.event_code, why: got.unfinished === "total" ? "total" : "show" });
+        console.log(`[retargeting-read] show ${event.event_code ?? event.id} unfinished=${got.unfinished}`);
+      }
+    });
   }
-  console.log(`[retargeting-read] done ok=${errors.length === 0} dry_run=${dryRun} day=${day} events=${events.length} proposed=${records.filter((row) => row.plan.state === "proposed").length} meta_calls=${metaCalls} errors=${errors.length}`);
-  return { ok: errors.length === 0, dryRun, day, events: events.length, records, skipped, metaCalls, errors };
+  steps.shows = ms(showsFrom);
+  return done(records, metaCalls);
 }
 
 async function loadArms(db: Db, eventIds: readonly string[]): Promise<Map<string, ArmMode>> {
