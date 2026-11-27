@@ -386,7 +386,7 @@ test("create_show_campaigns asked again: the stored destination carries on; anot
 
 test("design's input descriptions for destination, link and url_tags (27 Nov, on #1409), word for word, straight marks", () => {
   for (const tool of [planRetargetingTool, createShowCampaignsTool]) {
-    const destination = (tool.inputSchema as Record<string, { description?: string; unwrap(): { shape: Record<string, { description?: string; unwrap?: () => { description?: string } }> } }>).destination!;
+    const destination = (tool.inputSchema as unknown as Record<string, { description?: string; unwrap(): { shape: Record<string, { description?: string; unwrap?: () => { description?: string } }> } }>).destination!;
     assert.equal(destination.description, "Optional, one show only: one destination for every ad in both campaigns, replacing the copied ads' links. Copy, media and identity stay as they are. Once ads are made it can't be changed.");
     const shape = destination.unwrap().shape;
     assert.equal(shape.link!.description, "The https:// web address every ad in both campaigns links to.");
