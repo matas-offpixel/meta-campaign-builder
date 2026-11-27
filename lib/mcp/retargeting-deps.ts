@@ -21,11 +21,15 @@
  *       checkCeiling → the per-show ceiling (#1397, checkShowCeiling, migration
  *         274): Retargeting's daily budgets and Wider's lifetime as new spend,
  *         lowered prospecting as it would be after.
+ *   - Creatives from Drive (Matas, 27 Nov): the files are already on Meta
+ *     (the tool sends them through ctx.meta.sendAssets after the yes); each
+ *     ad's creative is buildCreativePayload's, as bulk-attach builds it.
  */
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { checkAudienceReadiness, createMetaAd, createMetaAdSet, graphGetWithToken, graphPostWithToken } from "@/lib/meta/client";
 import { graphMultiGetByIds } from "@/lib/meta/graph-multi-get";
+import { buildCreativePayload } from "@/lib/meta/creative";
 import type { MetaAdSetPayload } from "@/lib/meta/adset";
 import { resolveServerMetaToken } from "@/lib/meta/server-token";
 import { fetchAudienceMultiCampaignVideos } from "@/lib/audiences/sources";
@@ -40,7 +44,7 @@ import { checkShowCeiling } from "./meta/show-ceiling";
 import { realAudienceDeps } from "./audience-deps";
 import { realLiveDeps } from "./meta-deps";
 import { LOOKALIKE_SPEC } from "./audiences/specs";
-import type { McpRetargetingDeps } from "./retargeting/types";
+import type { LiveAdRead, McpRetargetingDeps } from "./retargeting/types";
 
 /** Meta's own words never reach Claude: the refresh's plain reasons for the known cases (matched as written), else claude.rt.meta_refused's words. */
 export function claudeMetaReason(err: unknown): string {
@@ -69,6 +73,13 @@ function funnelMetaFor(token: string): FunnelMeta {
     },
     async createCreative(adAccountId, payload) {
       return (await graphPostWithToken<{ id: string }>(`/${act(adAccountId)}/adcreatives`, payload, token)).id;
+    },
+    // Creatives from Drive (Matas, 27 Nov): the app's own creative build (bulk-attach's, per-placement for a pair), the Instagram
+    // account as the tool checked it against the ad account's Page list, and the destination's url_tags as written.
+    async createDraftCreative(adAccountId, creative, opts) {
+      const payload = await buildCreativePayload(creative, { validatedIgActorId: creative.identity.instagramActorId || undefined, metaAccessToken: token });
+      const body = opts.urlTags ? { ...payload, url_tags: opts.urlTags } : payload;
+      return (await graphPostWithToken<{ id: string }>(`/${act(adAccountId)}/adcreatives`, body as unknown as Record<string, unknown>, token)).id;
     },
     async createAdSet(adAccountId, payload) {
       return (await createMetaAdSet(adAccountId, payload as unknown as MetaAdSetPayload, token)).id;
@@ -136,6 +147,25 @@ export function realRetargetingDeps(db: SupabaseClient): McpRetargetingDeps {
       });
       if (!("records" in result)) return { records: [], metaGets: 0, skipped: [], unfinished: [], notRead: [] };
       return { records: result.records, metaGets: result.metaCalls, skipped: result.skipped, unfinished: result.unfinished ?? [], notRead: result.notRead ?? [] };
+    },
+    // The show's ads to copy beside the Drive ads (Matas, 27 Nov): GETs only, ≤ 50 ids a call, each stopped after 10 s.
+    async readAds({ userId, adIds, signal }) {
+      const token = await tokenFor(userId);
+      const out: Record<string, LiveAdRead | null> = {};
+      type Row = { id?: string; name?: string; account_id?: string; campaign?: { id?: string; name?: string }; creative?: { id?: string; object_story_id?: string; object_story_spec?: { page_id?: string; video_data?: unknown; link_data?: unknown }; asset_feed_spec?: unknown } };
+      for (let i = 0; i < adIds.length; i += 50) {
+        const ids = adIds.slice(i, i + 50);
+        const rows = await graphGetWithToken<Record<string, Row>>("/", { ids: ids.join(","), fields: "id,name,account_id,campaign{id,name},creative{id,object_story_id,object_story_spec,asset_feed_spec}" }, token, { maxAttempts: 1, signal: signal ?? AbortSignal.timeout(CONNECTOR_LIMITS.requestMs) });
+        for (const id of ids) {
+          const row = rows?.[id];
+          const c = row?.creative;
+          const oss = c?.object_story_spec;
+          out[id] = row?.id
+            ? { name: row.name ?? id, accountId: row.account_id ?? null, campaignId: row.campaign?.id ?? null, campaignName: row.campaign?.name ?? null, creativeId: c?.id ?? null, pageId: oss?.page_id ?? c?.object_story_id?.split("_")[0] ?? null, fromPost: Boolean(c?.object_story_id && !oss?.video_data && !oss?.link_data && !c?.asset_feed_spec) }
+            : null;
+        }
+      }
+      return out;
     },
     async campaignStatuses({ userId, ids }) {
       const token = await tokenFor(userId);

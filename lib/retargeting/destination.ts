@@ -109,9 +109,21 @@ export class DestinationRefused extends Error {
  * changed. Throws DestinationRefused for a creative built from a post.
  */
 export function creativeWithDestination(src: Json, destination: Destination, name: string): Json {
+  return rebuildCreative(src, { destination, identity: null }, name);
+}
+
+/**
+ * The same, with the destination and / or the identity changed (Matas, 27
+ * Nov: every ad in both campaigns runs from the city's Page). A null
+ * destination keeps the source's own links and url_tags; a null identity
+ * keeps its Page and Instagram account. Copy, media and the button's type
+ * are kept either way.
+ */
+export function rebuildCreative(src: Json, change: { destination: Destination | null; identity: { pageId: string; igId: string | null } | null }, name: string): Json {
+  const { destination, identity: newIdentity } = change;
   const oss = (src.object_story_spec ?? null) as Json | null;
-  const link = destination.link;
-  const identity: Json = oss ? pick(oss, ["page_id", "instagram_user_id", "instagram_actor_id"]) : {};
+  const link = destination?.link ?? null;
+  const identity: Json = newIdentity ? { page_id: newIdentity.pageId, ...(newIdentity.igId ? { instagram_user_id: newIdentity.igId } : {}) } : oss ? pick(oss, ["page_id", "instagram_user_id", "instagram_actor_id"]) : {};
   let payload: Json;
   // A per-placement or rotation spec (placement rules, or two or more images or videos) is the creative; a bare automatic
   // spec beside a story is Meta's own addition, which the strict set strips, so the story is the creative.
@@ -121,21 +133,22 @@ export function creativeWithDestination(src: Json, destination: Destination, nam
     // The per-placement creatives: every asset, rule, body and title kept; each link the new one (its display URL went with the old site).
     const afs = labelsByName(src.asset_feed_spec) as Json;
     const urls = Array.isArray(afs.link_urls) && afs.link_urls.length ? (afs.link_urls as Json[]) : [{}];
-    payload = { name, object_story_spec: identity, asset_feed_spec: { ...afs, link_urls: urls.map((row) => ({ ...Object.fromEntries(Object.entries(row).filter(([key]) => key !== "display_url")), website_url: link })) } };
+    payload = { name, object_story_spec: identity, asset_feed_spec: link ? { ...afs, link_urls: urls.map((row) => ({ ...Object.fromEntries(Object.entries(row).filter(([key]) => key !== "display_url")), website_url: link })) } : afs };
   } else if (oss?.video_data) {
     const vd = oss.video_data as Json;
     if (!vd.video_id) throw new DestinationRefused("unknown");
     const video: Json = pick(vd, ["video_id", "image_hash", "message", "title", "link_description"]);
     if (!vd.image_hash && vd.image_url) video.image_url = vd.image_url;
-    video.call_to_action = button(vd.call_to_action, link) ?? { type: "LEARN_MORE", value: { link } };
+    if (link) video.call_to_action = button(vd.call_to_action, link) ?? { type: "LEARN_MORE", value: { link } };
+    else if (vd.call_to_action) video.call_to_action = vd.call_to_action;
     payload = { name, object_story_spec: { ...identity, video_data: video } };
   } else if (oss?.link_data) {
     const ld = oss.link_data as Json;
-    const data: Json = { ...pick(ld, ["image_hash", "message", "name", "description", "caption"]), link };
+    const data: Json = { ...pick(ld, ["image_hash", "message", "name", "description", "caption"]), link: link ?? ld.link };
     if (!ld.image_hash && ld.picture) data.picture = ld.picture;
     // A carousel: the app's strict set leaves out child_attachments (sanitizeCreativeForStrictMode), so its cards can't be rebuilt.
     if (Array.isArray(ld.child_attachments) && ld.child_attachments.length) throw new DestinationRefused("carousel");
-    const cta = button(ld.call_to_action, link);
+    const cta = link ? button(ld.call_to_action, link) : (ld.call_to_action as Json | undefined);
     if (cta) data.call_to_action = cta;
     payload = { name, object_story_spec: { ...identity, link_data: data } };
   } else if (src.object_story_id) {
@@ -143,7 +156,8 @@ export function creativeWithDestination(src: Json, destination: Destination, nam
   } else {
     throw new DestinationRefused("unknown");
   }
-  if (destination.urlTags) payload.url_tags = destination.urlTags;
+  if (destination?.urlTags) payload.url_tags = destination.urlTags;
+  else if (!destination && typeof src.url_tags === "string" && src.url_tags) payload.url_tags = src.url_tags;
   sanitizeCreativeForStrictMode(payload as unknown as MetaCreativePayload);
   return payload;
 }

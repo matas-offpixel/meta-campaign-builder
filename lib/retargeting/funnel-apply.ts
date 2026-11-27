@@ -48,7 +48,9 @@ import { widerAdSetPayload, widerCampaignFields, locationOf, RT_AUDIENCE_BUILDIN
 import { type FunnelSpec, type SpecOptions, audiencesToMake, funnelAdSetName, funnelSpecs, FUNNEL_TIERS, FUNNEL_TIER_LABEL, SPLIT_WITH_SIMILAR, splitTotal, type FunnelAudience, type PageGroup, type FunnelSources, type FunnelStretch, type FunnelTier, type TakeLine, type TierMinor } from "./funnel.ts";
 import type { FunnelStepPlan } from "./funnel-plan.ts";
 import { fill } from "./funnel-words.ts";
-import { creativeWithDestination, destinationKey, DESTINATION_WORDS, DestinationRefused, type Destination } from "./destination.ts";
+import { destinationKey, DESTINATION_WORDS, DestinationRefused, rebuildCreative, type Destination } from "./destination.ts";
+import { driveAdForBuild, identityKey, SHOW_CREATIVE_WORDS, sourceIdentity, type ShowCreatives, type ShowIdentity } from "./show-creatives.ts";
+import type { AdCreativeDraft } from "../types.ts";
 import { genreLabelInSentence, type GenreFamilyKey } from "../learning/genre/families.ts";
 import { advantageOff, geoExpansionOff, widerAdSetName, type Interest, type LookalikeAudience, type WiderAdSetKey, type WiderStep } from "./show-campaigns.ts";
 
@@ -88,6 +90,12 @@ export type FunnelBuild = {
   presale?: boolean;
   /** Matas, 27 Nov: every ad's website URL and URL parameters (destination.ts). Absent = the copied ads' own links. */
   destination?: Destination | null;
+  /** Matas, 27 Nov: the ads made from Drive files instead of copying the show's live ads (show-creatives.ts). Absent = copied. */
+  creatives?: ShowCreatives | null;
+  /** Matas, 27 Nov: the Page (and Instagram account) every ad runs from. Absent = the copied ads' own. An ad on a lineup artist's Page keeps it. */
+  identity?: ShowIdentity | null;
+  /** Matas, 27 Nov: the show's live ads copied beside the Drive ads (one per creative). Absent = every live ad (build.ads) without creatives, none with them. */
+  copyAds?: { adId: string; name: string }[] | null;
   /**
    * STAGED (two-campaign record): "{code} · Wider", folding the show's
    * prospecting (Matas, 26 Nov), one CBO lifetime budget. Absent = Retargeting
@@ -120,32 +128,68 @@ export type FunnelMeta = Pick<RetargetingMeta, "readAd" | "createCreativeFromPos
   readCreative?(creativeId: string): Promise<Record<string, unknown> | null>;
   /** A destination: POST /act_{id}/adcreatives with the rebuilt creative. Returns its id. */
   createCreative?(adAccountId: string, payload: Record<string, unknown>): Promise<string>;
+  /** Creatives from Drive: the app's creative build for an uploaded ad (buildCreativePayload, per-placement for a pair), then POST /act_{id}/adcreatives. url_tags, when given, replaces the app's own. */
+  createDraftCreative?(adAccountId: string, creative: AdCreativeDraft, opts: { urlTags: string | null }): Promise<string>;
 };
 
-type PreparedCreative = { name: string; sourceCreativeId: string; objectStoryId: string | null; payload: Record<string, unknown> | null };
+type PreparedCreative = { name: string; sourceCreativeId: string; objectStoryId: string | null; payload: Record<string, unknown> | null; drive?: { key: string; creative: AdCreativeDraft } };
+
+type CreativeChoice = Pick<FunnelBuild, "ads" | "destination" | "creatives" | "identity" | "copyAds" | "sources">;
+
+/** The copied ads a build makes: the ones it was given, else every live ad without Drive creatives, none with them. */
+export function adsToCopy(build: Pick<FunnelBuild, "ads" | "creatives" | "copyAds">): { adId: string; name: string }[] {
+  return build.copyAds ?? (build.creatives?.ads.length ? [] : build.ads);
+}
+
+/** The lineup artists' Facebook Pages (by id): a copied ad on one keeps it (Matas, 27 Nov: "include the existing artist ads"). */
+export function lineupPageIds(sources: Pick<FunnelSources, "accounts"> | null | undefined): Set<string> {
+  return new Set((sources?.accounts ?? []).filter((row) => row.kind === "lineup" && row.platform === "facebook").map((row) => row.pageId));
+}
 
 /**
- * The show's ads as the build copies them: each one's own creative, or, with a
- * destination, a new creative from it with the link and URL parameters
- * (destination.ts). Reads only; a creative that can't take the link refuses the
- * whole build before anything is made.
+ * The show's ads as the build makes them: from Drive (creatives given), or
+ * each copied ad's own creative, or, with a destination or another identity,
+ * a new creative from it with the link, URL parameters and Page changed
+ * (destination.ts). Reads only; a creative that can't take the change refuses
+ * the whole build before anything is made.
  */
-export async function prepareCreatives(meta: FunnelMeta, build: Pick<FunnelBuild, "ads" | "destination">): Promise<{ ok: true; creatives: PreparedCreative[] } | { ok: false; reason: string }> {
+export async function prepareCreatives(meta: FunnelMeta, build: CreativeChoice): Promise<{ ok: true; creatives: PreparedCreative[] } | { ok: false; reason: string }> {
   const out: PreparedCreative[] = [];
-  for (const ad of build.ads) {
+  if (build.creatives?.ads.length) {
+    if (!meta.createDraftCreative) return { ok: false, reason: SHOW_CREATIVE_WORDS.uploadFailed(build.creatives.ads.length) };
+    for (const ad of build.creatives.ads) out.push({ name: ad.name, sourceCreativeId: "", objectStoryId: null, payload: null, drive: { key: ad.key, creative: driveAdForBuild(ad, { identity: build.identity ?? null, link: build.destination?.link ?? null }) } });
+  }
+  const identity = build.identity ?? null;
+  const artistPages = lineupPageIds(build.sources);
+  const seen = new Set<string>();
+  for (const ad of adsToCopy(build)) {
     const read = await meta.readAd(ad.adId);
     if (!read?.creativeId) return { ok: false, reason: RF_APPLY_WORDS.adUnread(ad.name) };
+    // One ad per creative: the same creative in several ad sets is copied once.
+    if (seen.has(read.creativeId)) continue;
+    seen.add(read.creativeId);
     const name = read.name || ad.name;
-    if (!build.destination) {
+    if (!build.destination && !identity) {
       out.push({ name, sourceCreativeId: read.creativeId, objectStoryId: read.objectStoryId ?? null, payload: null });
       continue;
     }
     const src = meta.readCreative && meta.createCreative ? await meta.readCreative(read.creativeId).catch(() => null) : null;
     if (!src) return { ok: false, reason: DESTINATION_WORDS.unread(name) };
+    const own = sourceIdentity(src);
+    // An artist ad keeps the lineup artist's Page; every other copied ad goes on identity's.
+    const target = identity && !(own.pageId && artistPages.has(own.pageId)) ? identity : null;
+    // Only the Page would change and the ad already runs from it (or keeps its own): its own creative, as before.
+    if (!build.destination && (!target || (own.pageId === target.pageId && (own.igId ?? null) === (target.igId ?? null)))) {
+      out.push({ name, sourceCreativeId: read.creativeId, objectStoryId: read.objectStoryId ?? null, payload: null });
+      continue;
+    }
     try {
-      out.push({ name, sourceCreativeId: read.creativeId, objectStoryId: null, payload: creativeWithDestination(src, build.destination, name) });
+      out.push({ name, sourceCreativeId: read.creativeId, objectStoryId: null, payload: rebuildCreative(src, { destination: build.destination ?? null, identity: target ? { pageId: target.pageId, igId: target.igId } : null }, name) });
     } catch (err) {
-      if (err instanceof DestinationRefused) return { ok: false, reason: err.kind === "from_post" ? DESTINATION_WORDS.fromPost(name) : err.kind === "carousel" ? DESTINATION_WORDS.carousel(name) : DESTINATION_WORDS.unread(name) };
+      if (err instanceof DestinationRefused) {
+        const fromPost = build.destination ? DESTINATION_WORDS.fromPost(name) : SHOW_CREATIVE_WORDS.fromPost(name);
+        return { ok: false, reason: err.kind === "from_post" ? fromPost : err.kind === "carousel" ? DESTINATION_WORDS.carousel(name) : DESTINATION_WORDS.unread(name) };
+      }
       throw err;
     }
   }
@@ -153,19 +197,27 @@ export async function prepareCreatives(meta: FunnelMeta, build: Pick<FunnelBuild
 }
 
 /**
- * The creatives the ads use: the source's own, or each rebuilt one made once on
- * the ledger (keyed on the show, the source creative and the destination), so a
- * build asked for again reuses it and its ads, never a second copy.
+ * The creatives the ads use: the source's own, or each new one made once on
+ * the ledger (keyed on the show, the source creative or the Drive files, the
+ * destination and the identity), so a build asked for again reuses it and its
+ * ads, never a second copy.
  */
-export async function makeCreatives(meta: FunnelMeta, ledger: MetaWriteContext, build: Pick<FunnelBuild, "eventId" | "destination">, adAccountId: string, prepared: readonly PreparedCreative[]): Promise<ReusedCreative[]> {
+export async function makeCreatives(meta: FunnelMeta, ledger: MetaWriteContext, build: Pick<FunnelBuild, "eventId" | "destination" | "identity">, adAccountId: string, prepared: readonly PreparedCreative[]): Promise<ReusedCreative[]> {
   const out: ReusedCreative[] = [];
+  const withIdentity = build.identity ? { identity: identityKey(build.identity) } : {};
   for (const one of prepared) {
+    if (one.drive) {
+      const drive = one.drive;
+      const id = await withMetaWriteIdempotency(ledger, "refresh_creative_create", { rf: build.eventId, drive_ad: drive.key, destination: destinationKey(build.destination), ...withIdentity }, () => meta.createDraftCreative!(adAccountId, drive.creative, { urlTags: build.destination?.urlTags ?? null }), { required: true });
+      out.push({ name: one.name, creativeId: id, objectStoryId: null });
+      continue;
+    }
     if (!one.payload) {
       out.push({ name: one.name, creativeId: one.sourceCreativeId, objectStoryId: one.objectStoryId });
       continue;
     }
     const payload = one.payload;
-    const id = await withMetaWriteIdempotency(ledger, "refresh_creative_create", { rf: build.eventId, source_creative_id: one.sourceCreativeId, destination: destinationKey(build.destination) }, () => meta.createCreative!(adAccountId, payload), { required: true });
+    const id = await withMetaWriteIdempotency(ledger, "refresh_creative_create", { rf: build.eventId, source_creative_id: one.sourceCreativeId, destination: destinationKey(build.destination), ...withIdentity }, () => meta.createCreative!(adAccountId, payload), { required: true });
     out.push({ name: one.name, creativeId: id, objectStoryId: null });
   }
   return out;
@@ -402,8 +454,8 @@ export async function applyFunnel(deps: FunnelDeps, build: FunnelBuild, ctx: { m
   if (build.endDay < ctx.today) return fail(RF_APPLY_WORDS.passed);
   const adAccountId = build.adAccountId;
   const keyBase = { rf: build.eventId };
-  // A destination: every copied creative must take the link before anything is made.
-  if (build.destination) {
+  // A destination, another Page or Drive creatives: every ad must be buildable before anything is made.
+  if (build.destination || build.identity || build.creatives) {
     const pre = await prepareCreatives(deps.meta, build).catch((err): { ok: false; reason: string } => ({ ok: false, reason: ctx.plainMetaReason(err) }));
     if (!pre.ok) return fail(pre.reason, { step: "destination" });
   }
@@ -527,7 +579,7 @@ export async function applyFunnel(deps: FunnelDeps, build: FunnelBuild, ctx: { m
       const targeting = await deps.meta.readAdSetTargeting(set.id).catch(() => null);
       progress.readBack.push({ adsetId: set.id, name: funnelAdSetName(build.eventCode, tier), geoOff: geoExpansionOff(targeting), advantageOff: advantageOff(targeting), read: targeting != null });
     }
-    // 5. The ads: the show's live creatives, the same in every tier, as they run (their copy too).
+    // 5. The ads: the show's live creatives (or the Drive ads), the same in every tier, as they run (their copy too).
     const prepared = await prepareCreatives(deps.meta, build);
     if (!prepared.ok) return fail(prepared.reason, { step: "ad" });
     const creatives = await makeCreatives(deps.meta, ctx.ledger, build, adAccountId, prepared.creatives);

@@ -37,6 +37,13 @@ export interface RetargetingReadResult {
 export interface McpRetargetingDeps {
   /** codes null = every on-sale show of a non-archived client. */
   read(input: { userId: string; codes: readonly string[] | null; now: Date }): Promise<RetargetingReadResult>;
+  /**
+   * The show's ads to copy (Matas, 27 Nov: the artist ads beside the Drive
+   * ads): each ad's account, campaign and creative, the Page it runs from and
+   * whether Meta built it from a post (GET /?ids=…, ≤ 50 a call, ≤ 10 s each).
+   * Absent or null for an id = not read.
+   */
+  readAds?(input: { userId: string; adIds: readonly string[]; signal?: AbortSignal }): Promise<Record<string, LiveAdRead | null>>;
   /** Staged (two campaigns): each campaign's effective_status now (GET /?ids=…), so a live Wider waits for the prospecting it folds. */
   campaignStatuses(input: { userId: string; ids: readonly string[] }): Promise<Record<string, string | null>>;
   /**
@@ -54,4 +61,17 @@ export interface McpRetargetingDeps {
     mode: "paused" | "live";
     today: string;
   }): Promise<{ outcome: FunnelOutcome; adsManager: string | null }>;
+}
+
+/** One live ad as readAds reads it. */
+export interface LiveAdRead {
+  name: string;
+  accountId: string | null;
+  campaignId: string | null;
+  campaignName: string | null;
+  creativeId: string | null;
+  /** The Facebook Page the ad runs from (object_story_spec, else the post's Page). */
+  pageId: string | null;
+  /** Meta built the creative from a post (an object_story_id and no spec of its own). */
+  fromPost: boolean;
 }

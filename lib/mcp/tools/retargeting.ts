@@ -39,18 +39,21 @@ import type { McpRetargetingDeps } from "../retargeting/types.ts";
 import { TIME_WORDS } from "../retargeting/time-words.ts";
 import { destinationKey, DESTINATION_WORDS, validateDestination, type Destination } from "../../retargeting/destination.ts";
 import { normaliseCode } from "./shared.ts";
+import { creativesKey, identityKey, SHOW_CREATIVE_WORDS, type ShowCreatives, type ShowIdentity } from "../../retargeting/show-creatives.ts";
+import { checkDriveAds, creativesInput, isTimedOut, identityInput, liveAdIdsInput, parseShowAds, resolveIdentity, selectLiveAds, uploadDriveAds, wantsShowAds, type LiveAdsChoice, type ParsedShowAds } from "../retargeting/show-ads.ts";
+import { SHOW_CREATIVE_R2 } from "../../retargeting/show-creatives.ts";
 import { requireMetaScope } from "./live-read.ts";
 
 const MAX_CODES = 60;
 
-/** Matas, 27 Nov: every ad's website URL and URL parameters. Design's words (27 Nov), word for word; straight marks, as tool descriptions keep them. */
+/** Matas, 27 Nov: every ad's website URL and URL parameters. Design's words (27 Nov), word for word, the destination re-ruled with #1410's list (claude.rt.input.destination); straight marks, as tool descriptions keep them. */
 const destinationInput = z
   .object({
     link: z.string().min(8).max(2000).describe("The https:// web address every ad in both campaigns links to."),
     url_tags: z.string().max(2000).optional().describe("Meta's URL parameters for every ad, with no leading ?, e.g. utm_source=meta&utm_campaign={{campaign.name}}. Kept exactly as written: Meta fills in {{campaign.name}}, {{adset.name}} and {{ad.name}}."),
   })
   .optional()
-  .describe("Optional, one show only: one destination for every ad in both campaigns, replacing the copied ads' links. Copy, media and identity stay as they are. Once ads are made it can't be changed.");
+  .describe("Optional, one show only: one destination for every ad in both campaigns, copied or from Drive. It sets only the link and URL parameters; copy, media and the Page come from the ads, creatives and identity. Once ads are made it can't be changed.");
 
 /** The destination checked, or its refusal (nothing read, nothing made). */
 function destinationOf(args: Record<string, unknown>, extra: Record<string, unknown> = {}): Destination | null {
@@ -171,11 +174,71 @@ export function suggestionOnLine(adSetName: string): string {
   return fill("claude.rt.untick", { adset: adSetName });
 }
 
-/** Design's tool descriptions for #1399 (27 Nov), word for word; straight apostrophes and quotes, as tool descriptions keep them. */
+/** Where a show's ads would run: its ad account, its client, its draft and how many live ads it copies. */
+function adsTarget(record: RetargetingRecord): { adAccountId: string | null; draftId: string | null; copied: number } {
+  const build = record.plan.build && record.plan.build.kind === "retargeting_funnel_create" ? record.plan.build : null;
+  return { adAccountId: build?.adAccountId ?? record.input?.where?.adAccountId ?? null, draftId: build?.draftId ?? record.input?.where?.draftId ?? null, copied: build?.ads.length ?? record.input?.ads.length ?? 0 };
+}
+
+/** The lineup artists' Facebook Pages (id → name) and every campaign id the read knows for the show (for live_ad_ids). */
+function showAdsContext(build: FunnelBuild | null, record: RetargetingRecord): { lineup: Map<string, string>; campaignIds: string[] } {
+  const accounts = build?.sources.accounts ?? [];
+  const lineup = new Map(accounts.filter((row) => row.kind === "lineup" && row.platform === "facebook").map((row) => [row.pageId, row.name] as const));
+  const campaignIds = [...new Set([...(build?.campaignIds ?? []), ...(build?.videoCampaignIds ?? []), ...(record.input?.where?.campaignIds ?? []), ...(record.input?.campaigns ?? []).map((row) => row.id)])];
+  return { lineup, campaignIds };
+}
+
+async function clientIdOf(ctx: ToolContext, eventId: string): Promise<string | null> {
+  const res = await ctx.db.from("events").select("client_id").eq("id", eventId).maybeSingle();
+  return ((res.data as { client_id: string | null } | null)?.client_id ?? null) as string | null;
+}
+
+/**
+ * plan_retargeting's ads line for one show (Matas, 27 Nov): how many ads, from
+ * which folder, run from which Page. Reads only (the Page list, the Drive
+ * checks), each within 10 s; a refusal is the same one create_show_campaigns
+ * would give. Null: copied ads with their own Pages (nothing to say).
+ */
+async function adsLine(ctx: ToolContext, record: RetargetingRecord, parsed: ParsedShowAds): Promise<string | null> {
+  const code = record.eventCode ?? record.eventId;
+  const target = adsTarget(record);
+  if (!target.adAccountId) return null;
+  let identity: ShowIdentity | null;
+  try {
+    identity = await resolveIdentity(ctx, { code, adAccountId: target.adAccountId, clientId: await clientIdOf(ctx, record.eventId), given: parsed.identity, drive: Boolean(parsed.creatives) });
+  } catch (err) {
+    // A plan is read only: a Page list that couldn't be read is a line, not a refusal (create refuses).
+    if (isTimedOut(err) || (err instanceof ToolInputError && err.summary?.refused === "pages_unread")) return SHOW_CREATIVE_WORDS.notRead("pages");
+    throw err;
+  }
+  if (!identity) return null;
+  // The copied ads (Matas, 27 Nov): the ids given, else every live ad without creatives; one per creative, artist ads kept on their Page.
+  const build = record.plan.build && record.plan.build.kind === "retargeting_funnel_create" ? record.plan.build : null;
+  let copies: LiveAdsChoice = { ads: [], kept: [] };
+  if (parsed.liveAdIds || !parsed.creatives) {
+    const { lineup, campaignIds } = showAdsContext(build, record);
+    try {
+      copies = await selectLiveAds(ctx, { code, adAccountId: target.adAccountId, given: parsed.liveAdIds, liveAds: build?.ads ?? record.input?.ads ?? [], campaignIds, lineup, identity, destination: false });
+    } catch (err) {
+      if (isTimedOut(err) || (err instanceof ToolInputError && err.summary?.refused === "live_unread" && !parsed.liveAdIds)) return SHOW_CREATIVE_R2["claude.rt.ads.not_read.live"];
+      throw err;
+    }
+  }
+  if (!parsed.creatives) return SHOW_CREATIVE_WORDS.line({ code, newAds: null, copied: copies.ads.length || target.copied, folders: [], identity, kept: copies.kept });
+  try {
+    const check = await checkDriveAds(ctx, { eventId: record.eventId, draftId: target.draftId, creatives: parsed.creatives, identity });
+    return SHOW_CREATIVE_WORDS.line({ code, newAds: check.planned.length, copied: copies.ads.length, folders: check.folders, identity, withLive: Boolean(parsed.liveAdIds), kept: copies.kept });
+  } catch (err) {
+    if (isTimedOut(err)) return SHOW_CREATIVE_WORDS.notRead("drive");
+    throw err;
+  }
+}
+
+/** Design's tool descriptions for #1399 (27 Nov), word for word, with #1410's claude.rt.desc.plan.ads and claude.rt.desc.create.ads; straight apostrophes and quotes, as tool descriptions keep them. */
 export const PLAN_DESCRIPTION =
-  "Read only. For one event code, a list of codes, or \"live\" (every show on sale or in presale, of a non-archived client): what each show's two campaigns, \"{code} · Wider\" and \"{code} · Retargeting\", would be today. Per show: the stretch and share; Wider's lifetime, end date and £ a day; Retargeting's £ a day and its split (Similar, Cold, Warm, Hot); audiences made, to make and missing advertiser access; the venue, promoter and lineup Pages it matched. Then, when they apply: Similar skipped and why, presale sign-ups left out, each existing prospecting campaign as keep, pause or fold into Wider, and the next stretch as a scheduled change. A show that can't be built is one skipped line with the reason. Nothing is sent to Meta or saved.";
+  "Read only. For one event code, a list of codes, or \"live\" (every show on sale or in presale, of a non-archived client): what each show's two campaigns, \"{code} · Wider\" and \"{code} · Retargeting\", would be today. Per show: the stretch and share; Wider's lifetime, end date and £ a day; Retargeting's £ a day and its split (Similar, Cold, Warm, Hot); audiences made, to make and missing advertiser access; the venue, promoter and lineup Pages it matched. With one code, the destination and the ads: the show's live ads or the Drive creatives given, and the Page they run from (an Electric show's city Page by default). Then, when they apply: Similar skipped and why, presale sign-ups left out, each existing prospecting campaign as keep, pause or fold into Wider, and the next stretch as a scheduled change. A show that can't be built is one skipped line with the reason. Nothing is sent to Meta or saved.";
 export const CREATE_DESCRIPTION =
-  "Makes one show's two campaigns as plan_retargeting plans them: \"{code} · Wider\" (Advantage+ audience, lifetime budget) and \"{code} · Retargeting\" (Similar, Cold, Warm and Hot, daily budgets), the missing audiences, and the show's live ads with its current copy. mode paused makes both paused and moves nothing. mode live checks the show's ceiling, switches both on and schedules each later stretch step (Retargeting up, Wider's remaining lifetime down). It's refused while the show's existing prospecting still runs; pausing or folding that is Matas's yes, and this tool never does it. Asked again, it carries on from what's made; a paused build asked as live goes live. Needs Matas's yes in this chat: ask him the show, paused or live, Wider's lifetime and Retargeting's £ a day, then pass approval with your question (asked) and his reply word for word (answer).";
+  "Makes one show's two campaigns as plan_retargeting plans them: \"{code} · Wider\" (Advantage+ audience, lifetime budget) and \"{code} · Retargeting\" (Similar, Cold, Warm and Hot, daily budgets), the missing audiences, and the ads: the show's live ads with its current copy, or the Drive creatives given, run from identity's Page (an Electric show's city Page by default). mode paused makes both paused and moves nothing. mode live checks the show's ceiling, switches both on and schedules each later stretch step (Retargeting up, Wider's remaining lifetime down). It's refused while the show's existing prospecting still runs; pausing or folding that is Matas's yes, and this tool never does it. Asked again, it carries on from what's made; a paused build asked as live goes live. Needs Matas's yes in this chat: ask him the show, paused or live, Wider's lifetime and Retargeting's £ a day, then pass approval with your question (asked) and his reply word for word (answer).";
 
 export const planRetargetingTool: McpTool = {
   name: "plan_retargeting",
@@ -188,6 +251,9 @@ export const planRetargetingTool: McpTool = {
   inputSchema: {
     events: z.union([z.literal("live"), z.string().min(2).max(40), z.array(z.string().min(2).max(40)).max(MAX_CODES)]).describe('An event code, a list of codes, or "live".'),
     destination: destinationInput,
+    creatives: creativesInput,
+    identity: identityInput,
+    live_ad_ids: liveAdIdsInput,
   },
   async run(ctx, args) {
     requireMetaScope(ctx);
@@ -195,6 +261,8 @@ export const planRetargetingTool: McpTool = {
     let codes = codesOf(args.events);
     const destination = destinationOf(args);
     if (destination && codes?.length !== 1) throw new ToolInputError(DESTINATION_WORDS.oneShow, { refused: "destination_one_show" });
+    const showAds = parseShowAds(args);
+    if (wantsShowAds(showAds) && codes?.length !== 1) throw new ToolInputError(SHOW_CREATIVE_WORDS.oneShow, { refused: "show_ads_one_show" });
     // Held clients (Matas, 27 Nov): one held show is refused; in a list, held shows are left out with the line at the top.
     const held = codes ? await heldCodes(ctx, codes) : new Map<string, string>();
     if (codes && held.size && held.size === codes.length) throw new ToolInputError(heldRefusal([...held.values()][0]!), { refused: "held" });
@@ -208,6 +276,18 @@ export const planRetargetingTool: McpTool = {
     }
     // The destination, after a show's plan (the show to build only).
     const shows: ShowLines[] = read.records.map(showLinesOf).map((show) => (destination && !show.skipped ? { ...show, lines: [...show.lines, DESTINATION_WORDS.line(destination)] } : show));
+    // The ads line, after the destination's (one show only): its Drive ads or copied ads, and the Page they run from.
+    if (codes?.length === 1) {
+      for (const show of shows) {
+        if (show.skipped) continue;
+        const record = read.records.find((row) => (row.eventCode ?? row.eventId) === show.code)!;
+        const line = await adsLine(ctx, record, showAds);
+        if (!line) continue;
+        // Right after the destination line; a show's "not read in time" line still closes its lines.
+        const at = destination ? show.lines.indexOf(DESTINATION_WORDS.line(destination)) + 1 : record.notRead?.length ? show.lines.length - 1 : show.lines.length;
+        show.lines.splice(at, 0, line);
+      }
+    }
     // The connector's limits: a show not finished in time is said, never waited for; one asked for alone says so on its own line.
     const unfinished = (read.unfinished ?? []).map((row) => row.eventCode ?? row.eventId);
     const alone = codes?.length === 1;
@@ -259,6 +339,9 @@ export const createShowCampaignsTool: McpTool = {
     mode: z.enum(["paused", "live"]).describe("paused or live."),
     approval: approvalInput,
     destination: destinationInput,
+    creatives: creativesInput,
+    identity: identityInput,
+    live_ad_ids: liveAdIdsInput,
   },
   async run(ctx, args) {
     const { approval } = requireMetaApproval(ctx, args);
@@ -266,6 +349,7 @@ export const createShowCampaignsTool: McpTool = {
     const [code] = codesOf(args.event)!;
     const live = args.mode === "live";
     const destination = destinationOf(args, { code });
+    const showAds = parseShowAds(args);
     const held = await heldCodes(ctx, [code!]);
     if (held.size) throw new ToolInputError(heldRefusal([...held.values()][0]!), { code, refused: "held" });
     const archived = await archivedCodes(ctx, [code!]);
@@ -291,14 +375,25 @@ export const createShowCampaignsTool: McpTool = {
 
     // A build already started: carry on from it (paused → live, or a failed try).
     const row = await buildRowOf(ctx, eventId);
-    let build: FunnelBuild | null = null;
-    if (row?.build && row.build.kind === "retargeting_funnel_create") {
+    let build: FunnelBuild;
+    const storedBuild: FunnelBuild | null = row?.build && row.build.kind === "retargeting_funnel_create" ? row.build : null;
+    const adsMade = (row?.progress?.ads?.length ?? 0) > 0 || (row?.progress?.wider?.ads?.length ?? 0) > 0;
+    // Asked again: the creatives and identity it was made with carry on; other ones are refused once ads are made.
+    const storedCreatives: ShowCreatives | null = storedBuild?.creatives ?? null;
+    const storedIdentity: ShowIdentity | null = storedBuild?.identity ?? null;
+    const wantCreatives = showAds.creatives ?? storedCreatives?.input ?? null;
+    const storedCopy = storedBuild?.copyAds ?? null;
+    if (storedBuild && adsMade && creativesKey(wantCreatives) !== (storedCreatives?.key ?? "")) throw new ToolInputError(SHOW_CREATIVE_WORDS.madeWithOther(code!, "creatives", SHOW_CREATIVE_WORDS.madeFrom(storedCreatives, storedCopy?.length ?? 0)), { ...base, refused: "creatives_differ" });
+    const wantLive = showAds.liveAdIds ?? storedCopy?.map((ad) => ad.adId) ?? null;
+    if (storedBuild && adsMade && (wantLive ?? []).join(",") !== (storedCopy ?? []).map((ad) => ad.adId).join(",")) throw new ToolInputError(SHOW_CREATIVE_WORDS.madeWithOther(code!, "creatives", SHOW_CREATIVE_WORDS.madeFrom(storedCreatives, storedCopy?.length ?? 0)), { ...base, refused: "live_ads_differ" });
+    if (storedBuild && adsMade && showAds.identity && identityKey(showAds.identity) !== identityKey(storedIdentity)) throw new ToolInputError(SHOW_CREATIVE_WORDS.madeWithOther(code!, "identity", SHOW_CREATIVE_WORDS.madeOnPage(storedIdentity)), { ...base, refused: "identity_differs" });
+    if (row && storedBuild) {
       // Asked again: the destination it was made with carries on. Another one is taken only while no ad is made; ads that are made stay as they are.
-      const stored = row.build.destination ?? null;
+      const stored = storedBuild.destination ?? null;
+      let resumed: FunnelBuild = storedBuild;
       if (destination && destinationKey(destination) !== destinationKey(stored)) {
-        const adsMade = (row.progress?.ads?.length ?? 0) > 0 || (row.progress?.wider?.ads?.length ?? 0) > 0;
         if (adsMade) throw new ToolInputError(DESTINATION_WORDS.madeWithOther(code!, stored), { ...base, refused: "destination_differs" });
-        row.build = { ...row.build, destination };
+        resumed = { ...storedBuild, destination };
       }
       if (row.progress?.active) {
         return { data: { message: RT_CLAUDE_WORDS.alreadyLive(code!), changed: false, campaign_id: row.meta_campaign_id }, eventId, clientId: ownerRow.client_id, summary: { ...base, noop: "already_live" } };
@@ -306,7 +401,7 @@ export const createShowCampaignsTool: McpTool = {
       if (!live && row.state === "paused") {
         return { data: { message: RT_CLAUDE_WORDS.alreadyPaused(code!), changed: false, campaign_id: row.meta_campaign_id }, eventId, clientId: ownerRow.client_id, summary: { ...base, noop: "already_paused" } };
       }
-      build = row.build;
+      build = resumed;
     } else {
       const skip = recordSkip(record);
       if (skip) throw new ToolInputError(RT_CLAUDE_WORDS.refusedSkip(code!, skip, record.plan.view.notProposed, record.plan.cause), { ...base, refused: skip });
@@ -314,6 +409,30 @@ export const createShowCampaignsTool: McpTool = {
       if (!record.plan.build || record.plan.build.kind !== "retargeting_funnel_create") throw new ToolInputError(RT_CLAUDE_WORDS.refusedSkip(code!, "no_budget"), { ...base, refused: "no_build" });
       build = destination ? { ...record.plan.build, destination } : record.plan.build;
     }
+    // The Page the ads run from, and the ads from Drive (Matas, 27 Nov): checked on the ad account before anything is sent.
+    const adAccountForAds = build.adAccountId;
+    // A build whose ads are made keeps the identity it was made with (none, for one made before this); a new one takes the Electric default.
+    const carried = storedBuild && (adsMade || storedIdentity) ? storedIdentity : null;
+    let identity: ShowIdentity | null = null;
+    let driveFolders: string[] = [];
+    let copies: LiveAdsChoice | null = null;
+    let reuseCreatives = Boolean(storedCreatives && wantCreatives && storedCreatives.key === creativesKey(wantCreatives));
+    if (adAccountForAds && !(storedBuild && adsMade && !carried && !showAds.identity)) {
+      try {
+        identity = await resolveIdentity(ctx, { code: code!, adAccountId: adAccountForAds, clientId: ownerRow.client_id, given: showAds.identity, carried, drive: Boolean(wantCreatives) });
+        if (wantCreatives && !reuseCreatives) driveFolders = (await checkDriveAds(ctx, { eventId, draftId: build.draftId, creatives: wantCreatives, identity: identity! })).folders;
+        // The copied ads (Matas, 27 Nov): the ids given (or carried on), else every live ad without creatives, read once; one per creative.
+        if (wantLive || (identity && !wantCreatives)) {
+          const { lineup, campaignIds } = showAdsContext(build, record);
+          copies = await selectLiveAds(ctx, { code: code!, adAccountId: adAccountForAds, given: wantLive, liveAds: build.ads, campaignIds, lineup, identity, destination: Boolean(build.destination) });
+        }
+      } catch (err) {
+        if (isTimedOut(err)) throw new ToolInputError(TIME_WORDS.refused(code!), { ...base, refused: "not_read_in_time", what: (err as Error).message });
+        if (err instanceof ToolInputError) throw new ToolInputError(err.message, { ...base, ...(err.summary ?? {}) });
+        throw err;
+      }
+    }
+    build = { ...build, identity, creatives: reuseCreatives ? storedCreatives : null, copyAds: wantLive && copies ? copies.ads : (storedCopy ?? null) };
     // Two campaigns (staged): Wider folds the show's prospecting, so it goes live only once that's folded or paused (Matas's yes, through pause).
     if (live && build.wider && !row?.progress?.active) {
       const advice = adviseExisting(record.input.campaigns ?? []).filter((one) => one.advice !== "keep");
@@ -327,6 +446,20 @@ export const createShowCampaignsTool: McpTool = {
       if (running.length) throw new ToolInputError(foldFirstLine(code!, running.map((one) => one.name)), { ...base, refused: "fold_first", running: running.map((one) => one.id) });
     }
     if (!build.draftId || !build.adAccountId) throw new ToolInputError(RT_CLAUDE_WORDS.held(record.plan.held ?? "Not one of this event's drafts on this account, so nothing is written to this campaign."), { ...base, refused: "no_draft" });
+
+    // The Drive files go to Meta only now, after the yes and every check (the Storage copy and the ad account's library; no campaign yet).
+    if (wantCreatives && !reuseCreatives && identity) {
+      let up: Awaited<ReturnType<typeof uploadDriveAds>>;
+      try {
+        up = await uploadDriveAds(ctx, { eventId, draftId: build.draftId, adAccountId: build.adAccountId, creatives: wantCreatives, identity, folders: driveFolders });
+      } catch (err) {
+        if (err instanceof ToolInputError) throw new ToolInputError(err.message, { ...base, ...(err.summary ?? {}) });
+        throw new ToolInputError(RT_CLAUDE_WORDS.failed(SHOW_CREATIVE_WORDS.uploadFailed(wantCreatives.fileIds.length + wantCreatives.pairs.length)), { ...base, refused: "upload_threw" });
+      }
+      if (!up.ok) throw new ToolInputError(RT_CLAUDE_WORDS.failed(up.reason), { ...base, ...up.summary });
+      build = { ...build, creatives: up.creatives };
+      reuseCreatives = true;
+    }
 
     let created: Awaited<ReturnType<McpRetargetingDeps["create"]>>;
     try {
@@ -344,7 +477,7 @@ export const createShowCampaignsTool: McpTool = {
       scheduled: progress.scheduled ?? [],
     };
     const link = created.adsManager;
-    const summary = { ...base, ...ids, step: out.step ?? null, ...(out.error ? { error: "meta_or_store", reason: out.reason } : {}) };
+    const summary = { ...base, ...ids, ...(identity ? { pageId: identity.pageId, igId: identity.igId, identitySource: identity.source } : {}), ...(build.creatives ? { driveAds: build.creatives.ads.length } : {}), ...(build.copyAds ? { copiedAds: build.copyAds.map((ad) => ad.adId) } : {}), step: out.step ?? null, ...(out.error ? { error: "meta_or_store", reason: out.reason } : {}) };
     if (out.state === "failed") {
       const reason = out.reason ?? RT_CLAUDE_WORDS.readFailed;
       // The ceiling's own refusal is the MCP's (it ends "Nothing was sent to Meta.").
@@ -361,7 +494,9 @@ export const createShowCampaignsTool: McpTool = {
     ];
     const similarSkipped = progress.similarSkipped ? [similarSkipLine(progress.similarSkipped, { code: code!, genre: genreWords(build.spec?.genreFamily ?? null) })] : [];
     const adSets = Object.values(progress.adSets ?? {}).filter(Boolean).length + Object.values(progress.wider?.adSets ?? {}).filter(Boolean).length;
-    const message = [doneLine({ code: code!, live, adSets, made: ids.audiences_made }), ...similarSkipped, ...(live && out.step === "schedule" ? [RT_CLAUDE_WORDS.stepsNotScheduled] : []), ...settings].join("\n");
+    const copiedCount = build.copyAds?.length ?? (build.creatives ? 0 : (copies?.ads.length || build.ads.length));
+    const adsWords = identity ? [SHOW_CREATIVE_WORDS.line({ code: code!, newAds: build.creatives?.ads.length ?? null, copied: copiedCount, folders: build.creatives?.folders ?? [], identity, withLive: Boolean(build.copyAds?.length && build.creatives), kept: copies?.kept ?? [] })] : [];
+    const message = [doneLine({ code: code!, live, adSets, made: ids.audiences_made }), ...adsWords, ...similarSkipped, ...(live && out.step === "schedule" ? [RT_CLAUDE_WORDS.stepsNotScheduled] : []), ...settings].join("\n");
     return { data: { message, ...ids, ads_manager: link }, eventId, clientId: ownerRow.client_id, summary: { ...summary, takenMinor: taken } };
   },
 };
