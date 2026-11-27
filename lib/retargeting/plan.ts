@@ -34,6 +34,7 @@ export { isPresale };
 import { funnelCampaignName, FUNNEL_TIERS, splitOf, splitTotal, type SpecOptions, type FunnelAccount, type FunnelTier, type ProspectingBudget, type TakeLine, type TierMinor, type TierWeek } from "./funnel.ts";
 import { funnelSourcesOf, proposedPanel, runningPanel, type FunnelPanel, type RunningWider } from "./funnel-view.ts";
 import type { FunnelBuild } from "./funnel-apply.ts";
+import { checkoutSeenOf, defaultOptimiseOn, type OptimisationEvent, type OptimiseOn } from "./optimise-on.ts";
 import type { PageGroup } from "./funnel.ts";
 import { planWider, WIDER_AD_SET_LABEL, widerCampaignName, widerSpecs, type Interest } from "./show-campaigns.ts";
 import { currentDailyMinor, daysToShow, isShare, type Funding, type Share } from "./budget.ts";
@@ -261,7 +262,7 @@ export type RetargetingInput = {
   /** Audience keys already made for the show (onsale_refresh_audiences). */
   madeAudiences?: string[];
   /** The show's funnel build (retargeting_builds), when it has one. */
-  funnelBuilt?: { state: string; mode: "paused" | "live" | null; campaignId: string | null; tiers: TierMinor; took: TakeLine[]; wider?: RunningWider | null; /** The read couldn't add Similar at a step (Matas, 27 Nov): its day and reason. */ similarRefused?: { day: string; reason: string } | null } | null;
+  funnelBuilt?: { state: string; mode: "paused" | "live" | null; campaignId: string | null; tiers: TierMinor; took: TakeLine[]; wider?: RunningWider | null; /** The read couldn't add Similar at a step (Matas, 27 Nov): its day and reason. */ similarRefused?: { day: string; reason: string } | null; /** The event its ad sets were made on (null: none made yet, or made before 27 Nov), whether any exist, and the build's stored choice. */ optimisedOn?: OptimisationEvent | null; adSetsMade?: boolean; optimiseOn?: OptimiseOn | null } | null;
   /** RF5: each tier's 7-day frequency and spend, once it runs. */
   funnelWeek?: Partial<Record<FunnelTier, TierWeek>>;
   /** Staged two-campaign record: Wider and the Similar tier are planned (SHOW_CAMPAIGNS_RULED). */
@@ -696,6 +697,9 @@ export function planRetargeting(input: RetargetingInput): RetargetingPlan {
     campaignIds: input.where.campaignIds,
     spec,
     presale,
+    // Matas, 27 Nov: the Electric group optimises on InitiateCheckout once on sale; the pixel's 28 days say whether it has any.
+    optimiseOn: presale ? null : defaultOptimiseOn(code),
+    checkout: checkoutSeenOf(input.pixelHosts),
     wider: spec.twoCampaigns ? wider : null,
   };
   return { state: "proposed", takes: true, view: { ...base, state: "proposed", notProposed: null, create, signal, funnel }, build, held, funnel: plan, wider };

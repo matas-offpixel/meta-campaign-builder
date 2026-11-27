@@ -45,6 +45,7 @@ import { creativesKey, identityKey, SHOW_CREATIVE_WORDS, type ShowCreatives, typ
 import { checkDriveAds, creativesInput, isTimedOut, identityInput, liveAdIdsInput, parseShowAds, resolveIdentity, selectLiveAds, uploadDriveAds, wantsShowAds, type LiveAdsChoice, type ParsedShowAds } from "../retargeting/show-ads.ts";
 import { SHOW_CREATIVE_R2 } from "../../retargeting/show-creatives.ts";
 import { requireMetaScope } from "./live-read.ts";
+import { adSetsMadeOf, checkoutRefusal, checkoutSeenOf, OPTIMISE_ON_VALUES, optimisationLines, resolveOptimisation, type Optimisation, type OptimiseOn } from "../../retargeting/optimise-on.ts";
 
 const MAX_CODES = 60;
 
@@ -63,6 +64,12 @@ function destinationOf(args: Record<string, unknown>, extra: Record<string, unkn
   if (!checked.ok) throw new ToolInputError(checked.reason, { ...extra, refused: "bad_destination" });
   return checked.destination;
 }
+
+/** PENDING DESIGN (27 Nov): what an on-sale show's ad sets optimise on (claude.rt.input.optimise_on). */
+const optimiseOnInput = z
+  .enum(OPTIMISE_ON_VALUES)
+  .optional()
+  .describe('Optional: what the on-sale ad sets in both campaigns optimise on, "purchase" or "initiate_checkout". Default: initiate_checkout for an Electric show (NX, ES, EBR), purchase for every other client. A presale show always optimises on CompleteRegistration, and ad sets already made keep their event.');
 
 const reasonOf = (reason: string) => reason.replace(/\.$/, "");
 
@@ -149,11 +156,20 @@ async function archivedCodes(ctx: ToolContext, codes: readonly string[]): Promis
 type ShowLines = { code: string; skipped: SkipReason | "not_on_sale" | "not_finished" | null; lines: string[] };
 
 /** TC8: the plan's lines for one show — both campaigns, matched Pages, access, Similar skipped, presale sign-ups, existing prospecting, the next stretch. */
-function linesFor(record: RetargetingRecord): ShowLines {
+function linesFor(record: RetargetingRecord, asked: OptimiseOn | null = null, alone = false): ShowLines {
   const code = record.eventCode ?? record.eventId;
   const input = record.input;
   if (!input) return { code, skipped: "not_on_sale", lines: [skipLine(code, "not_on_sale")] };
   const skip = recordSkip(record);
+  // Matas, 27 Nov: one "Optimises on" line for a show to build, or (asked for alone) one built and carrying on.
+  const optimises = (opt: Optimisation) => optimisationLines(code, opt, checkoutSeenOf(input.pixelHosts));
+  if (skip === "built" && input.funnelBuilt && alone) {
+    const built = input.funnelBuilt;
+    const plan = record.plan.funnel;
+    const back = plan && built.tiers.similar === 0 && !plan.similarSkip && plan.specs.some((spec) => spec.tier === "similar");
+    const opt = resolveOptimisation({ code, presale: isPresale(input), asked, stored: built.optimiseOn ?? null, madeOn: built.optimisedOn ?? null, adSetsMade: built.adSetsMade ?? Object.values(built.tiers).some((minor) => minor > 0) });
+    return { code, skipped: skip, lines: [skipLine(code, skip, record.plan.view.notProposed, record.plan.cause), ...(back ? [similarReturnLine({ nextDay: plan.steps[0]?.day ?? null, refused: built.similarRefused ?? null })] : []), ...optimises(opt)] };
+  }
   if (skip) {
     // Matas, 27 Nov: a built show without Similar whose group is confirmed now — Similar comes back at the next step.
     const plan = record.plan.funnel;
@@ -168,17 +184,19 @@ function linesFor(record: RetargetingRecord): ShowLines {
   const signups = input.signups && input.signups.state === "on" ? input.signups.count : null;
   // TC8: each existing prospecting campaign as keep, pause or fold into Wider (pausing and folding only after Matas says yes).
   const existing = adviseExisting(input.campaigns ?? []).map((row) => ({ name: row.name, action: row.advice }));
+  const build = record.plan.build && record.plan.build.kind === "retargeting_funnel_create" ? record.plan.build : null;
+  const opt = resolveOptimisation({ code, presale, asked, stored: build?.optimiseOn ?? null, adSetsMade: false });
   return {
     code,
     skipped: null,
-    lines: claudePlanLines(plan, funnelSourcesOf(input.sources, input.accounts), { wider, pages: input.matchedPages ?? null, genre: genreWords(input.genreFamily ?? null), presale, presaleSignups: presale ? signups : null, existing, fallbackPixel: input.fallbackPixel ?? null }),
+    lines: [...claudePlanLines(plan, funnelSourcesOf(input.sources, input.accounts), { wider, pages: input.matchedPages ?? null, genre: genreWords(input.genreFamily ?? null), presale, presaleSignups: presale ? signups : null, existing, fallbackPixel: input.fallbackPixel ?? null }), ...optimises(opt)],
   };
 }
 
 /** claude.rt.untick: "Use as a suggestion" still on after create. */
 /** A show's lines, then its reads that ran out of time (the connector's limits, Matas 27 Nov). */
-function showLinesOf(record: RetargetingRecord): ShowLines {
-  const show = linesFor(record);
+function showLinesOf(record: RetargetingRecord, asked: OptimiseOn | null = null, alone = false): ShowLines {
+  const show = linesFor(record, asked, alone);
   return record.notRead?.length ? { ...show, lines: [...show.lines, TIME_WORDS.notRead(record.notRead)] } : show;
 }
 
@@ -266,6 +284,7 @@ export const planRetargetingTool: McpTool = {
     creatives: creativesInput,
     identity: identityInput,
     live_ad_ids: liveAdIdsInput,
+    optimise_on: optimiseOnInput,
   },
   async run(ctx, args) {
     requireMetaScope(ctx);
@@ -287,7 +306,8 @@ export const planRetargetingTool: McpTool = {
       throw new ToolInputError(RT_CLAUDE_WORDS.readFailed, { refused: "read_failed" });
     }
     // The destination, after a show's plan (the show to build only).
-    const shows: ShowLines[] = read.records.map(showLinesOf).map((show) => (destination && !show.skipped ? { ...show, lines: [...show.lines, DESTINATION_WORDS.line(destination)] } : show));
+    const asked = (args.optimise_on as OptimiseOn | undefined) ?? null;
+    const shows: ShowLines[] = read.records.map((record) => showLinesOf(record, asked, codes?.length === 1)).map((show) => (destination && !show.skipped ? { ...show, lines: [...show.lines, DESTINATION_WORDS.line(destination)] } : show));
     // The ads line, after the destination's (one show only): its Drive ads or copied ads, and the Page they run from.
     if (codes?.length === 1) {
       for (const show of shows) {
@@ -357,6 +377,7 @@ export const createShowCampaignsTool: McpTool = {
     creatives: creativesInput,
     identity: identityInput,
     live_ad_ids: liveAdIdsInput,
+    optimise_on: optimiseOnInput,
   },
   async run(ctx, args) {
     const { approval } = requireMetaApproval(ctx, args);
@@ -427,6 +448,13 @@ export const createShowCampaignsTool: McpTool = {
       if (!record.plan.build || record.plan.build.kind !== "retargeting_funnel_create") throw new ToolInputError(RT_CLAUDE_WORDS.refusedSkip(code!, "no_budget"), { ...base, refused: "no_build" });
       build = destination ? { ...record.plan.build, destination } : record.plan.build;
     }
+    // Matas, 27 Nov: what the ad sets optimise on. Ad sets already made keep theirs; InitiateCheckout only on a pixel that has it (this read's 28 days).
+    const asked = (args.optimise_on as OptimiseOn | undefined) ?? null;
+    const optimisation = resolveOptimisation({ code: code!, presale: build.presale === true, asked, stored: build.optimiseOn ?? null, madeOn: row?.progress?.optimisedOn ?? null, adSetsMade: adSetsMadeOf(row?.progress) });
+    const checkout = checkoutSeenOf(record.input.pixelHosts);
+    const noCheckout = checkoutRefusal(code!, optimisation, checkout);
+    if (noCheckout) throw new ToolInputError(noCheckout, { ...base, refused: checkout === "none" ? "no_checkout" : "checkout_unread", optimisedOn: optimisation.event });
+    build = { ...build, optimiseOn: optimisation.event === "INITIATED_CHECKOUT" ? "initiate_checkout" : optimisation.event === "PURCHASE" ? "purchase" : null, checkout };
     // The Page the ads run from, and the ads from Drive (Matas, 27 Nov): checked on the ad account before anything is sent.
     const adAccountForAds = build.adAccountId;
     // A build whose ads are made keeps the identity it was made with (none, for one made before this); a new one takes the Electric default.
@@ -495,7 +523,7 @@ export const createShowCampaignsTool: McpTool = {
       scheduled: progress.scheduled ?? [],
     };
     const link = created.adsManager;
-    const summary = { ...base, ...ids, ...(identity ? { pageId: identity.pageId, igId: identity.igId, identitySource: identity.source } : {}), ...(build.creatives ? { driveAds: build.creatives.ads.length } : {}), ...(build.copyAds ? { copiedAds: build.copyAds.map((ad) => ad.adId) } : {}), step: out.step ?? null, specKey: out.specKey ?? null, ...(progress.skipped?.length ? { skipped: progress.skipped.map((row) => ({ key: row.key, reason: row.reason })) } : {}), ...(out.error ? { error: "meta_or_store", reason: out.reason, ...(out.metaError ? { metaError: { code: out.metaError.code, subcode: out.metaError.subcode, type: out.metaError.type, fbtraceId: out.metaError.fbtraceId, message: out.metaError.message.slice(0, 300) } } : {}) } : {}) };
+    const summary = { ...base, ...ids, optimisedOn: optimisation.event, ...(optimisation.kept ? { optimisationKept: true } : {}), ...(identity ? { pageId: identity.pageId, igId: identity.igId, identitySource: identity.source } : {}), ...(build.creatives ? { driveAds: build.creatives.ads.length } : {}), ...(build.copyAds ? { copiedAds: build.copyAds.map((ad) => ad.adId) } : {}), step: out.step ?? null, specKey: out.specKey ?? null, ...(progress.skipped?.length ? { skipped: progress.skipped.map((row) => ({ key: row.key, reason: row.reason })) } : {}), ...(out.error ? { error: "meta_or_store", reason: out.reason, ...(out.metaError ? { metaError: { code: out.metaError.code, subcode: out.metaError.subcode, type: out.metaError.type, fbtraceId: out.metaError.fbtraceId, message: out.metaError.message.slice(0, 300) } } : {}) } : {}) };
     const sourcesSkipped = (progress.skipped ?? []).map((row) => RT_CLAUDE_WORDS.sourceSkipped(row.name, row.reason));
     const tiersNotMade = (progress.tiersNotMade ?? []).map((tier) => RF_STOP_WORDS.tierNotMade(code!, FUNNEL_TIER_LABEL[tier]));
     // Stopped before the client's wait ran out: what's made is kept, and asking again carries on.
@@ -505,7 +533,7 @@ export const createShowCampaignsTool: McpTool = {
     if (out.state === "failed") {
       const reason = out.reason ?? RT_CLAUDE_WORDS.readFailed;
       // The ceiling's own refusal is the MCP's (it ends "Nothing was sent to Meta."); busy and no-tier are said as they are.
-      const said = out.step === "ceiling" || out.step === "busy" || out.step === "tiers" ? reason : progress.campaignId ? RT_CLAUDE_WORDS.failedPartly(reason) : RT_CLAUDE_WORDS.failed(reason);
+      const said = out.step === "ceiling" || out.step === "busy" || out.step === "tiers" || out.step === "checkout" ? reason : progress.campaignId ? RT_CLAUDE_WORDS.failedPartly(reason) : RT_CLAUDE_WORDS.failed(reason);
       throw new ToolInputError([said, ...sourcesSkipped, ...tiersNotMade].join("\n"), { ...summary, refused: out.step ?? "failed" }, { ...ids, ads_manager: link });
     }
     const taken = build.plan.take.reduce((sum, line) => sum + (line.beforeMinor - line.afterMinor), 0);
@@ -520,7 +548,7 @@ export const createShowCampaignsTool: McpTool = {
     const adSets = Object.values(progress.adSets ?? {}).filter(Boolean).length + Object.values(progress.wider?.adSets ?? {}).filter(Boolean).length;
     const copiedCount = build.copyAds?.length ?? (build.creatives ? 0 : (copies?.ads.length || build.ads.length));
     const adsWords = identity ? [SHOW_CREATIVE_WORDS.line({ code: code!, newAds: build.creatives?.ads.length ?? null, copied: copiedCount, folders: build.creatives?.folders ?? [], identity, withLive: Boolean(build.copyAds?.length && build.creatives), kept: copies?.kept ?? [] })] : [];
-    const message = [doneLine({ code: code!, live, adSets, made: ids.audiences_made }), ...adsWords, ...sourcesSkipped, ...tiersNotMade, ...similarSkipped, ...(live && out.step === "schedule" ? [RT_CLAUDE_WORDS.stepsNotScheduled] : []), ...settings].join("\n");
+    const message = [doneLine({ code: code!, live, adSets, made: ids.audiences_made }), ...optimisationLines(code!, optimisation, "seen"), ...adsWords, ...sourcesSkipped, ...tiersNotMade, ...similarSkipped, ...(live && out.step === "schedule" ? [RT_CLAUDE_WORDS.stepsNotScheduled] : []), ...settings].join("\n");
     return { data: { message, ...ids, ads_manager: link }, eventId, clientId: ownerRow.client_id, summary: { ...summary, takenMinor: taken } };
   },
 };

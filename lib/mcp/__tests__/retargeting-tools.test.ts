@@ -50,6 +50,8 @@ function input(over: Partial<RetargetingInput> = {}): RetargetingInput {
     where: { draftId: "d0000000-0000-4000-8000-000000000001", adAccountId: "act_123", campaignIds: ["4001"] },
     prospecting: [{ id: "5001", kind: "adset", name: "Broad · Advantage+", dailyMinor: 3600, adSets: 1 }, { id: "5002", kind: "adset", name: "Interests", dailyMinor: 2400, adSets: 1 }],
     madeAudiences: ["rf:ticket:30"],
+    // An Electric show optimises on InitiateCheckout: the pixel had it on the ticket site in 28 days.
+    pixelHosts: { any: ["skiddle.com"], pageView: ["skiddle.com"], checkout: ["skiddle.com"], registration: [] },
     ...over,
   };
 }
@@ -109,6 +111,8 @@ test("plan_retargeting(code): TC8's line with both campaigns, the matched Pages 
     "Needs advertiser access: MC Fenn (Facebook) · MC Fenn (Instagram).",
     "Similar skipped: NX26-RUDIMENTAL has no genre, so its share goes to Cold.",
     "Then final 2 weeks from Sat 28 Nov at 40 %, as a scheduled change.",
+    // Matas, 27 Nov: an Electric show optimises on InitiateCheckout once on sale (PENDING DESIGN).
+    "Optimises on: InitiateCheckout.",
     // Matas, 27 Nov: an NX show's ads run from NX Loves (claude.rt.ads.line.copied, ruled 27 Nov).
     "Ads: the show’s one live ad, copied into both campaigns, run from NX LOVES and Instagram nxloves (the Electric group’s Page for Newcastle).",
   ]);
@@ -174,7 +178,7 @@ test("create_show_campaigns paused: the plan's build (both campaigns), paused, t
   assert.equal(calls.create[0]!.build.wider?.campaignName, "NX26-RUDIMENTAL · Wider");
   assert.equal(calls.create[0]!.build.wider?.lifetimeMinor, 66300);
   const data = out.data as Record<string, unknown>;
-  assert.equal(data.message, "Done: NX26-RUDIMENTAL · Wider and Retargeting created paused · 3 ad sets · 6 audiences made.\nAds: the show’s one live ad, copied into both campaigns, run from NX LOVES and Instagram nxloves (the Electric group’s Page for Newcastle).");
+  assert.equal(data.message, "Done: NX26-RUDIMENTAL · Wider and Retargeting created paused · 3 ad sets · 6 audiences made.\nOptimises on: InitiateCheckout.\nAds: the show’s one live ad, copied into both campaigns, run from NX LOVES and Instagram nxloves (the Electric group’s Page for Newcastle).");
   assert.equal(data.campaign_id, "120000000000001");
   assert.deepEqual(data.ad_set_ids, { cold: "131", warm: "132", hot: "133" });
   assert.match(String(data.ads_manager), /^https:\/\/business\.facebook\.com\/adsmanager\/manage\/campaigns\?act=123&selected_campaign_ids=120000000000001$/);
@@ -183,7 +187,7 @@ test("create_show_campaigns paused: the plan's build (both campaigns), paused, t
 test("create_show_campaigns live: the done line, and a paused build asked as live goes live from its stored build", async () => {
   const fresh = ctxWith([record()]);
   const out = await run(createShowCampaignsTool, fresh.ctx, { event: "NX26-RUDIMENTAL", mode: "live", approval: YES });
-  assert.equal((out.data as { message: string }).message, "Done: NX26-RUDIMENTAL · Wider and Retargeting created live · 3 ad sets · 6 audiences made.\nAds: the show’s one live ad, copied into both campaigns, run from NX LOVES and Instagram nxloves (the Electric group’s Page for Newcastle).");
+  assert.equal((out.data as { message: string }).message, "Done: NX26-RUDIMENTAL · Wider and Retargeting created live · 3 ad sets · 6 audiences made.\nOptimises on: InitiateCheckout.\nAds: the show’s one live ad, copied into both campaigns, run from NX LOVES and Instagram nxloves (the Electric group’s Page for Newcastle).");
   const stored = record().plan.build as FunnelBuild;
   const paused = ctxWith([record({ funnelBuilt: { state: "paused", mode: "paused", campaignId: "1", tiers: { similar: 0, cold: 630, warm: 945, hot: 525 }, took: [] } })], { build: { build: stored, mode: "paused", state: "paused", progress: { campaignId: "1", ads: ["141"] }, meta_campaign_id: "1" } });
   await run(createShowCampaignsTool, paused.ctx, { event: "NX26-RUDIMENTAL", mode: "live", approval: YES });
@@ -228,7 +232,7 @@ test("create_show_campaigns: a tier Meta still has location expansion on for get
   const { ctx } = ctxWith([record()], { outcome: { progress: { campaignId: "120000000000001", audiences: { a: "1" }, adSets: { similar: undefined, cold: { id: "131", dailyMinor: 630 }, hot: { id: "133", dailyMinor: 525 } }, readBack } as never } });
   const out = await run(createShowCampaignsTool, ctx, { event: "NX26-RUDIMENTAL", mode: "paused", approval: YES });
   const lines = String((out.data as { message: string }).message).split("\n");
-  assert.deepEqual(lines.slice(2), [
+  assert.deepEqual(lines.slice(3), [
     "Location expansion couldn’t be read back for NX26-RUDIMENTAL · Retargeting · Warm, so it may be on. Check “Reach more people likely to respond to your ads” in Ads Manager.",
     "NX26-RUDIMENTAL · Retargeting · Hot still has location expansion on. Untick “Reach more people likely to respond to your ads” for it in Ads Manager.",
   ]);
@@ -278,10 +282,10 @@ test("plan_retargeting: a built show without Similar whose group is confirmed no
   const built = record({ genreFamily: "dnb", pageGroup: group, funnelBuilt: { state: "live", mode: "live", campaignId: "1", tiers: { similar: 0, cold: 840, warm: 735, hot: 525 }, took: [] } });
   const { ctx } = ctxWith([built]);
   const lines = String(((await run(planRetargetingTool, ctx, { events: "NX26-RUDIMENTAL" })).data as { message: string }).message).split("\n");
-  assert.deepEqual(lines, ["NX26-RUDIMENTAL · skipped: it already has a Wider or Retargeting campaign.", "Similar comes back at the next step, Sat 28 Nov, now its page group is confirmed."]);
+  assert.deepEqual(lines, ["NX26-RUDIMENTAL · skipped: it already has a Wider or Retargeting campaign.", "Similar comes back at the next step, Sat 28 Nov, now its page group is confirmed.", "Optimises on: Purchase. NX26-RUDIMENTAL’s ad sets were made on it, so they keep it; nothing on them is changed."]);
   const refused = record({ genreFamily: "dnb", pageGroup: group, funnelBuilt: { state: "live", mode: "live", campaignId: "1", tiers: { similar: 0, cold: 840, warm: 735, hot: 525 }, took: [], similarRefused: { day: "2026-11-26", reason: "Its audience is too small." } } });
   const again = ctxWith([refused]);
-  assert.match(String(((await run(planRetargetingTool, again.ctx, { events: "NX26-RUDIMENTAL" })).data as { message: string }).message), /\nSimilar couldn’t be added on Thu 26 Nov: Its audience is too small\. Its share stays in Cold\.$/);
+  assert.match(String(((await run(planRetargetingTool, again.ctx, { events: "NX26-RUDIMENTAL" })).data as { message: string }).message), /\nSimilar couldn’t be added on Thu 26 Nov: Its audience is too small\. Its share stays in Cold\.\nOptimises on: Purchase\./);
 });
 
 test("design's two tool descriptions (27 Nov), word for word, and plan_retargeting's title", () => {
@@ -399,4 +403,51 @@ test("design's input descriptions for destination (re-ruled with #1410's list), 
     assert.equal(shape.link!.description, "The https:// web address every ad in both campaigns links to.");
     assert.equal(shape.url_tags!.description ?? shape.url_tags!.unwrap?.().description, "Meta's URL parameters for every ad, with no leading ?, e.g. utm_source=meta&utm_campaign={{campaign.name}}. Kept exactly as written: Meta fills in {{campaign.name}}, {{adset.name}} and {{ad.name}}.");
   }
+});
+
+// Matas, 27 Nov: the Electric group's on-sale ad sets optimise on InitiateCheckout (PENDING DESIGN words).
+test("optimise_on: an Electric show builds on InitiateCheckout by default; asked for purchase, on Purchase; another client on Purchase", async () => {
+  const nx = ctxWith([record()]);
+  await run(createShowCampaignsTool, nx.ctx, { event: "NX26-RUDIMENTAL", mode: "paused", approval: YES });
+  assert.deepEqual([nx.calls.create[0]!.build.optimiseOn, nx.calls.create[0]!.build.checkout], ["initiate_checkout", "seen"]);
+  const asked = ctxWith([record()]);
+  const out = await run(createShowCampaignsTool, asked.ctx, { event: "NX26-RUDIMENTAL", mode: "paused", approval: YES, optimise_on: "purchase" });
+  assert.equal(asked.calls.create[0]!.build.optimiseOn, "purchase");
+  assert.equal(String((out.data as { message: string }).message).split("\n")[1], "Optimises on: Purchase.");
+  assert.equal((out.summary as { optimisedOn: string }).optimisedOn, "PURCHASE");
+  const other = ctxWith([record({ eventCode: "P26-BDAY" })]);
+  const lines = String(((await run(planRetargetingTool, other.ctx, { events: "P26-BDAY" })).data as { message: string }).message).split("\n");
+  assert.ok(lines.includes("Optimises on: Purchase."), lines.join("\n"));
+  const overridden = String(((await run(planRetargetingTool, other.ctx, { events: "P26-BDAY", optimise_on: "initiate_checkout" })).data as { message: string }).message).split("\n");
+  assert.ok(overridden.includes("Optimises on: InitiateCheckout."), overridden.join("\n"));
+});
+
+test("optimise_on: a pixel with no InitiateCheckout in 28 days, or one not read, is refused before anything is sent; Purchase still builds", async () => {
+  const none = ctxWith([record({ pixelHosts: { any: ["skiddle.com"], pageView: ["skiddle.com"], checkout: [], registration: [] } })]);
+  const e = await refused(run(createShowCampaignsTool, none.ctx, { event: "NX26-RUDIMENTAL", mode: "paused", approval: YES }), /^Refused: NX26-RUDIMENTAL’s pixel had no InitiateCheckout in the last 28 days, so the ad sets would have nothing to optimise on\. Pass optimise_on "purchase" to build on Purchase\. Nothing was sent to Meta\.$/);
+  assert.equal((e.summary as { refused: string }).refused, "no_checkout");
+  const unread = ctxWith([record({ pixelHosts: null })]);
+  await refused(run(createShowCampaignsTool, unread.ctx, { event: "NX26-RUDIMENTAL", mode: "paused", approval: YES }), /^Refused: NX26-RUDIMENTAL’s pixel’s InitiateCheckout couldn’t be read in time, so nothing was built\. Asking again tries it\. Nothing was sent to Meta\.$/);
+  assert.deepEqual([...none.calls.create, ...unread.calls.create], []);
+  const plan = String(((await run(planRetargetingTool, none.ctx, { events: "NX26-RUDIMENTAL" })).data as { message: string }).message);
+  assert.match(plan, /\nOptimises on: InitiateCheckout\.\nNX26-RUDIMENTAL’s pixel had no InitiateCheckout in the last 28 days, so create_show_campaigns would refuse it\./);
+  await run(createShowCampaignsTool, none.ctx, { event: "NX26-RUDIMENTAL", mode: "paused", approval: YES, optimise_on: "purchase" });
+  assert.equal(none.calls.create[0]!.build.optimiseOn, "purchase");
+});
+
+test("optimise_on: NX26-RUDIMENTAL's paused build with no ad sets yet carries on on InitiateCheckout; one whose ad sets exist keeps their event and says so", async () => {
+  const stored = { ...(record().plan.build as FunnelBuild), optimiseOn: undefined, checkout: undefined };
+  const progress = { campaignId: "120252781594470755", audiences: Object.fromEntries(Array.from({ length: 14 }, (_, i) => [`k${i}`, String(i)])) };
+  const builtNoSets = record({ funnelBuilt: { state: "failed", mode: "paused", campaignId: "120252781594470755", tiers: { similar: 0, cold: 0, warm: 0, hot: 0 }, took: [], adSetsMade: false, optimisedOn: null } });
+  const rud = ctxWith([builtNoSets], { build: { build: stored, mode: "paused", state: "failed", progress, meta_campaign_id: "120252781594470755" } });
+  const plan = String(((await run(planRetargetingTool, rud.ctx, { events: "NX26-RUDIMENTAL" })).data as { message: string }).message).split("\n");
+  assert.deepEqual(plan, ["NX26-RUDIMENTAL · skipped: it already has a Wider or Retargeting campaign.", "Optimises on: InitiateCheckout."]);
+  await run(createShowCampaignsTool, rud.ctx, { event: "NX26-RUDIMENTAL", mode: "paused", approval: YES });
+  assert.deepEqual([rud.calls.create[0]!.build.optimiseOn, rud.calls.create[0]!.build.checkout], ["initiate_checkout", "seen"]);
+  // Ad sets made before 27 Nov (Purchase): kept, and asking for InitiateCheckout says so.
+  const made = ctxWith([record()], { build: { build: stored, mode: "paused", state: "failed", progress: { ...progress, adSets: { cold: { id: "131", dailyMinor: 630 } } }, meta_campaign_id: "120252781594470755" } });
+  const out = await run(createShowCampaignsTool, made.ctx, { event: "NX26-RUDIMENTAL", mode: "paused", approval: YES, optimise_on: "initiate_checkout" });
+  const lines = String((out.data as { message: string }).message).split("\n");
+  assert.deepEqual(lines.slice(1, 3), ["Optimises on: Purchase. NX26-RUDIMENTAL’s ad sets were made on it, so they keep it; nothing on them is changed.", "Asked for InitiateCheckout, but NX26-RUDIMENTAL’s ad sets were made on Purchase, so they keep it; nothing on them is changed."]);
+  assert.equal(made.calls.create[0]!.build.optimiseOn, "purchase");
 });
