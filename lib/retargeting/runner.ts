@@ -48,6 +48,7 @@ import type { CampaignInput } from "../onsale-refresh/rules.ts";
 import { loadPageGroup } from "./page-groups.ts";
 import { SHOW_CAMPAIGNS_RULED } from "./show-campaigns.ts";
 import { newShowPagesCache, readShowPages } from "./show-pages.ts";
+import { HELD_CLIENT_IDS } from "./held.ts";
 import { resolveShowCeiling, spentToDate } from "../mcp/meta/show-ceiling.ts";
 import { businessClientLinks } from "../bm/client-links.ts";
 import { isOnSale } from "../onsale-refresh/on-sale.ts";
@@ -706,6 +707,8 @@ export async function runRetargetingRead(input: {
   let events = await loadOnSaleEvents(input.db, day);
   // TC7: presale shows (announced, not on sale yet) take the two campaigns too.
   if (SHOW_CAMPAIGNS_RULED) events = [...events, ...(await loadPresaleEvents(input.db, day).catch(() => [] as EventRow[])).filter((row) => !events.some((have) => have.id === row.id))];
+  // Held clients (Matas, 27 Nov; held.ts): the connector's read leaves their shows out. The 08:00 read doesn't (connector false).
+  if (input.connector) events = events.filter((event) => !event.client_id || !HELD_CLIENT_IDS.has(event.client_id));
   if (input.eventCodes?.length) {
     const wanted = new Set(input.eventCodes.map((code) => code.trim().toLowerCase()));
     events = events.filter((event) => wanted.has((event.event_code ?? "").toLowerCase()));
@@ -801,7 +804,7 @@ export async function runRetargetingRead(input: {
       // Fix 1: the show's Pages as audience_sources matches them.
       let showPages: Awaited<ReturnType<typeof readShowPages>> | null = null;
       if (SHOW_CAMPAIGNS_RULED) {
-        showPages = await readShowPages({ db: input.db as never, graph: input.graph ?? null, event: { id: event.id, client_id: event.client_id, clientName: sourceRows.clients.find((row) => row.id === event.client_id)?.name ?? null }, venue: venueRow, adAccountId: readAccount, businessIds: businessesOf.get(event.client_id ?? "") ?? [], cache: pagesCache }).catch(() => null);
+        showPages = await readShowPages({ db: input.db as never, graph: input.graph ?? null, event: { id: event.id, client_id: event.client_id, clientName: sourceRows.clients.find((row) => row.id === event.client_id)?.name ?? null, code: event.event_code }, venue: venueRow, adAccountId: readAccount, businessIds: businessesOf.get(event.client_id ?? "") ?? [], cache: pagesCache }).catch(() => null);
         metaCalls += showPages?.calls ?? 0;
       }
       const sources = sourceSetFor({ event, rows: sourceRows, pixelId, roles: roles?.roles ?? null, hasVideo, links: links.links, pages: showPages?.pages ?? null });

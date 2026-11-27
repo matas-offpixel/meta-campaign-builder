@@ -3,9 +3,10 @@
  * (TC9), matched as audience_sources matches them (fix 1, 27 Nov: the 26 Nov
  * dry run matched no Page on any show while audience_sources found NX LOVES
  * and Rudimental on NX26-RUDIMENTAL). The same code, not a copy:
- *   - the promoter's brand Pages: the client's default Pages and the Pages
- *     the show's drafts run from (promoterPageIds), kept to the ones the ad
- *     account can promote when that list is read, each with its Instagram;
+ *   - the promoter's brand Pages: only the show's own brand's (Matas, 27 Nov;
+ *     show-brands.ts), by name, from the client's Business Manager listing,
+ *     the ad account's Pages and the Pages the show's drafts run from
+ *     (promoterPageIds), each with its Instagram;
  *   - the lineup in billing order with each act's Page and Instagram from the
  *     artist library and the Lab (lineupSources); an act with no Page id
  *     takes the ad account's Page of the same name and that Page's Instagram;
@@ -23,6 +24,7 @@ import { resolvePageAccess } from "../meta/page-access.ts";
 import type { RefreshGraph } from "../onsale-refresh/purchase-read.ts";
 import type { SourcePage } from "./audiences.ts";
 import type { MatchedPages } from "./funnel-plan.ts";
+import { isShowBrandPage } from "./show-brands.ts";
 
 export type PromotePage = { id: string; name: string | null; igId: string | null };
 
@@ -62,7 +64,7 @@ async function edge(graph: RefreshGraph, path: string, params: Record<string, st
 export async function readShowPages(args: {
   db: Db;
   graph: RefreshGraph | null;
-  event: { id: string; client_id: string | null; clientName?: string | null };
+  event: { id: string; client_id: string | null; clientName?: string | null; code?: string | null };
   venue: { meta_page_id: string | null; meta_page_name: string | null; name: string | null } | null;
   adAccountId: string | null;
   businessIds: readonly string[];
@@ -95,9 +97,32 @@ export async function readShowPages(args: {
     act.pageName = hit.name;
     act.igId ??= hit.igId;
   }
-  // The promoter's Pages: the ones the ad account can promote, when that list was read; an act's own Page is lineup, never promoter.
+  // The client's Business Manager Pages (owned and client), read once a run per business.
+  const loadBusinessPages = async (): Promise<Map<string, string>> => {
+    const map = new Map<string, string>();
+    if (!graph) return map;
+    for (const businessId of args.businessIds) {
+      if (!cache.business.has(businessId)) {
+        const pages = new Map<string, string>();
+        for (const e of ["owned_pages", "client_pages"]) {
+          for (const r of await edge(graph, `/${businessId}/${e}`, { fields: "id,name", limit: "200" }, count).catch(() => [] as Row[])) if (r.id && !pages.has(String(r.id))) pages.set(String(r.id), str(r.name) ?? String(r.id));
+        }
+        cache.business.set(businessId, pages);
+      }
+      for (const [id, name] of cache.business.get(businessId)!) if (!map.has(id)) map.set(id, name);
+    }
+    return map;
+  };
+  const bmPages = await loadBusinessPages();
+  // The promoter's Pages (Matas, 27 Nov): only the show's own brand's (show-brands.ts), by name, from the client's Business Manager
+  // listing, the ad account's Pages and the Pages the show's drafts run from; never every Page the client owns. An act's own Page is
+  // lineup, never promoter.
   const actPages = new Set(lineup.map((a) => a.pageId).filter((v): v is string => Boolean(v)));
-  const brandIds = [...own].filter((id) => (!promote || promoteById.has(id)) && !actPages.has(id));
+  const candidateNames = new Map<string, string | null>();
+  for (const [id, name] of bmPages) candidateNames.set(id, name);
+  for (const p of promote ?? []) if (!candidateNames.get(p.id)) candidateNames.set(p.id, p.name);
+  for (const id of own) if (!candidateNames.has(id)) candidateNames.set(id, null);
+  const brandIds = [...candidateNames].filter(([id, name]) => !actPages.has(id) && isShowBrandPage(args.event.code, args.event.clientName, name)).map(([id]) => id);
   const venueId = args.venue?.meta_page_id && /^\d{5,32}$/.test(args.venue.meta_page_id) ? args.venue.meta_page_id : null;
   const pageIds = [...new Set([...brandIds, ...(venueId ? [venueId] : []), ...lineup.map((a) => a.pageId).filter((v): v is string => Boolean(v))])];
 
@@ -106,20 +131,7 @@ export async function readShowPages(args: {
   if (graph && pageIds.length) {
     const todo = pageIds.filter((id) => !cache.access.has(id));
     if (todo.length) {
-      const businessPages = async () => {
-        const map = new Map<string, string>();
-        for (const businessId of args.businessIds) {
-          if (!cache.business.has(businessId)) {
-            const pages = new Map<string, string>();
-            for (const e of ["owned_pages", "client_pages"]) {
-              for (const r of await edge(graph, `/${businessId}/${e}`, { fields: "id,name", limit: "200" }, count).catch(() => [] as Row[])) if (r.id && !pages.has(String(r.id))) pages.set(String(r.id), str(r.name) ?? String(r.id));
-            }
-            cache.business.set(businessId, pages);
-          }
-          for (const [id, name] of cache.business.get(businessId)!) if (!map.has(id)) map.set(id, name);
-        }
-        return map;
-      };
+      const businessPages = async () => bmPages;
       const probe = async (pageId: string) => {
         count();
         return (await graph.graphGet(`/${pageId}`, { fields: "id,name,tasks" })) as { id?: string; name?: string; tasks?: string[] };
@@ -130,7 +142,7 @@ export async function readShowPages(args: {
     for (const id of pageIds) access.set(id, cache.access.get(id)!);
   }
   const hasRole = (id: string) => (access.has(id) ? access.get(id)!.ok : null);
-  const nameOf = (id: string, fallback: string | null) => promoteById.get(id)?.name ?? access.get(id)?.name ?? fallback ?? id;
+  const nameOf = (id: string, fallback: string | null) => promoteById.get(id)?.name ?? bmPages.get(id) ?? access.get(id)?.name ?? fallback ?? id;
 
   const pages: SourcePage[] = [];
   const seen = new Set<string>();

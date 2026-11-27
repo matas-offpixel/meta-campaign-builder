@@ -25,7 +25,6 @@ import {
   audiencesToMake,
   FLOOR_MINOR,
   NO_TIERS,
-  SPLIT_WITH_SIMILAR,
   funnelSpecs,
   FUNNEL_TIER_LABEL,
   FUNNEL_TIERS,
@@ -252,16 +251,13 @@ export function shareLine(plan: Pick<FunnelShowPlan, "targetMinor" | "share" | "
 }
 
 /**
- * TC3: the split as the words give it. With Similar skipped, Cold's budget
- * already holds Similar's share; the words name Similar's £ a day and Cold's
- * own (TW-B, TW-D), and the skip line says where Similar's went.
+ * The split as the words give it: the budgets as they are (Matas, 27 Nov:
+ * budgets and the line agree). With Similar skipped that's Similar £0.00 and
+ * Cold holding its share, as the build makes them (no Similar ad set, no
+ * Similar money); the skip line says where Similar's went.
  */
-export function wordsSplit(plan: Pick<FunnelShowPlan, "tiers" | "similarSkip" | "totalMinor" | "stretch">): TierMinor {
-  if (!plan.similarSkip) return plan.tiers;
-  const similar = splitTotal(plan.totalMinor, SPLIT_WITH_SIMILAR[plan.stretch])?.tiers.similar ?? 0;
-  // Fix 2: only when Cold holds Similar's share (it has audiences and its budget covers it); else the budgets as they are, never negative.
-  if (!(plan.tiers.cold >= similar && similar > 0)) return plan.tiers;
-  return { ...plan.tiers, similar, cold: plan.tiers.cold - similar };
+export function wordsSplit(plan: Pick<FunnelShowPlan, "tiers">): TierMinor {
+  return plan.tiers;
 }
 
 /** Fix 3: the ceiling set Wider's lifetime, Retargeting alone would pass it, or the show has no ceiling. Design's words on #1406 (27 Nov). */

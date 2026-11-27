@@ -202,11 +202,12 @@ test("TC5: the plan matches the confirmed split on every stretch, the shares RF3
   }
 });
 
-test("TC3: no group or no genre skips Similar, and its share goes to Cold, exactly; the words keep Similar's £ a day", () => {
+test("TC3: no group or no genre skips Similar, and its share goes to Cold, exactly; the line shows it there", () => {
   for (const spec of [{ twoCampaigns: true, pageGroup: null, genreFamily: "dnb" }, { twoCampaigns: true, pageGroup: null, genreFamily: null }, { twoCampaigns: true, pageGroup: { ...GROUP, confirmed: false }, genreFamily: "dnb" }, { twoCampaigns: true, pageGroup: GROUP, genreFamily: "dnb", similarTooSmall: true }]) {
     const plan = planFunnelShow({ code: "XMPL-ATTIC", runDay: "2026-11-26", showDay: SHOW, announceDay: ANNOUNCE, prospecting: PROSPECTING, sources: SOURCES, spec });
     assert.deepEqual(plan.tiers, { similar: 0, cold: 315 + 525, warm: 735, hot: 525 }, JSON.stringify(spec));
-    assert.deepEqual(wordsSplit(plan), { similar: 315, cold: 525, warm: 735, hot: 525 });
+    // Matas, 27 Nov: the line shows the budgets as they are — Similar £0.00, Cold holding its share.
+    assert.deepEqual(wordsSplit(plan), plan.tiers);
     assert.ok(!plan.specs.some((row) => row.tier === "similar"));
   }
   assert.equal(similarSkipRow("no_group", { code: "NX26-RUDIMENTAL", genre: "drum & bass", minor: 315 }), "Similar skipped: there’s no drum & bass page group yet, so its £3.15 a day goes to Cold.");
@@ -331,7 +332,7 @@ test("TC8 (TW-D): the plan's lines for Claude, the head, the skips and the done 
   assert.equal(lines[3], "Then final 2 weeks from Sat 28 Nov at 40 %, as a scheduled change.");
   const attic = planFunnelShow({ code: "XMPL-ATTIC", runDay: "2026-11-26", showDay: SHOW, announceDay: ANNOUNCE, prospecting: PROSPECTING, sources: SOURCES, spec: { twoCampaigns: true, genreFamily: null } });
   const atticLines = claudePlanLines(attic, SOURCES, { wider: widerOf(attic, "2026-11-26"), existing: [{ name: "XMPL-ATTIC · Prospecting", action: "fold" }, { name: "XMPL-ATTIC · Lineup", action: "pause" }, { name: "XMPL-ATTIC · Brand", action: "keep" }] });
-  assert.match(atticLines[0]!, /Similar £3\.15 · Cold £5\.25 ·/);
+  assert.match(atticLines[0]!, /Similar £0\.00 · Cold £8\.40 ·/);
   assert.ok(atticLines.includes("Similar skipped: XMPL-ATTIC has no genre, so its share goes to Cold."));
   assert.ok(atticLines.includes("Existing prospecting: XMPL-ATTIC · Prospecting · fold into Wider, once Matas says yes."));
   assert.ok(atticLines.includes("Existing prospecting: XMPL-ATTIC · Lineup · pause, once Matas says yes."));

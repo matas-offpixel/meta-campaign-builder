@@ -45,7 +45,7 @@ describe("fix 1: plan_retargeting matches Pages as audience_sources does", () =>
   };
 
   it("finds NX LOVES (promoter, with its Instagram) and Rudimental (lineup, by name, with its Instagram), both accessible", async () => {
-    const out = await readShowPages({ db: db as never, graph: graph as never, event: { id: "e-rud", client_id: "c-nx", clientName: "Electric Brixton" }, venue: null, adAccountId: "act_1", businessIds: ["bm-1"], cache: newShowPagesCache() });
+    const out = await readShowPages({ db: db as never, graph: graph as never, event: { id: "e-rud", client_id: "c-nx", clientName: "Electric Brixton", code: "NX26-RUDIMENTAL" }, venue: null, adAccountId: "act_1", businessIds: ["bm-1"], cache: newShowPagesCache() });
     assert.deepEqual(out.pages, [
       { id: "500100", name: "NX LOVES", igId: "ig500100", kind: "promoter", hasRole: true },
       { id: "600100", name: "Rudimental", igId: "ig600100", kind: "lineup", hasRole: true },
@@ -61,14 +61,14 @@ describe("fix 1: plan_retargeting matches Pages as audience_sources does", () =>
       artists: [{ id: "a-rud", name: "Rudimental", meta_page_id: null, meta_page_name: null, instagram_handle: null }],
       creative_lab_artists: [],
     });
-    const out = await readShowPages({ db: db2 as never, graph: graph as never, event: { id: "e-rud", client_id: "c-nx" }, venue: null, adAccountId: "act_1", businessIds: ["bm-1"], cache: newShowPagesCache() });
+    const out = await readShowPages({ db: db2 as never, graph: graph as never, event: { id: "e-rud", client_id: "c-nx", code: "NX26-RUDIMENTAL" }, venue: null, adAccountId: "act_1", businessIds: ["bm-1"], cache: newShowPagesCache() });
     assert.deepEqual(out.matched, { venue: null, brands: ["NX LOVES"], artists: ["Rudimental"] });
     assert.deepEqual(out.pages.map((p) => [p.id, p.kind]), [["500100", "promoter"], ["600100", "lineup"]]);
   });
 
-  it("the venue's Page joins; with no graph, the Pages are listed with access unknown", async () => {
-    const out = await readShowPages({ db: db as never, graph: null, event: { id: "e-rud", client_id: "c-nx" }, venue: { meta_page_id: "800100", meta_page_name: "O2 City Hall", name: "O2 City Hall Newcastle" }, adAccountId: "act_1", businessIds: [], cache: newShowPagesCache() });
-    assert.deepEqual(out.pages.map((p) => [p.id, p.kind, p.hasRole]), [["500100", "promoter", null], ["800100", "venue", null]]);
+  it("the venue's Page joins; with no graph, the Pages are listed with access unknown (and no Page name to match a brand on)", async () => {
+    const out = await readShowPages({ db: db as never, graph: null, event: { id: "e-rud", client_id: "c-nx", code: "NX26-RUDIMENTAL" }, venue: { meta_page_id: "800100", meta_page_name: "O2 City Hall", name: "O2 City Hall Newcastle" }, adAccountId: "act_1", businessIds: [], cache: newShowPagesCache() });
+    assert.deepEqual(out.pages.map((p) => [p.id, p.kind, p.hasRole]), [["800100", "venue", null]]);
     assert.equal(out.matched.venue, "O2 City Hall");
   });
 });
