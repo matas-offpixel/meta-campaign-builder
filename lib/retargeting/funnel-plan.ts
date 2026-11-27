@@ -210,7 +210,9 @@ export function planFunnelShow(input: FunnelShowInput): FunnelShowPlan {
 }
 
 /** TC7: a presale show — announced, not on sale yet, the show still ahead. */
-export function isPresale(input: { onSaleDay: string | null; runDay: string; announceDay?: string | null; eventDate: string | null }): boolean {
+export function isPresale(input: { onSaleDay: string | null; runDay: string; announceDay?: string | null; eventDate: string | null; onSale?: boolean }): boolean {
+  // A show the on-sale panel calls on sale (isOnSale) is on sale, whatever its dates look like.
+  if (input.onSale) return false;
   return Boolean(input.onSaleDay && input.onSaleDay > input.runDay && input.announceDay && input.announceDay <= input.runDay && input.eventDate && input.eventDate > input.runDay);
 }
 
