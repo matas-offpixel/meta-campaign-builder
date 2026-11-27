@@ -190,14 +190,17 @@ describe("Wider", () => {
 });
 
 describe("existing campaigns: keep, pause or fold into Wider (advice only)", () => {
-  it("prospecting folds, a lineup or old retargeting campaign pauses, anything else is kept; a paused campaign isn't listed", () => {
+  it("fix 4 (Matas, 27 Nov): every existing prospecting campaign is paused when Wider goes live; Tests is kept; a paused campaign, Retargeting and Wider aren't listed", () => {
     const advice = adviseExisting([
       { id: "1", name: "X · Prospecting", adSetNames: ["Broad · Advantage+", "Interests · techno", "Lookalike 1 %"], delivering: true },
       { id: "2", name: "X · Lineup", adSetNames: ["Lineup · interests"], delivering: true },
       { id: "3", name: "X · Tests", adSetNames: ["X · Tests · A"], delivering: true },
       { id: "4", name: "X · Old", adSetNames: ["Broad"], delivering: false },
+      { id: "5", name: "X · Wider", adSetNames: ["X · Wider · Broad"], delivering: true },
+      { id: "6", name: "X · Retargeting", adSetNames: ["X · Retargeting · Cold"], delivering: true },
+      { id: "7", name: "[X] On sale", adSetNames: ["Purchase"], delivering: true },
     ]);
-    assert.deepEqual(advice.map((row) => [row.name, row.advice]), [["X · Prospecting", "fold"], ["X · Lineup", "pause"], ["X · Tests", "keep"]]);
+    assert.deepEqual(advice.map((row) => [row.name, row.advice]), [["X · Prospecting", "pause_wider"], ["X · Lineup", "pause_wider"], ["X · Tests", "keep"], ["[X] On sale", "pause_wider"]]);
   });
 });
 

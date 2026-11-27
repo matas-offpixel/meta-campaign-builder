@@ -95,28 +95,23 @@ export function widerSpecs(input: WiderInputs): WiderAdSet[] {
 
 export type ExistingCampaign = { id: string; name: string; adSetNames: string[]; delivering: boolean };
 
-export type ExistingAdvice = { id: string; name: string; advice: "keep" | "pause" | "fold" };
+export type ExistingAdvice = { id: string; name: string; advice: "keep" | "pause_wider" };
 
-const PROSPECTING = /\b(broad|advantage|interest|lookalike|\blal\b|similar|prospect|cold)/i;
-const LINEUP = /\blineup\b|\bline-up\b/i;
-const RETARGET = /retarget/i;
+const TESTS = /·\s*tests\b|\btests\b/i;
+const WIDER_NAME = /·\s*wider\s*$/i;
 
 /**
- * READING (staged item: "plan_retargeting says which to keep, pause or fold
- * into Wider; nothing is paused without Matas's yes"): a campaign whose
- * delivering ad sets are all prospecting by name (broad, interests,
- * lookalikes, similar) folds into Wider; one that's only a lineup or
- * retargeting ad set is paused (Cold and the Retargeting campaign replace
- * it); anything else (Tests, a Purchase campaign, a brand campaign) is kept.
- * Advice only: nothing is paused or folded here.
+ * Fix 4 (Matas, 27 Nov: "existing prospecting is paused when Wider goes
+ * live, and Wider gets its remaining budget"): every delivering campaign of
+ * the show that's prospecting (not its Tests, Retargeting or Wider
+ * campaign) is "pause when Wider goes live". Advice only: the pause itself is
+ * Matas's yes per show (the M3b pause tool), never automatic, and
+ * create_show_campaigns refuses a live create while one still runs.
  */
 export function adviseExisting(campaigns: readonly ExistingCampaign[]): ExistingAdvice[] {
-  return campaigns.filter((row) => row.delivering).map((row) => {
-    const names = row.adSetNames.length ? row.adSetNames : [row.name];
-    if (names.every((name) => LINEUP.test(name) || RETARGET.test(name))) return { id: row.id, name: row.name, advice: "pause" as const };
-    if (names.every((name) => PROSPECTING.test(name) || LINEUP.test(name))) return { id: row.id, name: row.name, advice: "fold" as const };
-    return { id: row.id, name: row.name, advice: "keep" as const };
-  });
+  return campaigns
+    .filter((row) => row.delivering && !WIDER_NAME.test(row.name) && !/retarget/i.test(row.name))
+    .map((row) => ({ id: row.id, name: row.name, advice: TESTS.test(row.name) ? ("keep" as const) : ("pause_wider" as const) }));
 }
 
 /** Design's ruled lines (#1401, 27 Nov): GEO_WORDS, lib/meta/geo-expansion.ts. */
@@ -158,6 +153,8 @@ export type WiderPlan = {
   steps: WiderStep[];
   /** Wider can't keep £1.00 a day per ad set today. */
   tooSmall: boolean;
+  /** Fix 3: the ceiling, not the show's prospecting, set Wider's lifetime. */
+  capped?: boolean;
 };
 
 /**
@@ -170,12 +167,27 @@ export type WiderPlan = {
  * what Wider can give, to the penny. A step that lowers Retargeting gives
  * Wider its money back. Spend to a step is taken as the plan's money a day.
  */
-export function planWider(args: { showDailyMinor: number; retargetingMinor: number; runDay: string; showDay: string; endDay?: string; adSets: number; steps: readonly { day: string; totalMinor: number }[] }): WiderPlan {
+export function planWider(args: {
+  showDailyMinor: number;
+  retargetingMinor: number;
+  runDay: string;
+  showDay: string;
+  endDay?: string;
+  adSets: number;
+  steps: readonly { day: string; totalMinor: number }[];
+  /** Fix 3 (27 Nov): what the show's prospecting has left to Wider's end (lifetime left + daily × days to their end); absent = the show's daily spend × the days. */
+  remainingMinor?: number | null;
+  /** Fix 3: the most Wider may hold so the show's committed spend stays within its ceiling; null = no cap known. */
+  capMinor?: number | null;
+}): WiderPlan {
   const adSets = Math.max(1, args.adSets);
   const endDay = args.endDay ?? args.showDay;
   const left = daysLeft(args.runDay, endDay);
-  const dailyMinor = Math.max(0, args.showDailyMinor - args.retargetingMinor);
-  const lifetimeMinor = dailyMinor * left;
+  // Fix 3: what's left of the show's budget, not more — its prospecting's remaining less Retargeting's money a day to Wider's end,
+  // capped by the ceiling. Each step then lowers it as before (TC6), so at the end Wider + Retargeting = what prospecting had left.
+  const fromRemaining = args.remainingMinor != null ? Math.max(0, args.remainingMinor - args.retargetingMinor * left) : (Math.max(0, args.showDailyMinor - args.retargetingMinor)) * left;
+  const lifetimeMinor = args.capMinor != null ? Math.max(0, Math.min(fromRemaining, args.capMinor)) : fromRemaining;
+  const dailyMinor = left > 0 ? Math.floor(lifetimeMinor / left) : 0;
   const steps: WiderStep[] = [];
   let lifetime = lifetimeMinor;
   let daily = dailyMinor;
@@ -197,7 +209,7 @@ export function planWider(args: { showDailyMinor: number; retargetingMinor: numb
     retargeting += given;
     from = step.day;
   }
-  return { dailyMinor, lifetimeMinor, daysLeft: left, endDay, adSets, steps, tooSmall: dailyMinor < FLOOR_MINOR * adSets };
+  return { dailyMinor, lifetimeMinor, daysLeft: left, endDay, adSets, steps, tooSmall: dailyMinor < FLOOR_MINOR * adSets, capped: args.capMinor != null && fromRemaining > args.capMinor };
 }
 
 /**

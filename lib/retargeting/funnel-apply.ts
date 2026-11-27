@@ -99,6 +99,9 @@ export type FunnelBuild = {
     endDay: string;
     adSets: { key: WiderAdSetKey; interests: Interest[]; suggestionKeys: string[]; lookalikes: LookalikeAudience[]; excludeKeys: string[] }[];
     steps: WiderStep[];
+    /** Fix 3: the ceiling set its lifetime (`over`: Retargeting alone would pass it); the show has no ceiling. */
+    capped?: { ceilingGbp: number; over?: boolean } | null;
+    noCeiling?: boolean;
   } | null;
 };
 

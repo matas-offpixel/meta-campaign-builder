@@ -279,6 +279,12 @@ export type RetargetingInput = {
   matchedPages?: MatchedPages | null;
   /** Staged two-campaign record: the show's on-sale campaigns and their delivering ad sets, for keep / pause / fold. */
   campaigns?: { id: string; name: string; adSetNames: string[]; delivering: boolean }[];
+  /** Fix 7 (27 Nov): the pixel the funnel uses when the show's ads optimise on none (the event's, the venue's, the ad account's one active pixel). */
+  fallbackPixel?: { id: string; source: "event" | "venue" | "account" } | null;
+  /** Fix 6 (27 Nov): plan_retargeting / create_show_campaigns — the purchase read's not-proposed states don't skip the show. */
+  connector?: boolean;
+  /** Fix 3 (27 Nov): the show's spend ceiling and what's left under it (£ ceiling − spent to date), for Wider's cap; "none" = no ceiling; absent = not read. */
+  ceiling?: { kind: "set"; totalGbp: number; leftMinor: number } | { kind: "none" } | null;
 };
 
 export type RetargetingBuild = {
@@ -310,6 +316,8 @@ export type RetargetingBuild = {
 
 export type RetargetingPlan = {
   state: RetargetingState;
+  /** Why a silent not-proposed state (no_signal) was reached: no show date or end day, or no signal path (08:00 read only). */
+  cause?: "no_show_date" | "no_signal_path";
   /** RT9: the show takes this campaign; the refresh's per-campaign Retargeting default stands down. */
   takes: boolean;
   view: RetargetingView;
@@ -532,6 +540,33 @@ function funnelPlanOf(input: RetargetingInput, presale: boolean): FunnelShowPlan
   });
 }
 
+/** Days from a day to the show, both counted. */
+function daysToShowFrom(from: string, showDay: string): number {
+  return Math.max(0, Math.round((Date.parse(`${showDay}T12:00:00Z`) - Date.parse(`${from}T12:00:00Z`)) / 86_400_000) + 1);
+}
+
+/**
+ * Fix 3 (27 Nov): what the show's prospecting has left to spend by `endDay`
+ * (Wider's end): a daily budget × its days to the earlier of its own end and
+ * `endDay`; a lifetime budget's budget_remaining, the part of it that falls
+ * before `endDay`. Null when no budget says what it has left (the purchase
+ * read's daily budgets): Wider then takes the show's daily spend × its days.
+ */
+export function remainingTo(budgets: readonly ProspectingBudget[], runDay: string, endDay: string, showDay: string): number | null {
+  if (!budgets.some((row) => row.remainingMinor != null)) return null;
+  let total = 0;
+  for (const row of budgets) {
+    const own = row.endDay && row.endDay < showDay ? row.endDay : showDay;
+    const last = own < endDay ? own : endDay;
+    const days = daysToShowFrom(runDay, last);
+    if (row.lifetime) {
+      const all = daysToShowFrom(runDay, own);
+      total += all > 0 ? Math.floor(((row.remainingMinor ?? 0) * days) / all) : 0;
+    } else total += row.dailyMinor * days;
+  }
+  return total;
+}
+
 /**
  * TC1 / TC6: Wider for this show — folding its prospecting, one CBO lifetime
  * budget to the show (to on-sale for a presale show) — and the plan's steps
@@ -541,7 +576,11 @@ function funnelPlanOf(input: RetargetingInput, presale: boolean): FunnelShowPlan
 function widerFor(input: RetargetingInput, plan: FunnelShowPlan, sources: ReturnType<typeof funnelSourcesOf>, spec: SpecOptions, endDay: string): { plan: FunnelShowPlan; build: NonNullable<FunnelBuild["wider"]>; words: WiderWords } {
   const sets = widerSpecs({ sources, pageGroup: input.pageGroup ?? null, lineupInterests: input.lineupInterests ?? [], genreInterests: input.genreInterests ?? [] });
   const steps = plan.steps.filter((step) => step.day <= endDay);
-  const wider = planWider({ showDailyMinor: plan.showDailyMinor, retargetingMinor: plan.totalMinor, runDay: input.runDay, showDay: input.eventDate!, endDay, adSets: sets.length, steps });
+  // Fix 3: what the show's prospecting has left to Wider's end, and the ceiling's cap (what's left under it less Retargeting to show day).
+  const remainingMinor = remainingTo(input.prospecting ?? [], input.runDay, endDay, input.eventDate!);
+  const ceiling = input.ceiling ?? null;
+  const capMinor = ceiling?.kind === "set" ? ceiling.leftMinor - plan.totalMinor * daysToShowFrom(input.runDay, input.eventDate!) : null;
+  const wider = planWider({ showDailyMinor: plan.showDailyMinor, retargetingMinor: plan.totalMinor, runDay: input.runDay, showDay: input.eventDate!, endDay, adSets: sets.length, steps, remainingMinor, capMinor });
   const reconciled = steps.map((step) => {
     const w = wider.steps.find((row) => row.day === step.day);
     if (!w || w.retargetingMinor === step.totalMinor) return step;
@@ -550,7 +589,7 @@ function widerFor(input: RetargetingInput, plan: FunnelShowPlan, sources: Return
     return { ...step, totalMinor: w.retargetingMinor, tiers, deltaMinor: w.givenDailyMinor };
   });
   // tc.create.sets: only the ad sets that will be made (no Interests until the genre's interests are read).
-  const words: WiderWords = { lifetimeMinor: wider.lifetimeMinor, dailyMinor: wider.dailyMinor, daysLeft: wider.daysLeft, endDay, sets: sets.map((set) => WIDER_AD_SET_LABEL[set.key]), steps: wider.steps };
+  const words: WiderWords = { lifetimeMinor: wider.lifetimeMinor, dailyMinor: wider.dailyMinor, daysLeft: wider.daysLeft, endDay, sets: sets.map((set) => WIDER_AD_SET_LABEL[set.key]), steps: wider.steps, capped: wider.capped && ceiling?.kind === "set" ? { ceilingGbp: ceiling.totalGbp, over: (capMinor ?? 0) < 0 } : null, noCeiling: ceiling?.kind === "none" };
   return {
     plan: { ...plan, steps: reconciled },
     words,
@@ -562,6 +601,8 @@ function widerFor(input: RetargetingInput, plan: FunnelShowPlan, sources: Return
       endDay,
       adSets: sets.map((set) => ({ key: set.key, interests: set.interests, suggestionKeys: set.suggestions.map((aud) => aud.key), lookalikes: set.lookalikes, excludeKeys: set.excludes.map((aud) => aud.key) })),
       steps: wider.steps,
+      capped: words.capped ?? null,
+      noCeiling: words.noCeiling ?? false,
     },
   };
 }
@@ -573,7 +614,7 @@ export function planRetargeting(input: RetargetingInput): RetargetingPlan {
   const code = input.eventCode;
   const title = funnelCampaignName(code);
   const base = { code, title, create: null, signal: null, tiers: [], notes: [], running: null };
-  const none = (state: RetargetingState, notProposed: string | null, takes: boolean): RetargetingPlan => ({ state, takes, view: { ...base, state, notProposed }, build: null, held: null });
+  const none = (state: RetargetingState, notProposed: string | null, takes: boolean, cause?: RetargetingPlan["cause"]): RetargetingPlan => ({ state, takes, view: { ...base, state, notProposed }, build: null, held: null, ...(cause ? { cause } : {}) });
   const presale = isPresale(input);
   // Before the on-sale date, nothing changes (RT9) — unless the show is announced: then it's a presale show (TC7).
   // On sale as the on-sale panel decides it (isOnSale) when the read gives its answer, else by the sale dates; presale is as before.
@@ -595,11 +636,16 @@ export function planRetargeting(input: RetargetingInput): RetargetingPlan {
     return { state: "running", takes: true, view: { ...base, state: "running", notProposed: null, signal, funnel, running: null }, build: null, held: null, funnel: planned };
   }
   const read = input.read;
-  if (!read || read.state === "not_read") return none("not_read", NOT_READ, true);
-  if (read.state === "no_pixel" || !read.pixel) return none("no_pixel", NO_PIXEL, false);
-  // TC7: a presale show optimises on sign-ups, so the purchase read's signal doesn't decide it.
-  const path = presale ? "platform" : signalPath(read);
-  if (path === "sells_elsewhere") {
+  const connector = input.connector === true;
+  // Fix 7: the pixel the ads optimise on, else the event's, the venue's or the ad account's one active pixel.
+  const pixelId = read?.pixel?.id ?? input.fallbackPixel?.id ?? null;
+  if ((!read || read.state === "not_read") && !(connector && pixelId)) return none("not_read", NOT_READ, true);
+  if (!pixelId) return none("no_pixel", NO_PIXEL, false);
+  // TC7: a presale show optimises on sign-ups, so the purchase read's signal doesn't decide it. Fix 6: nor does it for
+  // plan_retargeting and create_show_campaigns (buyers are left out on the ticket links' Purchase rule); a fallback pixel has no read.
+  const own = read?.pixel && signalPath(read) === "own_domain";
+  const path = presale ? "platform" : connector || !read?.pixel ? (own ? "own_domain" : "platform") : signalPath(read);
+  if (path === "sells_elsewhere" && read) {
     const share = read.platformShare;
     const host = share?.elsewhereHost ?? "another site";
     const pixelPurchases = share?.pixelPurchases ?? 0;
@@ -607,12 +653,12 @@ export function planRetargeting(input: RetargetingInput): RetargetingPlan {
     const pct = pixelPurchases > 0 ? Math.round(((share?.elsewherePurchases ?? elsewhere) / pixelPurchases) * 100) : 0;
     return none("sells_elsewhere", sellsElsewhere({ host, pct, purchases: pixelPurchases, platform: read.platform ?? "the ticket site" }), false);
   }
-  if (path === "nothing_reaches") return none("nothing_reaches", nothingReaches(read.domain ?? "the show's domain"), false);
+  if (path === "nothing_reaches") return none("nothing_reaches", nothingReaches(read?.domain ?? "the show's domain"), false);
   if (path === "no_purchases") return none("no_purchases", NO_PIXEL_PURCHASES, false);
   if (path === "no_url") return none("no_url", NO_PAGE_OR_TICKET, false);
   // Still silent in the record (a shared domain, no domain of its own, no ticket link stored): not proposed, and the refresh's default stands.
-  if (path !== "own_domain" && path !== "platform") return none("no_signal", null, false);
-  if (!input.eventDate || !endDay) return none("no_signal", null, false);
+  if (path !== "own_domain" && path !== "platform") return none("no_signal", null, false, "no_signal_path");
+  if (!input.eventDate || !endDay) return none("no_signal", null, false, "no_show_date");
   // RT13: the show's links come from CIRQLIN; without them nothing can be built.
   if (input.linksRead === "no_page") return none("links_no_page", LINKS_NO_PAGE, true);
   if (input.linksRead === "failed") return none("links_failed", LINKS_NOT_READ, true);
@@ -620,7 +666,7 @@ export function planRetargeting(input: RetargetingInput): RetargetingPlan {
   const first = funnelPlanOf(input, presale)!;
   const { plan, build: wider, words } = widerFor(input, first, sources, spec, endDay);
   const funnel = proposedPanel(plan, sources, { showDay: input.eventDate, wider: words, spec, onSaleDay: presale ? input.onSaleDay : null });
-  const signal = presale ? null : { wide: signalLine(path, { pixelName: read.pixelName, domain: read.domain }), narrow: signalNarrow(path, { pixelName: read.pixelName, domain: read.domain }) };
+  const signal = presale || !read?.pixel ? null : { wide: signalLine(path, { pixelName: read.pixelName, domain: read.domain }), narrow: signalNarrow(path, { pixelName: read.pixelName, domain: read.domain }) };
   // Nothing to split (no prospecting budget to fold): no Create, one sentence in its place.
   if (plan.noMoney) return { state: "no_money", takes: true, view: { ...base, state: "no_money", notProposed: NO_BUDGET, signal, funnel: null }, build: null, held: null, funnel: plan, wider };
   const legacy = input.legacy.filter((row) => row.adSets > 0).map((row) => legacyAdSets(row.adSets, shortCampaign(row.campaign)));
@@ -629,14 +675,14 @@ export function planRetargeting(input: RetargetingInput): RetargetingPlan {
   const days = Math.max(0, daysToShow(input.runDay, input.eventDate));
   const create: CreateCard = { title: card.title, defaultShare: plan.share, options: [option], legacy, writeText: CREATE_WRITE, days };
   const held = !input.where.draftId || !input.where.adAccountId ? NOT_OURS : input.ads.length ? null : NO_ADS;
-  const customConversion = !presale && path === "own_domain" && read.domain ? { name: `${code} · Purchase on ${read.domain}`, domain: read.domain } : null;
+  const customConversion = !presale && path === "own_domain" && read?.domain ? { name: `${code} · Purchase on ${read.domain}`, domain: read.domain } : null;
   const build: FunnelBuild = {
     kind: "retargeting_funnel_create",
     eventId: input.eventId,
     eventCode: code,
     campaignName: title,
     path,
-    pixelId: read.pixel.id,
+    pixelId,
     customConversion,
     sources,
     startDay: input.runDay,

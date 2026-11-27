@@ -117,6 +117,8 @@ export function realRetargetingDeps(db: SupabaseClient): McpRetargetingDeps {
         now,
         dryRun: true,
         force: true,
+        // Fix 6: the purchase read decides nothing for plan_retargeting and create_show_campaigns.
+        connector: true,
         eventCodes: codes ?? undefined,
         userId,
         graph: token ? { graphGet: (path, params) => graphGetWithToken(path, params, token, { maxAttempts: 1 }), multiGet: (path, params) => graphMultiGetByIds(path, params, token) } : null,

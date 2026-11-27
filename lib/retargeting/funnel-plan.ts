@@ -27,6 +27,7 @@ import {
   NO_TIERS,
   SPLIT_WITH_SIMILAR,
   funnelSpecs,
+  FUNNEL_TIER_LABEL,
   FUNNEL_TIERS,
   missingAccess,
   RF3,
@@ -112,7 +113,31 @@ export type FunnelShowPlan = {
   similarSkip: SimilarSkip | null;
   /** Each later step to the show day. */
   steps: FunnelStepPlan[];
+  /** Fix 2 (27 Nov): a tier with no audiences to build, and the tier its share went to, this stretch. */
+  moved?: { from: FunnelTier; to: FunnelTier; minor: number }[];
 };
+
+/**
+ * Fix 2 (27 Nov): a tier with no audiences to build gives its share to the
+ * next tier that has (warmer first: Similar → Cold → Warm → Hot, else back
+ * towards colder), so no share is spread by weight and the line can say
+ * where it went. Percentages in, percentages out.
+ */
+export function foldUnbuildable(split: Record<FunnelTier, number>, buildable: readonly FunnelTier[]): { split: Record<FunnelTier, number>; moves: { from: FunnelTier; to: FunnelTier; share: number }[] } {
+  const out = { ...split };
+  const moves: { from: FunnelTier; to: FunnelTier; share: number }[] = [];
+  if (!buildable.length) return { split: out, moves };
+  for (const tier of FUNNEL_TIERS) {
+    if (buildable.includes(tier) || !(out[tier] > 0)) continue;
+    const i = FUNNEL_TIERS.indexOf(tier);
+    const to = FUNNEL_TIERS.slice(i + 1).find((t) => buildable.includes(t)) ?? [...FUNNEL_TIERS.slice(0, i)].reverse().find((t) => buildable.includes(t));
+    if (!to) continue;
+    moves.push({ from: tier, to, share: out[tier] });
+    out[to] += out[tier];
+    out[tier] = 0;
+  }
+  return { split: out, moves };
+}
 
 const sum = (tiers: TierMinor) => FUNNEL_TIERS.reduce((total, tier) => total + tiers[tier], 0);
 
@@ -149,7 +174,9 @@ export function planFunnelShow(input: FunnelShowInput): FunnelShowPlan {
   const twoCampaigns = input.spec?.twoCampaigns === true;
   // Rechecked on every read: a group confirmed later, or an audience grown past Meta's minimum, brings Similar back from the next step.
   const similarSkip = similarSkipOf(input.spec ?? {});
-  const splitFor = (s: FunnelStretch) => splitOf(s, twoCampaigns, similarSkip != null);
+  // Fix 2: the ruled split (Similar's share in Cold when it's skipped), then a tier with nothing to build hands its share on.
+  const tiersWithAudiences = funnelSpecs(input.sources, input.spec).map((spec) => spec.tier);
+  const splitFor = (s: FunnelStretch) => foldUnbuildable(splitOf(s, twoCampaigns, similarSkip != null), tiersWithAudiences).split;
   const specs = funnelSpecs(input.sources, input.spec);
   const buildable = specs.map((spec) => spec.tier).filter((tier) => splitFor(stretch)[tier] > 0);
   const floors = floor * Math.max(1, buildable.length);
@@ -167,6 +194,7 @@ export function planFunnelShow(input: FunnelShowInput): FunnelShowPlan {
   const audiences = { made: toMake.filter((aud) => made.has(aud.key)).length, toMake: toMake.filter((aud) => !made.has(aud.key)).length, missingAccess: missingAccess(input.sources.accounts).length };
   const base = { code: input.code, stretch, share: rule.share, showDailyMinor, targetMinor, specs, audiences, similarSkip };
   const split = take.takenMinor >= floors ? splitTotal(take.takenMinor, splitFor(stretch), { floorMinor: floor, buildable }) : null;
+  const moved = foldUnbuildable(splitOf(stretch, twoCampaigns, similarSkip != null), tiersWithAudiences).moves.map((m) => ({ from: m.from, to: m.to, minor: Math.round((take.takenMinor * m.share) / 100) }));
   if (!split) {
     return { ...base, totalMinor: 0, tiers: NO_TIERS(), atFloor: [], take: { ...take, takenMinor: 0, from: [] }, short: true, noMoney: true, steps: [] };
   }
@@ -206,7 +234,7 @@ export function planFunnelShow(input: FunnelShowInput): FunnelShowPlan {
     steps.push({ day: step.day, stretch: step.stretch, share: next.share, targetMinor: Math.floor((showDailyMinor * next.share) / 100 + 1e-9), totalMinor: newTotal, tiers: stepSplit.tiers, deltaMinor: delta, prospecting: lines });
     total = newTotal;
   }
-  return { ...base, totalMinor: sum(split.tiers), tiers: split.tiers, atFloor: split.atFloor, take, short: take.short && take.takenMinor < targetMinor, noMoney: false, steps };
+  return { ...base, totalMinor: sum(split.tiers), tiers: split.tiers, atFloor: split.atFloor, take, short: take.short && take.takenMinor < targetMinor, noMoney: false, steps, moved };
 }
 
 /** TC7: a presale show — announced, not on sale yet, the show still ahead. */
@@ -231,7 +259,29 @@ export function shareLine(plan: Pick<FunnelShowPlan, "targetMinor" | "share" | "
 export function wordsSplit(plan: Pick<FunnelShowPlan, "tiers" | "similarSkip" | "totalMinor" | "stretch">): TierMinor {
   if (!plan.similarSkip) return plan.tiers;
   const similar = splitTotal(plan.totalMinor, SPLIT_WITH_SIMILAR[plan.stretch])?.tiers.similar ?? 0;
+  // Fix 2: only when Cold holds Similar's share (it has audiences and its budget covers it); else the budgets as they are, never negative.
+  if (!(plan.tiers.cold >= similar && similar > 0)) return plan.tiers;
   return { ...plan.tiers, similar, cold: plan.tiers.cold - similar };
+}
+
+/** Fix 3: the ceiling set Wider's lifetime, Retargeting alone would pass it, or the show has no ceiling. Design's words on #1406 (27 Nov). */
+export function widerCeilingLines(code: string, wider: Pick<WiderWords, "capped" | "noCeiling" | "lifetimeMinor">, retargetingMinor: number): string[] {
+  const ceiling = wider.capped ? money(Math.round(wider.capped.ceilingGbp * 100)) : "";
+  if (wider.capped?.over) return [`Retargeting alone, £${money(retargetingMinor)} a day to the show, would take ${code} over its £${ceiling} ceiling, so Wider gets nothing and neither campaign can go live until Matas raises the ceiling.`];
+  if (wider.capped) return [`Wider is capped at £${money(wider.lifetimeMinor)} lifetime, so ${code}’s committed spend stays within its £${ceiling} ceiling.`];
+  if (wider.noCeiling) return [`${code} has no spend ceiling, so both campaigns can only be made paused until Matas sets one.`];
+  return [];
+}
+
+/** Design (27 Nov): the pixel the funnel uses when the show's ads optimise on none, said after the plan line. */
+export function fallbackPixelLine(pixel: { id: string; source: "event" | "venue" | "account" }): string {
+  const source = pixel.source === "event" ? "event’s" : pixel.source === "venue" ? "venue’s" : "ad account’s only active";
+  return `Pixel: ${pixel.id}, the ${source} pixel, as the show’s ads optimise on none.`;
+}
+
+/** PENDING DESIGN (fix 2, 27 Nov): a tier with no audiences to build, and where its share went. */
+export function movedLine(move: { from: FunnelTier; to: FunnelTier; minor: number }): string {
+  return `${FUNNEL_TIER_LABEL[move.from]} has no audiences to build, so its £${money(move.minor)} a day goes to ${FUNNEL_TIER_LABEL[move.to]}.`;
 }
 
 /** TC5: "Similar £3.15 · Cold £5.25 · Warm £7.35 · Hot £5.25" */
@@ -240,7 +290,7 @@ export function splitLine(tiers: TierMinor): string {
 }
 
 /** Wider as the plan sizes it (show-campaigns.ts planWider), for the words. */
-export type WiderWords = { lifetimeMinor: number; dailyMinor: number; daysLeft: number; endDay: string; /** tc.create.sets: the wd.set.* names of the ad sets that will be made, in order. */ sets?: readonly string[]; steps: readonly { day: string; beforeMinor: number; afterMinor: number; wantDailyMinor: number; givenDailyMinor: number; atFloor: boolean }[] };
+export type WiderWords = { lifetimeMinor: number; dailyMinor: number; daysLeft: number; endDay: string; /** tc.create.sets: the wd.set.* names of the ad sets that will be made, in order. */ sets?: readonly string[]; /** Fix 3: the ceiling set Wider's lifetime; `over` when Retargeting alone would pass it. */ capped?: { ceilingGbp: number; over?: boolean } | null; /** Fix 3: the show has no spend ceiling. */ noCeiling?: boolean; steps: readonly { day: string; beforeMinor: number; afterMinor: number; wantDailyMinor: number; givenDailyMinor: number; atFloor: boolean }[] };
 
 /** TC1's Create card: Wider, Retargeting, the split, the show's total, (presale) the note, and the geo line (muted, last). */
 export function createLines(plan: FunnelShowPlan, wider: WiderWords, presale: boolean): { lines: string[]; muted: string[] } {
@@ -248,8 +298,10 @@ export function createLines(plan: FunnelShowPlan, wider: WiderWords, presale: bo
     fill("tc.create.wider", { l: money(wider.lifetimeMinor), date: rfDay(wider.endDay), n: wider.daysLeft, d: money(wider.dailyMinor), sets: (wider.sets ?? []).join(", ") }),
     fill("tc.create.retargeting", { x: money(plan.totalMinor), p: plan.share, stretch: stretchName(plan.stretch) }),
     splitLine(wordsSplit(plan)),
+    ...(plan.moved ?? []).map(movedLine),
     fill("tc.create.total", { s: money(plan.showDailyMinor), d: money(wider.dailyMinor), x: money(plan.totalMinor) }),
     ...(presale ? [fill("rt.presale.note")] : []),
+    ...widerCeilingLines(plan.code, wider, plan.totalMinor),
   ];
   return { lines, muted: [fill("tc.create.geo")] };
 }
@@ -295,12 +347,15 @@ export function matchedPagesLine(pages: MatchedPages): string {
   });
 }
 
-export type ExistingAction = "keep" | "pause" | "fold";
+export type ExistingAction = "keep" | "pause" | "fold" | "pause_wider";
 
 const EXISTING_ROW = { keep: "claude.rt.plan.existing.keep", pause: "claude.rt.plan.existing.pause", fold: "claude.rt.plan.existing.fold" } as const;
 
+/** Fix 4 (Matas, 27 Nov): existing prospecting is paused when Wider goes live; design's words on #1406 (Wider's lifetime already counts its remaining budget). */
+export const EXISTING_PAUSE_WIDER = "pause when Wider goes live, once Matas says yes (its remaining budget is counted in Wider’s lifetime)";
+
 export function existingLine(campaign: string, action: ExistingAction): string {
-  return fill("claude.rt.plan.existing", { campaign, action: fill(EXISTING_ROW[action]) });
+  return fill("claude.rt.plan.existing", { campaign, action: action === "pause_wider" ? EXISTING_PAUSE_WIDER : fill(EXISTING_ROW[action]) });
 }
 
 /** TC3 / TC8: Similar skipped, told to Claude. */
@@ -345,7 +400,7 @@ export function similarSkipRow(reason: SimilarSkip, args: { code: string; genre:
 export function claudePlanLines(
   plan: FunnelShowPlan,
   sources: FunnelSources,
-  extra: { wider: WiderWords; pages?: MatchedPages | null; genre?: string | null; presale?: boolean; presaleSignups?: number | null; existing?: readonly { name: string; action: ExistingAction }[]; /** A running build without Similar whose group is confirmed now: when it comes back, or why it couldn't. */ similarReturn?: { nextDay: string | null; refused: { day: string; reason: string } | null } | null },
+  extra: { wider: WiderWords; pages?: MatchedPages | null; genre?: string | null; presale?: boolean; presaleSignups?: number | null; existing?: readonly { name: string; action: ExistingAction }[]; /** Design (27 Nov): the fallback pixel, said after the plan line. */ fallbackPixel?: { id: string; source: "event" | "venue" | "account" } | null; /** A running build without Similar whose group is confirmed now: when it comes back, or why it couldn't. */ similarReturn?: { nextDay: string | null; refused: { day: string; reason: string } | null } | null },
 ): string[] {
   const lines = [
     fill("claude.rt.plan.line", {
@@ -364,6 +419,9 @@ export function claudePlanLines(
       missing: plan.audiences.missingAccess,
     }),
   ];
+  if (extra.fallbackPixel) lines.push(fallbackPixelLine(extra.fallbackPixel));
+  for (const move of plan.moved ?? []) lines.push(movedLine(move));
+  lines.push(...widerCeilingLines(plan.code, extra.wider, plan.totalMinor));
   if (extra.pages) lines.push(matchedPagesLine(extra.pages));
   const missing = missingAccess(sources.accounts);
   if (missing.length) {
@@ -378,7 +436,36 @@ export function claudePlanLines(
   return lines;
 }
 
-export type SkipReason = "no_pixel" | "no_link" | "no_signup_link" | "soon" | "archived" | "built" | "no_budget" | "not_on_sale";
+export type SkipReason = "no_pixel" | "no_link" | "no_signup_link" | "soon" | "archived" | "built" | "no_budget" | "not_on_sale" | "not_read" | "links_no_page" | "links_failed" | "ruled_out" | "no_show_date";
+
+/**
+ * Fix 6: the skip reasons for the read's not-proposed states, which printed
+ * "it has no prospecting budget to fold into Wider" before. Design's words on
+ * #1406 (27 Nov); a connector call has no run, so "just now". "ruled_out" is
+ * the 08:00 read's own rule (the connector no longer applies it) and takes
+ * each state's own refresh-panel sentence (ruledOutReason).
+ */
+export const SKIP_WORDS = {
+  not_read: "its purchases couldn’t be read just now",
+  links_no_page: "its CIRQLIN page isn’t published",
+  links_failed: "its links couldn’t be read from CIRQLIN just now",
+} as const;
+
+/** Design (27 Nov): no_signal's two causes, which the refresh panel leaves silent. The no-signal path is reached from the 08:00 read only. */
+export const NO_SIGNAL_REASONS = {
+  no_show_date: "it has no show date to plan to",
+  no_signal_path: "its pixel’s purchases can’t be tied to a site or ticket link of its own",
+} as const;
+
+/**
+ * Design (27 Nov): a ruled-out show's reason is its own refresh-panel
+ * sentence, without the "No Retargeting campaign: " or "Retargeting not
+ * proposed: " opener and the final full stop, apostrophes curly.
+ */
+export function ruledOutReason(panelSentence: string | null | undefined, cause?: keyof typeof NO_SIGNAL_REASONS | null): string {
+  if (!panelSentence) return NO_SIGNAL_REASONS[cause ?? "no_signal_path"];
+  return panelSentence.replace(/^(No Retargeting campaign|Retargeting not proposed): /, "").replace(/\.$/, "").replace(/'/g, "’");
+}
 
 const SKIP_ROW = {
   no_budget: "claude.rt.skip.no_budget",
@@ -392,12 +479,15 @@ const SKIP_ROW = {
 } as const;
 
 /** A skip reason's words, as {reason} in claude.rt.skip and claude.rt.refused.skip. */
-export function skipReasonWords(reason: SkipReason): string {
-  return fill(SKIP_ROW[reason]);
+/** A skip reason's words; "ruled_out" takes its panel sentence (`detail`, the plan's not-proposed sentence) or, with none, its cause. */
+export function skipReasonWords(reason: SkipReason, detail?: string | null, cause?: keyof typeof NO_SIGNAL_REASONS | null): string {
+  if (reason === "no_show_date") return NO_SIGNAL_REASONS.no_show_date;
+  if (reason === "ruled_out") return ruledOutReason(detail, cause);
+  return reason in SKIP_WORDS ? SKIP_WORDS[reason as keyof typeof SKIP_WORDS] : fill(SKIP_ROW[reason as keyof typeof SKIP_ROW]);
 }
 
-export function skipLine(code: string, reason: SkipReason): string {
-  const why = fill(SKIP_ROW[reason]);
+export function skipLine(code: string, reason: SkipReason, detail?: string | null, cause?: keyof typeof NO_SIGNAL_REASONS | null): string {
+  const why = skipReasonWords(reason, detail, cause);
   return fill("claude.rt.skip", { code, reason: why });
 }
 
@@ -413,12 +503,29 @@ export function isSoon(runDay: string, showDay: string): boolean {
 }
 
 /** RF9's skip for a show, in RF9's order (TC8: "already built" is either campaign). A presale show needs a sign-up link, not a ticket link. */
-export function skipReason(args: { archived: boolean; built: boolean; runDay: string; showDay: string | null; pixelId: string | null; hasTicketLink: boolean; hasSignupLink?: boolean; presale?: boolean; plan: FunnelShowPlan | null }): SkipReason | null {
+/** The read's not-proposed states, each with its own reason (fix 6). */
+const STATE_REASON: Partial<Record<string, SkipReason>> = {
+  before_onsale: "not_on_sale",
+  no_pixel: "no_pixel",
+  not_read: "not_read",
+  links_no_page: "links_no_page",
+  links_failed: "links_failed",
+  no_url: "no_link",
+  sells_elsewhere: "ruled_out",
+  nothing_reaches: "ruled_out",
+  no_purchases: "ruled_out",
+  no_signal: "ruled_out",
+  no_money: "no_budget",
+};
+
+export function skipReason(args: { archived: boolean; built: boolean; runDay: string; showDay: string | null; pixelId: string | null; hasTicketLink: boolean; hasSignupLink?: boolean; presale?: boolean; plan: FunnelShowPlan | null; state?: string }): SkipReason | null {
   if (args.archived) return "archived";
   if (args.built) return "built";
-  if (!args.showDay || isSoon(args.runDay, args.showDay)) return "soon";
+  if (!args.showDay) return "no_show_date";
+  if (isSoon(args.runDay, args.showDay)) return "soon";
   if (!args.pixelId) return "no_pixel";
   if (args.presale ? !args.hasSignupLink : !args.hasTicketLink) return args.presale ? "no_signup_link" : "no_link";
+  if (args.state && STATE_REASON[args.state]) return STATE_REASON[args.state]!;
   if (!args.plan || args.plan.noMoney) return "no_budget";
   return null;
 }
