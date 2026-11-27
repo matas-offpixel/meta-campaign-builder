@@ -63,6 +63,13 @@ function funnelMetaFor(token: string): FunnelMeta {
     async createCampaign(adAccountId, payload) {
       return (await graphPostWithToken<{ id: string }>(`/${act(adAccountId)}/campaigns`, payload, token)).id;
     },
+    // A destination (Matas, 27 Nov): the source creative read, and a new one made with the link and URL parameters.
+    async readCreative(creativeId) {
+      return graphGetWithToken<Record<string, unknown>>(`/${creativeId}`, { fields: "name,object_story_spec,asset_feed_spec,url_tags,object_story_id" }, token, { maxAttempts: 1 });
+    },
+    async createCreative(adAccountId, payload) {
+      return (await graphPostWithToken<{ id: string }>(`/${act(adAccountId)}/adcreatives`, payload, token)).id;
+    },
     async createAdSet(adAccountId, payload) {
       return (await createMetaAdSet(adAccountId, payload as unknown as MetaAdSetPayload, token)).id;
     },

@@ -402,6 +402,8 @@ const EXTERNAL_READERS: Record<string, readonly string[]> = {
   "lib/retargeting/funnel-view.ts": ["funnelSourcesOf", "genreWords"],
   "lib/retargeting/funnel-words.ts": ["fill"],
   "lib/retargeting/held.ts": ["HELD_CLIENTS", "HELD_CLIENT_IDS", "heldLine", "heldRefusal"],
+  // Matas, 27 Nov: the destination's check, its words and its key (pure; the creative it rebuilds is made in funnel-apply.ts).
+  "lib/retargeting/destination.ts": ["destinationKey", "DESTINATION_WORDS", "validateDestination"],
   // Staged two-campaign record: the keep / pause / fold advice, the settings read-back's words and the flag (pure).
   "lib/retargeting/show-campaigns.ts": ["adviceLine", "adviseExisting", "foldFirstLine", "geoNotReadLine", "SHOW_CAMPAIGNS_RULED", "untickLine", "widerPlanLine"],
 };
@@ -735,9 +737,9 @@ test("M3c: the retargeting seam imports exactly the 08:00 read, the funnel's cre
   assert.doesNotMatch(code, /\.from\(/, "the seam reads no table itself");
   // The read is a dry run, always.
   assert.match(code, /runRetargetingRead\(\{[\s\S]*?dryRun: true,[\s\S]*?force: true,/);
-  // Every Graph POST is one the funnel's create path hands it (a campaign, a creative from a post, an ad set's or ad's create through the client, a budget, a status, a custom conversion).
+  // Every Graph POST is one the funnel's create path hands it (a campaign, a creative from a post, a creative with the destination (Matas, 27 Nov), an ad set's or ad's create through the client, a budget, a status, a custom conversion).
   const posts = [...code.matchAll(/graphPostWithToken(?:<[^>]*>)?\(\s*`([^`]+)`/g)].map((m) => m[1]).sort();
-  assert.deepEqual(posts, ["/${act(adAccountId)}/adcreatives", "/${act(adAccountId)}/campaigns", "/${act(adAccountId)}/customconversions", "/${adsetId}", "/${campaignId}", "/${id}"]);
+  assert.deepEqual(posts, ["/${act(adAccountId)}/adcreatives", "/${act(adAccountId)}/adcreatives", "/${act(adAccountId)}/campaigns", "/${act(adAccountId)}/customconversions", "/${adsetId}", "/${campaignId}", "/${id}"]);
   // applyFunnel writes only its build record, the stored audiences and launched_ad_sets.
   const funnel = strip(readFileSync(join(ROOT, "lib/retargeting/funnel-apply.ts"), "utf8"));
   for (const m of funnel.matchAll(/\.from\(\s*(?:["']([^"']+)["']|BUILDS_TABLE)\s*\)/g)) assert.match(m[1] ?? "retargeting_builds", FUNNEL_WRITES, `funnel-apply from("${m[1] ?? "BUILDS_TABLE"}")`);

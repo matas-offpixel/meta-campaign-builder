@@ -37,10 +37,27 @@ import { EVENT_WORDS } from "../meta/words.ts";
 import { ToolInputError, type McpTool, type ToolContext } from "../tool-types.ts";
 import type { McpRetargetingDeps } from "../retargeting/types.ts";
 import { TIME_WORDS } from "../retargeting/time-words.ts";
+import { destinationKey, DESTINATION_WORDS, validateDestination, type Destination } from "../../retargeting/destination.ts";
 import { normaliseCode } from "./shared.ts";
 import { requireMetaScope } from "./live-read.ts";
 
 const MAX_CODES = 60;
+
+/** Matas, 27 Nov: every ad's website URL and URL parameters (PENDING DESIGN: the descriptions). */
+const destinationInput = z
+  .object({
+    link: z.string().min(8).max(2000).describe("The website URL every ad in both campaigns uses, https://…"),
+    url_tags: z.string().max(2000).optional().describe("Meta's URL parameters for every ad, e.g. utm_source=meta&utm_campaign={{campaign.name}}, no leading ?"),
+  })
+  .optional()
+  .describe("Optional: one destination for every ad in both campaigns, replacing the copied ads' links. Copy and creative stay as they are.");
+
+/** The destination checked, or its refusal (nothing read, nothing made). */
+function destinationOf(args: Record<string, unknown>, extra: Record<string, unknown> = {}): Destination | null {
+  const checked = validateDestination(args.destination as { link: string; url_tags?: string } | undefined);
+  if (!checked.ok) throw new ToolInputError(checked.reason, { ...extra, refused: "bad_destination" });
+  return checked.destination;
+}
 
 const reasonOf = (reason: string) => reason.replace(/\.$/, "");
 
@@ -170,11 +187,14 @@ export const planRetargetingTool: McpTool = {
   description: PLAN_DESCRIPTION,
   inputSchema: {
     events: z.union([z.literal("live"), z.string().min(2).max(40), z.array(z.string().min(2).max(40)).max(MAX_CODES)]).describe('An event code, a list of codes, or "live".'),
+    destination: destinationInput,
   },
   async run(ctx, args) {
     requireMetaScope(ctx);
     const deps = requireRetargeting(ctx);
     let codes = codesOf(args.events);
+    const destination = destinationOf(args);
+    if (destination && codes?.length !== 1) throw new ToolInputError(DESTINATION_WORDS.oneShow, { refused: "destination_one_show" });
     // Held clients (Matas, 27 Nov): one held show is refused; in a list, held shows are left out with the line at the top.
     const held = codes ? await heldCodes(ctx, codes) : new Map<string, string>();
     if (codes && held.size && held.size === codes.length) throw new ToolInputError(heldRefusal([...held.values()][0]!), { refused: "held" });
@@ -186,7 +206,8 @@ export const planRetargetingTool: McpTool = {
     } catch {
       throw new ToolInputError(RT_CLAUDE_WORDS.readFailed, { refused: "read_failed" });
     }
-    const shows: ShowLines[] = read.records.map(showLinesOf);
+    // The destination, after a show's plan (the show to build only).
+    const shows: ShowLines[] = read.records.map(showLinesOf).map((show) => (destination && !show.skipped ? { ...show, lines: [...show.lines, DESTINATION_WORDS.line(destination)] } : show));
     // The connector's limits: a show not finished in time is said, never waited for; one asked for alone says so on its own line.
     const unfinished = (read.unfinished ?? []).map((row) => row.eventCode ?? row.eventId);
     const alone = codes?.length === 1;
@@ -237,12 +258,14 @@ export const createShowCampaignsTool: McpTool = {
     event: z.string().min(2).max(40).describe("The event code."),
     mode: z.enum(["paused", "live"]).describe("paused or live."),
     approval: approvalInput,
+    destination: destinationInput,
   },
   async run(ctx, args) {
     const { approval } = requireMetaApproval(ctx, args);
     const deps = requireRetargeting(ctx);
     const [code] = codesOf(args.event)!;
     const live = args.mode === "live";
+    const destination = destinationOf(args, { code });
     const held = await heldCodes(ctx, [code!]);
     if (held.size) throw new ToolInputError(heldRefusal([...held.values()][0]!), { code, refused: "held" });
     const archived = await archivedCodes(ctx, [code!]);
@@ -270,6 +293,13 @@ export const createShowCampaignsTool: McpTool = {
     const row = await buildRowOf(ctx, eventId);
     let build: FunnelBuild | null = null;
     if (row?.build && row.build.kind === "retargeting_funnel_create") {
+      // Asked again: the destination it was made with carries on. Another one is taken only while no ad is made; ads that are made stay as they are.
+      const stored = row.build.destination ?? null;
+      if (destination && destinationKey(destination) !== destinationKey(stored)) {
+        const adsMade = (row.progress?.ads?.length ?? 0) > 0 || (row.progress?.wider?.ads?.length ?? 0) > 0;
+        if (adsMade) throw new ToolInputError(DESTINATION_WORDS.madeWithOther(code!, stored), { ...base, refused: "destination_differs" });
+        row.build = { ...row.build, destination };
+      }
       if (row.progress?.active) {
         return { data: { message: RT_CLAUDE_WORDS.alreadyLive(code!), changed: false, campaign_id: row.meta_campaign_id }, eventId, clientId: ownerRow.client_id, summary: { ...base, noop: "already_live" } };
       }
@@ -282,7 +312,7 @@ export const createShowCampaignsTool: McpTool = {
       if (skip) throw new ToolInputError(RT_CLAUDE_WORDS.refusedSkip(code!, skip, record.plan.view.notProposed, record.plan.cause), { ...base, refused: skip });
       if (record.plan.held) throw new ToolInputError(RT_CLAUDE_WORDS.held(record.plan.held), { ...base, refused: "held" });
       if (!record.plan.build || record.plan.build.kind !== "retargeting_funnel_create") throw new ToolInputError(RT_CLAUDE_WORDS.refusedSkip(code!, "no_budget"), { ...base, refused: "no_build" });
-      build = record.plan.build;
+      build = destination ? { ...record.plan.build, destination } : record.plan.build;
     }
     // Two campaigns (staged): Wider folds the show's prospecting, so it goes live only once that's folded or paused (Matas's yes, through pause).
     if (live && build.wider && !row?.progress?.active) {

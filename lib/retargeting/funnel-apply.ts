@@ -48,6 +48,7 @@ import { widerAdSetPayload, widerCampaignFields, locationOf, RT_AUDIENCE_BUILDIN
 import { type FunnelSpec, type SpecOptions, audiencesToMake, funnelAdSetName, funnelSpecs, FUNNEL_TIERS, FUNNEL_TIER_LABEL, SPLIT_WITH_SIMILAR, splitTotal, type FunnelAudience, type PageGroup, type FunnelSources, type FunnelStretch, type FunnelTier, type TakeLine, type TierMinor } from "./funnel.ts";
 import type { FunnelStepPlan } from "./funnel-plan.ts";
 import { fill } from "./funnel-words.ts";
+import { creativeWithDestination, destinationKey, DESTINATION_WORDS, DestinationRefused, type Destination } from "./destination.ts";
 import { genreLabelInSentence, type GenreFamilyKey } from "../learning/genre/families.ts";
 import { advantageOff, geoExpansionOff, widerAdSetName, type Interest, type LookalikeAudience, type WiderAdSetKey, type WiderStep } from "./show-campaigns.ts";
 
@@ -85,6 +86,8 @@ export type FunnelBuild = {
   spec?: SpecOptions;
   /** TC7: a presale show — both campaigns optimise on sign-ups (CompleteRegistration). */
   presale?: boolean;
+  /** Matas, 27 Nov: every ad's website URL and URL parameters (destination.ts). Absent = the copied ads' own links. */
+  destination?: Destination | null;
   /**
    * STAGED (two-campaign record): "{code} · Wider", folding the show's
    * prospecting (Matas, 26 Nov), one CBO lifetime budget. Absent = Retargeting
@@ -113,7 +116,60 @@ export type FunnelMeta = Pick<RetargetingMeta, "readAd" | "createCreativeFromPos
   readDailyBudget(kind: "adset" | "campaign", id: string): Promise<number | null>;
   /** POST /{id} { daily_budget }: the app's budget write for one ad set or campaign budget. */
   setDailyBudget(kind: "adset" | "campaign", id: string, minor: number): Promise<void>;
+  /** A destination: GET /{creative}?fields=name,object_story_spec,asset_feed_spec,url_tags,object_story_id. */
+  readCreative?(creativeId: string): Promise<Record<string, unknown> | null>;
+  /** A destination: POST /act_{id}/adcreatives with the rebuilt creative. Returns its id. */
+  createCreative?(adAccountId: string, payload: Record<string, unknown>): Promise<string>;
 };
+
+type PreparedCreative = { name: string; sourceCreativeId: string; objectStoryId: string | null; payload: Record<string, unknown> | null };
+
+/**
+ * The show's ads as the build copies them: each one's own creative, or, with a
+ * destination, a new creative from it with the link and URL parameters
+ * (destination.ts). Reads only; a creative that can't take the link refuses the
+ * whole build before anything is made.
+ */
+export async function prepareCreatives(meta: FunnelMeta, build: Pick<FunnelBuild, "ads" | "destination">): Promise<{ ok: true; creatives: PreparedCreative[] } | { ok: false; reason: string }> {
+  const out: PreparedCreative[] = [];
+  for (const ad of build.ads) {
+    const read = await meta.readAd(ad.adId);
+    if (!read?.creativeId) return { ok: false, reason: RF_APPLY_WORDS.adUnread(ad.name) };
+    const name = read.name || ad.name;
+    if (!build.destination) {
+      out.push({ name, sourceCreativeId: read.creativeId, objectStoryId: read.objectStoryId ?? null, payload: null });
+      continue;
+    }
+    const src = meta.readCreative && meta.createCreative ? await meta.readCreative(read.creativeId).catch(() => null) : null;
+    if (!src) return { ok: false, reason: DESTINATION_WORDS.unread(name) };
+    try {
+      out.push({ name, sourceCreativeId: read.creativeId, objectStoryId: null, payload: creativeWithDestination(src, build.destination, name) });
+    } catch (err) {
+      if (err instanceof DestinationRefused) return { ok: false, reason: err.kind === "from_post" ? DESTINATION_WORDS.fromPost(name) : err.kind === "carousel" ? DESTINATION_WORDS.carousel(name) : DESTINATION_WORDS.unread(name) };
+      throw err;
+    }
+  }
+  return { ok: true, creatives: out };
+}
+
+/**
+ * The creatives the ads use: the source's own, or each rebuilt one made once on
+ * the ledger (keyed on the show, the source creative and the destination), so a
+ * build asked for again reuses it and its ads, never a second copy.
+ */
+export async function makeCreatives(meta: FunnelMeta, ledger: MetaWriteContext, build: Pick<FunnelBuild, "eventId" | "destination">, adAccountId: string, prepared: readonly PreparedCreative[]): Promise<ReusedCreative[]> {
+  const out: ReusedCreative[] = [];
+  for (const one of prepared) {
+    if (!one.payload) {
+      out.push({ name: one.name, creativeId: one.sourceCreativeId, objectStoryId: one.objectStoryId });
+      continue;
+    }
+    const payload = one.payload;
+    const id = await withMetaWriteIdempotency(ledger, "refresh_creative_create", { rf: build.eventId, source_creative_id: one.sourceCreativeId, destination: destinationKey(build.destination) }, () => meta.createCreative!(adAccountId, payload), { required: true });
+    out.push({ name: one.name, creativeId: id, objectStoryId: null });
+  }
+  return out;
+}
 
 /** One budget change at a later time (M3b's scheduled changes, migration 271). */
 export type ScheduledStep = { objectKind: "adset" | "campaign"; objectId: string; objectName: string; field: "daily_budget" | "lifetime_budget"; amountMinor: number; expectedMinor: number; runAt: string; raisesSpend: boolean; key: string };
@@ -346,6 +402,11 @@ export async function applyFunnel(deps: FunnelDeps, build: FunnelBuild, ctx: { m
   if (build.endDay < ctx.today) return fail(RF_APPLY_WORDS.passed);
   const adAccountId = build.adAccountId;
   const keyBase = { rf: build.eventId };
+  // A destination: every copied creative must take the link before anything is made.
+  if (build.destination) {
+    const pre = await prepareCreatives(deps.meta, build).catch((err): { ok: false; reason: string } => ({ ok: false, reason: ctx.plainMetaReason(err) }));
+    if (!pre.ok) return fail(pre.reason, { step: "destination" });
+  }
   const totalAfter = FUNNEL_TIERS.reduce((sum, tier) => sum + build.plan.tiers[tier], 0);
 
   // 6 first, before any write: a live build checks the ceiling on the change in the show's total.
@@ -467,12 +528,9 @@ export async function applyFunnel(deps: FunnelDeps, build: FunnelBuild, ctx: { m
       progress.readBack.push({ adsetId: set.id, name: funnelAdSetName(build.eventCode, tier), geoOff: geoExpansionOff(targeting), advantageOff: advantageOff(targeting), read: targeting != null });
     }
     // 5. The ads: the show's live creatives, the same in every tier, as they run (their copy too).
-    const creatives: ReusedCreative[] = [];
-    for (const ad of build.ads) {
-      const read = await deps.meta.readAd(ad.adId);
-      if (!read?.creativeId) return fail(RF_APPLY_WORDS.adUnread(ad.name), { step: "ad" });
-      creatives.push({ name: read.name || ad.name, creativeId: read.creativeId, objectStoryId: read.objectStoryId ?? null });
-    }
+    const prepared = await prepareCreatives(deps.meta, build);
+    if (!prepared.ok) return fail(prepared.reason, { step: "ad" });
+    const creatives = await makeCreatives(deps.meta, ctx.ledger, build, adAccountId, prepared.creatives);
     const adIds = new Set(progress.ads ?? []);
     for (const set of Object.values(progress.adSets)) {
       for (const creative of creatives) adIds.add((await reuseAd(deps.meta, ctx.ledger, { lineId: `rf:${build.eventId}`, adAccountId, adsetId: set!.id, creative })).adId);
@@ -748,11 +806,10 @@ export async function addSimilarAtStep(deps: SimilarStepDeps, args: { build: Fun
     const adsetId = await withMetaWriteIdempotency(ledger, "refresh_adset_create", { ...keyBase, tier: "similar" }, () => deps.meta.createAdSet(adAccountId, payload), { required: true });
     await recordTierAdSet(fullDeps, { metaAdsetId: adsetId, campaignId: progress.campaignId, adAccountId, draftId: ledger.draftId ?? null, name: String(payload.name), dailyMinor: split.tiers.similar, tier: "similar" });
     const adIds = new Set(progress.ads ?? []);
-    for (const ad of build.ads) {
-      const read = await deps.meta.readAd(ad.adId);
-      if (!read?.creativeId) return fail(RF_APPLY_WORDS.adUnread(ad.name));
-      adIds.add((await reuseAd(deps.meta, ledger, { lineId: `rf:${build.eventId}`, adAccountId, adsetId, creative: { name: read.name || ad.name, creativeId: read.creativeId, objectStoryId: read.objectStoryId ?? null } })).adId);
-    }
+    // The same creatives as the build's other ad sets (a destination's are on the ledger already, so none is made twice).
+    const prepared = await prepareCreatives(deps.meta, build);
+    if (!prepared.ok) return fail(prepared.reason);
+    for (const creative of await makeCreatives(deps.meta, ledger, build, adAccountId, prepared.creatives)) adIds.add((await reuseAd(deps.meta, ledger, { lineId: `rf:${build.eventId}`, adAccountId, adsetId, creative })).adId);
     progress.ads = [...adIds];
     const targeting = await deps.meta.readAdSetTargeting(adsetId).catch(() => null);
     progress.readBack = [...(progress.readBack ?? []).filter((row) => row.adsetId !== adsetId), { adsetId, name: funnelAdSetName(build.eventCode, "similar"), geoOff: geoExpansionOff(targeting), advantageOff: advantageOff(targeting), read: targeting != null }];

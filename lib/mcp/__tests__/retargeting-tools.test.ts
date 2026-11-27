@@ -341,3 +341,45 @@ test("create_show_campaigns: refused when its show wasn't read in full in time, 
   await refused(run(createShowCampaignsTool, front.ctx, { event: "NX26-RUDIMENTAL", mode: "paused", approval: YES }), /couldn’t be read in time/);
   assert.deepEqual(front.calls.create, []);
 });
+
+// ── Matas, 27 Nov: one destination for every ad in both campaigns ──
+
+const RUDIMENTAL_DEST = { link: "https://www.rudimental-newcastle.com/", url_tags: "ref=meta&utm_source=meta&utm_medium=paid&utm_campaign={{campaign.name}}&utm_content={{adset.name}}&utm_term={{ad.name}}" };
+const STORED_DEST = { link: RUDIMENTAL_DEST.link, urlTags: RUDIMENTAL_DEST.url_tags };
+
+test("plan_retargeting(one code, destination): the plan line shows it; with 'live' it's refused before any read", async () => {
+  const { ctx, calls } = ctxWith([record()]);
+  const lines = String(((await run(planRetargetingTool, ctx, { events: "NX26-RUDIMENTAL", destination: RUDIMENTAL_DEST })).data as { message: string }).message).split("\n");
+  assert.equal(lines.at(-1), "Destination: rudimental-newcastle.com · with URL parameters");
+  const again = ctxWith([record()]);
+  await refused(run(planRetargetingTool, again.ctx, { events: "live", destination: RUDIMENTAL_DEST }), /^Refused: a destination is for one show at a time, so give one event code\.$/);
+  assert.deepEqual(again.calls.read, []);
+  assert.equal(calls.read.length, 1);
+});
+
+test("create_show_campaigns(destination): the build carries the link and url_tags as written; a bad one is refused before any read", async () => {
+  const { ctx, calls } = ctxWith([record()]);
+  await run(createShowCampaignsTool, ctx, { event: "NX26-RUDIMENTAL", mode: "paused", approval: YES, destination: RUDIMENTAL_DEST });
+  assert.deepEqual(calls.create[0]!.build.destination, STORED_DEST);
+  const bad = ctxWith([record()]);
+  await refused(run(createShowCampaignsTool, bad.ctx, { event: "NX26-RUDIMENTAL", mode: "paused", approval: YES, destination: { link: "http://www.rudimental-newcastle.com/" } }), /^Refused: the destination link must be a full https:\/\/ web address\. Nothing was changed\.$/);
+  await refused(run(createShowCampaignsTool, bad.ctx, { event: "NX26-RUDIMENTAL", mode: "paused", approval: YES, destination: { link: RUDIMENTAL_DEST.link, url_tags: "?utm_source=meta" } }), /^Refused: url_tags must be URL parameters/);
+  assert.deepEqual([bad.calls.read, bad.calls.create], [[], []]);
+});
+
+test("create_show_campaigns asked again: the stored destination carries on; another one is refused once ads are made, taken while none are", async () => {
+  const stored = { ...(record().plan.build as FunnelBuild), destination: STORED_DEST };
+  // Asked again with no destination: carries on with the one it was made with.
+  const resumed = ctxWith([record()], { build: { build: stored, mode: "paused", state: "failed", progress: { campaignId: "1", ads: ["141"] }, meta_campaign_id: "1" } });
+  await run(createShowCampaignsTool, resumed.ctx, { event: "NX26-RUDIMENTAL", mode: "paused", approval: YES });
+  assert.deepEqual(resumed.calls.create[0]!.build.destination, STORED_DEST);
+  // Another destination once ads are made: refused, nothing changed.
+  const other = { link: "https://www.skiddle.com/e/1" };
+  const made = ctxWith([record()], { build: { build: stored, mode: "paused", state: "failed", progress: { campaignId: "1", ads: ["141"] }, meta_campaign_id: "1" } });
+  await refused(run(createShowCampaignsTool, made.ctx, { event: "NX26-RUDIMENTAL", mode: "paused", approval: YES, destination: other }), /^Refused: NX26-RUDIMENTAL’s ads are already made with rudimental-newcastle\.com as their destination, and changing ads that are made is a separate change\. Nothing was changed\.$/);
+  assert.deepEqual(made.calls.create, []);
+  // No ad made yet: the new destination is the one it carries on with.
+  const early = ctxWith([record()], { build: { build: stored, mode: "paused", state: "failed", progress: { campaignId: "1" }, meta_campaign_id: "1" } });
+  await run(createShowCampaignsTool, early.ctx, { event: "NX26-RUDIMENTAL", mode: "paused", approval: YES, destination: other });
+  assert.deepEqual(early.calls.create[0]!.build.destination, { link: other.link, urlTags: null });
+});
