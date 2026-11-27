@@ -134,7 +134,7 @@ const FOLDER_SEAM_IMPORTS: Record<string, readonly string[]> = {
 const AUDIENCE_SEAM = "lib/mcp/audience-deps.ts";
 const AUDIENCE_SEAM_IMPORTS: Record<string, readonly string[]> = {
   "lib/db/meta-custom-audiences.ts": ["createAudienceDraft"],
-  "lib/meta/audience-write.ts": ["createMetaCustomAudience", "metaAudienceWritesEnabled"],
+  "lib/meta/audience-write.ts": ["createMetaCustomAudience", "EXISTING_LOOKUP_UNAVAILABLE", "metaAudienceWritesEnabled"],
   "lib/meta/client.ts": ["graphGetWithToken", "graphPostWithToken"],
   "lib/meta/graph-multi-get.ts": ["graphMultiGetByIds"],
   "lib/meta/server-token.ts": ["resolveServerMetaToken"],
@@ -620,7 +620,7 @@ test("M3c: the audience seam imports exactly the Audience Builder's create, the 
   assert.equal(posts.length, 1);
   assert.match(posts[0]!, /postClientPage: \(b, body\) => graphPostWithToken\(`\/\$\{b\}\/client_pages`, body, token\)/);
   // The create is the builder's own, with the connector's rows client and seed grants off.
-  assert.match(code, /createMetaCustomAudience\(draft\.id, \{ userId, supabase: db as never, rows: db, remediateSeeds: noSeedGrants \}\)/);
+  assert.match(code, /createMetaCustomAudience\(draft\.id, \{ userId, supabase: db as never, rows: db, remediateSeeds: noSeedGrants, \.\.\.\(onLookupFailed \? \{ onLookupFailed \} : \{\}\) \}\)/);
   assert.match(code, /const noSeedGrants = async \(_db: unknown, sourceIds: string\[\]\) => \(\{ remediated: \[\] as string\[\]/);
   // Business Manager calls run as Matas's own token, never the env token.
   assert.match(code, /const personal = \(userId: string\) => resolveUserFacebookToken\(db, userId\)/);
@@ -753,7 +753,11 @@ test("M3c: the retargeting seam imports exactly the 08:00 read, the funnel's cre
   assert.equal([...funnelSrc().matchAll(/withMetaWriteIdempotency\(ledger, "refresh_creative_create"/g)].length, 2);
   // applyFunnel writes only its build record, the stored audiences and launched_ad_sets.
   const funnel = funnelSrc();
-  for (const m of funnel.matchAll(/\.from\(\s*(?:["']([^"']+)["']|BUILDS_TABLE)\s*\)/g)) assert.match(m[1] ?? "retargeting_builds", FUNNEL_WRITES, `funnel-apply from("${m[1] ?? "BUILDS_TABLE"}")`);
+  // It reads one more: the app's own ready audiences (readyAudienceFor, 27 Nov), a select only, never a write.
+  for (const m of funnel.matchAll(/\.from\(\s*(?:["']([^"']+)["']|BUILDS_TABLE)\s*\)(\.select\()?/g)) {
+    if (m[1] === "meta_custom_audiences" && m[2]) continue;
+    assert.match(m[1] ?? "retargeting_builds", FUNNEL_WRITES, `funnel-apply from("${m[1] ?? "BUILDS_TABLE"}")`);
+  }
   // Every Meta write in it is on the ledger.
   const meta = [...funnel.matchAll(/deps\.meta\.(createCampaign|createAdSet|setDailyBudget|setAdSetActive|updateCampaign|createCustomConversion)\(/g)].length;
   const ledgered = [...funnel.matchAll(/withMetaWriteIdempotency\(/g)].length;

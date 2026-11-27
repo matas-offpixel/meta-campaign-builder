@@ -25,7 +25,7 @@
  * Claude gets names, counts, ids and links only. Relative imports only (node:test).
  */
 import { z } from "zod";
-import type { FunnelBuild, FunnelProgress } from "../../retargeting/funnel-apply.ts";
+import type { AudienceSkip, FunnelBuild, FunnelProgress } from "../../retargeting/funnel-apply.ts";
 import { claudePlanLines, doneLine, isPresale, planHead, similarReturnLine, similarSkipLine, skipLine, skipReason, skipReasonWords, type SkipReason } from "../../retargeting/funnel-plan.ts";
 import { fill } from "../../retargeting/funnel-words.ts";
 import { funnelSourcesOf, genreWords } from "../../retargeting/funnel-view.ts";
@@ -77,7 +77,17 @@ export const RT_CLAUDE_WORDS = {
   stepsNotScheduled: fill("claude.rt.steps_unscheduled"),
   tooMany: fill("claude.rt.too_many", { n: MAX_CODES }),
   metaRefused: fill("claude.rt.meta_refused"),
+  // PENDING DESIGN (27 Nov, speed over design until Saturday): a source left out of the build; its tier is built without it.
+  sourceSkipped: (name: string, reason: AudienceSkip) => `Left out: ${name}. ${SOURCE_SKIP_WHY[reason]} Its tier is built without it.`,
 } as const;
+
+/** PENDING DESIGN: why a source was left out (rf-build-meta-error words TSV). */
+const SOURCE_SKIP_WHY: Record<AudienceSkip, string> = {
+  nothing: "There’s nothing to build it from.",
+  refused: "Meta didn’t take it.",
+  unsure: "Meta’s audience list couldn’t be read to check for an existing copy, so it wasn’t made (no duplicate). Asking again tries it.",
+  threw: "It couldn’t be made this time. Asking again tries it.",
+};
 
 /** RF9's skip for a show the read planned; archived is found before the read. */
 export function recordSkip(record: RetargetingRecord): SkipReason | null {
@@ -477,7 +487,7 @@ export const createShowCampaignsTool: McpTool = {
       scheduled: progress.scheduled ?? [],
     };
     const link = created.adsManager;
-    const summary = { ...base, ...ids, ...(identity ? { pageId: identity.pageId, igId: identity.igId, identitySource: identity.source } : {}), ...(build.creatives ? { driveAds: build.creatives.ads.length } : {}), ...(build.copyAds ? { copiedAds: build.copyAds.map((ad) => ad.adId) } : {}), step: out.step ?? null, ...(out.error ? { error: "meta_or_store", reason: out.reason } : {}) };
+    const summary = { ...base, ...ids, ...(identity ? { pageId: identity.pageId, igId: identity.igId, identitySource: identity.source } : {}), ...(build.creatives ? { driveAds: build.creatives.ads.length } : {}), ...(build.copyAds ? { copiedAds: build.copyAds.map((ad) => ad.adId) } : {}), step: out.step ?? null, specKey: out.specKey ?? null, ...(progress.skipped?.length ? { skipped: progress.skipped.map((row) => ({ key: row.key, reason: row.reason })) } : {}), ...(out.error ? { error: "meta_or_store", reason: out.reason, ...(out.metaError ? { metaError: { code: out.metaError.code, subcode: out.metaError.subcode, type: out.metaError.type, fbtraceId: out.metaError.fbtraceId, message: out.metaError.message.slice(0, 300) } } : {}) } : {}) };
     if (out.state === "failed") {
       const reason = out.reason ?? RT_CLAUDE_WORDS.readFailed;
       // The ceiling's own refusal is the MCP's (it ends "Nothing was sent to Meta.").
@@ -496,7 +506,8 @@ export const createShowCampaignsTool: McpTool = {
     const adSets = Object.values(progress.adSets ?? {}).filter(Boolean).length + Object.values(progress.wider?.adSets ?? {}).filter(Boolean).length;
     const copiedCount = build.copyAds?.length ?? (build.creatives ? 0 : (copies?.ads.length || build.ads.length));
     const adsWords = identity ? [SHOW_CREATIVE_WORDS.line({ code: code!, newAds: build.creatives?.ads.length ?? null, copied: copiedCount, folders: build.creatives?.folders ?? [], identity, withLive: Boolean(build.copyAds?.length && build.creatives), kept: copies?.kept ?? [] })] : [];
-    const message = [doneLine({ code: code!, live, adSets, made: ids.audiences_made }), ...adsWords, ...similarSkipped, ...(live && out.step === "schedule" ? [RT_CLAUDE_WORDS.stepsNotScheduled] : []), ...settings].join("\n");
+    const sourcesSkipped = (progress.skipped ?? []).map((row) => RT_CLAUDE_WORDS.sourceSkipped(row.name, row.reason));
+    const message = [doneLine({ code: code!, live, adSets, made: ids.audiences_made }), ...adsWords, ...sourcesSkipped, ...similarSkipped, ...(live && out.step === "schedule" ? [RT_CLAUDE_WORDS.stepsNotScheduled] : []), ...settings].join("\n");
     return { data: { message, ...ids, ads_manager: link }, eventId, clientId: ownerRow.client_id, summary: { ...summary, takenMinor: taken } };
   },
 };

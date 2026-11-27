@@ -194,9 +194,11 @@ export function realRetargetingDeps(db: SupabaseClient): McpRetargetingDeps {
                     const spec = funnelAudienceDraft(aud);
                     return { ...base, funnelStage: "retargeting" as const, audienceSubtype: spec.subtype, retentionDays: spec.retentionDays, sourceId: spec.sourceId, sourceMeta: spec.sourceMeta };
                   })();
-            const made = await audiences.createAudience({ userId, insert: insert as never });
+            // "refuse": if Meta's list can't be read to check for a copy, nothing is posted and the source is left out (27 Nov).
+            const made = await audiences.createAudience({ userId, insert: insert as never, onLookupFailed: "refuse" });
+            if (!made.failed && made.metaAudienceId) return { metaAudienceId: made.metaAudienceId };
             // A source under Meta's minimum, or a refused create: left out, and its tier or ad set built without it.
-            return !made.failed && made.metaAudienceId ? { metaAudienceId: made.metaAudienceId } : null;
+            return { skipped: made.lookupUnavailable ? "unsure" : "refused", error: made.error ?? null };
           },
           async scheduleChange(step) {
             const row = await insertScheduled(db, {

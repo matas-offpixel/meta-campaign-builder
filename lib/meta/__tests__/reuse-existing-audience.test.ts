@@ -209,8 +209,10 @@ describe("list read", () => {
     assert.equal(urls.length, 1);
     assert.match(urls[0]!, /fields=[^&]*rule/);
     assert.match(urls[0]!, /lookalike_spec/);
-    assert.match(urls[0]!, /approximate_count_lower_bound/);
-    assert.match(urls[0]!, /approximate_count_upper_bound/);
+    // The reuse lookup asks only what matching reads, 50 a page (27 Nov: the full list made Meta ask for less data).
+    assert.doesNotMatch(urls[0]!, /approximate_count_lower_bound/);
+    assert.match(urls[0]!, /limit=50/);
+    assert.doesNotMatch(urls[0]!, /approximate_count_upper_bound/);
     assert.equal(logs.some((line) => line.includes(TOKEN)), false);
   });
 });
@@ -340,3 +342,26 @@ async function listed(rows: ListedMetaCustomAudience[]): Promise<ListedMetaCusto
 function accountList(rows: ListedMetaCustomAudience[]): ListedMetaCustomAudience[] {
   return rows;
 }
+
+describe("the reuse lookup on a large account (NX26-RUDIMENTAL, 27 Nov)", () => {
+  it("Meta asks for less data: the same page again at half the limit, cursor kept, then paged to the end", async () => {
+    const urls: string[] = [];
+    const fetchImpl: MetaGraphFetch = async (url) => {
+      urls.push(url);
+      const u = new URL(url);
+      const limit = Number(u.searchParams.get("limit"));
+      if (limit > 20) return { ok: false, status: 500, json: async () => ({ error: { message: "Please reduce the amount of data you're asking for, then retry your request", code: 1 } }) };
+      if (!u.searchParams.get("after")) return { ok: true, status: 200, json: async () => ({ data: [{ id: "a1" }], paging: { next: `https://graph.facebook.com/v21.0/act_1/customaudiences?access_token=${TOKEN}&limit=200&after=CUR1` } }) };
+      return { ok: true, status: 200, json: async () => ({ data: [{ id: "a2" }] }) };
+    };
+    const rows = await listAccountCustomAudiences("act_1", TOKEN, fetchImpl);
+    assert.deepEqual(rows.map((row) => row.id), ["a1", "a2"]);
+    assert.deepEqual(urls.map((url) => new URL(url).searchParams.get("limit")), ["50", "25", "12", "12"]);
+    assert.equal(new URL(urls[3]!).searchParams.get("after"), "CUR1");
+  });
+
+  it("still refused at the floor: the lookup throws (the caller decides whether to create blind)", async () => {
+    const fetchImpl: MetaGraphFetch = async () => ({ ok: false, status: 500, json: async () => ({ error: { message: "Please reduce the amount of data you're asking for, then retry your request" } }) });
+    await assert.rejects(() => listAccountCustomAudiences("act_1", TOKEN, fetchImpl), /reduce the amount of data/);
+  });
+});
