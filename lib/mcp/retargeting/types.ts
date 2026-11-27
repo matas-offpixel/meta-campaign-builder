@@ -21,12 +21,17 @@
  */
 import type { FunnelBuild, FunnelOutcome } from "../../retargeting/funnel-apply.ts";
 import type { RetargetingRecord } from "../../retargeting/runner.ts";
+import type { FrontUnread } from "../../retargeting/limits.ts";
 
 export interface RetargetingReadResult {
   records: RetargetingRecord[];
   metaGets: number;
   /** The read's own notes (counts and reasons, never a token or a raw body). */
   skipped: { eventCode: string | null; reason: string }[];
+  /** Shows not finished in time (their own budget, or the whole read's): plan_retargeting says each; create_show_campaigns refuses. */
+  unfinished?: { eventId: string; eventCode: string | null; why: "show" | "total" }[];
+  /** Reads before the shows that ran out of time. */
+  notRead?: FrontUnread[];
 }
 
 export interface McpRetargetingDeps {

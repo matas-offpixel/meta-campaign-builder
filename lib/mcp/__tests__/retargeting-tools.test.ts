@@ -59,7 +59,7 @@ function record(over: Partial<RetargetingInput> = {}): RetargetingRecord {
   return { eventId: i.eventId, eventCode: i.eventCode, plan: planRetargeting(i), input: i, proposalId: null };
 }
 
-function ctxWith(records: RetargetingRecord[], opts: { scope?: string; isMatas?: boolean; build?: Record<string, unknown> | null; owner?: string; archived?: string[]; outcome?: Partial<FunnelOutcome>; statuses?: Record<string, string>; held?: string[] } = {}) {
+function ctxWith(records: RetargetingRecord[], opts: { scope?: string; isMatas?: boolean; build?: Record<string, unknown> | null; owner?: string; archived?: string[]; outcome?: Partial<FunnelOutcome>; statuses?: Record<string, string>; held?: string[]; unfinished?: { eventId: string; eventCode: string; why: "show" | "total" }[]; notRead?: "purchases"[] } = {}) {
   const calls: { read: unknown[]; create: { build: FunnelBuild; mode: string; approval: unknown }[] } = { read: [], create: [] };
   const deps: McpRetargetingDeps = {
     async campaignStatuses({ ids }) {
@@ -67,7 +67,8 @@ function ctxWith(records: RetargetingRecord[], opts: { scope?: string; isMatas?:
     },
     async read(args) {
       calls.read.push(args);
-      return { records: args.codes ? records.filter((r) => args.codes!.some((c) => c.toUpperCase() === (r.eventCode ?? "").toUpperCase())) : records, metaGets: 3, skipped: [] };
+      const want = (code: string | null) => !args.codes || args.codes.some((c) => c.toUpperCase() === (code ?? "").toUpperCase());
+      return { records: records.filter((r) => want(r.eventCode)), metaGets: 3, skipped: [], unfinished: (opts.unfinished ?? []).filter((row) => want(row.eventCode)), notRead: opts.notRead ?? [] };
     },
     async create(args) {
       calls.create.push({ build: args.build, mode: args.mode, approval: args.approval });
@@ -298,4 +299,97 @@ test("Louder / Parable is held: in a list its show is left out with the line at 
   assert.match(lines[1]!, /^NX26-RUDIMENTAL · final month/);
   assert.ok(!lines.some((line) => line.startsWith("20261204CSA")));
   assert.deepEqual((calls.read[0] as { codes: string[] }).codes, ["NX26-RUDIMENTAL"]);
+});
+
+// ── The connector's limits (Matas, 27 Nov: plan_retargeting timed out on prod) ──
+
+const notFinished = (code: string, why: "show" | "total" = "show") => ({ eventId: `id-${code}`, eventCode: code, why });
+
+test("plan_retargeting(live): shows not finished in time are counted, named after the head line, and never waited for", async () => {
+  const { ctx } = ctxWith([record()], { unfinished: [notFinished("NX26-SLOW"), notFinished("NX26-LATE", "total")] });
+  const out = await run(planRetargetingTool, ctx, { events: "live" });
+  const data = out.data as { message: string; shows: { code: string; skipped: string | null; lines: string[] }[] };
+  const lines = data.message.split("\n");
+  assert.equal(lines[1], "3 shows on sale: 1 to build, 0 skipped.");
+  assert.equal(lines[2], "2 shows weren’t finished in time, so they aren’t shown: NX26-SLOW, NX26-LATE. Ask again with their codes.");
+  assert.deepEqual(data.shows.filter((row) => row.skipped === "not_finished").map((row) => row.code), ["NX26-SLOW", "NX26-LATE"]);
+  assert.equal((out.summary as { unfinished: number }).unfinished, 2);
+});
+
+test("plan_retargeting(one code): a show not finished in time says so on its own line, not 'not on sale'", async () => {
+  const { ctx } = ctxWith([], { unfinished: [notFinished("NX26-RUDIMENTAL")] });
+  const out = await run(planRetargetingTool, ctx, { events: "NX26-RUDIMENTAL" });
+  assert.equal((out.data as { message: string }).message, "NX26-RUDIMENTAL wasn’t finished in time, so it isn’t shown. Try again.");
+});
+
+test("plan_retargeting: a show's reads that ran out close its lines; the purchase read running out opens the answer", async () => {
+  const partial = { ...record(), notRead: ["pages", "hosts"] as ("pages" | "hosts")[] };
+  const { ctx } = ctxWith([partial], { notRead: ["purchases"] });
+  const lines = String(((await run(planRetargetingTool, ctx, { events: "NX26-RUDIMENTAL" })).data as { message: string }).message).split("\n");
+  assert.equal(lines[0], "Not read in time, so not shown: the purchases on each show’s pixel. Try again.");
+  assert.equal(lines.at(-1), "Not read in time, so not shown: the venue, promoter and lineup Pages and the pixel’s sites. Try again.");
+});
+
+test("create_show_campaigns: refused when its show wasn't read in full in time, before anything is made", async () => {
+  const late = ctxWith([], { unfinished: [notFinished("NX26-RUDIMENTAL")] });
+  await refused(run(createShowCampaignsTool, late.ctx, { event: "NX26-RUDIMENTAL", mode: "paused", approval: YES }), /^Refused: NX26-RUDIMENTAL couldn’t be read in time, so nothing was made\. Try again\.$/);
+  assert.deepEqual(late.calls.create, []);
+  const partial = ctxWith([{ ...record(), notRead: ["prospecting"] }]);
+  await refused(run(createShowCampaignsTool, partial.ctx, { event: "NX26-RUDIMENTAL", mode: "paused", approval: YES }), /^Refused: NX26-RUDIMENTAL couldn’t be read in time/);
+  assert.deepEqual(partial.calls.create, []);
+  const front = ctxWith([record()], { notRead: ["purchases"] });
+  await refused(run(createShowCampaignsTool, front.ctx, { event: "NX26-RUDIMENTAL", mode: "paused", approval: YES }), /couldn’t be read in time/);
+  assert.deepEqual(front.calls.create, []);
+});
+
+// ── Matas, 27 Nov: one destination for every ad in both campaigns ──
+
+const RUDIMENTAL_DEST = { link: "https://www.rudimental-newcastle.com/", url_tags: "ref=meta&utm_source=meta&utm_medium=paid&utm_campaign={{campaign.name}}&utm_content={{adset.name}}&utm_term={{ad.name}}" };
+const STORED_DEST = { link: RUDIMENTAL_DEST.link, urlTags: RUDIMENTAL_DEST.url_tags };
+
+test("plan_retargeting(one code, destination): the plan line shows it; with 'live' it's refused before any read", async () => {
+  const { ctx, calls } = ctxWith([record()]);
+  const lines = String(((await run(planRetargetingTool, ctx, { events: "NX26-RUDIMENTAL", destination: RUDIMENTAL_DEST })).data as { message: string }).message).split("\n");
+  assert.equal(lines.at(-1), "Destination: https://www.rudimental-newcastle.com/ · URL parameters ref=meta&utm_source=meta&utm_medium=paid&utm_campaign={{campaign.name}}&utm_content={{adset.name}}&utm_term={{ad.name}}");
+  const again = ctxWith([record()]);
+  await refused(run(planRetargetingTool, again.ctx, { events: "live", destination: RUDIMENTAL_DEST }), /^Refused: a destination is for one show at a time, so give one event code\. Nothing was changed\.$/);
+  assert.deepEqual(again.calls.read, []);
+  assert.equal(calls.read.length, 1);
+});
+
+test("create_show_campaigns(destination): the build carries the link and url_tags as written; a bad one is refused before any read", async () => {
+  const { ctx, calls } = ctxWith([record()]);
+  await run(createShowCampaignsTool, ctx, { event: "NX26-RUDIMENTAL", mode: "paused", approval: YES, destination: RUDIMENTAL_DEST });
+  assert.deepEqual(calls.create[0]!.build.destination, STORED_DEST);
+  const bad = ctxWith([record()]);
+  await refused(run(createShowCampaignsTool, bad.ctx, { event: "NX26-RUDIMENTAL", mode: "paused", approval: YES, destination: { link: "http://www.rudimental-newcastle.com/" } }), /^Refused: the destination link must be a full https:\/\/ web address\. Nothing was changed\.$/);
+  await refused(run(createShowCampaignsTool, bad.ctx, { event: "NX26-RUDIMENTAL", mode: "paused", approval: YES, destination: { link: RUDIMENTAL_DEST.link, url_tags: "?utm_source=meta" } }), /^Refused: url_tags must be URL parameters/);
+  assert.deepEqual([bad.calls.read, bad.calls.create], [[], []]);
+});
+
+test("create_show_campaigns asked again: the stored destination carries on; another one is refused once ads are made, taken while none are", async () => {
+  const stored = { ...(record().plan.build as FunnelBuild), destination: STORED_DEST };
+  // Asked again with no destination: carries on with the one it was made with.
+  const resumed = ctxWith([record()], { build: { build: stored, mode: "paused", state: "failed", progress: { campaignId: "1", ads: ["141"] }, meta_campaign_id: "1" } });
+  await run(createShowCampaignsTool, resumed.ctx, { event: "NX26-RUDIMENTAL", mode: "paused", approval: YES });
+  assert.deepEqual(resumed.calls.create[0]!.build.destination, STORED_DEST);
+  // Another destination once ads are made: refused, nothing changed.
+  const other = { link: "https://www.skiddle.com/e/1" };
+  const made = ctxWith([record()], { build: { build: stored, mode: "paused", state: "failed", progress: { campaignId: "1", ads: ["141"] }, meta_campaign_id: "1" } });
+  await refused(run(createShowCampaignsTool, made.ctx, { event: "NX26-RUDIMENTAL", mode: "paused", approval: YES, destination: other }), /^Refused: NX26-RUDIMENTAL’s ads are already made with https:\/\/www\.rudimental-newcastle\.com\/ as their destination, and create_show_campaigns doesn’t change ads that are made\. Nothing was changed\.$/);
+  assert.deepEqual(made.calls.create, []);
+  // No ad made yet: the new destination is the one it carries on with.
+  const early = ctxWith([record()], { build: { build: stored, mode: "paused", state: "failed", progress: { campaignId: "1" }, meta_campaign_id: "1" } });
+  await run(createShowCampaignsTool, early.ctx, { event: "NX26-RUDIMENTAL", mode: "paused", approval: YES, destination: other });
+  assert.deepEqual(early.calls.create[0]!.build.destination, { link: other.link, urlTags: null });
+});
+
+test("design's input descriptions for destination, link and url_tags (27 Nov, on #1409), word for word, straight marks", () => {
+  for (const tool of [planRetargetingTool, createShowCampaignsTool]) {
+    const destination = (tool.inputSchema as unknown as Record<string, { description?: string; unwrap(): { shape: Record<string, { description?: string; unwrap?: () => { description?: string } }> } }>).destination!;
+    assert.equal(destination.description, "Optional, one show only: one destination for every ad in both campaigns, replacing the copied ads' links. Copy, media and identity stay as they are. Once ads are made it can't be changed.");
+    const shape = destination.unwrap().shape;
+    assert.equal(shape.link!.description, "The https:// web address every ad in both campaigns links to.");
+    assert.equal(shape.url_tags!.description ?? shape.url_tags!.unwrap?.().description, "Meta's URL parameters for every ad, with no leading ?, e.g. utm_source=meta&utm_campaign={{campaign.name}}. Kept exactly as written: Meta fills in {{campaign.name}}, {{adset.name}} and {{ad.name}}.");
+  }
 });

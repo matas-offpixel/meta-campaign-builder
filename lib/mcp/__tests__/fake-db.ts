@@ -1,7 +1,7 @@
 /**
  * A small in-memory stand-in for the supabase-js query builder, enough for
  * the MCP readers: select / eq / neq / in / is / not is null / gte / lte /
- * gt / lt / or (simple) / order / range / limit / maybeSingle / single,
+ * gt / lt / like / ilike / or (simple) / order / range / limit / maybeSingle / single,
  * head counts, and insert / update (recorded). A table not in the map
  * answers PostgREST's missing-table error.
  */
@@ -109,8 +109,17 @@ export class FakeQuery implements PromiseLike<{ data: unknown; error: { message:
     this.preds.push((r) => r[c] != null && String(r[c]) < String(v));
     return this;
   }
+  /** LIKE's two wildcards: % any run, _ any one character. */
+  private static likeRe(v: string, flags: string) {
+    return new RegExp(`^${v.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/%/g, ".*").replace(/_/g, ".")}$`, flags);
+  }
   ilike(c: string, v: string) {
-    const re = new RegExp(`^${v.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/%/g, ".*")}$`, "i");
+    const re = FakeQuery.likeRe(v, "i");
+    this.preds.push((r) => re.test(String(r[c] ?? "")));
+    return this;
+  }
+  like(c: string, v: string) {
+    const re = FakeQuery.likeRe(v, "");
     this.preds.push((r) => re.test(String(r[c] ?? "")));
     return this;
   }

@@ -485,3 +485,80 @@ describe("design's second verdict (27 Nov): audience names per meta.name.*, uniq
     assert.deepEqual(made.filter((key) => keys.includes(String(key))), []);
   });
 });
+
+describe("Matas, 27 Nov: one destination for every ad in both campaigns", () => {
+  const DEST = { link: "https://www.rudimental-newcastle.com/", urlTags: "ref=meta&utm_source=meta&utm_medium=paid&utm_campaign={{campaign.name}}&utm_content={{adset.name}}&utm_term={{ad.name}}" };
+  /** The show's one live ad, a per-placement creative (4:5 feed + 9:16 stories) on the old link. */
+  const SOURCE = {
+    name: "Rudimental · announce",
+    object_story_spec: { page_id: "1001", instagram_user_id: "ig1" },
+    asset_feed_spec: {
+      bodies: [{ text: "Rudimental live in Newcastle" }],
+      videos: [{ video_id: "v1", adlabels: [{ id: "l1", name: "feed" }] }, { video_id: "v2", adlabels: [{ id: "l2", name: "story" }] }],
+      link_urls: [{ website_url: "https://www.skiddle.com/e/1", display_url: "skiddle.com" }],
+      call_to_action_types: ["BOOK_TRAVEL"],
+      asset_customization_rules: [{ customization_spec: { publisher_platforms: ["facebook"] }, video_label: { id: "l1", name: "feed" } }],
+    },
+    url_tags: "utm_source=old",
+  };
+  function withCreatives(t: ReturnType<typeof setup>, source: Record<string, unknown> = SOURCE) {
+    const made: Record<string, unknown>[] = [];
+    const ads: { adsetId: string; creativeId: string }[] = [];
+    const createAd = t.deps.meta.createAd;
+    t.deps.meta = {
+      ...t.deps.meta,
+      readCreative: async (id) => (t.calls.push(["readCreative", id]), structuredClone(source)),
+      createCreative: async (_a, payload) => (t.calls.push(["createCreative"]), made.push(payload), `cr-${made.length}`),
+      createAd: async (a, ad) => (ads.push({ adsetId: ad.adset_id, creativeId: String((ad.creative as { creative_id?: string }).creative_id) }), createAd(a, ad)),
+    };
+    return { made, ads };
+  }
+
+  it("every ad in Retargeting and Wider uses the new creative: the link replaced, url_tags with the braces as written, copy and media kept", async () => {
+    const t = setup();
+    const { made, ads } = withCreatives(t);
+    const out = await applyFunnel(t.deps, { ...twoCampaignBuild(), destination: DEST }, t.ctx("paused"));
+    assert.equal(out.state, "applied", out.reason ?? "");
+    assert.equal(made.length, 1, "one creative per source creative, shared by every ad set");
+    const [creative] = made as { url_tags: string; object_story_spec: Record<string, unknown>; asset_feed_spec: { link_urls: Record<string, unknown>[]; bodies: unknown; videos: unknown; call_to_action_types: unknown; asset_customization_rules: unknown } }[];
+    assert.equal(creative!.url_tags, DEST.urlTags);
+    assert.match(creative!.url_tags, /\{\{campaign\.name\}\}.*\{\{adset\.name\}\}.*\{\{ad\.name\}\}/);
+    assert.deepEqual(creative!.asset_feed_spec.link_urls, [{ website_url: DEST.link }]);
+    assert.deepEqual(creative!.asset_feed_spec.bodies, SOURCE.asset_feed_spec.bodies);
+    assert.deepEqual(creative!.asset_feed_spec.call_to_action_types, ["BOOK_TRAVEL"]);
+    assert.deepEqual(creative!.object_story_spec, { page_id: "1001", instagram_user_id: "ig1" });
+    // Every ad, Retargeting's tiers and Wider's ad sets alike, runs the new creative; none the old one.
+    const adSets = names(t.calls, "createAdSet").length;
+    assert.equal(ads.length, adSets);
+    assert.ok(ads.length >= 5);
+    assert.deepEqual([...new Set(ads.map((row) => row.creativeId))], ["cr-1"]);
+  });
+
+  it("asked again, it carries on from what's made: no second creative, no second ad", async () => {
+    const t = setup();
+    const { made, ads } = withCreatives(t);
+    const build = { ...twoCampaignBuild(), destination: DEST };
+    await applyFunnel(t.deps, build, t.ctx("paused"));
+    const first = { creatives: made.length, ads: ads.length };
+    await applyFunnel(t.deps, build, t.ctx("paused"));
+    assert.deepEqual({ creatives: made.length, ads: ads.length }, first);
+  });
+
+  it("a copied ad built from a post can't take the link: refused before anything is made", async () => {
+    const t = setup();
+    withCreatives(t, { name: "A post", object_story_id: "1001_555" });
+    const out = await applyFunnel(t.deps, { ...twoCampaignBuild(), destination: DEST }, t.ctx("paused"));
+    assert.equal(out.state, "failed");
+    assert.equal(out.reason, "Rudimental · announce runs from a post, so its link is the post’s and can’t be changed");
+    for (const kind of ["createCampaign", "createAdSet", "createAd", "createAudience", "createCreative"]) assert.deepEqual(names(t.calls, kind), [], kind);
+  });
+
+  it("no destination: the ads reuse the copied creatives as before, nothing read or made for them", async () => {
+    const t = setup();
+    const { made, ads } = withCreatives(t);
+    await applyFunnel(t.deps, twoCampaignBuild(), t.ctx("paused"));
+    assert.equal(made.length, 0);
+    assert.deepEqual(names(t.calls, "readCreative"), []);
+    assert.deepEqual([...new Set(ads.map((row) => row.creativeId))], ["6001"]);
+  });
+});

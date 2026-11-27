@@ -32,6 +32,7 @@ import { fetchAudienceMultiCampaignVideos } from "@/lib/audiences/sources";
 import { buildMetaAdsManagerCampaignUrl } from "@/lib/notify/ads-manager-url";
 import { plainMetaReason } from "@/lib/onsale-refresh/apply";
 import { runRetargetingRead } from "@/lib/retargeting/runner";
+import { CONNECTOR_LIMITS } from "@/lib/retargeting/limits";
 import { groupVideosKeepingUnpaged } from "@/lib/retargeting/audiences";
 import { applyFunnel, funnelAudienceDraft, type FunnelMeta } from "@/lib/retargeting/funnel-apply";
 import { insertScheduled } from "./live/scheduled";
@@ -61,6 +62,13 @@ function funnelMetaFor(token: string): FunnelMeta {
     },
     async createCampaign(adAccountId, payload) {
       return (await graphPostWithToken<{ id: string }>(`/${act(adAccountId)}/campaigns`, payload, token)).id;
+    },
+    // A destination (Matas, 27 Nov): the source creative read, and a new one made with the link and URL parameters.
+    async readCreative(creativeId) {
+      return graphGetWithToken<Record<string, unknown>>(`/${creativeId}`, { fields: "name,object_story_spec,asset_feed_spec,url_tags,object_story_id" }, token, { maxAttempts: 1 });
+    },
+    async createCreative(adAccountId, payload) {
+      return (await graphPostWithToken<{ id: string }>(`/${act(adAccountId)}/adcreatives`, payload, token)).id;
     },
     async createAdSet(adAccountId, payload) {
       return (await createMetaAdSet(adAccountId, payload as unknown as MetaAdSetPayload, token)).id;
@@ -121,11 +129,13 @@ export function realRetargetingDeps(db: SupabaseClient): McpRetargetingDeps {
         connector: true,
         eventCodes: codes ?? undefined,
         userId,
-        graph: token ? { graphGet: (path, params) => graphGetWithToken(path, params, token, { maxAttempts: 1 }), multiGet: (path, params) => graphMultiGetByIds(path, params, token) } : null,
+        // Each GET stops after 10 s for real (#1405's signal); the read's own limits (CONNECTOR_LIMITS) bound everything else.
+        graph: token ? { graphGet: (path, params) => graphGetWithToken(path, params, token, { maxAttempts: 1, signal: AbortSignal.timeout(CONNECTOR_LIMITS.requestMs) }), multiGet: (path, params) => graphMultiGetByIds(path, params, token) } : null,
         graphReason: token ? undefined : "no Facebook token",
+        limits: CONNECTOR_LIMITS,
       });
-      if (!("records" in result)) return { records: [], metaGets: 0, skipped: [] };
-      return { records: result.records, metaGets: result.metaCalls, skipped: result.skipped };
+      if (!("records" in result)) return { records: [], metaGets: 0, skipped: [], unfinished: [], notRead: [] };
+      return { records: result.records, metaGets: result.metaCalls, skipped: result.skipped, unfinished: result.unfinished ?? [], notRead: result.notRead ?? [] };
     },
     async campaignStatuses({ userId, ids }) {
       const token = await tokenFor(userId);
