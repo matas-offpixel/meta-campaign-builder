@@ -382,10 +382,16 @@ describe("the retargeting build's name lookup (27 Nov, after #1412)", () => {
   });
 
   it("gives up at its limit (a slow Meta never holds the build)", async () => {
-    const fetchImpl: MetaGraphFetch = (_url, init) => new Promise((_resolve, reject) => init?.signal?.addEventListener("abort", () => reject(new Error("aborted"))));
-    const started = Date.now();
-    await assert.rejects(() => findAudiencesByName("act_1", TOKEN, "NX26_RUDIMENTAL", fetchImpl, { timeoutMs: 50 }));
-    assert.ok(Date.now() - started < 2000);
+    // AbortSignal.timeout's timer is unref'd: a ref'd one keeps the event loop alive while the fake waits on the abort.
+    const keepAlive = setTimeout(() => undefined, 5_000);
+    try {
+      const fetchImpl: MetaGraphFetch = (_url, init) => new Promise((_resolve, reject) => init?.signal?.addEventListener("abort", () => reject(new Error("aborted"))));
+      const started = Date.now();
+      await assert.rejects(() => findAudiencesByName("act_1", TOKEN, "NX26_RUDIMENTAL", fetchImpl, { timeoutMs: 50 }), /aborted/);
+      assert.ok(Date.now() - started < 2000);
+    } finally {
+      clearTimeout(keepAlive);
+    }
   });
 
   it("matches the exact name only, and never a name Meta may have cut at 50", () => {
