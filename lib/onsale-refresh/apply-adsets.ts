@@ -35,6 +35,7 @@ import {
   AUDIENCE_BUILDING,
   BUDGET_CHANGED,
   AUDIENCE_TOO_SMALL,
+  AUDIENCE_UNAVAILABLE,
   COPIED_FIELDS,
   LOOKALIKE_RATIO,
   MAX_REUSED_CREATIVES,
@@ -54,6 +55,7 @@ import {
   type NewAdSetSource,
 } from "./new-adset.ts";
 import { MIN_DAILY_BUDGET_MINOR } from "./plan-guard.ts";
+import type { AudienceTargetState } from "../audiences/ca-availability-recovery.ts";
 
 type Db = Pick<SupabaseClient, "from">;
 
@@ -80,7 +82,8 @@ export function audienceDraftFields(spec: AudienceSpec, videos?: { videoIds: str
   return { sourceId: spec.originAudienceId, sourceMeta: { subtype: "lookalike", originAudienceId: spec.originAudienceId, ratio: spec.ratio, country: spec.country, seedName: spec.name, type: "similarity" }, retentionDays };
 }
 
-export type AudienceState = "ready" | "building" | "too_small";
+/** The shared targeting rule's states (populating is targetable). */
+export type AudienceState = AudienceTargetState;
 
 export type NewAdSetDeps = {
   db: Db;
@@ -290,6 +293,7 @@ export async function applyNewAdSet(
       const state = await deps.meta.audienceState(id);
       if (state === "building") return fail(AUDIENCE_BUILDING, { ...base, audienceIds });
       if (state === "too_small") return fail(AUDIENCE_TOO_SMALL, { ...base, audienceIds });
+      if (state === "unavailable" || state === "unreadable") return fail(AUDIENCE_UNAVAILABLE, { ...base, audienceIds, error: `audience ${id}: ${state}` });
     }
   }
 

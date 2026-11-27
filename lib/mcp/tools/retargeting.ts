@@ -96,6 +96,7 @@ const SOURCE_SKIP_WHY: Record<AudienceSkip, string> = {
   refused: "Meta didn’t take it.",
   unsure: "Meta’s audience list couldn’t be read to check for an existing copy, so it wasn’t made (no duplicate). Asking again tries it.",
   threw: "It couldn’t be made this time. Asking again tries it.",
+  source_filling: "Meta is still filling the audience it’s made from, and makes no lookalike from one until it’s done. Asking again tries it.",
 };
 
 /** RF9's skip for a show the read planned; archived is found before the read. */

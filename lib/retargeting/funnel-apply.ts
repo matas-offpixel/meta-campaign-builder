@@ -44,9 +44,10 @@ import { withMetaWriteIdempotency, type MetaWriteContext } from "../meta/write-i
 import { applyEnabled, audienceWritesEnabledFrom, retargetingGates, applyGates } from "../onsale-refresh/apply-gates.ts";
 import { campaignCreateEnabled, customConversionCreateEnabled, reuseAd, type ReusedCreative } from "../onsale-refresh/apply-purchase.ts";
 import { isOptimisationWritesEnabledFromEnv } from "../optimisation/gates.ts";
-import { widerAdSetPayload, widerCampaignFields, locationOf, RT_AUDIENCE_BUILDING, RT_AUDIENCE_SMALL, RT_AUDIENCES_OFF, RT_CONVERSION_OFF, RT_CREATE_OFF, tierAdSetPayload, type RetargetingMeta } from "./apply.ts";
+import { widerAdSetPayload, widerCampaignFields, locationOf, RT_AUDIENCE_BUILDING, RT_AUDIENCE_BUILDING_NAMED, RT_AUDIENCE_SMALL, RT_AUDIENCE_SMALL_NAMED, RT_AUDIENCE_UNAVAILABLE_NAMED, RT_AUDIENCE_UNREADABLE_NAMED, RT_AUDIENCES_OFF, RT_CONVERSION_OFF, RT_CREATE_OFF, tierAdSetPayload, type RetargetingMeta } from "./apply.ts";
 import { type FunnelSpec, type SpecOptions, audiencesToMake, funnelAdSetName, funnelSpecs, FUNNEL_TIERS, FUNNEL_TIER_LABEL, SPLIT_WITH_SIMILAR, splitTotal, type FunnelAudience, type PageGroup, type FunnelSources, type FunnelStretch, type FunnelTier, type TakeLine, type TierMinor } from "./funnel.ts";
 import type { FunnelStepPlan } from "./funnel-plan.ts";
+import type { AudienceTargetState } from "../audiences/ca-availability-recovery.ts";
 import { fill } from "./funnel-words.ts";
 import { adSetsMadeOf, checkoutRefusal, resolveOptimisation, type CheckoutSeen, type OptimisationEvent, type OptimiseOn } from "./optimise-on.ts";
 import { BUILD_LOCK_MS, buildRunning, RF_STOP_WORDS, STEP_MARGIN_MS, type BuildRowState } from "./build-lock.ts";
@@ -240,7 +241,8 @@ export type ScheduledStep = { objectKind: "adset" | "campaign"; objectId: string
  * Meta for an existing copy, so it wasn't made rather than risk a duplicate;
  * or the create threw. The tier builds without it either way.
  */
-export type AudienceSkip = "nothing" | "refused" | "unsure" | "threw";
+/** source_filling: a lookalike whose source audience Meta is still populating (it makes no lookalike from one yet). */
+export type AudienceSkip = "nothing" | "refused" | "unsure" | "threw" | "source_filling";
 
 /** What the audience seam answers: made (or reused), left out with a reason, or null (the builder can't make it yet). */
 export type AudienceMade = { metaAudienceId: string } | { skipped: AudienceSkip; error?: string | null } | null;
@@ -314,6 +316,14 @@ type At = { step: string; key: string | null };
  * One audience through the seam: nothing to build from, a refusal or a throw
  * is a skip (logged with Meta's error), never a failed build.
  */
+/** The stop for an audience no ad set may use yet, by name; null when it's targetable or only too small (the caller decides). */
+function audienceStop(state: AudienceTargetState, name: string): string | null {
+  if (state === "building") return RF_APPLY_WORDS.buildingNamed(name);
+  if (state === "unavailable") return RF_APPLY_WORDS.unavailableNamed(name);
+  if (state === "unreadable") return RF_APPLY_WORDS.unreadableNamed(name);
+  return null;
+}
+
 async function makeOneAudience(deps: Pick<FunnelDeps, "createAudience" | "db">, build: Pick<FunnelBuild, "eventCode" | "eventId">, aud: MakeAudience, name: string, adAccountId: string, at: At): Promise<{ id: string } | { skip: AudienceSkip }> {
   at.step = "audience";
   at.key = aud.key;
@@ -417,6 +427,10 @@ export const RF_APPLY_WORDS = {
   passed: fill("rt.create.passed"),
   building: RT_AUDIENCE_BUILDING,
   tooSmall: RT_AUDIENCE_SMALL,
+  buildingNamed: RT_AUDIENCE_BUILDING_NAMED,
+  tooSmallNamed: RT_AUDIENCE_SMALL_NAMED,
+  unavailableNamed: RT_AUDIENCE_UNAVAILABLE_NAMED,
+  unreadableNamed: RT_AUDIENCE_UNREADABLE_NAMED,
   similarNotYet: fill("rt.similar.wait"),
   adUnread: (name: string) => fill("rt.create.ad_unread", { name }),
   budgetChanged: (name: string) => fill("rt.create.budget_changed", { name }),
@@ -630,7 +644,7 @@ async function applyFunnelOnce(deps: FunnelDeps, build: FunnelBuild, ctx: Funnel
   const before = await loadFunnelProgress(deps.db, build.eventId);
   const progress: FunnelProgress = { ...(before?.progress ?? {}) };
   const live = ctx.mode === "live";
-  const fail = (reason: string, extra: { error?: string; step?: string } = {}): FunnelOutcome => ({ state: "failed", reason, progress, ...extra });
+  const fail = (reason: string, extra: { error?: string; step?: string; specKey?: string | null } = {}): FunnelOutcome => ({ state: "failed", reason, progress, ...extra });
   // A step that threw: its plain reason for Claude, and Meta's error with the step and spec key for the log and the summary.
   const failWith = (step: string, specKey: string | null, err: unknown, reason?: string): FunnelOutcome => {
     const metaError = logStep("error", "build step failed", build, step, specKey, err);
@@ -743,6 +757,7 @@ async function applyFunnelOnce(deps: FunnelDeps, build: FunnelBuild, ctx: Funnel
     progress.audiences ??= {};
     const stored = await storedAudiences(deps.db, build.eventId);
     const names = audienceNames(build.eventCode, specs, genreOf(build));
+    const nameOfKey = (key: string) => names.get(key) ?? build.sources.lists.find((row) => `list:${row.metaAudienceId}` === key)?.name ?? (key.startsWith("lal:") ? lookalikeName(build.eventCode, names.get(key.split(":").slice(3).join(":")) ?? key) : key);
     const notMade = new Set<string>();
     for (const aud of audiencesToMake(specs)) {
       const have = progress.audiences[aud.key] ?? stored.get(aud.key);
@@ -772,12 +787,16 @@ async function applyFunnelOnce(deps: FunnelDeps, build: FunnelBuild, ctx: Funnel
     // Similar's audiences under Meta's minimum: Similar is skipped and its budget goes to Cold (Matas, 26 Nov); any other audience stops the build as before.
     const similarIds = new Set((specs.find((spec) => spec.tier === "similar")?.includes ?? []).map((aud) => progress.audiences![aud.key]).filter(Boolean));
     let similarSmall = 0;
+    // Populating (441) and processing (400) are targetable: the tiers are made on them. Only a deleted,
+    // unavailable or unreadable audience (or one still building) stops the build, by name.
     for (const id of new Set(Object.values(progress.audiences))) {
-      Object.assign(at, { step: "audience_state", key: Object.keys(progress.audiences).find((key) => progress.audiences![key] === id) ?? id });
+      const key = Object.keys(progress.audiences).find((row) => progress.audiences![row] === id) ?? id;
+      Object.assign(at, { step: "audience_state", key });
       const state = await deps.meta.audienceState(id);
-      if (state === "building") return fail(RF_APPLY_WORDS.building, { step: "audience" });
+      const stop = audienceStop(state, nameOfKey(key));
+      if (stop) return fail(stop, { step: "audience", specKey: key, error: `audience ${id} (${key}): ${state}` });
       if (state === "too_small" && similarIds.has(id)) similarSmall += 1;
-      else if (state === "too_small") return fail(RF_APPLY_WORDS.tooSmall, { step: "audience" });
+      else if (state === "too_small") return fail(RF_APPLY_WORDS.tooSmallNamed(nameOfKey(key)), { step: "audience", specKey: key, error: `audience ${id} (${key}): too_small` });
     }
     const tiersNow: TierMinor = { ...build.plan.tiers };
     if (similarIds.size && similarSmall === similarIds.size && !progress.adSets?.similar) {
@@ -963,6 +982,14 @@ async function buildWider(deps: FunnelDeps, build: FunnelBuild, progress: Funnel
       if (!originId) continue;
       if (args.timeUp()) throw new BuildTimeUp();
       const name = lookalikeName(build.eventCode, originNameOf(lal.originKey));
+      // Meta makes no lookalike from a source it is still populating (441 / 400): left out, asked again next run.
+      Object.assign(at, { step: "lookalike_source", key: lal.originKey });
+      const sourceState = await deps.meta.audienceState(originId);
+      if (sourceState === "populating" || sourceState === "building") {
+        logStep("warn", `lookalike skipped: source ${originId} ${sourceState}`, build, "audience", lal.key, null);
+        args.skipped.push({ key: lal.key, name, reason: "source_filling" });
+        continue;
+      }
       const made = await makeOneAudience(deps, build, { ...lal, originId }, name, adAccountId, at);
       if ("skip" in made) {
         args.skipped.push({ key: lal.key, name, reason: made.skip });
@@ -1111,6 +1138,7 @@ export async function addSimilarAtStep(deps: SimilarStepDeps, args: { build: Fun
     progress.audiences ??= {};
     const stored = await storedAudiences(deps.db, build.eventId);
     const ids: string[] = [];
+    const nameOfId = new Map<string, string>();
     for (const aud of similar.includes) {
       if (aud.kind === "list") continue;
       let id: string | undefined = progress.audiences[aud.key] ?? stored.get(aud.key);
@@ -1122,13 +1150,15 @@ export async function addSimilarAtStep(deps: SimilarStepDeps, args: { build: Fun
         await storeAudience(deps.db, { event_id: build.eventId, user_id: deps.owner.userId, part: aud.key, meta_audience_id: id, name });
       }
       progress.audiences[aud.key] = id;
+      nameOfId.set(id, similarNames.get(aud.key) ?? aud.key);
       ids.push(id);
     }
     if (!ids.length) return fail(RF_APPLY_WORDS.nothingToBuild);
     let small = 0;
     for (const id of ids) {
       const state = await deps.meta.audienceState(id);
-      if (state === "building") return fail(RF_APPLY_WORDS.building);
+      const stop = audienceStop(state, nameOfId.get(id) ?? id);
+      if (stop) return fail(stop);
       if (state === "too_small") small += 1;
     }
     if (small === ids.length) return fail(RF_APPLY_WORDS.tooSmall);

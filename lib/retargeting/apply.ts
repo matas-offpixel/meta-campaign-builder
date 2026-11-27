@@ -16,12 +16,13 @@ import { showEndTime, type PurchaseMeta } from "../onsale-refresh/apply-purchase
 import { tierAdSetName, type Tier } from "./words.ts";
 import { META_INITIATE_CHECKOUT_EVENT } from "../meta/campaign.ts";
 import type { OptimisationEvent } from "./optimise-on.ts";
+import type { AudienceTargetState } from "../audiences/ca-availability-recovery.ts";
 
 export type RetargetingMeta = Pick<PurchaseMeta, "readCampaignBudget" | "readAd" | "createCreativeFromPost" | "createCampaign" | "createAdSet" | "createAd" | "updateCampaign" | "setAdSetActive" | "findCustomConversion" | "createCustomConversion"> & {
   /** GET /{adset}: its targeting (the tiers copy the location only). */
   readAdSetTargeting(adsetId: string): Promise<Record<string, unknown> | null>;
   /** An audience's state on Meta (operation_status). */
-  audienceState(audienceId: string): Promise<"ready" | "building" | "too_small">;
+  audienceState(audienceId: string): Promise<AudienceTargetState>;
   /** Every video of the show's ads, grouped by the page each one ran from; a video with no page is left out (RT2). */
   listShowVideos(adAccountId: string, campaignIds: string[]): Promise<{ contextId: string; videoIds: string[] }[]>;
 };
@@ -32,6 +33,11 @@ export const RT_MOVE_OFF = "Moving budget out of the main campaign is switched o
 export const RT_CONVERSION_OFF = "Making the show's custom conversion is switched off on this deployment, so nothing was built.";
 export const RT_AUDIENCE_BUILDING = "Meta is still building an audience. Retry in an hour.";
 export const RT_AUDIENCE_SMALL = "An audience is too small for Meta to deliver to yet.";
+// PENDING DESIGN (27 Nov, speed over design): the audience stops, by name.
+export const RT_AUDIENCE_BUILDING_NAMED = (name: string) => `Meta is still building ${name}. Retry in an hour.`;
+export const RT_AUDIENCE_SMALL_NAMED = (name: string) => `${name} is too small for Meta to deliver to yet.`;
+export const RT_AUDIENCE_UNAVAILABLE_NAMED = (name: string) => `Meta says ${name} is deleted or unavailable, so no ad set can use it.`;
+export const RT_AUDIENCE_UNREADABLE_NAMED = (name: string) => `${name} couldn’t be read on Meta, so no ad set was made with it. Asking again reads it again.`;
 
 /** RT1 / audit §3.1: the settings every tier shares. */
 export const TIER_ATTRIBUTION = [
