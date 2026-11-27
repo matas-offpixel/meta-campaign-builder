@@ -310,6 +310,8 @@ export type RetargetingBuild = {
 
 export type RetargetingPlan = {
   state: RetargetingState;
+  /** Why a silent not-proposed state (no_signal) was reached: no show date or end day, or no signal path (08:00 read only). */
+  cause?: "no_show_date" | "no_signal_path";
   /** RT9: the show takes this campaign; the refresh's per-campaign Retargeting default stands down. */
   takes: boolean;
   view: RetargetingView;
@@ -606,7 +608,7 @@ export function planRetargeting(input: RetargetingInput): RetargetingPlan {
   const code = input.eventCode;
   const title = funnelCampaignName(code);
   const base = { code, title, create: null, signal: null, tiers: [], notes: [], running: null };
-  const none = (state: RetargetingState, notProposed: string | null, takes: boolean): RetargetingPlan => ({ state, takes, view: { ...base, state, notProposed }, build: null, held: null });
+  const none = (state: RetargetingState, notProposed: string | null, takes: boolean, cause?: RetargetingPlan["cause"]): RetargetingPlan => ({ state, takes, view: { ...base, state, notProposed }, build: null, held: null, ...(cause ? { cause } : {}) });
   const presale = isPresale(input);
   // Before the on-sale date, nothing changes (RT9) — unless the show is announced: then it's a presale show (TC7).
   if (!presale && (!input.onSaleDay || input.onSaleDay > input.runDay)) return none("before_onsale", input.onSaleDay ? startsOnSale(input.onSaleDay) : null, false);
@@ -647,8 +649,8 @@ export function planRetargeting(input: RetargetingInput): RetargetingPlan {
   if (path === "no_purchases") return none("no_purchases", NO_PIXEL_PURCHASES, false);
   if (path === "no_url") return none("no_url", NO_PAGE_OR_TICKET, false);
   // Still silent in the record (a shared domain, no domain of its own, no ticket link stored): not proposed, and the refresh's default stands.
-  if (path !== "own_domain" && path !== "platform") return none("no_signal", null, false);
-  if (!input.eventDate || !endDay) return none("no_signal", null, false);
+  if (path !== "own_domain" && path !== "platform") return none("no_signal", null, false, "no_signal_path");
+  if (!input.eventDate || !endDay) return none("no_signal", null, false, "no_show_date");
   // RT13: the show's links come from CIRQLIN; without them nothing can be built.
   if (input.linksRead === "no_page") return none("links_no_page", LINKS_NO_PAGE, true);
   if (input.linksRead === "failed") return none("links_failed", LINKS_NOT_READ, true);

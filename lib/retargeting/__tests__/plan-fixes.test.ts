@@ -228,8 +228,9 @@ describe("design's verdict on #1406 (27 Nov): a ruled-out show says its own refr
     assert.equal(skipLine("NX26-DOD", "ruled_out", NO_PIXEL_PURCHASES), "NX26-DOD · skipped: this pixel has had no purchases in 28 days.");
     assert.equal(skipLine("NX26-DOD", "ruled_out", sellsElsewhereSentence({ host: "skiddle.com", pct: 99, purchases: 1539, platform: "Universe" })), "NX26-DOD · skipped: this pixel mostly sells on skiddle.com (99 % of 1,539 purchases in 28 days), not on Universe.");
     assert.equal(skipLine("XMPL-ROOF", "ruled_out", nothingReaches("xmpl-roof.com")), "XMPL-ROOF · skipped: no purchase has reached xmpl-roof.com in 28 days, and the ticket link isn’t on a ticket platform.");
-    // no_signal: the panel is silent, so its reason is written here (PENDING DESIGN).
-    assert.equal(skipLine("XMPL-QUIET", "ruled_out", null), "XMPL-QUIET · skipped: its pixel’s purchases can’t be tied to this show’s own site or ticket link.");
+    // no_signal: the panel is silent; design's words for its two causes (27 Nov).
+    assert.equal(skipLine("XMPL-QUIET", "ruled_out", null, "no_signal_path"), "XMPL-QUIET · skipped: its pixel’s purchases can’t be tied to a site or ticket link of its own.");
+    assert.equal(skipLine("XMPL-UNDATED", "ruled_out", null, "no_show_date"), "XMPL-UNDATED · skipped: it has no show date to plan to.");
     for (const detail of [NO_PIXEL_PURCHASES, null]) assert.doesNotMatch(skipLine("X", "ruled_out", detail), /rules it out/);
     // The 08:00 read's sells-elsewhere show, as plan_retargeting's skip would read it.
     const plan = planRetargeting(sellsElsewhere());
@@ -245,5 +246,24 @@ describe("design's verdict on #1406 (27 Nov): a ruled-out show says its own refr
     const lines = claudePlanLines(plan, SOURCES_NO_ACCOUNTS, { wider, fallbackPixel: { id: "333333", source: "account" } });
     assert.equal(lines[1], "Pixel: 333333, the ad account’s only active pixel, as the show’s ads optimise on none.");
     assert.ok(!claudePlanLines(plan, SOURCES_NO_ACCOUNTS, { wider }).some((line) => line.startsWith("Pixel: ")));
+  });
+});
+
+describe("design (27 Nov): no_signal's two causes", () => {
+  it("no show date: the skip says it has no show date to plan to", () => {
+    assert.equal(skipReason({ archived: false, built: false, runDay: "2026-11-27", showDay: null, pixelId: "px1", hasTicketLink: true, plan: null }), "no_show_date");
+    assert.equal(skipLine("XMPL-UNDATED", "no_show_date"), "XMPL-UNDATED · skipped: it has no show date to plan to.");
+  });
+
+  it("no signal path: the 08:00 read's own (its plan carries the cause); plan_retargeting and create_show_campaigns never print it", () => {
+    // An own domain nothing reached in 28 days, with a ticket platform too: the record is silent, so no signal path.
+    const silent = { state: "under_bar", pixel: { id: "px1" }, pixelName: "Pixel", domain: "xmpl.com", onDomain: { d14: 0, d28: 0, history: 3 }, platform: "Skiddle" } as never;
+    const read08 = planRetargeting(sellsElsewhere({ read: silent }));
+    assert.equal(read08.state, "no_signal");
+    assert.equal(read08.cause, "no_signal_path");
+    assert.equal(skipLine("NX26-DOD", "ruled_out", read08.view.notProposed, read08.cause), "NX26-DOD · skipped: its pixel’s purchases can’t be tied to a site or ticket link of its own.");
+    const connector = planRetargeting(sellsElsewhere({ read: silent, connector: true }));
+    assert.equal(connector.state, "proposed");
+    assert.equal(connector.cause, undefined);
   });
 });

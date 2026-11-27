@@ -434,7 +434,7 @@ export function claudePlanLines(
   return lines;
 }
 
-export type SkipReason = "no_pixel" | "no_link" | "no_signup_link" | "soon" | "archived" | "built" | "no_budget" | "not_on_sale" | "not_read" | "links_no_page" | "links_failed" | "ruled_out";
+export type SkipReason = "no_pixel" | "no_link" | "no_signup_link" | "soon" | "archived" | "built" | "no_budget" | "not_on_sale" | "not_read" | "links_no_page" | "links_failed" | "ruled_out" | "no_show_date";
 
 /**
  * Fix 6: the skip reasons for the read's not-proposed states, which printed
@@ -449,16 +449,19 @@ export const SKIP_WORDS = {
   links_failed: "its links couldn’t be read from CIRQLIN just now",
 } as const;
 
-/** PENDING DESIGN: no_signal has no refresh-panel sentence (the panel stays silent), so its reason is written here. */
-export const NO_SIGNAL_REASON = "its pixel’s purchases can’t be tied to this show’s own site or ticket link";
+/** Design (27 Nov): no_signal's two causes, which the refresh panel leaves silent. The no-signal path is reached from the 08:00 read only. */
+export const NO_SIGNAL_REASONS = {
+  no_show_date: "it has no show date to plan to",
+  no_signal_path: "its pixel’s purchases can’t be tied to a site or ticket link of its own",
+} as const;
 
 /**
  * Design (27 Nov): a ruled-out show's reason is its own refresh-panel
  * sentence, without the "No Retargeting campaign: " or "Retargeting not
  * proposed: " opener and the final full stop, apostrophes curly.
  */
-export function ruledOutReason(panelSentence: string | null | undefined): string {
-  if (!panelSentence) return NO_SIGNAL_REASON;
+export function ruledOutReason(panelSentence: string | null | undefined, cause?: keyof typeof NO_SIGNAL_REASONS | null): string {
+  if (!panelSentence) return NO_SIGNAL_REASONS[cause ?? "no_signal_path"];
   return panelSentence.replace(/^(No Retargeting campaign|Retargeting not proposed): /, "").replace(/\.$/, "").replace(/'/g, "’");
 }
 
@@ -474,14 +477,15 @@ const SKIP_ROW = {
 } as const;
 
 /** A skip reason's words, as {reason} in claude.rt.skip and claude.rt.refused.skip. */
-/** A skip reason's words; "ruled_out" takes its panel sentence (`detail`, the plan's not-proposed sentence). */
-export function skipReasonWords(reason: SkipReason, detail?: string | null): string {
-  if (reason === "ruled_out") return ruledOutReason(detail);
+/** A skip reason's words; "ruled_out" takes its panel sentence (`detail`, the plan's not-proposed sentence) or, with none, its cause. */
+export function skipReasonWords(reason: SkipReason, detail?: string | null, cause?: keyof typeof NO_SIGNAL_REASONS | null): string {
+  if (reason === "no_show_date") return NO_SIGNAL_REASONS.no_show_date;
+  if (reason === "ruled_out") return ruledOutReason(detail, cause);
   return reason in SKIP_WORDS ? SKIP_WORDS[reason as keyof typeof SKIP_WORDS] : fill(SKIP_ROW[reason as keyof typeof SKIP_ROW]);
 }
 
-export function skipLine(code: string, reason: SkipReason, detail?: string | null): string {
-  const why = skipReasonWords(reason, detail);
+export function skipLine(code: string, reason: SkipReason, detail?: string | null, cause?: keyof typeof NO_SIGNAL_REASONS | null): string {
+  const why = skipReasonWords(reason, detail, cause);
   return fill("claude.rt.skip", { code, reason: why });
 }
 
@@ -515,7 +519,8 @@ const STATE_REASON: Partial<Record<string, SkipReason>> = {
 export function skipReason(args: { archived: boolean; built: boolean; runDay: string; showDay: string | null; pixelId: string | null; hasTicketLink: boolean; hasSignupLink?: boolean; presale?: boolean; plan: FunnelShowPlan | null; state?: string }): SkipReason | null {
   if (args.archived) return "archived";
   if (args.built) return "built";
-  if (!args.showDay || isSoon(args.runDay, args.showDay)) return "soon";
+  if (!args.showDay) return "no_show_date";
+  if (isSoon(args.runDay, args.showDay)) return "soon";
   if (!args.pixelId) return "no_pixel";
   if (args.presale ? !args.hasSignupLink : !args.hasTicketLink) return args.presale ? "no_signup_link" : "no_link";
   if (args.state && STATE_REASON[args.state]) return STATE_REASON[args.state]!;

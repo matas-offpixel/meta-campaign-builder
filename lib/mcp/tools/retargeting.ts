@@ -46,7 +46,7 @@ const reasonOf = (reason: string) => reason.replace(/\.$/, "");
 export const RT_CLAUDE_WORDS = {
   notWired: fill("claude.rt.not_wired"),
   readFailed: fill("claude.rt.read_failed"),
-  refusedSkip: (code: string, reason: SkipReason, detail?: string | null) => fill("claude.rt.refused.skip", { code, reason: skipReasonWords(reason, detail) }),
+  refusedSkip: (code: string, reason: SkipReason, detail?: string | null, cause?: "no_show_date" | "no_signal_path" | null) => fill("claude.rt.refused.skip", { code, reason: skipReasonWords(reason, detail, cause) }),
   held: (why: string) => `Refused: ${why} Nothing was changed.`,
   alreadyLive: (code: string) => fill("claude.rt.noop.live", { code }),
   alreadyPaused: (code: string) => fill("claude.rt.noop.paused", { code }),
@@ -114,7 +114,7 @@ function linesFor(record: RetargetingRecord): ShowLines {
     const plan = record.plan.funnel;
     const built = input.funnelBuilt;
     const back = skip === "built" && plan && built && built.tiers.similar === 0 && !plan.similarSkip && plan.specs.some((spec) => spec.tier === "similar");
-    return { code, skipped: skip, lines: [skipLine(code, skip, record.plan.view.notProposed), ...(back ? [similarReturnLine({ nextDay: plan.steps[0]?.day ?? null, refused: built.similarRefused ?? null })] : [])] };
+    return { code, skipped: skip, lines: [skipLine(code, skip, record.plan.view.notProposed, record.plan.cause), ...(back ? [similarReturnLine({ nextDay: plan.steps[0]?.day ?? null, refused: built.similarRefused ?? null })] : [])] };
   }
   const plan = record.plan.funnel!;
   const wider = record.plan.wider;
@@ -239,7 +239,7 @@ export const createShowCampaignsTool: McpTool = {
       build = row.build;
     } else {
       const skip = recordSkip(record);
-      if (skip) throw new ToolInputError(RT_CLAUDE_WORDS.refusedSkip(code!, skip, record.plan.view.notProposed), { ...base, refused: skip });
+      if (skip) throw new ToolInputError(RT_CLAUDE_WORDS.refusedSkip(code!, skip, record.plan.view.notProposed, record.plan.cause), { ...base, refused: skip });
       if (record.plan.held) throw new ToolInputError(RT_CLAUDE_WORDS.held(record.plan.held), { ...base, refused: "held" });
       if (!record.plan.build || record.plan.build.kind !== "retargeting_funnel_create") throw new ToolInputError(RT_CLAUDE_WORDS.refusedSkip(code!, "no_budget"), { ...base, refused: "no_build" });
       build = record.plan.build;
