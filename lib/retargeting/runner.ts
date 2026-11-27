@@ -50,6 +50,7 @@ import { SHOW_CAMPAIGNS_RULED } from "./show-campaigns.ts";
 import { newShowPagesCache, readShowPages } from "./show-pages.ts";
 import { resolveShowCeiling, spentToDate } from "../mcp/meta/show-ceiling.ts";
 import { businessClientLinks } from "../bm/client-links.ts";
+import { isOnSale } from "../onsale-refresh/on-sale.ts";
 
 type Db = Pick<SupabaseClient, "from">;
 
@@ -492,6 +493,8 @@ export function retargetingInput(args: {
     runDay: day,
     eventDate: event.event_date,
     onSaleDay: retargetingOnSaleDay(event),
+    // The on-sale panel's rule (isOnSale), so a show on sale by its status alone plans (Matas, 27 Nov).
+    onSale: isOnSale(event, day),
     read: args.read,
     last7SpendGbp: Math.round(last7 * 100) / 100,
     minDailyMinor: args.minDailyMinor,

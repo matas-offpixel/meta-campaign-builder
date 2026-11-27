@@ -200,6 +200,12 @@ export type RetargetingMain = {
 };
 
 export type RetargetingInput = {
+  /**
+   * On sale as the on-sale panel decides it (lib/onsale-refresh/on-sale.ts
+   * isOnSale: status on_sale or the general sale date passed, the show still
+   * ahead, not cancelled). Absent = decided by the sale dates alone.
+   */
+  onSale?: boolean;
   eventId: string;
   eventCode: string;
   runDay: string;
@@ -611,7 +617,9 @@ export function planRetargeting(input: RetargetingInput): RetargetingPlan {
   const none = (state: RetargetingState, notProposed: string | null, takes: boolean, cause?: RetargetingPlan["cause"]): RetargetingPlan => ({ state, takes, view: { ...base, state, notProposed }, build: null, held: null, ...(cause ? { cause } : {}) });
   const presale = isPresale(input);
   // Before the on-sale date, nothing changes (RT9) — unless the show is announced: then it's a presale show (TC7).
-  if (!presale && (!input.onSaleDay || input.onSaleDay > input.runDay)) return none("before_onsale", input.onSaleDay ? startsOnSale(input.onSaleDay) : null, false);
+  // On sale as the on-sale panel decides it (isOnSale) when the read gives its answer, else by the sale dates; presale is as before.
+  const onSaleNow = input.onSale ?? Boolean(input.onSaleDay && input.onSaleDay <= input.runDay);
+  if (!presale && !onSaleNow) return none("before_onsale", input.onSaleDay && input.onSaleDay > input.runDay ? startsOnSale(input.onSaleDay) : null, false);
   const sources = funnelSourcesOf(input.sources, input.accounts);
   const spec = specOf(input, presale);
   const endDay = presale ? input.onSaleDay! : input.eventDate;
