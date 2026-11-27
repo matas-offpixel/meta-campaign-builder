@@ -19,6 +19,8 @@
   --success: #6b8f5e;
   --warning: #b8923e;
   --warning-foreground: #6b4f12;
+  /* Ochre text on the card (design, 25 Nov: 5.2:1 on the panel). "Needs videos" and its line. */
+  --ochre-text: #7a4a08;
   --platform-ig: #B0607A;
   --on-media: #ffffff;
   --ring: rgba(196, 168, 130, 0.40);
@@ -30,6 +32,7 @@
 
 .dark {
   --warning-foreground: #f0d48a;
+  --ochre-text: #f0d48a;
 }
 
 @theme inline {
@@ -51,6 +54,7 @@
   --color-success: var(--success);
   --color-warning: var(--warning);
   --color-warning-foreground: var(--warning-foreground);
+  --color-ochre-text: var(--ochre-text);
   --color-platform-ig: var(--platform-ig);
   --color-on-media: var(--on-media);
   --color-ring: var(--ring);

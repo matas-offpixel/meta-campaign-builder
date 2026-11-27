@@ -11,7 +11,25 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
-import { TEMPLATE_FRAME_WORDS, TEMPLATE_NAMES, TEMPLATE_WORDS, changedLine, footerLine, fw, heldLine } from "../words.ts";
+import {
+  TEMPLATE_FRAME_WORDS,
+  TEMPLATE_NAMES,
+  TEMPLATE_WORDS,
+  addedLines,
+  changedLine,
+  createButtonLabel,
+  createdLines,
+  footerLine,
+  footerNoBreak,
+  footerParts,
+  footerText,
+  fw,
+  heldLine,
+  madeOnLine,
+  pickedLine,
+  pickerPresetLine,
+  signupsLine,
+} from "../words.ts";
 
 const RAW = readFileSync(new URL("./fixtures/words-rc-2026-11-24.tsv", import.meta.url));
 const ROWS = RAW.toString("utf8")
@@ -21,21 +39,27 @@ const ROWS = RAW.toString("utf8")
   .map((line) => line.split("\t"))
   .map(([key, where, words]) => ({ key: key!, where: where!, words: words! }));
 
+const SU_RECORD = readFileSync(new URL("../../../docs/design-record/2026-11-25-signups-into-meta.html", import.meta.url), "utf8")
+  .replace(/<[^>]+>/g, "")
+  .replace(/&amp;/g, "&")
+  .replace(/&nbsp;/g, " ")
+  .replace(/\s+/g, " ");
+
 const RECORD = readFileSync(new URL("../../../docs/design-record/2026-11-24-campaign-creator-replicate.html", import.meta.url), "utf8")
   .replace(/<[^>]+>/g, "")
   .replace(/&amp;/g, "&")
   .replace(/&nbsp;/g, " ");
 
 describe("audience template words", () => {
-  it("the fixture is the record's final list: 213 rows, sha256 9cdf7055…4cdd", () => {
-    assert.equal(createHash("sha256").update(RAW).digest("hex"), "9cdf7055fe1b7bd1602a1f110fa548cd42f46b76e649b0b47eb59691377d4cdd");
-    assert.equal(ROWS.length, 213);
-    assert.equal(new Set(ROWS.map((r) => r.key)).size, 213);
+  it("the fixture is the record's final list: 254 rows, sha256 4b1f729e…eb51", () => {
+    assert.equal(createHash("sha256").update(RAW).digest("hex"), "4b1f729ea90421e9522c6d07363f5c0578ee108077342437928b3d0fe405eb51");
+    assert.equal(ROWS.length, 254);
+    assert.equal(new Set(ROWS.map((r) => r.key)).size, 254);
   });
 
   it("every templates.* row is in words.ts, word for word", () => {
     const wanted = ROWS.filter((r) => r.key.startsWith("templates."));
-    assert.equal(wanted.length, 17);
+    assert.equal(wanted.length, 44);
     for (const r of wanted) assert.equal((TEMPLATE_WORDS as Record<string, string>)[r.key], r.words, r.key);
   });
 
@@ -83,5 +107,118 @@ describe("audience template words", () => {
     const row = ROWS.find((r) => r.key === "templates.item.held");
     assert.deepEqual(row, { key: "templates.item.held", where: "Item, list held in another account", words: "held in {Meta account name}" });
     assert.equal(heldLine("Electric Bristol Live"), "held in Electric Bristol Live");
+  });
+
+  it("SU2's lines: the count with separators, one form for 1, none before the list is made", () => {
+    assert.equal(signupsLine("NX27-GLITTERBOX", 1204), "Customer list · role: signups · NX27-GLITTERBOX · 1,204 signups");
+    assert.equal(signupsLine("NX27-GLITTERBOX", 412), "Customer list · role: signups · NX27-GLITTERBOX · 412 signups");
+    assert.equal(signupsLine("NX27-GLITTERBOX", 1), "Customer list · role: signups · NX27-GLITTERBOX · 1 signup");
+    assert.equal(signupsLine("NX27-SILVABUMPA", null), "Customer list · role: signups · NX27-SILVABUMPA");
+    assert.equal(madeOnLine("Thu 27 Nov"), "Made on Thu 27 Nov");
+  });
+
+  it("Add's lines, with their one-forms", () => {
+    assert.deepEqual(addedLines("House & disco", "[NX27-GLITTERBOX] PURCHASE", 9, 0), ["Added House & disco to [NX27-GLITTERBOX] PURCHASE: 9 audiences."]);
+    assert.deepEqual(addedLines("Techno", "D", 1, 1), ["Added Techno to D: 1 audience.", "1 isn’t made yet, so it’s left out."]);
+    assert.deepEqual(addedLines("Techno", "D", 4, 3), ["Added Techno to D: 4 audiences.", "3 aren’t made yet, so they’re left out."]);
+  });
+
+  it("Create's button and lines, with their one-forms", () => {
+    assert.equal(createButtonLabel(6, "Electric Studios Sheffield"), "Create 6 audiences in Electric Studios Sheffield");
+    assert.equal(createButtonLabel(1, "NX Promoter"), "Create 1 audience in NX Promoter");
+    assert.deepEqual(createdLines(6, 0, "NX Promoter"), ["Created 6 in NX Promoter."]);
+    assert.deepEqual(createdLines(1, 0, "NX Promoter"), ["Created 1 in NX Promoter."]);
+    assert.deepEqual(createdLines(4, 2, "NX Promoter"), ["Created 4 in NX Promoter.", "2 weren’t created. Try again."]);
+    assert.deepEqual(createdLines(0, 1, "NX Promoter"), ["1 wasn’t created. Try again."]);
+  });
+
+  it("every new line is a row's words with only its braces filled", () => {
+    const rows = new Map(ROWS.map((r) => [r.key, r.words]));
+    for (const key of ["templates.item.signups.waiting", "templates.apply", "templates.create_button.one", "templates.created", "templates.create_failed"]) {
+      assert.ok(rows.has(key), key);
+    }
+  });
+
+  it("video-viewer items read as record #1373's RC-E draws them", () => {
+    assert.equal(pickedLine(3, "NX26-LOCKLEAD"), "3 videos picked from NX26-LOCKLEAD");
+    assert.equal(pickedLine(1, "NX26-LOCKLEAD"), "1 video picked from NX26-LOCKLEAD");
+    assert.equal(pickerPresetLine("House & disco", 50, 30), "From House & disco: 50% watched · 30 days. Pick this show’s videos.");
+    const before = footerLine(9, 1, "NX Promoter", false, 1);
+    assert.equal(before, "9 reused · 1 will be created in NX Promoter · 1 needs videos picked. Creating audiences is switched off, so this one waits.");
+    const after = footerLine(9, 2, "NX Promoter", false, 0);
+    assert.equal(after, "9 reused · 2 will be created in NX Promoter. Creating audiences is switched off, so these 2 wait.");
+    for (const line of [pickedLine(3, "NX26-LOCKLEAD"), pickerPresetLine("House & disco", 50, 30), "9 reused · 1 will be created in NX Promoter · 1 needs videos picked.", "9 reused · 2 will be created in NX Promoter."]) {
+      assert.ok(SU_RECORD.includes(line), line);
+    }
+  });
+
+  it("the footer with only video viewers left: no create part, the k part only", () => {
+    assert.equal(footerLine(10, 0, "NX Promoter", false, 1), "10 reused · 1 needs videos picked");
+    assert.equal(footerLine(3, 0, "NX Promoter", false, 2), "3 reused · 2 need videos picked");
+    assert.equal(footerLine(3, 4, "Electric Studios Sheffield", true, 2), "3 reused · 4 will be created in Electric Studios Sheffield · 2 need videos picked");
+  });
+
+  it("the footer names held lists by their account, after the create part", () => {
+    assert.equal(
+      footerLine(1, 6, "Electric Studios Sheffield", false, 1, [{ account: "NX Promoter", n: 3 }]),
+      "1 reused · 6 will be created in Electric Studios Sheffield · 3 held in NX Promoter · 1 needs videos picked. Creating audiences is switched off, so these 6 wait.",
+    );
+    assert.equal(footerLine(0, 0, "NX Promoter", true, 0, [{ account: "Electric Bristol Live", n: 1 }]), "0 reused · 1 held in Electric Bristol Live");
+  });
+
+  describe("the footer's parts (design, 25 Nov: a count never parts from its words)", () => {
+    const held = footerParts(1, 6, "Electric Studios Sheffield", false, 1, [{ account: "NX Promoter", n: 3 }]);
+
+    it("SU-C-held: each count stays with its words; only account names stand apart", () => {
+      assert.deepEqual(held.parts, [
+        { lead: "1 reused" },
+        { lead: "6 will be created in", account: "Electric Studios Sheffield" },
+        { lead: "3 held in", account: "NX Promoter" },
+        { lead: "1 needs videos picked" },
+      ]);
+      assert.equal(held.tail, "Creating audiences is switched off, so these 6 wait.");
+    });
+
+    it("every lead starts with its count, and joining the parts gives the footer line", () => {
+      const cases: Array<Parameters<typeof footerParts>> = [
+        [1, 6, "Electric Studios Sheffield", false, 1, [{ account: "NX Promoter", n: 3 }]],
+        [9, 2, "NX Promoter", false, 1],
+        [9, 3, "NX Promoter", false],
+        [10, 0, "NX Promoter", false, 1],
+        [0, 0, "NX Promoter", true, 0, [{ account: "Electric Bristol Live", n: 1 }]],
+      ];
+      for (const args of cases) {
+        const f = footerParts(...args);
+        for (const p of f.parts) assert.match(p.lead, /^\d[\d,]* \S/, p.lead);
+        assert.equal(footerText(f), footerLine(...args));
+      }
+      assert.equal(footerText(held), "1 reused · 6 will be created in Electric Studios Sheffield · 3 held in NX Promoter · 1 needs videos picked. Creating audiences is switched off, so these 6 wait.");
+      assert.equal(footerText(footerParts(10, 0, "NX Promoter", false, 1)), "10 reused · 1 needs videos picked");
+    });
+
+    it("the drawn footer breaks only after \" ·\", inside an account name, or in the tail", () => {
+      const drawn = footerNoBreak(held);
+      assert.equal(drawn.replace(/\u00a0/g, " "), footerText(held), "the same text as the footer line");
+      // The breakable spaces: after each " ·", inside the account names, and in the tail.
+      const [line] = drawn.split(". ");
+      assert.deepEqual(line!.split(" "), [
+        "1\u00a0reused\u00a0·",
+        "6\u00a0will\u00a0be\u00a0created\u00a0in",
+        "Electric",
+        "Studios",
+        "Sheffield\u00a0·",
+        "3\u00a0held\u00a0in",
+        "NX",
+        "Promoter\u00a0·",
+        "1\u00a0needs\u00a0videos\u00a0picked",
+      ]);
+    });
+
+    it("the panel draws footerNoBreak, never the plain line", async () => {
+      const { readFileSync: read } = await import("node:fs");
+      const panel = read(new URL("../../../components/audience-templates/audience-templates-panel.tsx", import.meta.url), "utf8");
+      assert.match(panel, /\{footerNoBreak\(view\.footerParts\)\}/);
+      assert.doesNotMatch(panel, /\{view\.footer\}/);
+    });
   });
 });

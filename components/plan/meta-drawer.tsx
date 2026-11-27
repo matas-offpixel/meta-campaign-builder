@@ -322,6 +322,13 @@ export function MetaDrawer({
               clientId={settings.clientId}
               adAccountId={settings.metaAdAccountId || settings.adAccountId}
               pixelId={settings.metaPixelId || settings.pixelId}
+              audiences={draft.audiences}
+              draftName={settings.campaignName}
+              onAddToDraft={updateAudiences}
+              eventId={settings.eventId}
+              eventCode={settings.campaignCode}
+              videoPicks={draft.templateVideoPicks}
+              onVideoPicks={(next) => updateDraft((current) => ({ ...current, templateVideoPicks: next }))}
             >
             <AudiencesStep
               surface="drawer"

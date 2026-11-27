@@ -1943,12 +1943,34 @@ export interface CampaignDraft {
    * the only way back to the previous list.
    */
   generateReplaceImportedConfirmed?: boolean;
+  /**
+   * Videos picked for audience-template video-viewer items (Audience
+   * templates tab, record 2026-11-25-signups-into-meta). This draft's only,
+   * each bound to the event it was picked for: a pick for another event is
+   * never used, and templates never store them.
+   */
+  templateVideoPicks?: TemplateVideoPick[];
   /** Set after a successful POST to Meta — the live campaign ID (e.g. "23849562890000") */
   metaCampaignId?: string;
   /** Populated after launch — records what was created and what failed */
   launchSummary?: LaunchSummary;
   createdAt: string;
   updatedAt: string;
+}
+
+/** One template video-viewer item's picked videos, on one draft for one event. */
+export interface TemplateVideoPick {
+  template: string;
+  threshold: number;
+  retentionDays: number;
+  /** The draft's event when picked (events.id; "" when the draft had none). */
+  eventId: string;
+  /** The draft's event code when picked: "{n} videos picked from {code}". */
+  code: string;
+  videoIds: string[];
+  /** The page the videos were published on (Meta's context_id), from the picker. */
+  contextId?: string;
+  campaignIds?: string[];
 }
 
 // ─── Campaign list item (lightweight, for library view) ───

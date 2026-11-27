@@ -36,6 +36,33 @@ export const TEMPLATE_WORDS = {
   "templates.changed": "{n} change since this template was saved / {n} changes since this template was saved",
   "templates.save": "Save to template",
   "templates.item.held": "held in {Meta account name}",
+  "templates.item.signups": "Customer list · role: signups · {code} · {n} signups",
+  "templates.item.signups.one": "Customer list · role: signups · {code} · 1 signup",
+  "templates.item.signups.none": "Customer list · role: signups · {code}",
+  "templates.item.signups.waiting": "Made on {date}",
+  "templates.apply": "Add to this draft",
+  "templates.apply.done": "Added {template} to {draft}: {n} audiences.",
+  "templates.apply.done.one": "Added {template} to {draft}: 1 audience.",
+  "templates.apply.left_out": "{m} aren’t made yet, so they’re left out.",
+  "templates.apply.left_out.one": "1 isn’t made yet, so it’s left out.",
+  "templates.create_button": "Create {m} audiences in {Meta account name}",
+  "templates.create_button.one": "Create 1 audience in {Meta account name}",
+  "templates.created": "Created {m} in {Meta account name}.",
+  "templates.created.one": "Created 1 in {Meta account name}.",
+  "templates.create_failed": "{n} weren’t created. Try again.",
+  "templates.create_failed.one": "1 wasn’t created. Try again.",
+  "templates.item.videos": "Needs videos",
+  "templates.item.videos.line": "Meta needs this show’s videos, so Create leaves this out until they’re picked.",
+  "templates.item.videos.pick": "Pick this show’s videos",
+  "templates.item.videos.picked": "{n} videos picked from {code}",
+  "templates.item.videos.picked.one": "1 video picked from {code}",
+  "templates.item.videos.change": "Change videos",
+  "templates.footer.videos": "{k} need videos picked",
+  "templates.footer.videos.one": "1 needs videos picked",
+  "templates.writes_off.one": "Creating audiences is switched off, so this one waits.",
+  "templates.picker.preset": "From {template}: {threshold} watched · {days} days. Pick this show’s videos.",
+  "templates.footer.held": "{h} held in {Meta account name}",
+  "templates.footer.held.one": "1 held in {Meta account name}",
 } as const;
 
 export type TemplateWordKey = keyof typeof TEMPLATE_WORDS;
@@ -99,13 +126,128 @@ export function heldLine(accountName: string): string {
   return tw("templates.item.held", { "Meta account name": accountName });
 }
 
+/** A count as SU4 writes it: thousands separators ("1,204"). */
+export function count(n: number): string {
+  return n.toLocaleString("en-GB");
+}
+
+/** A show's Signups list line (SU2): with its count once made, without before. */
+export function signupsLine(code: string, n: number | null): string {
+  if (n == null) return tw("templates.item.signups.none", { code });
+  return n === 1 ? tw("templates.item.signups.one", { code }) : tw("templates.item.signups", { code, n: count(n) });
+}
+
+/** "Made on Thu 27 Nov": a show's list before the sync makes it, in place of a status. */
+export function madeOnLine(date: string): string {
+  return tw("templates.item.signups.waiting", { date });
+}
+
+/** After "Add to this draft": the added line, and the left-out line when some aren't made yet. */
+export function addedLines(template: string, draft: string, n: number, m: number): string[] {
+  const done = n === 1 ? tw("templates.apply.done.one", { template, draft }) : tw("templates.apply.done", { template, draft, n });
+  if (m === 0) return [done];
+  return [done, m === 1 ? tw("templates.apply.left_out.one") : tw("templates.apply.left_out", { m })];
+}
+
+/** "Create {m} audiences in {account}", one form for 1. */
+export function createButtonLabel(m: number, account: string): string {
+  return m === 1
+    ? tw("templates.create_button.one", { "Meta account name": account })
+    : tw("templates.create_button", { m, "Meta account name": account });
+}
+
+/** After Create: what was made, and what wasn't. */
+export function createdLines(created: number, failed: number, account: string): string[] {
+  const out: string[] = [];
+  if (created > 0) {
+    out.push(created === 1 ? tw("templates.created.one", { "Meta account name": account }) : tw("templates.created", { m: created, "Meta account name": account }));
+  }
+  if (failed > 0) out.push(failed === 1 ? tw("templates.create_failed.one") : tw("templates.create_failed", { n: failed }));
+  return out;
+}
+
+/** "3 videos picked from NX26-LOCKLEAD", one form for 1. */
+export function pickedLine(n: number, code: string): string {
+  return n === 1 ? tw("templates.item.videos.picked.one", { code }) : tw("templates.item.videos.picked", { n, code });
+}
+
+/** The picker's header when a template item opens it: "From House & disco: 50% watched · 30 days. …". */
+export function pickerPresetLine(template: string, threshold: number, days: number): string {
+  return tw("templates.picker.preset", { template, threshold: `${threshold}%`, days });
+}
+
 /**
- * The footer (RC5): "{n} reused · {m} will be created in {account}", and
- * with audience writes off and something to create, the second sentence.
- * The frame joins them with ". ".
+ * One part of the footer. `lead` is the count with its words ("1 needs
+ * videos picked", "6 will be created in") and never breaks; `account`, when
+ * the part ends on one ("Electric Studios Sheffield"), may wrap inside
+ * itself. Between parts the line wraps only at the space after " ·"
+ * (design, 25 Nov: never between a count and its words).
  */
-export function footerLine(reused: number, toCreate: number, account: string, writesEnabled: boolean): string {
-  const first = tw("templates.footer", { n: reused, m: toCreate, account });
-  if (writesEnabled || toCreate === 0) return first;
-  return `${first}. ${tw("templates.writes_off", { m: toCreate })}`;
+export interface FooterPart {
+  lead: string;
+  account?: string;
+}
+
+/** A filled row as its lead and the account name it ends on. */
+function withAccount(text: string, account: string): FooterPart {
+  return text.endsWith(` ${account}`) ? { lead: text.slice(0, -(account.length + 1)), account } : { lead: text };
+}
+
+/**
+ * The footer (RC5, and the 25 Nov rulings): "{n} reused · {m} will be
+ * created in {account}", then each holding account's " · {h} held in
+ * {account}", then " · {k} need videos picked" (the create part is dropped
+ * when m is 0; a part with nothing in it never shows), then, with audience
+ * writes off and something to create, the writes-off sentence (its one-form
+ * for 1) as `tail`. Counts are Meta audiences (view.ts templateCounts).
+ * Every place the footer prints takes these parts (footerLine joins them).
+ */
+export function footerParts(
+  reused: number,
+  toCreate: number,
+  account: string,
+  writesEnabled: boolean,
+  needVideos = 0,
+  held: ReadonlyArray<{ account: string; n: number }> = [],
+): { parts: FooterPart[]; tail: string | null } {
+  const reusedPart = tw("templates.footer", { n: reused, m: toCreate, account }).split(" · ")[0]!;
+  const createPart = tw("templates.footer", { n: reused, m: toCreate, account }).slice(reusedPart.length + fw("frame.sep").length);
+  const parts: FooterPart[] = [{ lead: reusedPart }];
+  if (!(toCreate === 0 && (needVideos > 0 || held.length > 0))) parts.push(withAccount(createPart, account));
+  for (const h of held) {
+    if (h.n === 0) continue;
+    const text = h.n === 1 ? tw("templates.footer.held.one", { "Meta account name": h.account }) : tw("templates.footer.held", { h: h.n, "Meta account name": h.account });
+    parts.push(withAccount(text, h.account));
+  }
+  if (needVideos > 0) parts.push({ lead: needVideos === 1 ? tw("templates.footer.videos.one") : tw("templates.footer.videos", { k: needVideos }) });
+  const tail = writesEnabled || toCreate === 0 ? null : toCreate === 1 ? tw("templates.writes_off.one") : tw("templates.writes_off", { m: toCreate });
+  return { parts, tail };
+}
+
+/** The footer as one string: the parts joined with " · ", then ". " and the tail. */
+export function footerText(footer: { parts: FooterPart[]; tail: string | null }): string {
+  const first = footer.parts.map((p) => (p.account ? `${p.lead} ${p.account}` : p.lead)).join(fw("frame.sep"));
+  return footer.tail ? `${first}. ${footer.tail}` : first;
+}
+
+/**
+ * The footer as the panel draws it: one string, one text run, where the only
+ * places it can wrap are the space after each " ·", inside an account name,
+ * and in the writes-off sentence. Inside a count's words, and before " ·",
+ * the spaces are no-break spaces (U+00A0), so "1 needs videos picked" never
+ * splits. Turning those back into spaces gives footerText exactly.
+ */
+export function footerNoBreak(footer: { parts: FooterPart[]; tail: string | null }): string {
+  const nb = (t: string) => t.replace(/ /g, "\u00a0");
+  const dot = fw("frame.sep").trim();
+  const parts = footer.parts.map((p, i) => {
+    const sep = i < footer.parts.length - 1 ? `\u00a0${dot}` : "";
+    return p.account ? `${nb(p.lead)} ${p.account}${sep}` : `${nb(p.lead)}${sep}`;
+  });
+  const first = parts.join(" ");
+  return footer.tail ? `${first}. ${footer.tail}` : first;
+}
+
+export function footerLine(...args: Parameters<typeof footerParts>): string {
+  return footerText(footerParts(...args));
 }

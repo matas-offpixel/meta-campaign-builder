@@ -6,8 +6,10 @@
  * Pure. No `@/` imports, so node --test can load it.
  */
 
-import { TEMPLATE_NAMES, GROUP_LABEL, changedLine, footerLine, fw, heldLine, tw } from "./words.ts";
-import { normalizeAccount, resolveTemplate, type AudienceTemplate, type KnownAudience, type ResolvedItem, type TemplateItem, type TemplateItemKind } from "./resolve.ts";
+import { TEMPLATE_NAMES, GROUP_LABEL, changedLine, footerParts, footerText, fw, type FooterPart, heldLine, madeOnLine, pickedLine, signupsLine, tw } from "./words.ts";
+import { createTargets, type PickLookup } from "./create.ts";
+import { isUsablePick, isVideoViewers, itemThreshold } from "./videos.ts";
+import { PAGE_ENGAGER_SUBTYPES, normalizeAccount, resolveTemplate, type ResolvedTemplate, type AudienceTemplate, type KnownAudience, type ResolvedItem, type TemplateItem, type TemplateItemKind } from "./resolve.ts";
 
 export const GROUP_ORDER: readonly TemplateItemKind[] = ["customer_list", "retargeting_pool", "page_engagers", "interest"];
 
@@ -20,11 +22,15 @@ export interface TemplateRow {
    * yet. It is never re-uploaded, so it isn't "Will be created": the line
    * says where it's held, and the row has no status chip.
    */
-  status: "reused" | "create" | "held";
-  /** Empty for a held list. */
+  status: "reused" | "create" | "held" | "waiting" | "needs_videos";
+  /** Empty for a held list; "Made on {date}" for a show's list the sync hasn't made yet (dashed, like Will be created). */
   statusLabel: string;
   /** How many items this row stands for (the interests row is all of them). */
   count: number;
+  /** A line under the item's own (video viewers: what's needed, or what's picked). */
+  note?: { text: string; tone: "ochre" | "muted" };
+  /** Video viewers to make: "Pick this show's videos" before, "Change videos" after. */
+  videos?: { action: "pick" | "change"; threshold: number; days: number };
 }
 
 export interface TemplateGroup {
@@ -47,11 +53,24 @@ export interface TemplateView {
   header: TemplateHeader;
   groups: TemplateGroup[];
   footer: string;
+  /** The footer as the panel draws it: parts that never split a count from its words (footerParts). */
+  footerParts: { parts: FooterPart[]; tail: string | null };
   reused: number;
-  /** Items that will be created; held lists aren't among them. */
+  /** The footer's "{m} will be created": the audiences Create makes (willBeCreated), the same number as createCount. */
   toCreate: number;
   /** Customer lists held in another account (templates.item.held). */
   held: number;
+  /** Shows' Signups lists the sync hasn't made yet ("Made on {date}"): never created here. */
+  waiting: number;
+  /** Video-viewer items with no videos picked ("Needs videos"): the footer's "{k} need videos picked". */
+  needVideos: number;
+  /** "Add to this draft": the made items it adds ({n}), and the ones left out ({m}). */
+  addCount: number;
+  leftOut: number;
+  /** Create's button "{m}": the same number as toCreate, from willBeCreated. */
+  createCount: number;
+  /** The template resolved in the account, for "Add to this draft". */
+  resolved: ResolvedTemplate;
   metaCreates: number;
   /** "{n} change since this template was saved", or null with no change. */
   changed: string | null;
@@ -70,6 +89,8 @@ export interface ViewContext {
   confirmerName: (userId: string) => string | null;
   /** act_… → Meta's account name, for "held in {account}"; the id when none is stored. */
   accountLabel?: (accountId: string) => string | null;
+  /** The draft's picked videos for this template's video-viewer items (this event's only). */
+  picks?: PickLookup;
 }
 
 /** "Tue 24 Nov": the frame's date, in London. */
@@ -103,6 +124,62 @@ function pixelLabel(ctx: ViewContext): string {
   return ctx.pixelId ? `…${ctx.pixelId.slice(-4)}` : "";
 }
 
+/**
+ * The tab's counts, in one unit everywhere (design, 25 Nov): Meta audiences.
+ * A page on Facebook + Instagram is 2 (one per platform), a list, a pool and
+ * a video-viewer item 1 each, the interests row 1 however many interests it
+ * holds. Held lists count 1 each, by the account that holds them; items
+ * waiting for videos, and shows' lists not made yet, count as items.
+ *
+ * The footer's "{n} reused · {m} will be created", the button's "{m}" and
+ * "Add to this draft"'s "{n}" / "{m}" all read it. `toCreate` is the rows
+ * Create would ask Meta for, so it is also what "Created {m}" counts.
+ */
+export interface TemplateCounts {
+  reused: number;
+  toCreate: number;
+  held: Array<{ account: string; n: number }>;
+  needVideos: number;
+  waiting: number;
+  /** Every audience the template stands for in this account, in the same unit. */
+  total: number;
+}
+
+function units(it: TemplateItem): number {
+  return it.kind === "page_engagers" ? PAGE_ENGAGER_SUBTYPES.length : 1;
+}
+
+export function templateCounts(resolved: ResolvedTemplate, ctx: { accountId: string; pixelId: string | null; picks?: PickLookup }): TemplateCounts {
+  const items = resolved.items;
+  const interests = items.filter((r) => r.item.kind === "interest");
+  const others = items.filter((r) => r.item.kind !== "interest");
+  const interestRow = interests.length > 0 ? 1 : 0;
+  const reused =
+    (interests.some((r) => r.status === "reused") ? 1 : 0) +
+    others.reduce((n, r) => {
+      if (r.item.kind === "page_engagers") return n + units(r.item) - r.missingPageSubtypes.length;
+      return n + (r.status === "reused" ? 1 : 0);
+    }, 0);
+  const holders = new Map<string, number>();
+  for (const r of items) {
+    const h = heldElsewhere(r, ctx.accountId);
+    if (h) holders.set(h, (holders.get(h) ?? 0) + 1);
+  }
+  return {
+    reused,
+    toCreate: createTargets(items, ctx.pixelId, ctx.picks).length,
+    held: [...holders.entries()].map(([account, n]) => ({ account, n })),
+    needVideos: items.filter((r) => r.status === "create" && isVideoViewers(r.item) && !isUsablePick(ctx.picks?.(r.item) ?? null)).length,
+    waiting: items.filter((r) => r.status === "create" && isShowSignups(r.item) && !r.item.metaAudienceId).length,
+    total: interestRow + others.reduce((n, r) => n + units(r.item), 0),
+  };
+}
+
+/** The footer's "{m} will be created" and Create's "{m}": one number (templateCounts). */
+export function willBeCreated(resolved: ResolvedTemplate, pixelId: string | null, picks?: PickLookup, accountId = resolved.accountId): number {
+  return templateCounts(resolved, { accountId, pixelId, picks }).toCreate;
+}
+
 /** The account holding a list the target can't use, when it isn't the target. */
 export function heldElsewhere(r: ResolvedItem, accountId: string): string | null {
   if (r.item.kind !== "customer_list" || r.status !== "create" || !r.heldIn) return null;
@@ -119,6 +196,16 @@ function itemRow(r: ResolvedItem, ctx: ViewContext): TemplateRow {
   const days = it.retentionDays ?? 0;
   switch (it.kind) {
     case "customer_list": {
+      if (isShowSignups(it)) {
+        const code = it.detail.code ?? "";
+        const title = it.detail.name ?? `${code} · Signups`;
+        // SU2: before the sync makes the list, its status is the day it will be, never Will be created.
+        if (!it.metaAudienceId) {
+          return { ...base, status: "waiting", statusLabel: it.detail.madeOn ? madeOnLine(shortDate(it.detail.madeOn)) : "", title, line: signupsLine(code, null) };
+        }
+        const line = signupsLine(code, typeof it.detail.signups === "number" ? it.detail.signups : null);
+        return { ...base, title, line: holder ? `${line}${fw("frame.sep")}${heldLine(ctx.accountLabel?.(holder) ?? holder)}` : line };
+      }
       // RC-E's line; a list for every genre has no family, so it stops at the role.
       const line = it.familyKey
         ? fw("frame.list.line", { role: it.listRole ?? "", family: it.familyKey })
@@ -131,7 +218,15 @@ function itemRow(r: ResolvedItem, ctx: ViewContext): TemplateRow {
     }
     case "retargeting_pool":
       if (it.listRole === "video_viewers") {
-        return { ...base, title: fw("frame.pool.video_viewers"), line: fw("frame.pool.video.line", { threshold: Number(it.detail.threshold ?? 0), days }) };
+        const row = { ...base, title: fw("frame.pool.video_viewers"), line: fw("frame.pool.video.line", { threshold: itemThreshold(it), days }) };
+        if (r.status !== "create") return row;
+        const videos = { threshold: itemThreshold(it), days };
+        const pick = ctx.picks?.(it) ?? null;
+        // Ruled 25 Nov: without this show's videos the item needs them, and Create leaves it out.
+        if (!isUsablePick(pick)) {
+          return { ...row, status: "needs_videos", statusLabel: tw("templates.item.videos"), note: { text: tw("templates.item.videos.line"), tone: "ochre" }, videos: { ...videos, action: "pick" } };
+        }
+        return { ...row, note: { text: pickedLine(pick.videoIds.length, pick.code), tone: "muted" }, videos: { ...videos, action: "change" } };
       }
       return {
         ...base,
@@ -146,7 +241,21 @@ function itemRow(r: ResolvedItem, ctx: ViewContext): TemplateRow {
 }
 
 export function rowKey(it: TemplateItem): string {
-  return [it.kind, it.listRole ?? "", it.familyKey ?? "", it.pageId ?? "", it.retentionDays ?? "", it.interestId ?? ""].join("|");
+  // A show's Signups list is one item per list (267's key has meta_audience_id); the code tells a waiting one apart.
+  const list = isShowSignups(it) ? [it.metaAudienceId ?? "", it.detail.code ?? ""] : [];
+  return [it.kind, it.listRole ?? "", it.familyKey ?? "", it.pageId ?? "", it.retentionDays ?? "", it.interestId ?? "", ...list].join("|");
+}
+
+/** A show's "{code} · Signups" list (#1367 / SU2): role signups on a customer list. */
+export function isShowSignups(it: TemplateItem): boolean {
+  return it.kind === "customer_list" && it.listRole === "signups";
+}
+
+/** SU2: the genre lists first, then each show's list, by code. */
+function customerListOrder(rows: ResolvedItem[]): ResolvedItem[] {
+  const genre = rows.filter((r) => !isShowSignups(r.item));
+  const shows = rows.filter((r) => isShowSignups(r.item)).sort((a, b) => (a.item.detail.code ?? "").localeCompare(b.item.detail.code ?? ""));
+  return [...genre, ...shows];
 }
 
 /**
@@ -164,7 +273,8 @@ export function buildTemplateView(
   const added = pending.filter((p) => !saved.has(rowKey(p)));
   const resolved = resolveTemplate([...t.items, ...added], ctx.accountId, known, ctx.pixelId);
   const groups = GROUP_ORDER.map((kind): TemplateGroup => {
-    const rows = resolved.items.filter((r) => r.item.kind === kind);
+    const inKind = resolved.items.filter((r) => r.item.kind === kind);
+    const rows = kind === "customer_list" ? customerListOrder(inKind) : inKind;
     if (kind !== "interest" || rows.length === 0) {
       return { kind, label: GROUP_LABEL[kind], rows: rows.map((r) => itemRow(r, ctx)) };
     }
@@ -184,16 +294,23 @@ export function buildTemplateView(
       ],
     };
   });
-  // A held list is shared in Business Manager, never re-uploaded: not one of the creates.
-  const held = resolved.items.filter((r) => heldElsewhere(r, ctx.accountId)).length;
-  const toCreate = resolved.toCreate - held;
+  const c = templateCounts(resolved, ctx);
+  const heldParts = c.held.map((h) => ({ account: ctx.accountLabel?.(h.account) ?? h.account, n: h.n }));
+  const footer = footerParts(c.reused, c.toCreate, ctx.accountName, ctx.writesEnabled, c.needVideos, heldParts);
   return {
     header: headerFor(t, ctx),
     groups,
-    footer: footerLine(resolved.reused, toCreate, ctx.accountName, ctx.writesEnabled),
-    reused: resolved.reused,
-    toCreate,
-    held,
+    footer: footerText(footer),
+    footerParts: footer,
+    reused: c.reused,
+    toCreate: c.toCreate,
+    held: c.held.reduce((n, h) => n + h.n, 0),
+    waiting: c.waiting,
+    needVideos: c.needVideos,
+    addCount: c.reused,
+    leftOut: c.total - c.reused,
+    createCount: c.toCreate,
+    resolved,
     metaCreates: resolved.metaCreates,
     changed: added.length > 0 ? changedLine(added.length) : null,
     canSave: added.length > 0,

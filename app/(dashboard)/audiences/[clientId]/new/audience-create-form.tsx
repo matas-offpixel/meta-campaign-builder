@@ -16,6 +16,7 @@ import {
 import { FUNNEL_STAGE_PRESETS } from "@/lib/audiences/funnel-presets";
 import { stageForFunnelStage } from "@/lib/insights-rail/model";
 import { buildAudienceName } from "@/lib/audiences/naming";
+import type { InitialSelection } from "@/lib/audiences/initial-selection";
 import { withActPrefix } from "@/lib/meta/ad-account-id";
 import {
   AUDIENCE_SUBTYPE_LABELS,
@@ -58,6 +59,7 @@ export function AudienceCreateForm({
   events,
   initialEventId,
   initialPresetBundle,
+  initialSelection,
   writesEnabled,
   clientVertical = null,
 }: {
@@ -65,6 +67,8 @@ export function AudienceCreateForm({
   events: EventOption[];
   initialEventId?: string;
   initialPresetBundle?: FunnelStage;
+  /** A single audience's start from the URL; absent, the form starts as it always has. */
+  initialSelection?: InitialSelection;
   writesEnabled: boolean;
   /** clients.vertical, for the Insights rail's Vertical scope. */
   clientVertical?: string | null;
@@ -77,9 +81,11 @@ export function AudienceCreateForm({
     initialPresetBundle ?? "top_of_funnel",
   );
   const [audienceSubtype, setAudienceSubtype] =
-    useState<AudienceSubtype>("page_engagement_fb");
-  const [singleSource, setSingleSource] = useState<SourceSelection>({});
-  const [singleRetention, setSingleRetention] = useState(365);
+    useState<AudienceSubtype>(initialSelection?.subtype ?? "page_engagement_fb");
+  const [singleSource, setSingleSource] = useState<SourceSelection>(
+    initialSelection?.threshold != null ? { threshold: initialSelection.threshold } : {},
+  );
+  const [singleRetention, setSingleRetention] = useState(initialSelection?.retentionDays ?? 365);
   const [scope, setScope] = useState<"client" | "event">(
     initialEventId ? "event" : "client",
   );

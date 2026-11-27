@@ -760,8 +760,12 @@ export function replicateDraft(
   });
 
   const at = context.now.toISOString();
+  // A template's picked videos are the source show's own (record
+  // 2026-11-25-signups-into-meta; Matas, 25 Nov): the copy never carries them.
+  const copied: CampaignDraft = { ...source };
+  delete copied.templateVideoPicks;
   const draft: ReplicatedDraft = {
-    ...source,
+    ...copied,
     id: context.id,
     settings,
     audiences,

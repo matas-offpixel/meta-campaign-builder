@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 
-import { loadAudienceTemplates, saveTemplatePages, type AudienceTemplatesPayload } from "@/lib/actions/audience-templates";
+import { createTemplateAudiences, loadAudienceTemplates, saveTemplatePages, type AudienceTemplatesPayload } from "@/lib/actions/audience-templates";
+import type { AudienceSettings, TemplateVideoPick } from "@/lib/types";
 import type { AudienceTemplate, TemplateItem } from "@/lib/audience-templates/resolve";
 import { fw, tw } from "@/lib/audience-templates/words";
 
@@ -17,6 +18,10 @@ import { AudienceTemplatesPanel } from "./audience-templates-panel";
  * no templates for the draft's client (every client but Electric today,
  * and Electric until the seed is applied) there is no tab row at all: the
  * drawer renders `children` exactly as before.
+ *
+ * "Add to this draft" hands the next audiences to `onAddToDraft`, which the
+ * drawer wires to its own updater; the tab never imports the draft's
+ * updaters. "Create" goes through createTemplateAudiences, then reloads.
  */
 
 export type AudiencesTab = "audiences" | "templates";
@@ -58,11 +63,27 @@ export function AudiencesTabSwitch({
   clientId,
   adAccountId,
   pixelId,
+  audiences,
+  draftName,
+  onAddToDraft,
+  eventId,
+  eventCode,
+  videoPicks,
+  onVideoPicks,
   children,
 }: {
   clientId: string | null | undefined;
   adAccountId: string | null | undefined;
   pixelId: string | null | undefined;
+  /** The draft's audiences and name, for "Add to this draft". Without them Add stays off. */
+  audiences?: AudienceSettings;
+  draftName?: string;
+  onAddToDraft?: (next: AudienceSettings) => void;
+  /** The draft's event, and its picked videos for template video-viewer items (the drawer keeps them on the draft). */
+  eventId?: string | null;
+  eventCode?: string | null;
+  videoPicks?: TemplateVideoPick[];
+  onVideoPicks?: (next: TemplateVideoPick[]) => void;
   children: ReactNode;
 }) {
   const [data, setData] = useState<AudienceTemplatesPayload | null>(null);
@@ -96,6 +117,35 @@ export function AudiencesTabSwitch({
     [],
   );
 
+  const onCreate = useCallback(
+    async (template: AudienceTemplate) => {
+      const res = await createTemplateAudiences({
+        clientId,
+        adAccountId,
+        pixelId,
+        templateName: template.name,
+        event: { eventId: eventId ?? "", code: eventCode ?? "" },
+        picks: videoPicks,
+      });
+      if (res.ok) setVersion((v) => v + 1);
+      return res;
+    },
+    [clientId, adAccountId, pixelId, eventId, eventCode, videoPicks],
+  );
+  const draft =
+    audiences && onAddToDraft
+      ? {
+          name: draftName ?? "",
+          audiences,
+          onAdd: onAddToDraft,
+          ...(clientId ? { clientId } : {}),
+          // A show's videos need a show: without an event code there's nothing to pick from.
+          ...(eventCode ? { event: { eventId: eventId ?? "", code: eventCode } } : {}),
+          picks: videoPicks,
+          onPicks: onVideoPicks,
+        }
+      : undefined;
+
   // The Audiences tab stays mounted in the same place whether or not the row
   // shows, and while the templates tab is open: its own state is never reset.
   const shown = showsTemplatesTab(data);
@@ -106,7 +156,7 @@ export function AudiencesTabSwitch({
       <div className={onTemplates ? "hidden" : "contents"} data-audiences-tab>
         {children}
       </div>
-      {onTemplates && data ? <AudienceTemplatesPanel data={data} onSave={onSave} /> : null}
+      {onTemplates && data ? <AudienceTemplatesPanel data={data} onSave={onSave} draft={draft} onCreate={onCreate} /> : null}
     </>
   );
 }

@@ -6,9 +6,13 @@
  *  - The switch passes the Audiences tab through as children and keeps it
  *    mounted in one place; with no templates there is no tab row.
  *  - No audience-template file imports the Audiences step or the draft
- *    updaters, or writes the draft's audiences.
- *  - No audience-template file reaches a Meta write: the tab never creates
- *    an audience, and only reads whether audience writes are on.
+ *    updaters, or writes the draft's audiences. "Add to this draft" hands
+ *    the next audiences to the drawer's own updater (onAddToDraft).
+ *  - The tab's one Meta write is "Create" (25 Nov ruling on #1363), only
+ *    through the existing audience path (createMetaCustomAudienceBatch:
+ *    OFFPIXEL_META_AUDIENCE_WRITES_ENABLED, meta_write_idempotency), only in
+ *    lib/actions/audience-templates.ts, behind runTemplateCreate's gate. No
+ *    template file posts to Graph itself.
  *  - No file under components/steps/audiences imports the templates.
  */
 
@@ -87,20 +91,31 @@ describe("the existing Audiences tab is untouched", () => {
     }
   });
 
-  it("no template file reaches a Meta write", () => {
+  it("Add writes the draft only through the drawer's own updater", () => {
+    assert.match(drawer, /<AudiencesTabSwitch[^>]*onAddToDraft=\{updateAudiences\}[^>]*>/);
+    const sw = read("components/audience-templates/audiences-tab-switch.tsx");
+    assert.match(sw, /onAdd: onAddToDraft/);
+  });
+
+  it("Create reaches Meta only through the existing write path, behind the gate", () => {
     // The seed reads Electric's lists with GET /act_{id}/customaudiences
     // (graph-lists.ts, guarded in the script); nothing else names the edge.
     const reads = new Set(["lib/audience-templates/graph-lists.ts", "scripts/seed-audience-templates.mts"]);
+    const ACTION = "lib/actions/audience-templates.ts";
     for (const f of TEMPLATE_FILES) {
       const src = read(f);
-      assert.doesNotMatch(src, /assertMetaAudienceWritesEnabled|createCustomAudience|graphPost|metaPost/i, f);
+      assert.doesNotMatch(src, /assertMetaAudienceWritesEnabled|graphPost|metaPost|createMetaCustomAudience\(/i, f);
       if (!reads.has(f)) assert.doesNotMatch(src, /\/customaudiences/i, f);
       assert.doesNotMatch(src, /method: "(POST|DELETE|PUT|PATCH)"/, f);
+      if (f !== ACTION) assert.doesNotMatch(src, /createMetaCustomAudienceBatch\(|createAudienceDrafts\(/, f);
       const metaImports = [...src.matchAll(/from "(?:@\/|\.\.\/)lib\/meta\/([^"]+)"/g)].map((m) => m[1]);
       for (const m of metaImports) assert.ok(m === "ad-account" || m === "ad-account.ts" || m === "audience-write", `${f} imports lib/meta/${m}`);
     }
-    const action = read("lib/actions/audience-templates.ts");
-    assert.match(action, /import \{ metaAudienceWritesEnabled \} from "@\/lib\/meta\/audience-write";/);
+    const action = read(ACTION);
+    assert.match(action, /import \{ createMetaCustomAudienceBatch, metaAudienceWritesEnabled \} from "@\/lib\/meta\/audience-write";/);
+    // The batch is only ever handed to runTemplateCreate, with the gate read in the same call.
+    assert.equal(action.match(/createMetaCustomAudienceBatch\(/g)?.length, 1);
+    assert.match(action, /runTemplateCreate\(\{\s*writesEnabled: metaAudienceWritesEnabled\(\),[\s\S]*createBatch: \(ids\) => createMetaCustomAudienceBatch\(ids, \{ userId, supabase: db \}\),/);
   });
 
   it("the seed's Graph guard refuses anything but GET on the customaudiences edge", () => {

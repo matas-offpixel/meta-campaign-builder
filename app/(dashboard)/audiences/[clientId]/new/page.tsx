@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { createClient } from "@/lib/supabase/server";
 import { isFunnelStage } from "@/lib/audiences/metadata";
+import { initialSelectionFrom } from "@/lib/audiences/initial-selection";
 import { AudienceCreateForm } from "./audience-create-form";
 
 interface Props {
@@ -10,6 +11,10 @@ interface Props {
   searchParams: Promise<{
     event_id?: string;
     presetBundle?: string;
+    /** A single audience's start: subtype, video threshold, retention days (lib/audiences/initial-selection.ts). */
+    subtype?: string;
+    threshold?: string;
+    retention?: string;
   }>;
 }
 
@@ -78,6 +83,7 @@ export default async function NewAudiencePage({ params, searchParams }: Props) {
             events={events}
             initialEventId={sp.event_id}
             initialPresetBundle={initialPresetBundle}
+            initialSelection={initialSelectionFrom(sp)}
             writesEnabled={
               process.env.OFFPIXEL_META_AUDIENCE_WRITES_ENABLED === "true"
             }

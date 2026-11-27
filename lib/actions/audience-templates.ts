@@ -2,9 +2,14 @@
 
 import { MATAS_USER_IDS, isOperator } from "@/lib/auth/operator-allowlist";
 import { normalizeAdAccountId } from "@/lib/meta/ad-account";
-import { metaAudienceWritesEnabled } from "@/lib/meta/audience-write";
+import { createMetaCustomAudienceBatch, metaAudienceWritesEnabled } from "@/lib/meta/audience-write";
+import { createAudienceDrafts } from "@/lib/db/meta-custom-audiences";
+import { createPlan, createTargets, runTemplateCreate } from "@/lib/audience-templates/create";
+import { pickFor, type PickEvent, type TemplateVideoPick } from "@/lib/audience-templates/videos";
+import { withShowSignups, type SyncEventIn, type SyncRowIn } from "@/lib/audience-templates/signups";
 import {
   dedupeKnown,
+  resolveTemplate,
   knownFromDraftAudiences,
   knownFromRows,
   type AudienceTemplate,
@@ -14,17 +19,23 @@ import {
 } from "@/lib/audience-templates/resolve";
 import { ITEM_CONFLICT_KEY, itemRow, templateFromRows, type ItemRowIn, type TemplateRowIn } from "@/lib/audience-templates/store";
 import { templateOrder } from "@/lib/audience-templates/view";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 
 /**
  * Audience templates tab (R6, record RC5): the reads behind it, and "Save to
  * template". Operators only, through the operator's own session (owner RLS
  * on the templates, migration 266).
  *
- * Reads only the database. It never calls Meta: Reused / Will be created is
- * decided from what the app stored (lib/audience-templates/resolve.ts). The
- * tab creates nothing; OFFPIXEL_META_AUDIENCE_WRITES_ENABLED is read only to
- * say whether the items to create wait.
+ * The reads never call Meta: Reused / Will be created is decided from what
+ * the app stored (lib/audience-templates/resolve.ts). A show's Signups list
+ * (SU2) is read from customer_list_syncs, counts only, through the service
+ * role (the table has no operator policy) after the operator check.
+ *
+ * "Create {m} audiences" (createTemplateAudiences) is the tab's one write:
+ * the existing audience builder's path, behind
+ * OFFPIXEL_META_AUDIENCE_WRITES_ENABLED and meta_write_idempotency
+ * (lib/meta/audience-write.ts). "Add to this draft" writes the draft through
+ * the drawer, not here.
  */
 
 const PAGE = 1000;
@@ -109,9 +120,10 @@ export async function loadAudienceTemplates(input: {
       .range(a, b),
   )) as unknown as ItemRowIn[];
 
-  const templates = templateRows
+  const stored = templateRows
     .map((t) => templateFromRows(t, itemRows))
     .sort((a, b) => templateOrder(a.name) - templateOrder(b.name));
+  const signups = await showSignups(input.clientId, stored);
 
   const audienceRows = (await pagedRows((a, b) =>
     db
@@ -127,7 +139,9 @@ export async function loadAudienceTemplates(input: {
     db.from("campaign_drafts").select("id, audiences:draft_json->audiences").eq("client_id", input.clientId!).order("id").range(a, b),
   );
 
+  const templates = signups.templates;
   const known = dedupeKnown([
+    ...signups.known,
     ...knownFromRows(audienceRows),
     ...draftRows.flatMap((d) => knownFromDraftAudiences(d.audiences)),
   ]);
@@ -174,6 +188,90 @@ export async function loadAudienceTemplates(input: {
     accountNames,
     pages,
   };
+}
+
+/**
+ * SU2: the client's shows' Signups lists, from customer_list_syncs (counts
+ * only). An unreadable table (migration 267 not applied, no service key)
+ * reads as no lists: the stored items still show, without a count.
+ */
+async function showSignups(clientId: string, templates: AudienceTemplate[]) {
+  try {
+    const svc = createServiceRoleClient();
+    const events = (await pagedRows((a, b) =>
+      svc.from("events").select("id, event_code, name, presale_at, general_sale_at, event_date").eq("client_id", clientId).order("id").range(a, b),
+    )) as unknown as SyncEventIn[];
+    if (events.length === 0) return { templates, known: [] };
+    const ids = events.map((e) => e.id);
+    const syncs: SyncRowIn[] = [];
+    for (let i = 0; i < ids.length; i += 200) {
+      const chunk = ids.slice(i, i + 200);
+      const rows = (await pagedRows((a, b) =>
+        svc
+          .from("customer_list_syncs")
+          .select("event_id, meta_audience_id, ad_account_id, enabled, sent_total, removed_total")
+          .eq("kind", "show")
+          .in("event_id", chunk)
+          .order("id")
+          .range(a, b),
+      )) as unknown as SyncRowIn[];
+      syncs.push(...rows);
+    }
+    return withShowSignups(templates, syncs, events, new Date());
+  } catch {
+    return { templates, known: [] };
+  }
+}
+
+export type CreateTemplateResult =
+  | { ok: true; created: number; failed: number }
+  | { ok: false; error: "operators only" | "not found" | "writes_off" | "unconfirmed" | "nothing_to_create" | "failed" };
+
+/**
+ * "Create {m} audiences in {account}": makes the template's missing pixel
+ * pools, page engagers and (with this show's videos picked on the draft)
+ * video viewers in the draft's ad account through the existing write path
+ * (lib/audience-templates/create.ts says what it makes and what it never
+ * does). Reloads the template server-side; the client sends which one, and
+ * the draft's picks for its event, which are used only for that event and
+ * only when every id is numeric. Off until the template is confirmed, and
+ * while audience writes are off.
+ */
+export async function createTemplateAudiences(input: {
+  clientId: string | null | undefined;
+  adAccountId: string | null | undefined;
+  pixelId: string | null | undefined;
+  templateName: string;
+  event?: PickEvent;
+  picks?: TemplateVideoPick[];
+}): Promise<CreateTemplateResult> {
+  const db = await createClient();
+  const userId = await operator(db);
+  if (!userId) return { ok: false, error: "operators only" };
+  const data = await loadAudienceTemplates(input);
+  const template = data?.templates.find((t) => t.name === input.templateName);
+  if (!data || !template || !input.clientId) return { ok: false, error: "not found" };
+  const resolved = resolveTemplate(template.items, data.accountId, data.known, data.pixelId);
+  const event = input.event ?? { eventId: "", code: "" };
+  const plan = createPlan(createTargets(resolved.items, data.pixelId, (it) => pickFor(input.picks, template.name, it, event)), {
+    userId,
+    clientId: input.clientId,
+    accountId: data.accountId,
+    pixelId: data.pixelId,
+    template: template.name,
+  });
+  try {
+    const res = await runTemplateCreate({
+      writesEnabled: metaAudienceWritesEnabled(),
+      confirmed: Boolean(template.confirmedBy && template.confirmedAt),
+      plan,
+      insertDrafts: (rows) => createAudienceDrafts(rows),
+      createBatch: (ids) => createMetaCustomAudienceBatch(ids, { userId, supabase: db }),
+    });
+    return res.ok ? res : { ok: false, error: res.reason };
+  } catch {
+    return { ok: false, error: "failed" };
+  }
 }
 
 export type SaveTemplateResult = { ok: true; saved: number } | { ok: false; error: string };
