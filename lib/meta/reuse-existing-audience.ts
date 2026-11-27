@@ -155,6 +155,72 @@ export async function listAccountCustomAudiences(
   return collected;
 }
 
+/** The name lookup's fields: what a name match reads, nothing heavier (no rule, no lookalike_spec). */
+export const META_CUSTOM_AUDIENCE_NAME_FIELDS = ["id", "name", "subtype"].join(",");
+/** The longest name Meta keeps for an app-made audience (sanitizeAudienceName cuts at 50): a name this long may be cut, so it isn't trusted to match. */
+export const APP_AUDIENCE_NAME_MAX = 50;
+
+/**
+ * The account's audiences whose name contains `contains` (the show's code as
+ * Meta keeps it, "NX26_RUDIMENTAL"): GET /customaudiences with a name filter
+ * and only id,name,subtype, 100 a page, at most 10 pages, all inside
+ * `timeoutMs`. Throws on any error, a timeout, or a list longer than that
+ * (never a partial answer). The token is a query param and is not logged.
+ * NX26-RUDIMENTAL, 27 Nov: the unfiltered list with rules failed every time
+ * on act_606252931141334 and took ~50 s an audience.
+ */
+export async function findAudiencesByName(
+  adAccountId: string,
+  token: string,
+  contains: string,
+  fetchImpl: MetaGraphFetch,
+  opts: { timeoutMs: number },
+): Promise<ListedMetaCustomAudience[]> {
+  const signal = AbortSignal.timeout(opts.timeoutMs);
+  const url = new URL(`${BASE}/${withActPrefix(adAccountId)}/customaudiences`);
+  url.searchParams.set("access_token", token);
+  url.searchParams.set("fields", META_CUSTOM_AUDIENCE_NAME_FIELDS);
+  url.searchParams.set("filtering", JSON.stringify([{ field: "name", operator: "CONTAIN", value: contains }]));
+  url.searchParams.set("limit", "100");
+  const collected: ListedMetaCustomAudience[] = [];
+  let nextUrl: string | null = url.toString();
+  for (let page = 0; page < 10 && nextUrl; page++) {
+    const response = await fetchImpl(nextUrl, { cache: "no-store", signal });
+    const json = (await response.json().catch(() => null)) as { data?: ListedMetaCustomAudience[]; paging?: { next?: string }; error?: { message?: string } } | null;
+    if (!json || !response.ok || json.error) throw new Error(json?.error?.message ?? `HTTP ${response.status}`);
+    for (const item of json.data ?? []) if (item?.id) collected.push(item);
+    nextUrl = json.paging?.next ?? null;
+  }
+  if (nextUrl) throw new Error("name lookup longer than 10 pages");
+  return collected;
+}
+
+/**
+ * The listed audience with exactly this name, when the name is short enough
+ * that Meta can't have cut it (two audiences cut to the same 50 characters
+ * would otherwise read as one).
+ */
+export function matchAudienceByName(name: string, listed: readonly ListedMetaCustomAudience[]): ListedMetaCustomAudience | null {
+  if (!name || name.length >= APP_AUDIENCE_NAME_MAX) return null;
+  return listed.find((item) => item?.id && item.name === name) ?? null;
+}
+
+/**
+ * The name lookup's answer for one audience the app is about to make:
+ * the exact-name hit, none, or — when the read failed — none only for the
+ * app's own name for the show ("{CODE}_…", a copy of our own named audience
+ * is the only risk), else `unsure` (nothing may be posted).
+ */
+export async function resolveByShowName(args: { name: string; code: string; read: () => Promise<ListedMetaCustomAudience[]> }): Promise<{ id: string | null } | { unsure: string }> {
+  try {
+    return { id: matchAudienceByName(args.name, await args.read())?.id ?? null };
+  } catch (err) {
+    const message = (err instanceof Error ? err.message : String(err)).replace(/access_token=[^&\s]+/gi, "access_token=REDACTED");
+    if (args.code && args.name.startsWith(`${args.code}_`)) return { id: null };
+    return { unsure: message };
+  }
+}
+
 function withLimit(url: string, limit: number): string {
   const next = new URL(url);
   next.searchParams.set("limit", String(limit));

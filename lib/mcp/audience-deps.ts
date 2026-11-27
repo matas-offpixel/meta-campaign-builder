@@ -223,9 +223,9 @@ export function realAudienceDeps(db: SupabaseClient): McpAudienceDeps {
       const res = await raceAbort(fetchAudienceMultiCampaignVideos(act(adAccountId), [...campaignIds], await opToken(userId)), signal);
       return groupVideosByPage(res.videos as { id: string; pageId?: string | null }[]);
     },
-    async createAudience({ userId, insert, onLookupFailed }) {
+    async createAudience({ userId, insert, onLookupFailed, nameLookup }) {
       const draft = await createAudienceDraft(insert, db);
-      const made = await createMetaCustomAudience(draft.id, { userId, supabase: db as never, rows: db, remediateSeeds: noSeedGrants, ...(onLookupFailed ? { onLookupFailed } : {}) });
+      const made = await createMetaCustomAudience(draft.id, { userId, supabase: db as never, rows: db, remediateSeeds: noSeedGrants, ...(onLookupFailed ? { onLookupFailed } : {}), ...(nameLookup ? { nameLookup } : {}) });
       const failed = made.status === "failed";
       return { rowId: made.id, metaAudienceId: made.metaAudienceId, reused: made.reused === true, failed, error: failed ? (made.statusError ?? null) : null, lookupUnavailable: failed && (made.statusError ?? "").startsWith(EXISTING_LOOKUP_UNAVAILABLE) };
     },

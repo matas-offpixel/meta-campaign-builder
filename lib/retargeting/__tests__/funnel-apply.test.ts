@@ -339,7 +339,7 @@ describe("Matas, 26 Nov: Similar's audience under Meta's minimum at build", () =
     const make = deps.createAudience;
     deps.createAudience = async (aud, name, account) => {
       const made = await make(aud, name, account);
-      if (made && aud.key.startsWith("rf:similar_")) similarIds.add(made.metaAudienceId);
+      if (made && "metaAudienceId" in made && aud.key.startsWith("rf:similar_")) similarIds.add(made.metaAudienceId);
       return made;
     };
     deps.meta.audienceState = async (id) => (similarIds.has(id) ? "too_small" : "ready");

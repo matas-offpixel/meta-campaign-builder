@@ -95,7 +95,7 @@ export interface McpAudienceDeps {
    * (createAudienceDraft) then createMetaCustomAudience, which reuses an
    * audience whose rule is already on the account. Seed grants are off.
    */
-  createAudience(input: { userId: string; insert: MetaCustomAudienceInsert; /** "refuse": a failed existing-audience lookup posts nothing (no second copy). Default "create". */ onLookupFailed?: "create" | "refuse" }): Promise<{ rowId: string; metaAudienceId: string | null; reused: boolean; failed: boolean; /** The row's status_error when failed (Meta's message with code, subcode, fbtrace_id; never a token). */ error?: string | null; /** Not made because the lookup failed under "refuse": nothing was posted. */ lookupUnavailable?: boolean }>;
+  createAudience(input: { userId: string; insert: MetaCustomAudienceInsert; /** "refuse": a failed existing-audience lookup posts nothing (no second copy). Default "create". */ onLookupFailed?: "create" | "refuse"; /** The retargeting build's lookup by the show's code in the name (audience-write's nameLookup). */ nameLookup?: { code: string; timeoutMs?: number } }): Promise<{ rowId: string; metaAudienceId: string | null; reused: boolean; failed: boolean; /** The row's status_error when failed (Meta's message with code, subcode, fbtrace_id; never a token). */ error?: string | null; /** Not made because the lookup failed under "refuse": nothing was posted. */ lookupUnavailable?: boolean }>;
   /** The owner business of an ad account (GET /act_{id}?fields=business). */
   accountBusiness(userId: string, adAccountId: string, signal?: AbortSignal): Promise<{ id: string; name: string | null } | null>;
   /** Matas's own token (user_facebook_tokens, never the env token): does it hold these permissions? null = no token. */

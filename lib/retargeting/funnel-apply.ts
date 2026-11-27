@@ -48,6 +48,9 @@ import { widerAdSetPayload, widerCampaignFields, locationOf, RT_AUDIENCE_BUILDIN
 import { type FunnelSpec, type SpecOptions, audiencesToMake, funnelAdSetName, funnelSpecs, FUNNEL_TIERS, FUNNEL_TIER_LABEL, SPLIT_WITH_SIMILAR, splitTotal, type FunnelAudience, type PageGroup, type FunnelSources, type FunnelStretch, type FunnelTier, type TakeLine, type TierMinor } from "./funnel.ts";
 import type { FunnelStepPlan } from "./funnel-plan.ts";
 import { fill } from "./funnel-words.ts";
+import { BUILD_LOCK_MS, buildRunning, RF_STOP_WORDS, STEP_MARGIN_MS, type BuildRowState } from "./build-lock.ts";
+
+export { BUILD_LOCK_MS, buildRunning, RF_STOP_WORDS, STEP_MARGIN_MS };
 import { destinationKey, DESTINATION_WORDS, DestinationRefused, rebuildCreative, type Destination } from "./destination.ts";
 import { driveAdForBuild, identityKey, SHOW_CREATIVE_WORDS, sourceIdentity, type ShowCreatives, type ShowIdentity } from "./show-creatives.ts";
 import type { AdCreativeDraft } from "../types.ts";
@@ -356,6 +359,8 @@ export type FunnelProgress = {
   audiences?: Record<string, string>;
   /** Audiences the builder couldn't make yet (their tier built without them). */
   notMade?: string[];
+  /** Tiers not made this run: none of their audiences could be made (27 Nov). */
+  tiersNotMade?: FunnelTier[];
   /** This run's left-out sources (27 Nov): the key, the Ads Manager name it would have had, why. Their tiers built without them. */
   skipped?: { key: string; name: string; reason: AudienceSkip }[];
   adSets?: Partial<Record<FunnelTier, { id: string; dailyMinor: number }>>;
@@ -412,6 +417,42 @@ export const RF_APPLY_WORDS = {
 } as const;
 
 export const BUILDS_TABLE = "retargeting_builds";
+
+
+async function buildRowState(db: Db, eventId: string): Promise<BuildRowState> {
+  const res = await db.from(BUILDS_TABLE).select("state, updated_at").eq("event_id", eventId).maybeSingle();
+  if (res.error) throw new Error(`retargeting_builds: ${res.error.message}`);
+  const row = res.data as { state: string | null; updated_at: string | null } | null;
+  return row ? { state: row.state, updatedAt: row.updated_at } : null;
+}
+
+/**
+ * One build per event at a time: the row is set to building only if it
+ * isn't running and hasn't changed since it was read (updated_at as read),
+ * or inserted when there's none (the event's unique key refuses a second).
+ * Returns the state to put back if the run fails, or null when another build
+ * holds it.
+ */
+async function claimBuild(deps: FunnelDeps, build: FunnelBuild, nowMs: number): Promise<{ prev: "paused" | "live" | "failed" } | null> {
+  const row = await buildRowState(deps.db, build.eventId);
+  if (buildRunning(row, nowMs)) return null;
+  const stamp = new Date(nowMs).toISOString();
+  if (!row) {
+    const res = await deps.db.from(BUILDS_TABLE).insert({ event_id: build.eventId, user_id: deps.owner.userId, campaign_name: build.campaignName, ad_account_id: build.adAccountId, draft_id: build.draftId, state: "building", progress: {}, build, source: deps.source, updated_at: stamp }).select("event_id");
+    return res.error ? null : { prev: "failed" };
+  }
+  let query = deps.db.from(BUILDS_TABLE).update({ state: "building", updated_at: stamp }).eq("event_id", build.eventId);
+  query = row.updatedAt ? query.eq("updated_at", row.updatedAt) : query.is("updated_at", null);
+  const res = await query.select("event_id");
+  if (res.error || !((res.data as unknown[] | null) ?? []).length) return null;
+  const prev = row.state === "paused" || row.state === "live" ? row.state : "failed";
+  return { prev };
+}
+
+/** A failed or stopped run lets go: the row goes back to what it was (a new or running one to failed), never over a state the run saved. */
+async function releaseBuild(db: Db, eventId: string, prev: "paused" | "live" | "failed"): Promise<void> {
+  await db.from(BUILDS_TABLE).update({ state: prev, updated_at: new Date().toISOString() }).eq("event_id", eventId).eq("state", "building");
+}
 
 export async function loadFunnelProgress(db: Db, eventId: string): Promise<{ progress: FunnelProgress; mode: "paused" | "live" | null } | null> {
   const res = await db.from(BUILDS_TABLE).select("progress, mode, state").eq("event_id", eventId).maybeSingle();
@@ -548,7 +589,37 @@ export function funnelGates(env: Record<string, string | undefined>): { create: 
   return { create: applyEnabled(env) && gates.mode === "live" && campaignCreateEnabled(env), audiences: audienceWritesEnabledFrom(env), money: isOptimisationWritesEnabledFromEnv(env) };
 }
 
-export async function applyFunnel(deps: FunnelDeps, build: FunnelBuild, ctx: { mode: "paused" | "live"; ledger: MetaWriteContext; plainMetaReason: (err: unknown) => string; today: string }): Promise<FunnelOutcome> {
+export type FunnelCtx = {
+  mode: "paused" | "live";
+  ledger: MetaWriteContext;
+  plainMetaReason: (err: unknown) => string;
+  today: string;
+  /** Epoch ms: no step starts with less than STEP_MARGIN_MS left; the build stops cleanly, progress saved ("ask again to carry on"). */
+  deadlineAt?: number;
+  /** The clock (tests). */
+  nowMs?: () => number;
+};
+
+/**
+ * The create path, one build per event: a second run while one is building
+ * is refused before any write; a run that fails or stops lets the row go.
+ */
+export async function applyFunnel(deps: FunnelDeps, build: FunnelBuild, ctx: FunnelCtx): Promise<FunnelOutcome> {
+  const lock: { prev: "paused" | "live" | "failed" | null } = { prev: null };
+  try {
+    const out = await applyFunnelOnce(deps, build, ctx, lock);
+    if (lock.prev && out.state === "failed") await releaseBuild(deps.db, build.eventId, lock.prev).catch(() => undefined);
+    return out;
+  } catch (err) {
+    if (lock.prev) await releaseBuild(deps.db, build.eventId, lock.prev).catch(() => undefined);
+    throw err;
+  }
+}
+
+async function applyFunnelOnce(deps: FunnelDeps, build: FunnelBuild, ctx: FunnelCtx, lock: { prev: "paused" | "live" | "failed" | null }): Promise<FunnelOutcome> {
+  const nowMs = ctx.nowMs ?? Date.now;
+  // Running already (from the panel or Claude): refused before anything is read or written.
+  if (buildRunning(await buildRowState(deps.db, build.eventId), nowMs())) return { state: "failed", reason: RF_STOP_WORDS.busy(build.eventCode), progress: {}, step: "busy" };
   const before = await loadFunnelProgress(deps.db, build.eventId);
   const progress: FunnelProgress = { ...(before?.progress ?? {}) };
   const live = ctx.mode === "live";
@@ -627,6 +698,18 @@ export async function applyFunnel(deps: FunnelDeps, build: FunnelBuild, ctx: { m
     skipped.push({ key: "rf:video", name: `${build.eventCode} · Video viewers`, reason: "nothing" });
   }
   const at: At = { step: "build", key: null };
+  // The deadline: a step isn't started without STEP_MARGIN_MS left.
+  const timeUp = () => ctx.deadlineAt != null && nowMs() > ctx.deadlineAt - STEP_MARGIN_MS;
+  const stopped = async (): Promise<FunnelOutcome> => {
+    progress.skipped = skipped;
+    logStep("warn", "build stopped before the deadline; ask again to carry on", build, at.step, at.key, null);
+    await saveProgress(deps, build, progress, { state: "building" }).catch(() => undefined);
+    return { state: "failed", reason: RF_STOP_WORDS.time(build.eventCode), progress, step: "time", specKey: at.key };
+  };
+  // The first write: this run holds the build (a second is refused while it runs).
+  const claimed = await claimBuild(deps, build, nowMs());
+  if (!claimed) return { state: "failed", reason: RF_STOP_WORDS.busy(build.eventCode), progress, step: "busy" };
+  lock.prev = claimed.prev;
 
   try {
     // 1. The custom conversion (own-domain path), reused by name.
@@ -652,6 +735,10 @@ export async function applyFunnel(deps: FunnelDeps, build: FunnelBuild, ctx: { m
       if (have) {
         progress.audiences[aud.key] = have;
         continue;
+      }
+      if (timeUp()) {
+        Object.assign(at, { step: "audience", key: aud.key });
+        return await stopped();
       }
       const name = names.get(aud.key) ?? funnelAudienceName(build.eventCode, aud, null, genreOf(build));
       const made = await makeOneAudience(deps, build, aud, name, adAccountId, at);
@@ -688,12 +775,22 @@ export async function applyFunnel(deps: FunnelDeps, build: FunnelBuild, ctx: { m
     Object.assign(at, { step: "location", key: build.geoFromAdsetId });
     const location = locationOf(build.geoFromAdsetId ? await deps.meta.readAdSetTargeting(build.geoFromAdsetId) : null);
     progress.adSets ??= {};
+    progress.tiersNotMade = [];
     for (const spec of specs) {
       if (progress.adSets[spec.tier]) continue;
       const dailyMinor = tiersNow[spec.tier];
       if (!(dailyMinor > 0)) continue;
       const includeIds = spec.includes.map(idOf).filter((id): id is string => Boolean(id));
-      if (!includeIds.length) continue;
+      // A tier left with no audience isn't made: never an ad set without its audiences (a broad one).
+      if (!includeIds.length) {
+        progress.tiersNotMade.push(spec.tier);
+        logStep("warn", "tier not made: none of its audiences could be made", build, "adset", spec.tier, null);
+        continue;
+      }
+      if (timeUp()) {
+        Object.assign(at, { step: "adset", key: spec.tier });
+        return await stopped();
+      }
       const excludeIds = spec.excludes.map(idOf).filter((id): id is string => Boolean(id));
       Object.assign(at, { step: "adset", key: spec.tier });
       const payload = tierAdSetPayload({ presale: build.presale === true, code: build.eventCode, tier: spec.tier as never, campaignId: progress.campaignId!, dailyMinor, pixelId: build.pixelId, customConversionId: progress.customConversionId ?? null, endDay: build.endDay, location, includeIds, excludeIds, name: funnelAdSetName(build.eventCode, spec.tier) });
@@ -701,6 +798,12 @@ export async function applyFunnel(deps: FunnelDeps, build: FunnelBuild, ctx: { m
       progress.adSets[spec.tier] = { id, dailyMinor };
       await saveProgress(deps, build, progress, { state: "building" });
       await recordTierAdSet(deps, { metaAdsetId: id, campaignId: progress.campaignId!, adAccountId, draftId: ctx.ledger.draftId ?? null, name: String(payload.name), dailyMinor, tier: spec.tier });
+    }
+    // No tier made at all: nothing after the audiences is made (no ads, no Wider without its retargeting side).
+    if (!Object.values(progress.adSets).some(Boolean)) {
+      progress.skipped = skipped;
+      await saveProgress(deps, build, progress, { state: "building" });
+      return { state: "failed", reason: RF_STOP_WORDS.noTier(build.eventCode), progress, step: "tiers", specKey: null };
     }
     // The read-back: location expansion off and Advantage+ off on every tier, as Meta holds them (reported, never forced).
     progress.readBack = [];
@@ -717,16 +820,22 @@ export async function applyFunnel(deps: FunnelDeps, build: FunnelBuild, ctx: { m
     const creatives = await makeCreatives(deps.meta, ctx.ledger, build, adAccountId, prepared.creatives);
     const adIds = new Set(progress.ads ?? []);
     for (const set of Object.values(progress.adSets)) {
+      if (timeUp()) return await stopped();
       for (const creative of creatives) {
         Object.assign(at, { step: "ad", key: `${set!.id}:${creative.name}` });
         adIds.add((await reuseAd(deps.meta, ctx.ledger, { lineId: `rf:${build.eventId}`, adAccountId, adsetId: set!.id, creative })).adId);
       }
     }
     progress.ads = [...adIds];
-    if (build.wider) await buildWider(deps, build, progress, { ctx, adAccountId, location, creatives, keyBase, at, skipped });
+    if (build.wider && timeUp()) {
+      Object.assign(at, { step: "wider", key: null });
+      return await stopped();
+    }
+    if (build.wider) await buildWider(deps, build, progress, { ctx, adAccountId, location, creatives, keyBase, at, skipped, timeUp });
     progress.skipped = skipped;
     await saveProgress(deps, build, progress, { state: live ? "building" : "paused", ...(live ? {} : { mode: "paused" as const }) });
   } catch (err) {
+    if (err instanceof BuildTimeUp) return await stopped();
     progress.skipped = skipped;
     await saveProgress(deps, build, progress, { state: "failed" }).catch(() => undefined);
     return failWith(at.step, at.key, err);
@@ -804,7 +913,15 @@ export async function applyFunnel(deps: FunnelDeps, build: FunnelBuild, ctx: { m
  * Advantage+ on, suggestions and leave-outs; the same ads; the settings
  * read-back (location expansion). Every write on the ledger, keyed on the event.
  */
-async function buildWider(deps: FunnelDeps, build: FunnelBuild, progress: FunnelProgress, args: { ctx: { ledger: MetaWriteContext }; adAccountId: string; location: Record<string, unknown>; creatives: ReusedCreative[]; keyBase: Record<string, unknown>; at: At; skipped: NonNullable<FunnelProgress["skipped"]> }): Promise<void> {
+/** Thrown inside Wider when the deadline is near: the build stops cleanly with what's made. */
+class BuildTimeUp extends Error {
+  constructor() {
+    super("build stopped before the deadline");
+    this.name = "BuildTimeUp";
+  }
+}
+
+async function buildWider(deps: FunnelDeps, build: FunnelBuild, progress: FunnelProgress, args: { ctx: { ledger: MetaWriteContext }; adAccountId: string; location: Record<string, unknown>; creatives: ReusedCreative[]; keyBase: Record<string, unknown>; at: At; skipped: NonNullable<FunnelProgress["skipped"]>; timeUp: () => boolean }): Promise<void> {
   const wider = build.wider!;
   const { ctx, adAccountId, keyBase, at } = args;
   progress.wider ??= {};
@@ -830,6 +947,7 @@ async function buildWider(deps: FunnelDeps, build: FunnelBuild, progress: Funnel
       }
       const originId = idOf(lal.originKey);
       if (!originId) continue;
+      if (args.timeUp()) throw new BuildTimeUp();
       const name = lookalikeName(build.eventCode, originNameOf(lal.originKey));
       const made = await makeOneAudience(deps, build, { ...lal, originId }, name, adAccountId, at);
       if ("skip" in made) {
@@ -845,6 +963,7 @@ async function buildWider(deps: FunnelDeps, build: FunnelBuild, progress: Funnel
     if (set.key !== "broad" && !suggestionIds.length && !set.interests.length) continue;
     const excludeIds = set.excludeKeys.map(idOf).filter((id): id is string => Boolean(id));
     Object.assign(at, { step: "wider_adset", key: set.key });
+    if (args.timeUp()) throw new BuildTimeUp();
     const payload = widerAdSetPayload({ presale: build.presale === true, name: widerAdSetName(build.eventCode, set.key), campaignId: progress.wider.campaignId!, pixelId: build.pixelId, customConversionId: progress.customConversionId ?? null, endDay: build.wider?.endDay ?? build.endDay, location: args.location, interests: set.interests, suggestionIds, excludeIds });
     const id = await withMetaWriteIdempotency(ctx.ledger, "refresh_adset_create", { ...keyBase, wider: set.key }, () => deps.meta.createAdSet(adAccountId, payload), { required: true });
     progress.wider.adSets[set.key] = { id };

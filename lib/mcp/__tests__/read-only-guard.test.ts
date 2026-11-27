@@ -400,7 +400,9 @@ const EXTERNAL_READERS: Record<string, readonly string[]> = {
   "lib/meta/page-access-request.ts": ["DEFAULT_PAGE_REQUEST_TASKS", "OFF_PIXEL_BUSINESS_IDS", "PAGE_REQUESTS_PER_DAY", "PAGE_REQUEST_TASKS"],
   // M3c: the retargeting funnel's words and plan lines, and its sources from the read (pure).
   "lib/retargeting/funnel-plan.ts": ["claudePlanLines", "doneLine", "isPresale", "planHead", "similarReturnLine", "similarSkipLine", "skipReasonWords", "skipLine", "skipReason"],
-  "lib/retargeting/funnel.ts": ["SPLIT_WITH_SIMILAR"],
+  "lib/retargeting/funnel.ts": ["FUNNEL_TIER_LABEL", "SPLIT_WITH_SIMILAR"],
+  // 27 Nov: one build per event and the build's stop lines (pure, no imports).
+  "lib/retargeting/build-lock.ts": ["buildRunning", "RF_STOP_WORDS"],
   "lib/retargeting/funnel-view.ts": ["funnelSourcesOf", "genreWords"],
   "lib/retargeting/funnel-words.ts": ["fill"],
   "lib/retargeting/held.ts": ["HELD_CLIENTS", "HELD_CLIENT_IDS", "heldLine", "heldRefusal"],
@@ -620,7 +622,7 @@ test("M3c: the audience seam imports exactly the Audience Builder's create, the 
   assert.equal(posts.length, 1);
   assert.match(posts[0]!, /postClientPage: \(b, body\) => graphPostWithToken\(`\/\$\{b\}\/client_pages`, body, token\)/);
   // The create is the builder's own, with the connector's rows client and seed grants off.
-  assert.match(code, /createMetaCustomAudience\(draft\.id, \{ userId, supabase: db as never, rows: db, remediateSeeds: noSeedGrants, \.\.\.\(onLookupFailed \? \{ onLookupFailed \} : \{\}\) \}\)/);
+  assert.match(code, /createMetaCustomAudience\(draft\.id, \{ userId, supabase: db as never, rows: db, remediateSeeds: noSeedGrants, \.\.\.\(onLookupFailed \? \{ onLookupFailed \} : \{\}\), \.\.\.\(nameLookup \? \{ nameLookup \} : \{\}\) \}\)/);
   assert.match(code, /const noSeedGrants = async \(_db: unknown, sourceIds: string\[\]\) => \(\{ remediated: \[\] as string\[\]/);
   // Business Manager calls run as Matas's own token, never the env token.
   assert.match(code, /const personal = \(userId: string\) => resolveUserFacebookToken\(db, userId\)/);

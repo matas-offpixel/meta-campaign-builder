@@ -176,7 +176,7 @@ export function realRetargetingDeps(db: SupabaseClient): McpRetargetingDeps {
       }
       return out;
     },
-    async create({ userId, eventId, clientId, approval, build, mode, today }) {
+    async create({ userId, eventId, clientId, approval, build, mode, today, deadlineAt }) {
       const token = await tokenFor(userId);
       if (!token) throw new Error("no Facebook token");
       const outcome = await applyFunnel(
@@ -194,8 +194,9 @@ export function realRetargetingDeps(db: SupabaseClient): McpRetargetingDeps {
                     const spec = funnelAudienceDraft(aud);
                     return { ...base, funnelStage: "retargeting" as const, audienceSubtype: spec.subtype, retentionDays: spec.retentionDays, sourceId: spec.sourceId, sourceMeta: spec.sourceMeta };
                   })();
-            // "refuse": if Meta's list can't be read to check for a copy, nothing is posted and the source is left out (27 Nov).
-            const made = await audiences.createAudience({ userId, insert: insert as never, onLookupFailed: "refuse" });
+            // The show's own audiences by name (its code in the name, id,name,subtype only, ≤ 8 s); if that read fails, only the app's own
+            // "{CODE}_…" names are made, anything else is left out (27 Nov, after #1412: the whole-account list failed every time).
+            const made = await audiences.createAudience({ userId, insert: insert as never, onLookupFailed: "refuse", nameLookup: { code: build.eventCode } });
             if (!made.failed && made.metaAudienceId) return { metaAudienceId: made.metaAudienceId };
             // A source under Meta's minimum, or a refused create: left out, and its tier or ad set built without it.
             return { skipped: made.lookupUnavailable ? "unsure" : "refused", error: made.error ?? null };
@@ -243,7 +244,7 @@ export function realRetargetingDeps(db: SupabaseClient): McpRetargetingDeps {
           source: "connector",
         },
         build,
-        { mode, ledger: { supabase: db, userId, draftId: build.draftId!, eventId }, plainMetaReason: claudeMetaReason, today },
+        { mode, ledger: { supabase: db, userId, draftId: build.draftId!, eventId }, plainMetaReason: claudeMetaReason, today, ...(deadlineAt ? { deadlineAt } : {}) },
       );
       const adsManager = outcome.progress.campaignId && build.adAccountId ? buildMetaAdsManagerCampaignUrl(build.adAccountId, outcome.progress.campaignId) : null;
       return { outcome, adsManager };

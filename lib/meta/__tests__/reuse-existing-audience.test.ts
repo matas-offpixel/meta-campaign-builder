@@ -5,7 +5,10 @@ import { describe, it } from "node:test";
 import { buildMetaCustomAudiencePayload } from "../audience-payload.ts";
 import {
   META_CUSTOM_AUDIENCE_LIST_FIELDS,
+  findAudiencesByName,
   listAccountCustomAudiences,
+  matchAudienceByName,
+  resolveByShowName,
   reuseOrCreateCustomAudience,
   type ListedMetaCustomAudience,
   type MetaGraphFetch,
@@ -363,5 +366,42 @@ describe("the reuse lookup on a large account (NX26-RUDIMENTAL, 27 Nov)", () => 
   it("still refused at the floor: the lookup throws (the caller decides whether to create blind)", async () => {
     const fetchImpl: MetaGraphFetch = async () => ({ ok: false, status: 500, json: async () => ({ error: { message: "Please reduce the amount of data you're asking for, then retry your request" } }) });
     await assert.rejects(() => listAccountCustomAudiences("act_1", TOKEN, fetchImpl), /reduce the amount of data/);
+  });
+});
+
+describe("the retargeting build's name lookup (27 Nov, after #1412)", () => {
+  it("asks for the show's code in the name and id,name,subtype only: no rule, no lookalike_spec", async () => {
+    const urls: string[] = [];
+    const fetchImpl: MetaGraphFetch = async (url) => (urls.push(url), { ok: true, status: 200, json: async () => ({ data: [{ id: "1", name: "NX26_RUDIMENTAL_Page_followers_all_time", subtype: "ENGAGEMENT" }] }) });
+    const rows = await findAudiencesByName("606252931141334", TOKEN, "NX26_RUDIMENTAL", fetchImpl, { timeoutMs: 8000 });
+    assert.equal(rows.length, 1);
+    const u = new URL(urls[0]!);
+    assert.equal(u.pathname.endsWith("/act_606252931141334/customaudiences"), true);
+    assert.equal(u.searchParams.get("fields"), "id,name,subtype");
+    assert.deepEqual(JSON.parse(u.searchParams.get("filtering")!), [{ field: "name", operator: "CONTAIN", value: "NX26_RUDIMENTAL" }]);
+  });
+
+  it("gives up at its limit (a slow Meta never holds the build)", async () => {
+    const fetchImpl: MetaGraphFetch = (_url, init) => new Promise((_resolve, reject) => init?.signal?.addEventListener("abort", () => reject(new Error("aborted"))));
+    const started = Date.now();
+    await assert.rejects(() => findAudiencesByName("act_1", TOKEN, "NX26_RUDIMENTAL", fetchImpl, { timeoutMs: 50 }));
+    assert.ok(Date.now() - started < 2000);
+  });
+
+  it("matches the exact name only, and never a name Meta may have cut at 50", () => {
+    const listed = [{ id: "a", name: "NX26_RUDIMENTAL_Page_followers_all_time" }, { id: "b", name: "X".repeat(50) }];
+    assert.equal(matchAudienceByName("NX26_RUDIMENTAL_Page_followers_all_time", listed)?.id, "a");
+    assert.equal(matchAudienceByName("NX26_RUDIMENTAL_Page_followers", listed), null);
+    assert.equal(matchAudienceByName("X".repeat(50), listed), null);
+  });
+
+  it("a failed read is none found only for the app's own name for the show; anything else is unsure", async () => {
+    const read = async () => {
+      throw new Error("Please reduce the amount of data you're asking for, then retry your request");
+    };
+    assert.deepEqual(await resolveByShowName({ name: "NX26_RUDIMENTAL_Page_followers_all_time", code: "NX26_RUDIMENTAL", read }), { id: null });
+    const other = await resolveByShowName({ name: "Rudimental_followers", code: "NX26_RUDIMENTAL", read });
+    assert.ok("unsure" in other);
+    assert.deepEqual(await resolveByShowName({ name: "NX26_RUDIMENTAL_Visitors_60_days", code: "NX26_RUDIMENTAL", read: async () => [{ id: "9", name: "NX26_RUDIMENTAL_Visitors_60_days" }] }), { id: "9" });
   });
 });
