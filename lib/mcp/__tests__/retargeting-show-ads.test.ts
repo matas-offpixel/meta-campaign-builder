@@ -166,7 +166,7 @@ test("create_show_campaigns, an NX show with no identity: every ad runs from NX 
   // No creatives: the live ads are copied (the funnel rebuilds them on the Page), nothing goes to Meta first.
   assert.equal(calls.create[0]!.build.creatives, null);
   assert.deepEqual(calls.sends, []);
-  assert.match(String((out.data as { message: string }).message), /\nAds: the show’s 1 live ad, copied into both campaigns, run from NX LOVES \(Instagram nxloves\) \(the Electric group’s Page for this city\)\.$/);
+  assert.match(String((out.data as { message: string }).message), /\nAds: the show’s 1 live ads, copied into both campaigns, run from NX LOVES and Instagram nxloves \(the Electric group’s Page for Newcastle\)\.$/);
 });
 
 test("create_show_campaigns: an explicit identity overrides the Electric default", async () => {
@@ -180,10 +180,10 @@ test("create_show_campaigns: an explicit identity overrides the Electric default
 
 test("refused, nothing made: a Page the ad account can't advertise from (the ES default, and a given one)", async () => {
   const es = await setup({ code: "ES26-GLITTERBOX" });
-  await refused(run(createShowCampaignsTool, es.ctx, { event: "ES26-GLITTERBOX", mode: "paused", approval: YES }), /^Refused: ad account act_123 can’t run ads from Electric Studios \(769954239540040\), so the ads can’t run from it\. Give a Page the account can advertise from, or ask for access first\. Nothing was changed\.$/);
+  await refused(run(createShowCampaignsTool, es.ctx, { event: "ES26-GLITTERBOX", mode: "paused", approval: YES }), /^Refused: ad account act_123 can’t advertise from Electric Studios\. Give a Page it can, or ask for access with request_page_access first\. Nothing was changed\.$/);
   assert.deepEqual([es.calls.create, es.calls.sends], [[], []]);
   const given = await setup();
-  await refused(run(createShowCampaignsTool, given.ctx, { event: CODE, mode: "paused", approval: YES, identity: { page_id: "99999999" }, creatives: CREATIVES }), /^Refused: ad account act_123 can’t run ads from Page 99999999, so the ads can’t run from it\..* Nothing was changed\.$/);
+  await refused(run(createShowCampaignsTool, given.ctx, { event: CODE, mode: "paused", approval: YES, identity: { page_id: "99999999" }, creatives: CREATIVES }), /^Refused: ad account act_123 can’t advertise from Page 99999999\..* Nothing was changed\.$/);
   assert.deepEqual([given.calls.create, given.calls.sends, given.spies.uploads], [[], [], []]);
 });
 
@@ -207,7 +207,7 @@ test("create_show_campaigns(creatives): the Drive ads replace the copies; the fi
   assert.deepEqual(calls.waited, [["vid-file-lib-916", "vid-file-client-45", "vid-file-client-916"]]);
   assert.equal(spies.uploads.length, 3, "three files copied into Storage");
   assert.deepEqual(build.creatives!.folders, ["00 Artist Library › Ada North", "NX Live (promoter)"]);
-  assert.match(String((out.data as { message: string }).message), /\nAds: 2 new ads from Drive \(00 Artist Library › Ada North and NX Live \(promoter\)\), the same in both campaigns, run from NX LOVES \(Instagram nxloves\) \(the Electric group’s Page for this city\)\.$/);
+  assert.match(String((out.data as { message: string }).message), /\nAds: 2 new ads from Drive \(00 Artist Library › Ada North and NX Live \(promoter\)\), the same in both campaigns, run from NX LOVES and Instagram nxloves \(the Electric group’s Page for Newcastle\)\.$/);
   assert.equal((out.summary as { driveAds: number }).driveAds, 2);
 });
 
@@ -222,7 +222,7 @@ test("refused, nothing made: a file that isn't 9:16 outside a pair, and a file o
 
 test("refused before any read: no files, over 20, a pair of one file; creatives on more than one show", async () => {
   const { ctx, calls } = await setup();
-  await refused(run(createShowCampaignsTool, ctx, { event: CODE, mode: "paused", approval: YES, creatives: { file_ids: [] } }), /^Refused: creatives needs file_ids or pairs\. Nothing was changed\.$/);
+  await refused(run(createShowCampaignsTool, ctx, { event: CODE, mode: "paused", approval: YES, creatives: { file_ids: [] } }), /^Refused: creatives needs at least one file in file_ids or pairs\. Nothing was changed\.$/);
   const many = { file_ids: Array.from({ length: 12 }, (_, i) => `file-many-${i}`), pairs: Array.from({ length: 9 }, (_, i) => ({ feed: `feed-${i}x`, vertical: `vert-${i}x` })) };
   await refused(run(createShowCampaignsTool, ctx, { event: CODE, mode: "paused", approval: YES, creatives: many }), /^Refused: up to 20 ads from Drive at a time \(file_ids and pairs together\), and this asks for 21\. Nothing was changed\.$/);
   await refused(run(createShowCampaignsTool, ctx, { event: CODE, mode: "paused", approval: YES, creatives: { pairs: [{ feed: "file-client-916", vertical: "file-client-916" }] } }), /^Refused: a pair is two different files/);
@@ -232,7 +232,7 @@ test("refused before any read: no files, over 20, a pair of one file; creatives 
 
 test("a file Meta doesn't take stops it before any campaign is made", async () => {
   const { ctx, calls } = await setup({ failSend: true });
-  await refused(run(createShowCampaignsTool, ctx, { event: CODE, mode: "paused", approval: YES, creatives: CREATIVES }), /^1 Drive file couldn’t go to Meta, so no campaign, ad set or ad was made\. Nothing was changed\.$/);
+  await refused(run(createShowCampaignsTool, ctx, { event: CODE, mode: "paused", approval: YES, creatives: CREATIVES }), /^1 Drive files couldn’t be uploaded to Meta, so no campaign, ad set or ad was made\. Nothing was changed\.$/);
   assert.deepEqual(calls.create, []);
 });
 
@@ -255,7 +255,7 @@ test("asked again: the creatives and identity it was made with carry on (nothing
 
   // Other creatives once ads are made: refused, nothing changed.
   const other = await setup({ build: row });
-  await refused(run(createShowCampaignsTool, other.ctx, { event: CODE, mode: "paused", approval: YES, creatives: { file_ids: ["file-lib-916"] } }), /^Refused: NX27-GLITTERBOX’s ads are already made from 2 Drive ads from 00 Artist Library › Ada North and NX Live \(promoter\), and create_show_campaigns doesn’t change ads that are made\. Nothing was changed\.$/);
+  await refused(run(createShowCampaignsTool, other.ctx, { event: CODE, mode: "paused", approval: YES, creatives: { file_ids: ["file-lib-916"] } }), /^Refused: NX27-GLITTERBOX’s ads are already made from 2 Drive ads in 00 Artist Library › Ada North and NX Live \(promoter\), and create_show_campaigns doesn’t change ads that are made\. Nothing was changed\.$/);
   assert.deepEqual([other.calls.create, other.calls.sends], [[], []]);
   // Another Page once ads are made: refused too.
   const page = await setup({ build: row });
@@ -278,7 +278,7 @@ test("plan_retargeting(one code, creatives): one line after the destination line
   const out = await run(planRetargetingTool, ctx, { events: CODE, creatives: CREATIVES, destination: { link: "https://glitterbox-newcastle.com/", url_tags: "utm_source=meta&utm_campaign={{campaign.name}}" } });
   const lines = String((out.data as { message: string }).message).split("\n");
   assert.equal(lines.at(-2), "Destination: https://glitterbox-newcastle.com/ · URL parameters utm_source=meta&utm_campaign={{campaign.name}}");
-  assert.equal(lines.at(-1), "Ads: 2 new ads from Drive (00 Artist Library › Ada North and NX Live (promoter)), the same in both campaigns, run from NX LOVES (Instagram nxloves) (the Electric group’s Page for this city).");
+  assert.equal(lines.at(-1), "Ads: 2 new ads from Drive (00 Artist Library › Ada North and NX Live (promoter)), the same in both campaigns, run from NX LOVES and Instagram nxloves (the Electric group’s Page for Newcastle).");
   assert.deepEqual([calls.sends, spies.uploads, spies.copies, calls.create], [[], [], [], []]);
   assert.deepEqual(db.writes, []);
 });
@@ -287,7 +287,7 @@ test("plan_retargeting refuses as create would: a file that isn't 9:16 on its ow
   const { ctx } = await setup();
   await refused(run(planRetargetingTool, ctx, { events: CODE, creatives: { file_ids: ["file-client-45"] } }), /is 4:5\. A file on its own must be 9:16.* Nothing was changed\.$/);
   const noPage = await setup({ pages: [OTHER_PAGE] });
-  await refused(run(planRetargetingTool, noPage.ctx, { events: CODE }), /^Refused: ad account act_123 can’t run ads from NX Loves \(259905047197071\)/);
+  await refused(run(planRetargetingTool, noPage.ctx, { events: CODE }), /^Refused: ad account act_123 can’t advertise from NX LOVES\. /);
 });
 
 test("the ad account's Page list unread: plan_retargeting says so on the ads line; create_show_campaigns refuses, nothing made", async () => {

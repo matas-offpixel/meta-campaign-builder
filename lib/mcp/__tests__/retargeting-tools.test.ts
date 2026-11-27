@@ -109,8 +109,8 @@ test("plan_retargeting(code): TC8's line with both campaigns, the matched Pages 
     "Needs advertiser access: MC Fenn (Facebook) · MC Fenn (Instagram).",
     "Similar skipped: NX26-RUDIMENTAL has no genre, so its share goes to Cold.",
     "Then final 2 weeks from Sat 28 Nov at 40 %, as a scheduled change.",
-    // Matas, 27 Nov: an NX show's ads run from NX Loves (PENDING DESIGN).
-    "Ads: the show’s 1 live ad, copied into both campaigns, run from NX LOVES (Instagram nxloves) (the Electric group’s Page for this city).",
+    // Matas, 27 Nov: an NX show's ads run from NX Loves (claude.rt.ads.line.copied, ruled 27 Nov).
+    "Ads: the show’s 1 live ads, copied into both campaigns, run from NX LOVES and Instagram nxloves (the Electric group’s Page for Newcastle).",
   ]);
   assert.equal(planRetargetingTool.readOnly, true);
   assert.deepEqual((db as unknown as { writes: unknown[] }).writes, []);
@@ -174,7 +174,7 @@ test("create_show_campaigns paused: the plan's build (both campaigns), paused, t
   assert.equal(calls.create[0]!.build.wider?.campaignName, "NX26-RUDIMENTAL · Wider");
   assert.equal(calls.create[0]!.build.wider?.lifetimeMinor, 66300);
   const data = out.data as Record<string, unknown>;
-  assert.equal(data.message, "Done: NX26-RUDIMENTAL · Wider and Retargeting created paused · 3 ad sets · 6 audiences made.\nAds: the show’s 1 live ad, copied into both campaigns, run from NX LOVES (Instagram nxloves) (the Electric group’s Page for this city).");
+  assert.equal(data.message, "Done: NX26-RUDIMENTAL · Wider and Retargeting created paused · 3 ad sets · 6 audiences made.\nAds: the show’s 1 live ads, copied into both campaigns, run from NX LOVES and Instagram nxloves (the Electric group’s Page for Newcastle).");
   assert.equal(data.campaign_id, "120000000000001");
   assert.deepEqual(data.ad_set_ids, { cold: "131", warm: "132", hot: "133" });
   assert.match(String(data.ads_manager), /^https:\/\/business\.facebook\.com\/adsmanager\/manage\/campaigns\?act=123&selected_campaign_ids=120000000000001$/);
@@ -183,7 +183,7 @@ test("create_show_campaigns paused: the plan's build (both campaigns), paused, t
 test("create_show_campaigns live: the done line, and a paused build asked as live goes live from its stored build", async () => {
   const fresh = ctxWith([record()]);
   const out = await run(createShowCampaignsTool, fresh.ctx, { event: "NX26-RUDIMENTAL", mode: "live", approval: YES });
-  assert.equal((out.data as { message: string }).message, "Done: NX26-RUDIMENTAL · Wider and Retargeting created live · 3 ad sets · 6 audiences made.\nAds: the show’s 1 live ad, copied into both campaigns, run from NX LOVES (Instagram nxloves) (the Electric group’s Page for this city).");
+  assert.equal((out.data as { message: string }).message, "Done: NX26-RUDIMENTAL · Wider and Retargeting created live · 3 ad sets · 6 audiences made.\nAds: the show’s 1 live ads, copied into both campaigns, run from NX LOVES and Instagram nxloves (the Electric group’s Page for Newcastle).");
   const stored = record().plan.build as FunnelBuild;
   const paused = ctxWith([record({ funnelBuilt: { state: "paused", mode: "paused", campaignId: "1", tiers: { similar: 0, cold: 630, warm: 945, hot: 525 }, took: [] } })], { build: { build: stored, mode: "paused", state: "paused", progress: { campaignId: "1", ads: ["141"] }, meta_campaign_id: "1" } });
   await run(createShowCampaignsTool, paused.ctx, { event: "NX26-RUDIMENTAL", mode: "live", approval: YES });
@@ -286,8 +286,8 @@ test("plan_retargeting: a built show without Similar whose group is confirmed no
 
 test("design's two tool descriptions (27 Nov), word for word, and plan_retargeting's title", () => {
   assert.equal(planRetargetingTool.title, "Plan each show's two campaigns");
-  assert.equal(planRetargetingTool.description, "Read only. For one event code, a list of codes, or \"live\" (every show on sale or in presale, of a non-archived client): what each show's two campaigns, \"{code} · Wider\" and \"{code} · Retargeting\", would be today. Per show: the stretch and share; Wider's lifetime, end date and £ a day; Retargeting's £ a day and its split (Similar, Cold, Warm, Hot); audiences made, to make and missing advertiser access; the venue, promoter and lineup Pages it matched. Then, when they apply: Similar skipped and why, presale sign-ups left out, each existing prospecting campaign as keep, pause or fold into Wider, and the next stretch as a scheduled change. A show that can't be built is one skipped line with the reason. Nothing is sent to Meta or saved.");
-  assert.equal(createShowCampaignsTool.description, "Makes one show's two campaigns as plan_retargeting plans them: \"{code} · Wider\" (Advantage+ audience, lifetime budget) and \"{code} · Retargeting\" (Similar, Cold, Warm and Hot, daily budgets), the missing audiences, and the show's live ads with its current copy. mode paused makes both paused and moves nothing. mode live checks the show's ceiling, switches both on and schedules each later stretch step (Retargeting up, Wider's remaining lifetime down). It's refused while the show's existing prospecting still runs; pausing or folding that is Matas's yes, and this tool never does it. Asked again, it carries on from what's made; a paused build asked as live goes live. Needs Matas's yes in this chat: ask him the show, paused or live, Wider's lifetime and Retargeting's £ a day, then pass approval with your question (asked) and his reply word for word (answer).");
+  assert.equal(planRetargetingTool.description, "Read only. For one event code, a list of codes, or \"live\" (every show on sale or in presale, of a non-archived client): what each show's two campaigns, \"{code} · Wider\" and \"{code} · Retargeting\", would be today. Per show: the stretch and share; Wider's lifetime, end date and £ a day; Retargeting's £ a day and its split (Similar, Cold, Warm, Hot); audiences made, to make and missing advertiser access; the venue, promoter and lineup Pages it matched. With one code, the destination and the ads: the show's live ads or the Drive creatives given, and the Page they run from (an Electric show's city Page by default). Then, when they apply: Similar skipped and why, presale sign-ups left out, each existing prospecting campaign as keep, pause or fold into Wider, and the next stretch as a scheduled change. A show that can't be built is one skipped line with the reason. Nothing is sent to Meta or saved.");
+  assert.equal(createShowCampaignsTool.description, "Makes one show's two campaigns as plan_retargeting plans them: \"{code} · Wider\" (Advantage+ audience, lifetime budget) and \"{code} · Retargeting\" (Similar, Cold, Warm and Hot, daily budgets), the missing audiences, and the ads: the show's live ads with its current copy, or the Drive creatives given, run from identity's Page (an Electric show's city Page by default). mode paused makes both paused and moves nothing. mode live checks the show's ceiling, switches both on and schedules each later stretch step (Retargeting up, Wider's remaining lifetime down). It's refused while the show's existing prospecting still runs; pausing or folding that is Matas's yes, and this tool never does it. Asked again, it carries on from what's made; a paused build asked as live goes live. Needs Matas's yes in this chat: ask him the show, paused or live, Wider's lifetime and Retargeting's £ a day, then pass approval with your question (asked) and his reply word for word (answer).");
 });
 
 test("Louder / Parable is held (Matas, 27 Nov): one held show is refused by plan_retargeting and by create_show_campaigns, before any read", async () => {
@@ -356,7 +356,7 @@ const STORED_DEST = { link: RUDIMENTAL_DEST.link, urlTags: RUDIMENTAL_DEST.url_t
 test("plan_retargeting(one code, destination): the plan line shows it; with 'live' it's refused before any read", async () => {
   const { ctx, calls } = ctxWith([record()]);
   const lines = String(((await run(planRetargetingTool, ctx, { events: "NX26-RUDIMENTAL", destination: RUDIMENTAL_DEST })).data as { message: string }).message).split("\n");
-  assert.equal(lines.at(-1), "Ads: the show’s 1 live ad, copied into both campaigns, run from NX LOVES (Instagram nxloves) (the Electric group’s Page for this city).");
+  assert.equal(lines.at(-1), "Ads: the show’s 1 live ads, copied into both campaigns, run from NX LOVES and Instagram nxloves (the Electric group’s Page for Newcastle).");
   assert.equal(lines.at(-2), "Destination: https://www.rudimental-newcastle.com/ · URL parameters ref=meta&utm_source=meta&utm_medium=paid&utm_campaign={{campaign.name}}&utm_content={{adset.name}}&utm_term={{ad.name}}");
   const again = ctxWith([record()]);
   await refused(run(planRetargetingTool, again.ctx, { events: "live", destination: RUDIMENTAL_DEST }), /^Refused: a destination is for one show at a time, so give one event code\. Nothing was changed\.$/);
@@ -391,10 +391,10 @@ test("create_show_campaigns asked again: the stored destination carries on; anot
   assert.deepEqual(early.calls.create[0]!.build.destination, { link: other.link, urlTags: null });
 });
 
-test("design's input descriptions for destination, link and url_tags (27 Nov, on #1409), word for word, straight marks", () => {
+test("design's input descriptions for destination (re-ruled with #1410's list), link and url_tags (27 Nov, on #1409), word for word, straight marks", () => {
   for (const tool of [planRetargetingTool, createShowCampaignsTool]) {
     const destination = (tool.inputSchema as unknown as Record<string, { description?: string; unwrap(): { shape: Record<string, { description?: string; unwrap?: () => { description?: string } }> } }>).destination!;
-    assert.equal(destination.description, "Optional, one show only: one destination for every ad in both campaigns, replacing the copied ads' links. Copy, media and identity stay as they are. Once ads are made it can't be changed.");
+    assert.equal(destination.description, "Optional, one show only: one destination for every ad in both campaigns, copied or from Drive. It sets only the link and URL parameters; copy, media and the Page come from the ads, creatives and identity. Once ads are made it can't be changed.");
     const shape = destination.unwrap().shape;
     assert.equal(shape.link!.description, "The https:// web address every ad in both campaigns links to.");
     assert.equal(shape.url_tags!.description ?? shape.url_tags!.unwrap?.().description, "Meta's URL parameters for every ad, with no leading ?, e.g. utm_source=meta&utm_campaign={{campaign.name}}. Kept exactly as written: Meta fills in {{campaign.name}}, {{adset.name}} and {{ad.name}}.");

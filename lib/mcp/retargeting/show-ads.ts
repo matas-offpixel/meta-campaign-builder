@@ -46,26 +46,26 @@ export const SHOW_ADS_READ_MS = 10_000;
 const CTAS = ["sign_up", "learn_more", "book_now", "buy_tickets"] as const;
 const fileId = z.string().min(5).max(120);
 
-/** PENDING DESIGN: claude.rt.ads.input.* (straight marks, as tool descriptions keep them). */
+/** Design's ruled words (27 Nov), claude.rt.ads.input.*: straight marks, as tool descriptions keep them. */
 export const creativesInput = z
   .object({
     file_ids: z.array(fileId).max(MAX_SHOW_CREATIVES).optional().describe("9:16 Drive files, one ad each (ids from list_drive_creatives)."),
     pairs: z.array(z.object({ feed: fileId.describe("The 4:5 or 1:1 file."), vertical: fileId.describe("The 9:16 file.") })).max(MAX_SHOW_CREATIVES).optional().describe("One ad per pair: the feed file and its 9:16. Meta shows the feed file in Feed and the 9:16 in Stories and Reels."),
-    primary_text: z.string().max(2200).optional().describe("The primary text on every ad from Drive. Default: the last ad's on the show's draft."),
+    primary_text: z.string().max(2200).optional().describe("The primary text on every ad from Drive. Default: the primary text of the last ad on the show's draft."),
     headline: z.string().max(255).optional().describe("The headline on every ad from Drive."),
     cta: z.enum(CTAS).optional().describe("The button on every ad from Drive."),
   })
   .optional()
-  .describe("Optional, one show only: up to 20 ads made from Drive files (anywhere in the Off/Pixel shared drive, the show's client's own or the artist library) for both campaigns, instead of copying the show's live ads. The files go to Meta only once Matas says yes. Once ads are made they can't be changed.");
+  .describe("Optional, one show only: up to 20 ads made from Drive files for both campaigns, instead of copying the show's live ads. The files come from the show's client's own folders or the artist library in the Off/Pixel shared drive, and go to Meta only once Matas says yes. Once ads are made they can't be changed.");
 
-/** PENDING DESIGN: claude.rt.ads.input.identity */
+/** Ruled 27 Nov: claude.rt.ads.input.identity. */
 export const identityInput = z
   .object({
     page_id: z.string().regex(/^\d{5,25}$/).describe("The Facebook Page every ad in both campaigns runs from. It must be one the show's ad account can advertise from."),
     ig_account_id: z.string().regex(/^\d{5,25}$/).optional().describe("The Instagram account. Default: the one linked to the Page."),
   })
   .optional()
-  .describe("Optional, one show only: the Page (and Instagram account) for every ad in both campaigns. Electric shows default to their city's Page (NX: NX Loves, ES: Electric Studios, EBR: Electric Bristol); other shows keep the copied ads' own. Once ads are made it can't be changed.");
+  .describe("Optional, one show only: the Page (and Instagram account) every ad in both campaigns runs from. Electric shows default to their city's Page: NX to NX LOVES (Newcastle), ES to Electric Studios (Sheffield), EBR to Electric Bristol (Bristol). Other shows run copied ads from each ad's own Page, and ads from Drive from the client's default Page. Once ads are made it can't be changed.");
 
 export type ParsedShowAds = { creatives: ShowCreativesInput | null; identity: { pageId: string; igId: string | null } | null };
 
@@ -139,7 +139,7 @@ export async function resolveIdentity(
     throw new ToolInputError(SHOW_CREATIVE_WORDS.pagesUnread(input.adAccountId), { refused: "pages_unread" });
   }
   const page = pages.find((p) => p.id === want!.pageId);
-  if (!page) throw new ToolInputError(SHOW_CREATIVE_WORDS.pageNotOnAccount(want.name ? `${want.name} (${want.pageId})` : `Page ${want.pageId}`, input.adAccountId), { refused: "page_not_on_account", pageId: want.pageId });
+  if (!page) throw new ToolInputError(SHOW_CREATIVE_WORDS.pageNotOnAccount(want.name ?? `Page ${want.pageId}`, input.adAccountId), { refused: "page_not_on_account", pageId: want.pageId });
   // The Instagram account: given, else the Page's own as Meta links it now (the config's is only a cross-check).
   const igId = want.source === "given" && want.igId ? want.igId : (page.igId ?? want.igId ?? null);
   return { pageId: page.id, igId, pageName: page.name?.trim() || want.name, igUsername: igId && igId === page.igId ? page.igUsername : null, source: want.source };

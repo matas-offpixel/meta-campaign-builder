@@ -45,14 +45,14 @@ import { requireMetaScope } from "./live-read.ts";
 
 const MAX_CODES = 60;
 
-/** Matas, 27 Nov: every ad's website URL and URL parameters. Design's words (27 Nov), word for word; straight marks, as tool descriptions keep them. */
+/** Matas, 27 Nov: every ad's website URL and URL parameters. Design's words (27 Nov), word for word, the destination re-ruled with #1410's list (claude.rt.input.destination); straight marks, as tool descriptions keep them. */
 const destinationInput = z
   .object({
     link: z.string().min(8).max(2000).describe("The https:// web address every ad in both campaigns links to."),
     url_tags: z.string().max(2000).optional().describe("Meta's URL parameters for every ad, with no leading ?, e.g. utm_source=meta&utm_campaign={{campaign.name}}. Kept exactly as written: Meta fills in {{campaign.name}}, {{adset.name}} and {{ad.name}}."),
   })
   .optional()
-  .describe("Optional, one show only: one destination for every ad in both campaigns, replacing the copied ads' links. Copy, media and identity stay as they are. Once ads are made it can't be changed.");
+  .describe("Optional, one show only: one destination for every ad in both campaigns, copied or from Drive. It sets only the link and URL parameters; copy, media and the Page come from the ads, creatives and identity. Once ads are made it can't be changed.");
 
 /** The destination checked, or its refusal (nothing read, nothing made). */
 function destinationOf(args: Record<string, unknown>, extra: Record<string, unknown> = {}): Destination | null {
@@ -203,21 +203,21 @@ async function adsLine(ctx: ToolContext, record: RetargetingRecord, parsed: Pars
     throw err;
   }
   if (!identity && !parsed.creatives) return null;
-  if (!parsed.creatives) return SHOW_CREATIVE_WORDS.line({ newAds: null, copied: target.copied, folders: [], identity });
+  if (!parsed.creatives) return SHOW_CREATIVE_WORDS.line({ code, newAds: null, copied: target.copied, folders: [], identity: identity! });
   try {
     const check = await checkDriveAds(ctx, { eventId: record.eventId, draftId: target.draftId, creatives: parsed.creatives, identity: identity! });
-    return SHOW_CREATIVE_WORDS.line({ newAds: check.planned.length, copied: target.copied, folders: check.folders, identity });
+    return SHOW_CREATIVE_WORDS.line({ code, newAds: check.planned.length, copied: target.copied, folders: check.folders, identity: identity! });
   } catch (err) {
     if (isTimedOut(err)) return SHOW_CREATIVE_WORDS.notRead("drive");
     throw err;
   }
 }
 
-/** Design's tool descriptions for #1399 (27 Nov), word for word; straight apostrophes and quotes, as tool descriptions keep them. */
+/** Design's tool descriptions for #1399 (27 Nov), word for word, with #1410's claude.rt.desc.plan.ads and claude.rt.desc.create.ads; straight apostrophes and quotes, as tool descriptions keep them. */
 export const PLAN_DESCRIPTION =
-  "Read only. For one event code, a list of codes, or \"live\" (every show on sale or in presale, of a non-archived client): what each show's two campaigns, \"{code} · Wider\" and \"{code} · Retargeting\", would be today. Per show: the stretch and share; Wider's lifetime, end date and £ a day; Retargeting's £ a day and its split (Similar, Cold, Warm, Hot); audiences made, to make and missing advertiser access; the venue, promoter and lineup Pages it matched. Then, when they apply: Similar skipped and why, presale sign-ups left out, each existing prospecting campaign as keep, pause or fold into Wider, and the next stretch as a scheduled change. A show that can't be built is one skipped line with the reason. Nothing is sent to Meta or saved.";
+  "Read only. For one event code, a list of codes, or \"live\" (every show on sale or in presale, of a non-archived client): what each show's two campaigns, \"{code} · Wider\" and \"{code} · Retargeting\", would be today. Per show: the stretch and share; Wider's lifetime, end date and £ a day; Retargeting's £ a day and its split (Similar, Cold, Warm, Hot); audiences made, to make and missing advertiser access; the venue, promoter and lineup Pages it matched. With one code, the destination and the ads: the show's live ads or the Drive creatives given, and the Page they run from (an Electric show's city Page by default). Then, when they apply: Similar skipped and why, presale sign-ups left out, each existing prospecting campaign as keep, pause or fold into Wider, and the next stretch as a scheduled change. A show that can't be built is one skipped line with the reason. Nothing is sent to Meta or saved.";
 export const CREATE_DESCRIPTION =
-  "Makes one show's two campaigns as plan_retargeting plans them: \"{code} · Wider\" (Advantage+ audience, lifetime budget) and \"{code} · Retargeting\" (Similar, Cold, Warm and Hot, daily budgets), the missing audiences, and the show's live ads with its current copy. mode paused makes both paused and moves nothing. mode live checks the show's ceiling, switches both on and schedules each later stretch step (Retargeting up, Wider's remaining lifetime down). It's refused while the show's existing prospecting still runs; pausing or folding that is Matas's yes, and this tool never does it. Asked again, it carries on from what's made; a paused build asked as live goes live. Needs Matas's yes in this chat: ask him the show, paused or live, Wider's lifetime and Retargeting's £ a day, then pass approval with your question (asked) and his reply word for word (answer).";
+  "Makes one show's two campaigns as plan_retargeting plans them: \"{code} · Wider\" (Advantage+ audience, lifetime budget) and \"{code} · Retargeting\" (Similar, Cold, Warm and Hot, daily budgets), the missing audiences, and the ads: the show's live ads with its current copy, or the Drive creatives given, run from identity's Page (an Electric show's city Page by default). mode paused makes both paused and moves nothing. mode live checks the show's ceiling, switches both on and schedules each later stretch step (Retargeting up, Wider's remaining lifetime down). It's refused while the show's existing prospecting still runs; pausing or folding that is Matas's yes, and this tool never does it. Asked again, it carries on from what's made; a paused build asked as live goes live. Needs Matas's yes in this chat: ask him the show, paused or live, Wider's lifetime and Retargeting's £ a day, then pass approval with your question (asked) and his reply word for word (answer).";
 
 export const planRetargetingTool: McpTool = {
   name: "plan_retargeting",
@@ -360,7 +360,7 @@ export const createShowCampaignsTool: McpTool = {
     const storedIdentity: ShowIdentity | null = storedBuild?.identity ?? null;
     const wantCreatives = showAds.creatives ?? storedCreatives?.input ?? null;
     if (storedBuild && adsMade && creativesKey(wantCreatives) !== (storedCreatives?.key ?? "")) throw new ToolInputError(SHOW_CREATIVE_WORDS.madeWithOther(code!, "creatives", SHOW_CREATIVE_WORDS.madeFrom(storedCreatives)), { ...base, refused: "creatives_differ" });
-    if (storedBuild && adsMade && showAds.identity && identityKey(showAds.identity) !== identityKey(storedIdentity)) throw new ToolInputError(SHOW_CREATIVE_WORDS.madeWithOther(code!, "identity", storedIdentity ? `Page ${storedIdentity.pageName ?? storedIdentity.pageId}` : "each copied ad’s own Page"), { ...base, refused: "identity_differs" });
+    if (storedBuild && adsMade && showAds.identity && identityKey(showAds.identity) !== identityKey(storedIdentity)) throw new ToolInputError(SHOW_CREATIVE_WORDS.madeWithOther(code!, "identity", SHOW_CREATIVE_WORDS.madeOnPage(storedIdentity)), { ...base, refused: "identity_differs" });
     if (row && storedBuild) {
       // Asked again: the destination it was made with carries on. Another one is taken only while no ad is made; ads that are made stay as they are.
       const stored = storedBuild.destination ?? null;
@@ -462,7 +462,7 @@ export const createShowCampaignsTool: McpTool = {
     ];
     const similarSkipped = progress.similarSkipped ? [similarSkipLine(progress.similarSkipped, { code: code!, genre: genreWords(build.spec?.genreFamily ?? null) })] : [];
     const adSets = Object.values(progress.adSets ?? {}).filter(Boolean).length + Object.values(progress.wider?.adSets ?? {}).filter(Boolean).length;
-    const adsWords = build.creatives || identity ? [SHOW_CREATIVE_WORDS.line({ newAds: build.creatives?.ads.length ?? null, copied: build.ads.length, folders: build.creatives?.folders ?? [], identity })] : [];
+    const adsWords = identity ? [SHOW_CREATIVE_WORDS.line({ code: code!, newAds: build.creatives?.ads.length ?? null, copied: build.ads.length, folders: build.creatives?.folders ?? [], identity })] : [];
     const message = [doneLine({ code: code!, live, adSets, made: ids.audiences_made }), ...adsWords, ...similarSkipped, ...(live && out.step === "schedule" ? [RT_CLAUDE_WORDS.stepsNotScheduled] : []), ...settings].join("\n");
     return { data: { message, ...ids, ads_manager: link }, eventId, clientId: ownerRow.client_id, summary: { ...summary, takenMinor: taken } };
   },
